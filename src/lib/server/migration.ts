@@ -191,6 +191,15 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       return migration;
     }
 
+    // If the signal was aborted during poll() (not during sleep — which throws),
+    // the monitor exits cleanly with null. Re-throw so the catch block handles
+    // cancellation properly instead of falling through to "succeeded".
+    if (!terminalPhase) {
+      throw new Error(
+        opts.signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+      );
+    }
+
     // Fetch final target counts.
     try {
       migration.targetCounts = await getRepoCounts(
@@ -512,6 +521,14 @@ export async function resumeMigration(
       return migration;
     }
 
+    // Guard against monitor exiting without a terminal phase (e.g. signal
+    // aborted during a poll network call, not during sleep which throws).
+    if (!terminalPhase) {
+      throw new Error(
+        signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+      );
+    }
+
     // Fetch final target counts.
     try {
       migration.targetCounts = await getRepoCounts(
@@ -530,18 +547,28 @@ export async function resumeMigration(
 
     return migration;
   } catch (err) {
-    migration.state = "failed";
-    migration.failureReason = err instanceof Error ? err.message : String(err);
+    // Mirror the cancellation logic from runMigrationPipeline: if the signal
+    // was aborted, treat as cancellation rather than failure.
+    if (signal?.aborted) {
+      migration.state = "cancelled";
+    } else {
+      migration.state = "failed";
+      migration.failureReason = err instanceof Error ? err.message : String(err);
+    }
+
     migration.completedAt = new Date().toISOString();
     migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
 
-    emit({
-      migrationId,
-      eventType: "failure",
-      phase: "FAILED",
-      payload: { error: migration.failureReason ?? undefined },
-      createdAt: new Date().toISOString(),
-    });
+    // Only emit failure events for genuine errors, not user cancellations.
+    if (migration.state !== "cancelled") {
+      emit({
+        migrationId,
+        eventType: "failure",
+        phase: "FAILED",
+        payload: { error: migration.failureReason ?? undefined },
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     return migration;
   }
