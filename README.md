@@ -56,6 +56,29 @@ bun run format       # format with Biome
 bun run lint         # lint with Biome
 ```
 
+### Seeding the Database
+
+The seed script generates ~2,500 realistic migrations (~150 batches) with a mix of succeeded, failed, cancelled, and running states — useful for stress-testing the UI.
+
+**Local development** (no container):
+
+```bash
+bun run seed         # writes to ./data/gh-migrate.db
+bun run dev          # dev server reads from the same file
+```
+
+**With Docker Compose:**
+
+The seed script writes to `./data/gh-migrate.db` on the host. To copy it into the running container's volume:
+
+```bash
+bun run seed                                                           # 1. generate seed data locally
+docker compose cp ./data/gh-migrate.db gh-migrate:/data/gh-migrate.db  # 2. copy into the container volume
+docker compose restart                                                 # 3. restart so the app picks it up
+```
+
+> The seed script is idempotent — it deletes all rows with `seed-` prefixed IDs before inserting, so you can re-run it safely. It does not touch real migration data.
+
 ### Project Structure
 
 ```
