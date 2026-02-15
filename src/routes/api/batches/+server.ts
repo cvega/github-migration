@@ -14,7 +14,7 @@ export const POST: RequestHandler = async ({ request }) => {
   if ("error" in parsed) {
     return json({ error: parsed.error }, { status: 400 });
   }
-  const body = parsed.data as BatchMigrationRequest;
+  const body = parsed.data as unknown as BatchMigrationRequest;
 
   const validationError = validateCommonFields(parsed.data);
   if (validationError) {
