@@ -2,14 +2,15 @@
  * GitHub API interactions using Octokit.
  * Replaces pkg/ghes/, pkg/ghec/, pkg/http/.
  */
-import { Octokit } from "@octokit/rest";
+
+import { Agent } from "node:https";
+import { createAppAuth } from "@octokit/auth-app";
 import type { graphql } from "@octokit/graphql";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
-import { createAppAuth } from "@octokit/auth-app";
-import { Agent } from "node:https";
-import type { AuthInput, Counts } from "$lib/types";
+import { Octokit } from "@octokit/rest";
 import { sleep } from "$lib/server/util";
+import type { AuthInput, Counts } from "$lib/types";
 
 const RetryOctokit = Octokit.plugin(retry, throttling);
 
@@ -124,9 +125,7 @@ export function createClients(opts: {
       _octokit: unknown,
       retryCount: number,
     ) => {
-      console.warn(
-        `Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`,
-      );
+      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
       return retryCount < 3;
     },
   };
@@ -134,9 +133,7 @@ export function createClients(opts: {
   const srcBaseUrl = normalizeApiUrl(opts.sourceApiUrl);
 
   // Create an HTTPS agent that skips certificate validation for self-signed certs.
-  const insecureAgent = opts.noSslVerify
-    ? new Agent({ rejectUnauthorized: false })
-    : undefined;
+  const insecureAgent = opts.noSslVerify ? new Agent({ rejectUnauthorized: false }) : undefined;
   if (insecureAgent) {
     console.warn(
       "[github] SSL verification disabled for source — accepting self-signed certificates",
@@ -178,16 +175,12 @@ interface GhesMigrationResponse {
 
 const MIN_GHES_VERSION = "3.8.0";
 
-export async function checkGhesVersion(
-  client: InstanceType<typeof RetryOctokit>,
-): Promise<string> {
+export async function checkGhesVersion(client: InstanceType<typeof RetryOctokit>): Promise<string> {
   const { data } = await client.request("GET /api/v3/meta");
   const version = (data as GhesMetaResponse).installed_version;
   if (!version) throw new Error("Could not determine GHES version");
   if (!isVersionAtLeast(version, MIN_GHES_VERSION)) {
-    throw new Error(
-      `GHES version ${version} is below minimum required ${MIN_GHES_VERSION}`,
-    );
+    throw new Error(`GHES version ${version} is below minimum required ${MIN_GHES_VERSION}`);
   }
   return version;
 }
@@ -228,13 +221,10 @@ export async function getArchiveStatus(
   org: string,
   archiveId: number,
 ): Promise<string> {
-  const { data } = await client.request(
-    "GET /api/v3/orgs/{org}/migrations/{migration_id}",
-    {
-      org,
-      migration_id: archiveId,
-    },
-  );
+  const { data } = await client.request("GET /api/v3/orgs/{org}/migrations/{migration_id}", {
+    org,
+    migration_id: archiveId,
+  });
   return (data as GhesMigrationResponse).state;
 }
 
@@ -263,8 +253,7 @@ export async function waitForArchive(
   while (!signal?.aborted) {
     const status = await getArchiveStatus(client, org, archiveId);
     if (status === "exported") return getArchiveUrl(client, org, archiveId);
-    if (status === "failed")
-      throw new Error(`Archive export ${archiveId} failed`);
+    if (status === "failed") throw new Error(`Archive export ${archiveId} failed`);
     await sleep(pollInterval, signal);
   }
   throw new Error("Archive wait aborted");
@@ -297,10 +286,7 @@ export async function doesRepoExist(
   }
 }
 
-export async function getOrgId(
-  gql: typeof graphql,
-  org: string,
-): Promise<string> {
+export async function getOrgId(gql: typeof graphql, org: string): Promise<string> {
   const result = await gql<{ organization: { id: string } }>(
     `query($login: String!) { organization(login: $login) { id } }`,
     { login: org },
@@ -308,10 +294,7 @@ export async function getOrgId(
   return result.organization.id;
 }
 
-export async function getOrgDatabaseId(
-  gql: typeof graphql,
-  org: string,
-): Promise<string> {
+export async function getOrgDatabaseId(gql: typeof graphql, org: string): Promise<string> {
   const result = await gql<{ organization: { databaseId: number } }>(
     `query($login: String!) { organization(login: $login) { databaseId } }`,
     { login: org },
@@ -319,10 +302,7 @@ export async function getOrgDatabaseId(
   return String(result.organization.databaseId);
 }
 
-export async function createMigrationSource(
-  gql: typeof graphql,
-  orgId: string,
-): Promise<string> {
+export async function createMigrationSource(gql: typeof graphql, orgId: string): Promise<string> {
   const result = await gql<{ createMigrationSource: { migrationSource: { id: string } } }>(
     `mutation($name: String!, $sourceUrl: String!, $ownerId: ID!, $type: MigrationSourceType!) {
 			createMigrationSource(input: { name: $name, url: $sourceUrl, ownerId: $ownerId, type: $type }) {
@@ -357,9 +337,7 @@ export async function startMigration(
   gql: typeof graphql,
   opts: StartMigrationOpts,
 ): Promise<string> {
-  const visibilityDecl = opts.targetRepoVisibility
-    ? "$targetRepoVisibility: String,"
-    : "";
+  const visibilityDecl = opts.targetRepoVisibility ? "$targetRepoVisibility: String," : "";
   const visibilityField = opts.targetRepoVisibility
     ? "targetRepoVisibility: $targetRepoVisibility,"
     : "";
@@ -396,8 +374,7 @@ export async function startMigration(
     skipReleases: opts.skipReleases ?? false,
     lockSource: opts.lockSource ?? false,
   };
-  if (opts.targetRepoVisibility)
-    variables.targetRepoVisibility = opts.targetRepoVisibility;
+  if (opts.targetRepoVisibility) variables.targetRepoVisibility = opts.targetRepoVisibility;
 
   const result = await gql<{
     startRepositoryMigration: { repositoryMigration: { id: string } };
@@ -432,10 +409,7 @@ export async function getMigration(
   return result.node;
 }
 
-export async function abortMigration(
-  gql: typeof graphql,
-  migrationId: string,
-): Promise<boolean> {
+export async function abortMigration(gql: typeof graphql, migrationId: string): Promise<boolean> {
   const result = await gql<{ abortRepositoryMigration: { success: boolean } }>(
     `mutation($migrationId: ID!) {
 			abortRepositoryMigration(input: { migrationId: $migrationId }) { success }
@@ -501,10 +475,7 @@ async function getResourceCount(
     const params: Record<string, unknown> = { owner, repo, per_page: 1 };
     if (resource === "issues" || resource === "pulls") params.state = "all";
 
-    const response = await client.request(
-      `GET /repos/{owner}/{repo}/${resource}`,
-      params,
-    );
+    const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
     const link = response.headers.link;
     if (link) {
       const match = link.match(/page=(\d+)>;\s*rel="last"/);
@@ -554,10 +525,7 @@ export async function getRepoNodeId(
   return result.repository.id;
 }
 
-export async function archiveRepository(
-  gql: typeof graphql,
-  repoNodeId: string,
-): Promise<boolean> {
+export async function archiveRepository(gql: typeof graphql, repoNodeId: string): Promise<boolean> {
   const result = await gql<{ archiveRepository: { repository: { isArchived: boolean } } }>(
     `mutation($repositoryId: ID!) {
 			archiveRepository(input: { repositoryId: $repositoryId }) {

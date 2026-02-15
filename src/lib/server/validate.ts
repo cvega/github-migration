@@ -20,30 +20,19 @@ const BOOLEAN_FIELDS = [
  * Validate fields common to both single and batch migration requests.
  * Returns an error string if validation fails, or null if valid.
  */
-export function validateCommonFields(
-  body: Record<string, unknown>,
-): string | null {
+export function validateCommonFields(body: Record<string, unknown>): string | null {
   // ── Boolean fields must actually be booleans (or absent) ──────────────
   for (const field of BOOLEAN_FIELDS) {
-    if (
-      field in body &&
-      body[field] !== undefined &&
-      typeof body[field] !== "boolean"
-    ) {
+    if (field in body && body[field] !== undefined && typeof body[field] !== "boolean") {
       return `Field "${field}" must be a boolean, got ${typeof body[field]}`;
     }
   }
 
   // ── targetRepoVisibility must be one of the allowed values ────────────
-  if (
-    body.targetRepoVisibility !== undefined &&
-    body.targetRepoVisibility !== null
-  ) {
+  if (body.targetRepoVisibility !== undefined && body.targetRepoVisibility !== null) {
     if (
       typeof body.targetRepoVisibility !== "string" ||
-      !(VALID_VISIBILITIES as readonly string[]).includes(
-        body.targetRepoVisibility,
-      )
+      !(VALID_VISIBILITIES as readonly string[]).includes(body.targetRepoVisibility)
     ) {
       return `Field "targetRepoVisibility" must be one of: ${VALID_VISIBILITIES.join(", ")}`;
     }

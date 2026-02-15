@@ -2,12 +2,12 @@
  *  GET  /api/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
-import { start, listPaginated } from "$lib/server/manager";
 import { isSourceAppConfigured, isTargetAppConfigured } from "$lib/server/auth";
+import { listPaginated, start } from "$lib/server/manager";
+import { parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
-import { parseJsonBody, validateCommonFields } from "$lib/server/validate";
+import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
   const parsed = await parseJsonBody(request);
@@ -22,18 +22,12 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   if (!body.sourceRepo || !body.targetOrg) {
-    return json(
-      { error: "Missing required fields: sourceRepo, targetOrg" },
-      { status: 400 },
-    );
+    return json({ error: "Missing required fields: sourceRepo, targetOrg" }, { status: 400 });
   }
 
   // Validate sourceRepo format.
   if (!body.sourceRepo.includes("/")) {
-    return json(
-      { error: 'Invalid sourceRepo format — expected "org/repo"' },
-      { status: 400 },
-    );
+    return json({ error: 'Invalid sourceRepo format — expected "org/repo"' }, { status: 400 });
   }
 
   // Input length limits.
@@ -89,18 +83,12 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const GET: RequestHandler = async ({ url }) => {
-  const page = Math.max(
-    1,
-    parseInt(url.searchParams.get("page") ?? "1", 10) || 1,
-  );
+  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
   const limit = Math.min(
     100,
     Math.max(
       1,
-      parseInt(
-        url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE),
-        10,
-      ) || DEFAULT_PAGE_SIZE,
+      parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
     ),
   );
   return json(listPaginated({ page, limit }));

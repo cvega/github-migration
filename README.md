@@ -39,7 +39,36 @@ A web-based tool for migrating repositories between GitHub Enterprise Server (GH
 - **Docker ready** — single-container deployment with three-stage build (build → production deps → runtime), non-root `app` user, and persistent volume
 - **Health endpoint** — `/api/health` for uptime monitoring; used by Docker `HEALTHCHECK`
 - **Graceful shutdown** — SIGTERM/SIGINT handlers close the database cleanly
-- **Orphan cleanup** — migrations left in `pending`/`running` state from a prior crash are marked `failed` on startup
+- **Crash recovery** — on startup, env-app migrations left in `pending`/`running` state are automatically resumed from their last checkpoint; PAT / per-request app migrations (whose credentials are lost) are marked `failed`
+- **Pipeline checkpoints** — each pipeline step (`preflight`, `export`, `upload`, `import`, `monitor`, `verify`) is persisted, so a recovered migration skips already-completed work
+
+## Development
+
+Requires [Bun](https://bun.sh) v1.3.9+.
+
+```bash
+bun install          # install dependencies
+bun run dev          # start dev server on http://localhost:5173
+bun run check        # svelte-check + TypeScript diagnostics
+bun run ci           # check + build (use before deploying)
+bun run seed         # populate the database with ~2,500 fake migrations
+bun run format       # format with Biome
+bun run lint         # lint with Biome
+```
+
+### Project Structure
+
+```
+src/
+  lib/
+    server/         # backend — GitHub API, migration pipeline, SQLite store
+    components/     # Svelte 5 UI components
+    stores/         # client-side reactive state
+    types.ts        # shared TypeScript types
+  routes/           # SvelteKit pages + API endpoints
+  hooks.server.ts   # auth, security headers, startup init
+seed.ts             # dev seed script
+```
 
 ## Quick Start
 
@@ -62,18 +91,7 @@ docker build -t gh-migrate .
 docker run -p 3000:3000 -v gh-migrate-data:/data gh-migrate
 ```
 
-### Local Development
-
-Requires [Bun](https://bun.sh) v1.3.9+.
-
-```bash
-bun install
-bun run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173).
-
-### Production Build
+### Production Build (without Docker)
 
 ```bash
 bun run build

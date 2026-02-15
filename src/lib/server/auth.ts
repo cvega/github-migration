@@ -113,10 +113,7 @@ export function isTargetAppConfigured(): boolean {
  * so that `createClients` can set up auto-refreshing auth.
  * Priority: request PAT → request App → env App → error.
  */
-export function resolveSourceAuth(
-  requestToken?: string,
-  requestApp?: AppAuth,
-): AuthInput {
+export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
   if (requestToken) return { token: requestToken };
   if (requestApp) {
     return {
@@ -133,9 +130,7 @@ export function resolveSourceAuth(
       installationId: Number(envApp.installationId),
     };
   }
-  throw new Error(
-    "No source token provided and no source GitHub App configured",
-  );
+  throw new Error("No source token provided and no source GitHub App configured");
 }
 
 /**
@@ -143,10 +138,7 @@ export function resolveSourceAuth(
  * so that `createClients` can set up auto-refreshing auth.
  * Priority: request PAT → request App → env App → error.
  */
-export function resolveTargetAuth(
-  requestToken?: string,
-  requestApp?: AppAuth,
-): AuthInput {
+export function resolveTargetAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
   if (requestToken) return { token: requestToken };
   if (requestApp) {
     return {
@@ -163,9 +155,7 @@ export function resolveTargetAuth(
       installationId: Number(envApp.installationId),
     };
   }
-  throw new Error(
-    "No target token provided and no target GitHub App configured",
-  );
+  throw new Error("No target token provided and no target GitHub App configured");
 }
 
 /**

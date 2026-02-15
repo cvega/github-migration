@@ -7,35 +7,41 @@
  * in SQLite and broadcast via SSE.
  */
 // bun:sqlite built-in UUIDv7 — time-sortable, zero deps
-import type { CreateMigrationRequest, Migration, AuthMode } from "$lib/types";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { env } from "$env/dynamic/private";
+import type { AuthMode, CreateMigrationRequest, Migration } from "$lib/types";
 import {
-  createClients,
+  isSourceAppConfigured,
+  isTargetAppConfigured,
+  resolveSourceAuth,
+  resolveTargetAuth,
+} from "./auth";
+import {
+  abortMigration,
+  archiveRepository,
   checkGhesVersion,
+  createClients,
+  createMigrationSource,
+  doesOrgExist,
+  doesRepoExist,
+  type GitHubClients,
+  getOrgDatabaseId,
+  getOrgId,
+  getRepoCounts,
+  getRepoNodeId,
+  startMigration as ghecStartMigration,
+  isGhecSource,
+  sourceBaseUrl,
   startGitArchiveExport,
   startMetadataArchiveExport,
   waitForArchive,
-  doesOrgExist,
-  doesRepoExist,
-  getOrgId,
-  getOrgDatabaseId,
-  createMigrationSource,
-  startMigration as ghecStartMigration,
-  abortMigration,
-  getRepoCounts,
-  getRepoNodeId,
-  archiveRepository,
-  sourceBaseUrl,
-  isGhecSource,
-  type GitHubClients,
 } from "./github";
-import { uploadArchive } from "./upload";
-import { runMonitor, type EventEmitter } from "./monitor";
-import { resolveSourceAuth, resolveTargetAuth, isSourceAppConfigured, isTargetAppConfigured } from "./auth";
+import { type EventEmitter, runMonitor } from "./monitor";
 import { updateCheckpoint } from "./store";
+import { uploadArchive } from "./upload";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {
   id?: string;
@@ -47,9 +53,7 @@ export interface MigrationPipelineOpts extends CreateMigrationRequest {
  * Run the full migration pipeline. Returns the completed Migration record.
  * Throws on unrecoverable errors.
  */
-export async function runMigrationPipeline(
-  opts: MigrationPipelineOpts,
-): Promise<Migration> {
+export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise<Migration> {
   const migrationId = opts.id ?? Bun.randomUUIDv7();
   const startedAt = new Date().toISOString();
   const emit = opts.emit;
@@ -135,10 +139,7 @@ export async function runMigrationPipeline(
     // ── Step 4: Start migration on GHEC ────────────────────────────
     updateCheckpoint(migrationId, "ghec_starting");
     const orgId = await getOrgId(clients.targetGraphql, migration.targetOrg);
-    const migSourceId = await createMigrationSource(
-      clients.targetGraphql,
-      orgId,
-    );
+    const migSourceId = await createMigrationSource(clients.targetGraphql, orgId);
 
     const srcRepoUrl = `${sourceBaseUrl(migration.sourceApiUrl)}/${migration.sourceOrg}/${migration.sourceRepo}`;
 
@@ -185,8 +186,7 @@ export async function runMigrationPipeline(
       migration.state = "failed";
       migration.failureReason = "Migration failed on GHEC";
       migration.completedAt = new Date().toISOString();
-      migration.elapsedSeconds =
-        (Date.now() - new Date(startedAt).getTime()) / 1000;
+      migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
       return migration;
     }
 
@@ -204,8 +204,7 @@ export async function runMigrationPipeline(
 
     migration.state = "succeeded";
     migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds =
-      (Date.now() - new Date(startedAt).getTime()) / 1000;
+    migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
 
     // ── Post-migration: Archive source repo if requested ───────────
     updateCheckpoint(migrationId, "post_migration");
@@ -217,12 +216,9 @@ export async function runMigrationPipeline(
           migration.sourceRepo,
         );
         await archiveRepository(clients.sourceGraphql, repoNodeId);
-        emitStep(
-          `Source repository ${migration.sourceOrg}/${migration.sourceRepo} archived`,
-        );
+        emitStep(`Source repository ${migration.sourceOrg}/${migration.sourceRepo} archived`);
       } catch (archiveErr) {
-        const msg =
-          archiveErr instanceof Error ? archiveErr.message : String(archiveErr);
+        const msg = archiveErr instanceof Error ? archiveErr.message : String(archiveErr);
         emitStep(`⚠ Failed to archive source repository: ${msg}`);
       }
     }
@@ -237,23 +233,18 @@ export async function runMigrationPipeline(
           sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
           targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
         });
-        await abortMigration(
-          cancelClients.targetGraphql,
-          migration.githubMigrationId,
-        );
+        await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
       } catch {
         // Best-effort
       }
       migration.state = "cancelled";
     } else {
       migration.state = "failed";
-      migration.failureReason =
-        err instanceof Error ? err.message : String(err);
+      migration.failureReason = err instanceof Error ? err.message : String(err);
     }
 
     migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds =
-      (Date.now() - new Date(startedAt).getTime()) / 1000;
+    migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
 
     emit({
       migrationId,
@@ -284,17 +275,11 @@ async function preflight(
   // Check target org exists.
   const orgExists = await doesOrgExist(clients.target, migration.targetOrg);
   if (!orgExists) {
-    throw new Error(
-      `Target organization "${migration.targetOrg}" does not exist on GHEC`,
-    );
+    throw new Error(`Target organization "${migration.targetOrg}" does not exist on GHEC`);
   }
 
   // Check target repo.
-  const repoExists = await doesRepoExist(
-    clients.target,
-    migration.targetOrg,
-    migration.targetRepo,
-  );
+  const repoExists = await doesRepoExist(clients.target, migration.targetOrg, migration.targetRepo);
   if (repoExists) {
     emitStep(
       `Target repo ${migration.targetOrg}/${migration.targetRepo} already exists — migration will overwrite`,
@@ -368,18 +353,8 @@ async function resolveArchives(
   emitStep("Waiting for archive exports to complete");
 
   const [gitSourceUrl, metaSourceUrl] = await Promise.all([
-    waitForArchive(
-      clients.source,
-      migration.sourceOrg,
-      gitArchiveId,
-      opts.signal,
-    ),
-    waitForArchive(
-      clients.source,
-      migration.sourceOrg,
-      metaArchiveId,
-      opts.signal,
-    ),
+    waitForArchive(clients.source, migration.sourceOrg, gitArchiveId, opts.signal),
+    waitForArchive(clients.source, migration.sourceOrg, metaArchiveId, opts.signal),
   ]);
 
   // Download archives to temp files (avoids holding both in memory).
@@ -402,10 +377,7 @@ async function resolveArchives(
     // Upload to GitHub storage (sequential to limit peak memory to one archive).
     emitStep("Uploading archives to GitHub storage");
 
-    const orgDbId = await getOrgDatabaseId(
-      clients.targetGraphql,
-      migration.targetOrg,
-    );
+    const orgDbId = await getOrgDatabaseId(clients.targetGraphql, migration.targetOrg);
 
     const gitBuf = new Uint8Array(await Bun.file(gitTmpPath).arrayBuffer());
     const gitUploadToken = await clients.getTargetToken();
@@ -498,9 +470,7 @@ export async function resumeMigration(
     });
   };
 
-  emitStep(
-    `Reconnecting to in-flight migration ${migration.githubMigrationId}`,
-  );
+  emitStep(`Reconnecting to in-flight migration ${migration.githubMigrationId}`);
 
   try {
     // Re-create clients from env-configured GitHub App credentials.
@@ -529,8 +499,7 @@ export async function resumeMigration(
       migration.state = "failed";
       migration.failureReason = "Migration failed on GHEC";
       migration.completedAt = new Date().toISOString();
-      migration.elapsedSeconds =
-        (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+      migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
       return migration;
     }
 
@@ -548,17 +517,14 @@ export async function resumeMigration(
 
     migration.state = "succeeded";
     migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds =
-      (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+    migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
 
     return migration;
   } catch (err) {
     migration.state = "failed";
-    migration.failureReason =
-      err instanceof Error ? err.message : String(err);
+    migration.failureReason = err instanceof Error ? err.message : String(err);
     migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds =
-      (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+    migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
 
     emit({
       migrationId,

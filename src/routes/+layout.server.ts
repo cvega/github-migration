@@ -1,7 +1,8 @@
 /** Server-side layout data — exposes auth mode, live rate limits, and active migration count. */
-import type { LayoutServerLoad } from "./$types";
-import { getAuthConfig, fetchLiveRateLimits } from "$lib/server/auth";
+
+import { fetchLiveRateLimits, getAuthConfig } from "$lib/server/auth";
 import { getActiveMigrationCount } from "$lib/server/store";
+import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async () => {
   const auth = getAuthConfig();

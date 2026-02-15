@@ -1,6 +1,7 @@
 /** GET /api/events — global SSE stream for ALL migration events (dashboard). */
-import type { RequestHandler } from "./$types";
+
 import { subscribeGlobal } from "$lib/server/manager";
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {
   let unsubscribe: (() => void) | null = null;

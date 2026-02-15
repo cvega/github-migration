@@ -8,6 +8,9 @@
     "build": "bunx --bun svelte-kit sync && bunx --bun vite build",
     "preview": "bunx --bun vite preview",
     "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json",
+    "ci": "bun run check && bun run build",
+    "format": "bunx --bun biome format --write .",
+    "lint": "bunx --bun biome lint .",
     "seed": "bun seed.ts"
   },
   "dependencies": {
@@ -19,6 +22,7 @@
     "@primer/octicons": "^19.22.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.15",
     "@sveltejs/adapter-node": "^5.5.3",
     "@sveltejs/kit": "^2.51.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",

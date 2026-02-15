@@ -1,6 +1,6 @@
-import type { PageServerLoad } from "./$types";
-import { get, events } from "$lib/server/manager";
 import { error } from "@sveltejs/kit";
+import { events, get } from "$lib/server/manager";
+import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params }) => {
   const migration = get(params.id);

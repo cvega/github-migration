@@ -2,11 +2,12 @@
  * SvelteKit server hooks — optional basic auth, security headers,
  * graceful shutdown, and store initialization.
  */
-import type { Handle, HandleServerError } from "@sveltejs/kit";
-import { initStore, closeStore } from "$lib/server/store";
-import { recoverOrphans } from "$lib/server/manager";
-import { env } from "$env/dynamic/private";
+
 import { timingSafeEqual } from "node:crypto";
+import type { Handle, HandleServerError } from "@sveltejs/kit";
+import { env } from "$env/dynamic/private";
+import { recoverOrphans } from "$lib/server/manager";
+import { closeStore, initStore } from "$lib/server/store";
 
 // Initialize SQLite on server startup.
 const dataDir = env.DATA_DIR || "./data";
@@ -30,10 +31,7 @@ if (!authEnabled) {
 
 const AUTH_MAX_ATTEMPTS = 5;
 const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const failedAttempts = new Map<
-  string,
-  { count: number; firstAttempt: number }
->();
+const failedAttempts = new Map<string, { count: number; firstAttempt: number }>();
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -143,10 +141,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 export const handleError: HandleServerError = async ({ error, event }) => {
   const id = crypto.randomUUID().slice(0, 8);
-  console.error(
-    `[error ${id}] ${event.request.method} ${event.url.pathname}`,
-    error,
-  );
+  console.error(`[error ${id}] ${event.request.method} ${event.url.pathname}`, error);
   return {
     message: `Internal error (ref: ${id})`,
     code: id,

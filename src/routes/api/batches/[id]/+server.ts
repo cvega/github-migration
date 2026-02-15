@@ -2,23 +2,17 @@
  *  DELETE /api/batches/[id] — cancel all active migrations in the batch.
  */
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
-import { getBatch, getBatchPaginated, cancelBatch } from "$lib/server/manager";
+import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/manager";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  const page = Math.max(
-    1,
-    parseInt(url.searchParams.get("page") ?? "1", 10) || 1,
-  );
+  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
   const limit = Math.min(
     100,
     Math.max(
       1,
-      parseInt(
-        url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE),
-        10,
-      ) || DEFAULT_PAGE_SIZE,
+      parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
     ),
   );
   const result = getBatchPaginated(params.id, { page, limit });

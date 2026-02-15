@@ -44,40 +44,149 @@ function randomCounts() {
 
 // ── Data pools ─────────────────────────────────────────────────────────────
 const sourceOrgs = [
-  "acme-corp", "widgets-inc", "foxtrot-labs", "nova-systems", "delta-eng",
-  "pinnacle-tech", "redwood-io", "silverline-dev", "quantum-ops", "northstar-hq",
-  "blue-harbor", "ironclad-sec", "atlas-platform", "vortex-ai", "skybridge-net",
+  "acme-corp",
+  "widgets-inc",
+  "foxtrot-labs",
+  "nova-systems",
+  "delta-eng",
+  "pinnacle-tech",
+  "redwood-io",
+  "silverline-dev",
+  "quantum-ops",
+  "northstar-hq",
+  "blue-harbor",
+  "ironclad-sec",
+  "atlas-platform",
+  "vortex-ai",
+  "skybridge-net",
 ];
 
 const targetOrgs = [
-  "acme-cloud", "widgets-cloud", "foxtrot-cloud", "nova-cloud", "delta-cloud",
-  "pinnacle-cloud", "redwood-cloud", "silverline-cloud", "quantum-cloud", "northstar-cloud",
-  "blue-harbor-cc", "ironclad-cc", "atlas-cc", "vortex-cc", "skybridge-cc",
+  "acme-cloud",
+  "widgets-cloud",
+  "foxtrot-cloud",
+  "nova-cloud",
+  "delta-cloud",
+  "pinnacle-cloud",
+  "redwood-cloud",
+  "silverline-cloud",
+  "quantum-cloud",
+  "northstar-cloud",
+  "blue-harbor-cc",
+  "ironclad-cc",
+  "atlas-cc",
+  "vortex-cc",
+  "skybridge-cc",
 ];
 
 const repoNames = [
-  "admin-panel", "analytics-engine", "api-gateway", "asset-manager", "audit-log",
-  "auth-service", "backup-service", "batch-processor", "billing-api", "cache-layer",
-  "cdn-proxy", "cert-manager", "chatbot", "ci-runner", "cli-tools",
-  "cloud-config", "compliance-checker", "config-service", "container-registry", "cron-scheduler",
-  "dashboard-ui", "data-lake", "data-pipeline", "db-migrator", "deploy-agent",
-  "docs-generator", "docs-site", "edge-proxy", "email-service", "event-bus",
-  "feature-flags", "file-storage", "form-builder", "gateway-auth", "graphql-api",
-  "health-monitor", "iam-service", "image-resizer", "infra-terraform", "ingestion-pipeline",
-  "internal-wiki", "invoice-generator", "job-queue", "k8s-operator", "keycloak-plugin",
-  "label-printer", "lambda-functions", "load-balancer", "log-aggregator", "markdown-renderer",
-  "message-broker", "metrics-collector", "mobile-bff", "model-server", "notification-hub",
-  "notification-svc", "oauth-provider", "onboarding-flow", "ops-toolbox", "order-service",
-  "payment-gateway", "pdf-generator", "permission-engine", "plugin-sdk", "poll-service",
-  "portal-frontend", "pricing-engine", "queue-worker", "rate-limiter", "recommendation-api",
-  "redis-cache", "release-train", "report-builder", "rest-adapter", "sandbox-env",
-  "schema-registry", "search-indexer", "secret-manager", "security-scanner", "service-mesh",
-  "session-store", "slack-bot", "sms-gateway", "snapshot-service", "socket-server",
-  "spa-frontend", "status-page", "storage-api", "stream-processor", "support-portal",
-  "sync-engine", "task-scheduler", "team-dashboard", "telemetry-agent", "tenant-manager",
-  "test-harness", "theme-engine", "ticket-system", "time-tracker", "token-service",
-  "url-shortener", "user-dashboard", "vault-proxy", "video-transcoder", "webhook-relay",
-  "workflow-engine", "workspace-api",
+  "admin-panel",
+  "analytics-engine",
+  "api-gateway",
+  "asset-manager",
+  "audit-log",
+  "auth-service",
+  "backup-service",
+  "batch-processor",
+  "billing-api",
+  "cache-layer",
+  "cdn-proxy",
+  "cert-manager",
+  "chatbot",
+  "ci-runner",
+  "cli-tools",
+  "cloud-config",
+  "compliance-checker",
+  "config-service",
+  "container-registry",
+  "cron-scheduler",
+  "dashboard-ui",
+  "data-lake",
+  "data-pipeline",
+  "db-migrator",
+  "deploy-agent",
+  "docs-generator",
+  "docs-site",
+  "edge-proxy",
+  "email-service",
+  "event-bus",
+  "feature-flags",
+  "file-storage",
+  "form-builder",
+  "gateway-auth",
+  "graphql-api",
+  "health-monitor",
+  "iam-service",
+  "image-resizer",
+  "infra-terraform",
+  "ingestion-pipeline",
+  "internal-wiki",
+  "invoice-generator",
+  "job-queue",
+  "k8s-operator",
+  "keycloak-plugin",
+  "label-printer",
+  "lambda-functions",
+  "load-balancer",
+  "log-aggregator",
+  "markdown-renderer",
+  "message-broker",
+  "metrics-collector",
+  "mobile-bff",
+  "model-server",
+  "notification-hub",
+  "notification-svc",
+  "oauth-provider",
+  "onboarding-flow",
+  "ops-toolbox",
+  "order-service",
+  "payment-gateway",
+  "pdf-generator",
+  "permission-engine",
+  "plugin-sdk",
+  "poll-service",
+  "portal-frontend",
+  "pricing-engine",
+  "queue-worker",
+  "rate-limiter",
+  "recommendation-api",
+  "redis-cache",
+  "release-train",
+  "report-builder",
+  "rest-adapter",
+  "sandbox-env",
+  "schema-registry",
+  "search-indexer",
+  "secret-manager",
+  "security-scanner",
+  "service-mesh",
+  "session-store",
+  "slack-bot",
+  "sms-gateway",
+  "snapshot-service",
+  "socket-server",
+  "spa-frontend",
+  "status-page",
+  "storage-api",
+  "stream-processor",
+  "support-portal",
+  "sync-engine",
+  "task-scheduler",
+  "team-dashboard",
+  "telemetry-agent",
+  "tenant-manager",
+  "test-harness",
+  "theme-engine",
+  "ticket-system",
+  "time-tracker",
+  "token-service",
+  "url-shortener",
+  "user-dashboard",
+  "vault-proxy",
+  "video-transcoder",
+  "webhook-relay",
+  "workflow-engine",
+  "workspace-api",
 ];
 
 const sourceApiUrls = [
@@ -141,20 +250,16 @@ function createMigration(opts: MigrationOpts) {
   const isGhec = sourceApiUrl === "https://api.github.com";
   const src = randomCounts();
 
-  const elapsed = opts.state === "running" || opts.state === "pending"
-    ? null
-    : rand(90, 7200);
+  const elapsed = opts.state === "running" || opts.state === "pending" ? null : rand(90, 7200);
   const completedAt = elapsed !== null ? isoTs(opts.startedAt, elapsed) : null;
   const warnings = opts.state === "succeeded" ? rand(0, 12) : 0;
-  const tgt = opts.state === "succeeded"
-    ? { ...src, commits: Math.max(0, src.commits + rand(-5, 0)) }
-    : null;
-  const failure = opts.state === "failed"
-    ? (opts.failureReason ?? pick(failureReasons))
-    : null;
-  const logUrl = opts.state === "succeeded"
-    ? `https://github.com/${targetOrg}/${repo}/settings/migrations/log`
-    : null;
+  const tgt =
+    opts.state === "succeeded" ? { ...src, commits: Math.max(0, src.commits + rand(-5, 0)) } : null;
+  const failure = opts.state === "failed" ? (opts.failureReason ?? pick(failureReasons)) : null;
+  const logUrl =
+    opts.state === "succeeded"
+      ? `https://github.com/${targetOrg}/${repo}/settings/migrations/log`
+      : null;
 
   insertMigration.run(
     opts.id,
@@ -179,40 +284,77 @@ function createMigration(opts: MigrationOpts) {
   // ── Events ──────────────────────────────────────────────────────────────
   const startIso = opts.startedAt.toISOString();
 
-  insertEvent.run(opts.id, "step", null,
+  insertEvent.run(
+    opts.id,
+    "step",
+    null,
     JSON.stringify({ message: `Starting migration: ${sourceOrg}/${repo} → ${targetOrg}/${repo}` }),
-    startIso);
+    startIso,
+  );
 
-  insertEvent.run(opts.id, "step", null,
-    JSON.stringify({ message: isGhec ? "GHEC→GHEC migration — no archive export needed" : `GHES version 3.${rand(8, 14)}.${rand(0, 9)} detected` }),
-    isoTs(opts.startedAt, 2));
+  insertEvent.run(
+    opts.id,
+    "step",
+    null,
+    JSON.stringify({
+      message: isGhec
+        ? "GHEC→GHEC migration — no archive export needed"
+        : `GHES version 3.${rand(8, 14)}.${rand(0, 9)} detected`,
+    }),
+    isoTs(opts.startedAt, 2),
+  );
 
-  insertEvent.run(opts.id, "step", null,
+  insertEvent.run(
+    opts.id,
+    "step",
+    null,
     JSON.stringify({ message: `Target organization "${targetOrg}" exists on GHEC` }),
-    isoTs(opts.startedAt, 3));
+    isoTs(opts.startedAt, 3),
+  );
 
-  insertEvent.run(opts.id, "step", null,
+  insertEvent.run(
+    opts.id,
+    "step",
+    null,
     JSON.stringify({ message: "Source counts fetched", counts: src }),
-    isoTs(opts.startedAt, 5));
+    isoTs(opts.startedAt, 5),
+  );
 
   if (!isGhec) {
-    insertEvent.run(opts.id, "step", null,
+    insertEvent.run(
+      opts.id,
+      "step",
+      null,
       JSON.stringify({ message: "Starting git archive export..." }),
-      isoTs(opts.startedAt, 8));
+      isoTs(opts.startedAt, 8),
+    );
   }
 
   // Rich events for detailed migrations (running / succeeded with full history)
   if (opts.richEvents && (opts.state === "succeeded" || opts.state === "running")) {
     const phases: [number, string][] = isGhec
-      ? [[10, "PENDING_VALIDATION"], [30, "QUEUED"], [90, "IMPORTING_GIT"]]
-      : [[10, "PENDING_VALIDATION"], [30, "QUEUED"], [60, "EXPORTING"], [180, "IMPORTING_GIT"]];
+      ? [
+          [10, "PENDING_VALIDATION"],
+          [30, "QUEUED"],
+          [90, "IMPORTING_GIT"],
+        ]
+      : [
+          [10, "PENDING_VALIDATION"],
+          [30, "QUEUED"],
+          [60, "EXPORTING"],
+          [180, "IMPORTING_GIT"],
+        ];
 
     let prevPhase: string | null = null;
     for (const [offset, phase] of phases) {
       if (prevPhase) {
-        insertEvent.run(opts.id, "phase_change", phase,
+        insertEvent.run(
+          opts.id,
+          "phase_change",
+          phase,
           JSON.stringify({ from: prevPhase, to: phase }),
-          isoTs(opts.startedAt, offset));
+          isoTs(opts.startedAt, offset),
+        );
       }
       prevPhase = phase;
     }
@@ -228,66 +370,132 @@ function createMigration(opts: MigrationOpts) {
         commits: Math.round(src.commits * pct),
         branches: Math.round(src.branches * Math.min(1, pct * 1.5)),
         tags: Math.round(src.tags * Math.min(1, pct * 1.3)),
-        issues: 0, pullRequests: 0, releases: 0,
+        issues: 0,
+        pullRequests: 0,
+        releases: 0,
       };
       const progress = {
-        current: { ...snap, phase: "IMPORTING_GIT", elapsed: t, timestamp: isoTs(opts.startedAt, t),
-          migrationState: "IN_PROGRESS", failureReason: "", migrationLogUrl: "", warningsCount: 0,
-          repoExists: true, repoSize: 0 },
+        current: {
+          ...snap,
+          phase: "IMPORTING_GIT",
+          elapsed: t,
+          timestamp: isoTs(opts.startedAt, t),
+          migrationState: "IN_PROGRESS",
+          failureReason: "",
+          migrationLogUrl: "",
+          warningsCount: 0,
+          repoExists: true,
+          repoSize: 0,
+        },
         previous: null,
         deltaCommits: snap.commits - prevCounts.commits,
         deltaBranches: snap.branches - prevCounts.branches,
         deltaTags: snap.tags - prevCounts.tags,
-        deltaIssues: 0, deltaPRs: 0, deltaReleases: 0, deltaSize: 0,
+        deltaIssues: 0,
+        deltaPRs: 0,
+        deltaReleases: 0,
+        deltaSize: 0,
         commitsPerMin: snap.commits - prevCounts.commits,
         issuesPerMin: 0,
       };
-      insertEvent.run(opts.id, "snapshot", "IMPORTING_GIT",
+      insertEvent.run(
+        opts.id,
+        "snapshot",
+        "IMPORTING_GIT",
         JSON.stringify({ progress, sourceCounts: src }),
-        isoTs(opts.startedAt, t));
+        isoTs(opts.startedAt, t),
+      );
       prevCounts = snap;
     }
 
     // Metadata phase + snapshots (only for completed)
     if (opts.state === "succeeded" && elapsed) {
-      insertEvent.run(opts.id, "phase_change", "IMPORTING_METADATA",
+      insertEvent.run(
+        opts.id,
+        "phase_change",
+        "IMPORTING_METADATA",
         JSON.stringify({ from: "IMPORTING_GIT", to: "IMPORTING_METADATA" }),
-        isoTs(opts.startedAt, gitEnd));
+        isoTs(opts.startedAt, gitEnd),
+      );
 
       for (let t = gitEnd; t < elapsed - 30; t += 60) {
         const pct = Math.min(1, (t - gitEnd) / (elapsed - gitEnd));
         const snap = {
-          commits: src.commits, branches: src.branches, tags: src.tags,
+          commits: src.commits,
+          branches: src.branches,
+          tags: src.tags,
           issues: Math.round(src.issues * pct),
           pullRequests: Math.round(src.pullRequests * pct),
           releases: Math.round(src.releases * Math.min(1, pct * 1.5)),
         };
-        insertEvent.run(opts.id, "snapshot", "IMPORTING_METADATA",
-          JSON.stringify({ progress: { current: { ...snap, phase: "IMPORTING_METADATA", elapsed: t }, previous: null }, sourceCounts: src }),
-          isoTs(opts.startedAt, t));
+        insertEvent.run(
+          opts.id,
+          "snapshot",
+          "IMPORTING_METADATA",
+          JSON.stringify({
+            progress: {
+              current: { ...snap, phase: "IMPORTING_METADATA", elapsed: t },
+              previous: null,
+            },
+            sourceCounts: src,
+          }),
+          isoTs(opts.startedAt, t),
+        );
       }
     }
   }
 
   // Terminal events
   if (opts.state === "succeeded" && elapsed) {
-    insertEvent.run(opts.id, "complete", "SUCCEEDED",
-      JSON.stringify({ progress: { current: { ...src, phase: "SUCCEEDED", elapsed } }, sourceCounts: src, elapsed }),
-      isoTs(opts.startedAt, elapsed));
+    insertEvent.run(
+      opts.id,
+      "complete",
+      "SUCCEEDED",
+      JSON.stringify({
+        progress: { current: { ...src, phase: "SUCCEEDED", elapsed } },
+        sourceCounts: src,
+        elapsed,
+      }),
+      isoTs(opts.startedAt, elapsed),
+    );
   } else if (opts.state === "failed" && elapsed) {
-    insertEvent.run(opts.id, "failure", "FAILED",
+    insertEvent.run(
+      opts.id,
+      "failure",
+      "FAILED",
       JSON.stringify({
         error: failure,
         detail: {
-          migrationId: opts.id, state: "FAILED", failureReason: failure,
-          elapsed, logUrl: "",
+          migrationId: opts.id,
+          state: "FAILED",
+          failureReason: failure,
+          elapsed,
+          logUrl: "",
           logEntries: [
-            { severity: "ERROR", message: failure, modelName: pick(["git_archive", "metadata_import", "migration_controller", "upload_service"]) },
-            ...(rand(0, 1) ? [{ severity: "WARNING", message: "Repository size exceeds recommended limit", modelName: "preflight_check" }] : []),
+            {
+              severity: "ERROR",
+              message: failure,
+              modelName: pick([
+                "git_archive",
+                "metadata_import",
+                "migration_controller",
+                "upload_service",
+              ]),
+            },
+            ...(rand(0, 1)
+              ? [
+                  {
+                    severity: "WARNING",
+                    message: "Repository size exceeds recommended limit",
+                    modelName: "preflight_check",
+                  },
+                ]
+              : []),
           ],
         },
       }),
-      isoTs(opts.startedAt, elapsed));
+      isoTs(opts.startedAt, elapsed),
+    );
   }
 }
 
@@ -303,7 +511,8 @@ const transaction = db.transaction(() => {
     id: "seed-feat-001",
     state: "succeeded",
     startedAt: new Date("2026-02-13T10:00:00Z"),
-    sourceOrg: "acme-corp", repo: "platform-api",
+    sourceOrg: "acme-corp",
+    repo: "platform-api",
     sourceApiUrl: "https://ghes.acme.corp/api/v3",
     richEvents: true,
   });
@@ -311,7 +520,8 @@ const transaction = db.transaction(() => {
     id: "seed-feat-002",
     state: "failed",
     startedAt: new Date("2026-02-13T11:00:00Z"),
-    sourceOrg: "acme-corp", repo: "legacy-monolith",
+    sourceOrg: "acme-corp",
+    repo: "legacy-monolith",
     sourceApiUrl: "https://ghes.acme.corp/api/v3",
     failureReason: "Archive export timed out after 3600 seconds",
     richEvents: true,
@@ -371,7 +581,7 @@ const transaction = db.transaction(() => {
     for (let i = 0; i < batchSize; i++) {
       const r = Math.random();
       const state: "succeeded" | "failed" | "cancelled" =
-        r < 0.70 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
+        r < 0.7 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
 
       createMigration({
         id: `seed-batch-${String(b).padStart(4, "0")}-m${String(i).padStart(3, "0")}`,

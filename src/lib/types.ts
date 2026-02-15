@@ -19,12 +19,7 @@ export const DEFAULT_PAGE_SIZE = 25;
 
 // ── Migration types ────────────────────────────────────────────────────────
 
-export type MigrationState =
-  | "pending"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "cancelled";
+export type MigrationState = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type PipelineStep =
   | "preflight"

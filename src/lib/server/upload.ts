@@ -13,13 +13,7 @@ export async function uploadArchive(
   uploadsUrl = "https://uploads.github.com",
 ): Promise<string> {
   if (archive.byteLength > MULTIPART_CUTOFF) {
-    return uploadMultipart(
-      archive,
-      name,
-      orgDatabaseId,
-      targetToken,
-      uploadsUrl,
-    );
+    return uploadMultipart(archive, name, orgDatabaseId, targetToken, uploadsUrl);
   }
   return uploadSingle(archive, name, orgDatabaseId, targetToken, uploadsUrl);
 }
@@ -45,8 +39,7 @@ async function uploadSingle(
     body: archive.buffer as ArrayBuffer,
   });
 
-  if (!resp.ok)
-    throw new Error(`Upload failed: ${resp.status} ${await resp.text()}`);
+  if (!resp.ok) throw new Error(`Upload failed: ${resp.status} ${await resp.text()}`);
   const data = (await resp.json()) as { uri: string };
   console.log(`Archive uploaded: ${data.uri}`);
   return data.uri;
@@ -79,8 +72,7 @@ async function uploadMultipart(
     }),
   });
 
-  if (!startResp.ok)
-    throw new Error(`Multipart start failed: ${startResp.status}`);
+  if (!startResp.ok) throw new Error(`Multipart start failed: ${startResp.status}`);
   let nextUrl = resolveUrl(uploadsUrl, startResp.headers.get("location") || "");
 
   // Step 2: Upload parts
@@ -100,8 +92,7 @@ async function uploadMultipart(
       body: chunk.buffer as ArrayBuffer,
     });
 
-    if (!partResp.ok)
-      throw new Error(`Part ${part + 1} upload failed: ${partResp.status}`);
+    if (!partResp.ok) throw new Error(`Part ${part + 1} upload failed: ${partResp.status}`);
     nextUrl = resolveUrl(uploadsUrl, partResp.headers.get("location") || "");
   }
 
@@ -111,8 +102,7 @@ async function uploadMultipart(
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (!completeResp.ok)
-    throw new Error(`Multipart complete failed: ${completeResp.status}`);
+  if (!completeResp.ok) throw new Error(`Multipart complete failed: ${completeResp.status}`);
   const data = (await completeResp.json()) as { uri: string };
   console.log(`Multipart upload complete: ${data.uri}`);
   return data.uri;

@@ -7,18 +7,18 @@
 import { sleep } from "$lib/server/util";
 import type {
   Counts,
-  Phase,
-  Snapshot,
-  Progress,
   FailureDetail,
   LogEntry,
   MigrationEvent,
+  Phase,
+  Progress,
+  Snapshot,
 } from "$lib/types";
 import {
-  getMigration as getGhecMigration,
-  getRepoCounts,
   doesRepoExist,
   type GitHubClients,
+  getMigration as getGhecMigration,
+  getRepoCounts,
 } from "./github";
 
 export type EventEmitter = (event: MigrationEvent) => void;
@@ -152,16 +152,9 @@ async function takeSnapshot(
   startTime: number,
   sourceCounts: Counts | null,
 ): Promise<Snapshot> {
-  const ghMig = await getGhecMigration(
-    cfg.clients.targetGraphql,
-    cfg.githubMigrationId,
-  );
+  const ghMig = await getGhecMigration(cfg.clients.targetGraphql, cfg.githubMigrationId);
 
-  const repoExists = await doesRepoExist(
-    cfg.clients.target,
-    cfg.targetOrg,
-    cfg.targetRepo,
-  );
+  const repoExists = await doesRepoExist(cfg.clients.target, cfg.targetOrg, cfg.targetRepo);
 
   let counts: Counts = {
     commits: 0,
@@ -227,8 +220,7 @@ function detectPhase(
       return "SUCCEEDED";
     case "IN_PROGRESS":
       if (!repoExists) return "EXPORTING";
-      if (counts.issues > 0 || counts.pullRequests > 0)
-        return "IMPORTING_METADATA";
+      if (counts.issues > 0 || counts.pullRequests > 0) return "IMPORTING_METADATA";
       if (
         sourceCounts &&
         sourceCounts.commits > 0 &&
@@ -270,9 +262,7 @@ function computeProgress(current: Snapshot, prev: Snapshot | null): Progress {
     p.deltaSize = current.repoSize - prev.repoSize;
 
     const elapsedMin =
-      (new Date(current.timestamp).getTime() -
-        new Date(prev.timestamp).getTime()) /
-      60_000;
+      (new Date(current.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 60_000;
     if (elapsedMin > 0 && p.deltaCommits > 0) {
       p.commitsPerMin = p.deltaCommits / elapsedMin;
     }

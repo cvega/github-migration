@@ -1,23 +1,24 @@
 /**
  * SQLite persistence layer for migrations and events.
  */
-import { Database } from "bun:sqlite";
+
 import type { SQLQueryBindings } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { applySchema } from "$lib/server/schema";
 import type {
+  AuthMode,
+  BatchListItem,
+  BatchSummary,
+  Counts,
   Migration,
   MigrationEvent,
   MigrationState,
-  PipelineStep,
-  AuthMode,
-  Counts,
-  BatchSummary,
-  BatchListItem,
   PaginatedResult,
   PaginationParams,
+  PipelineStep,
 } from "$lib/types";
-import { applySchema } from "$lib/server/schema";
 
 let db: Database;
 
@@ -147,12 +148,7 @@ export function updateCheckpoint(
         github_migration_id = COALESCE(?, github_migration_id)
       WHERE id = ?`,
     )
-    .run(
-      step,
-      extras?.authMode ?? null,
-      extras?.githubMigrationId ?? null,
-      id,
-    );
+    .run(step, extras?.authMode ?? null, extras?.githubMigrationId ?? null, id);
 }
 
 /**
@@ -174,32 +170,29 @@ export function getRecoverableMigrations(): Migration[] {
 }
 
 export function getMigration(id: string): Migration | null {
-  const row = getDb()
-    .prepare("SELECT * FROM migrations WHERE id = ?")
-    .get(id) as Record<string, unknown> | undefined;
+  const row = getDb().prepare("SELECT * FROM migrations WHERE id = ?").get(id) as
+    | Record<string, unknown>
+    | undefined;
   if (!row) return null;
   return rowToMigration(row);
 }
 
 export function listMigrations(): Migration[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM migrations ORDER BY started_at DESC")
-    .all() as Record<string, unknown>[];
+  const rows = getDb().prepare("SELECT * FROM migrations ORDER BY started_at DESC").all() as Record<
+    string,
+    unknown
+  >[];
   return rows.map(rowToMigration);
 }
 
-export function listMigrationsPaginated(
-  params: PaginationParams,
-): PaginatedResult<Migration> {
+export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {
   const { page, limit } = params;
   const offset = (page - 1) * limit;
-  const { count: total } = getDb()
-    .prepare("SELECT COUNT(*) as count FROM migrations")
-    .get() as { count: number };
+  const { count: total } = getDb().prepare("SELECT COUNT(*) as count FROM migrations").get() as {
+    count: number;
+  };
   const rows = getDb()
-    .prepare(
-      "SELECT * FROM migrations ORDER BY started_at DESC LIMIT ? OFFSET ?",
-    )
+    .prepare("SELECT * FROM migrations ORDER BY started_at DESC LIMIT ? OFFSET ?")
     .all(limit, offset) as Record<string, unknown>[];
   return {
     data: rows.map(rowToMigration),
@@ -212,17 +205,14 @@ export function listMigrationsPaginated(
 
 export function getActiveMigrationCount(): number {
   const row = getDb()
-    .prepare(
-      "SELECT COUNT(*) as count FROM migrations WHERE state IN ('pending', 'running')",
-    )
+    .prepare("SELECT COUNT(*) as count FROM migrations WHERE state IN ('pending', 'running')")
     .get() as { count: number };
   return row.count;
 }
 
 function rowToMigration(row: Record<string, unknown>): Migration {
   const id = row.id;
-  if (typeof id !== "string")
-    throw new Error("Invalid migration row: missing id");
+  if (typeof id !== "string") throw new Error("Invalid migration row: missing id");
   const sourceApiUrl = row.source_api_url;
   if (typeof sourceApiUrl !== "string")
     throw new Error(`Invalid migration row ${id}: missing source_api_url`);
@@ -239,17 +229,8 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   if (typeof targetRepo !== "string")
     throw new Error(`Invalid migration row ${id}: missing target_repo`);
   const state = row.state;
-  const validStates: MigrationState[] = [
-    "pending",
-    "running",
-    "succeeded",
-    "failed",
-    "cancelled",
-  ];
-  if (
-    typeof state !== "string" ||
-    !validStates.includes(state as MigrationState)
-  ) {
+  const validStates: MigrationState[] = ["pending", "running", "succeeded", "failed", "cancelled"];
+  if (typeof state !== "string" || !validStates.includes(state as MigrationState)) {
     throw new Error(`Invalid migration row ${id}: invalid state "${state}"`);
   }
   const startedAt = row.started_at;
@@ -259,34 +240,21 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   return {
     id,
     batchId: typeof row.batch_id === "string" ? row.batch_id : null,
-    githubMigrationId:
-      typeof row.github_migration_id === "string"
-        ? row.github_migration_id
-        : null,
+    githubMigrationId: typeof row.github_migration_id === "string" ? row.github_migration_id : null,
     sourceApiUrl,
     sourceOrg,
     sourceRepo,
     targetOrg,
     targetRepo,
     state: state as MigrationState,
-    failureReason:
-      typeof row.failure_reason === "string" ? row.failure_reason : null,
-    migrationLogUrl:
-      typeof row.migration_log_url === "string" ? row.migration_log_url : null,
-    warningsCount:
-      typeof row.warnings_count === "number" ? row.warnings_count : 0,
-    sourceCounts:
-      typeof row.source_counts === "string"
-        ? JSON.parse(row.source_counts)
-        : null,
-    targetCounts:
-      typeof row.target_counts === "string"
-        ? JSON.parse(row.target_counts)
-        : null,
+    failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
+    migrationLogUrl: typeof row.migration_log_url === "string" ? row.migration_log_url : null,
+    warningsCount: typeof row.warnings_count === "number" ? row.warnings_count : 0,
+    sourceCounts: typeof row.source_counts === "string" ? JSON.parse(row.source_counts) : null,
+    targetCounts: typeof row.target_counts === "string" ? JSON.parse(row.target_counts) : null,
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
-    elapsedSeconds:
-      typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
+    elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
   };
 }
 
@@ -294,9 +262,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
 
 export function getBatchMigrations(batchId: string): Migration[] {
   const rows = getDb()
-    .prepare(
-      "SELECT * FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC",
-    )
+    .prepare("SELECT * FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC")
     .all(batchId) as Record<string, unknown>[];
   return rows.map(rowToMigration);
 }
@@ -415,15 +381,11 @@ export function listBatchIds(): string[] {
   return rows.map((r) => r.batch_id as string);
 }
 
-export function listBatchIdsPaginated(
-  params: PaginationParams,
-): PaginatedResult<string> {
+export function listBatchIdsPaginated(params: PaginationParams): PaginatedResult<string> {
   const { page, limit } = params;
   const offset = (page - 1) * limit;
   const { count: total } = getDb()
-    .prepare(
-      "SELECT COUNT(DISTINCT batch_id) as count FROM migrations WHERE batch_id IS NOT NULL",
-    )
+    .prepare("SELECT COUNT(DISTINCT batch_id) as count FROM migrations WHERE batch_id IS NOT NULL")
     .get() as { count: number };
   const rows = getDb()
     .prepare(
@@ -472,10 +434,7 @@ const VALID_EVENT_TYPES = new Set([
   "failure",
 ]);
 
-export function getEvents(
-  migrationId: string,
-  afterId?: number,
-): MigrationEvent[] {
+export function getEvents(migrationId: string, afterId?: number): MigrationEvent[] {
   let query = "SELECT * FROM events WHERE migration_id = ?";
   const params: SQLQueryBindings[] = [migrationId];
 

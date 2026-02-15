@@ -1,7 +1,7 @@
 /** GET /api/health — health check endpoint. */
 import { json } from "@sveltejs/kit";
-import type { RequestHandler } from "./$types";
 import { getAuthConfig } from "$lib/server/auth";
+import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {
   const auth = getAuthConfig();

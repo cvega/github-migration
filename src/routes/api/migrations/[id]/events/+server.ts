@@ -3,8 +3,9 @@
  * Supports ?after=<eventId> to replay events since a given ID
  * (useful for reconnection).
  */
+
+import { get, events as getEvents, subscribe } from "$lib/server/manager";
 import type { RequestHandler } from "./$types";
-import { subscribe, events as getEvents, get } from "$lib/server/manager";
 
 export const GET: RequestHandler = async ({ params, url }) => {
   const migration = get(params.id);
@@ -38,9 +39,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 
       // If the migration is already terminal, close after replay.
       if (["succeeded", "failed", "cancelled"].includes(migration.state)) {
-        controller.enqueue(
-          `data: ${JSON.stringify({ type: "done", state: migration.state })}\n\n`,
-        );
+        controller.enqueue(`data: ${JSON.stringify({ type: "done", state: migration.state })}\n\n`);
         controller.close();
         unsubscribe();
         unsubscribe = null;

@@ -4,34 +4,34 @@
  */
 // bun:sqlite built-in UUIDv7 — time-sortable, zero deps
 import type {
+  BatchListItem,
+  BatchMigrationRequest,
+  BatchSummary,
+  Counts,
   CreateMigrationRequest,
   Migration,
   MigrationEvent,
   MigrationState,
-  Counts,
-  BatchMigrationRequest,
-  BatchSummary,
-  BatchListItem,
   PaginatedResult,
   PaginationParams,
 } from "$lib/types";
-import { runMigrationPipeline, resumeMigration } from "./migration";
+import { resumeMigration, runMigrationPipeline } from "./migration";
 import {
-  insertMigration,
-  updateMigrationState,
-  getMigration,
-  listMigrations,
-  listMigrationsPaginated,
   getActiveMigrationCount,
-  insertEvent,
-  getEvents,
-  getBatchSummary,
+  getBatchListItem,
   getBatchMigrations,
   getBatchMigrationsPaginated,
-  getBatchListItem,
+  getBatchSummary,
+  getEvents,
+  getMigration,
+  getRecoverableMigrations,
+  insertEvent,
+  insertMigration,
   listBatchIds,
   listBatchIdsPaginated,
-  getRecoverableMigrations,
+  listMigrations,
+  listMigrationsPaginated,
+  updateMigrationState,
 } from "./store";
 
 const MAX_CONCURRENT = 10;
@@ -40,20 +40,14 @@ const MAX_CONCURRENT = 10;
 const controllers = new Map<string, AbortController>();
 
 /** SSE subscribers: migrationId → Set<writable stream controllers>. */
-const sseSubscribers = new Map<
-  string,
-  Set<ReadableStreamDefaultController<string>>
->();
+const sseSubscribers = new Map<string, Set<ReadableStreamDefaultController<string>>>();
 
 /** Global subscribers (dashboard — receive events for ALL migrations). */
 const globalSubscribers = new Set<ReadableStreamDefaultController<string>>();
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-export function start(
-  req: CreateMigrationRequest,
-  batchId?: string,
-): Migration {
+export function start(req: CreateMigrationRequest, batchId?: string): Migration {
   const active = getActiveMigrationCount();
   if (active >= MAX_CONCURRENT) {
     throw new Error(
@@ -118,18 +112,13 @@ export function start(
       } else if (event.eventType === "failure") {
         updateMigrationState(id, "failed", {
           failureReason:
-            event.payload.detail?.failureReason ||
-            event.payload.error ||
-            "Unknown error",
+            event.payload.detail?.failureReason || event.payload.error || "Unknown error",
           completedAt: new Date().toISOString(),
         });
       } else if (event.eventType === "step") {
         // Keep state as 'running' once pipeline starts, and propagate source counts if present.
         const current = getMigration(id);
-        const newState =
-          current?.state === "pending"
-            ? "running"
-            : (current?.state ?? "running");
+        const newState = current?.state === "pending" ? "running" : (current?.state ?? "running");
         const extra: Parameters<typeof updateMigrationState>[2] = {};
         if (event.payload.counts) {
           extra.sourceCounts = event.payload.counts;
@@ -145,8 +134,7 @@ export function start(
         if (snap) {
           const extra: Parameters<typeof updateMigrationState>[2] = {};
           if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
-          if (snap.migrationLogUrl)
-            extra.migrationLogUrl = snap.migrationLogUrl;
+          if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
           // Update target counts from the live snapshot.
           const tgt: Counts = {
             commits: snap.commits,
@@ -296,9 +284,7 @@ export function listBatches(): BatchSummary[] {
   return summaries;
 }
 
-export function listBatchesPaginated(
-  params: PaginationParams,
-): PaginatedResult<BatchListItem> {
+export function listBatchesPaginated(params: PaginationParams): PaginatedResult<BatchListItem> {
   const result = listBatchIdsPaginated(params);
   const items: BatchListItem[] = [];
   for (const id of result.data) {
@@ -322,16 +308,11 @@ export function list(): Migration[] {
   return listMigrations();
 }
 
-export function listPaginated(
-  params: PaginationParams,
-): PaginatedResult<Migration> {
+export function listPaginated(params: PaginationParams): PaginatedResult<Migration> {
   return listMigrationsPaginated(params);
 }
 
-export function events(
-  migrationId: string,
-  afterId?: number,
-): MigrationEvent[] {
+export function events(migrationId: string, afterId?: number): MigrationEvent[] {
   return getEvents(migrationId, afterId);
 }
 
@@ -354,9 +335,7 @@ export function subscribe(
   };
 }
 
-export function subscribeGlobal(
-  controller: ReadableStreamDefaultController<string>,
-): () => void {
+export function subscribeGlobal(controller: ReadableStreamDefaultController<string>): () => void {
   globalSubscribers.add(controller);
   return () => {
     globalSubscribers.delete(controller);
@@ -401,9 +380,7 @@ export function recoverOrphans(): void {
   const recoverable = getRecoverableMigrations();
   if (recoverable.length === 0) return;
 
-  console.log(
-    `[manager] Attempting to recover ${recoverable.length} interrupted migration(s)`,
-  );
+  console.log(`[manager] Attempting to recover ${recoverable.length} interrupted migration(s)`);
 
   for (const migration of recoverable) {
     const id = migration.id;
@@ -424,9 +401,7 @@ export function recoverOrphans(): void {
       } else if (event.eventType === "failure") {
         updateMigrationState(id, "failed", {
           failureReason:
-            event.payload.detail?.failureReason ||
-            event.payload.error ||
-            "Unknown error",
+            event.payload.detail?.failureReason || event.payload.error || "Unknown error",
           completedAt: new Date().toISOString(),
         });
       } else if (event.eventType === "snapshot") {
@@ -435,8 +410,7 @@ export function recoverOrphans(): void {
         if (snap) {
           const extra: Parameters<typeof updateMigrationState>[2] = {};
           if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
-          if (snap.migrationLogUrl)
-            extra.migrationLogUrl = snap.migrationLogUrl;
+          if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
           const tgt: Counts = {
             commits: snap.commits,
             branches: snap.branches,

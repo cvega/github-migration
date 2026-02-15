@@ -2,8 +2,8 @@
  *  DELETE /api/migrations/[id] — cancel a running migration.
  */
 import { json } from "@sveltejs/kit";
+import { cancel, get } from "$lib/server/manager";
 import type { RequestHandler } from "./$types";
-import { get, cancel } from "$lib/server/manager";
 
 export const GET: RequestHandler = async ({ params }) => {
   const migration = get(params.id);
