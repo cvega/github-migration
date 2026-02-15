@@ -94,9 +94,11 @@ const securityHeaders: Record<string, string> = {
 
 export const handle: Handle = async ({ event, resolve }) => {
   if (authEnabled) {
-    const ip =
-      event.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      event.getClientAddress();
+    // Use SvelteKit's getClientAddress() which respects the ADDRESS_HEADER
+    // env var (e.g. ADDRESS_HEADER=x-forwarded-for) when behind a trusted
+    // reverse proxy.  Manually reading X-Forwarded-For here would allow
+    // attackers to spoof IPs and bypass rate-limiting.
+    const ip = event.getClientAddress();
 
     if (isRateLimited(ip)) {
       return new Response("Too many failed attempts — try again later", {

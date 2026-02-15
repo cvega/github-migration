@@ -115,7 +115,10 @@ function handlePipelineResult(id: string, result: Migration): void {
     githubMigrationId: result.githubMigrationId ?? undefined,
     sourceCounts: result.sourceCounts ?? undefined,
     targetCounts: result.targetCounts ?? undefined,
-    warningsCount: result.warningsCount,
+    // result.warningsCount is always 0 (not updated during monitoring).
+    // Use || undefined so COALESCE(NULL, warnings_count) preserves the
+    // value accumulated from snapshot events.
+    warningsCount: result.warningsCount || undefined,
     completedAt: result.completedAt ?? undefined,
     elapsedSeconds: result.elapsedSeconds ?? undefined,
     failureReason: result.failureReason ?? undefined,
@@ -233,6 +236,7 @@ export function startBatch(req: BatchMigrationRequest): BatchSummary {
       lockSource: req.lockSource,
       targetRepoVisibility: req.targetRepoVisibility,
       directPassthrough: req.directPassthrough,
+      archiveSource: req.archiveSource,
     };
 
     try {
