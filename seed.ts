@@ -9,6 +9,7 @@
  *
  * Run: bun seed.ts
  */
+/// <reference types="bun" />
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { applySchema } from "./src/lib/server/schema";
