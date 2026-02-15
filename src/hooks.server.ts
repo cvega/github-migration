@@ -4,12 +4,16 @@
  */
 import type { Handle, HandleServerError } from "@sveltejs/kit";
 import { initStore, closeStore } from "$lib/server/store";
+import { recoverOrphans } from "$lib/server/manager";
 import { env } from "$env/dynamic/private";
 import { timingSafeEqual } from "node:crypto";
 
 // Initialize SQLite on server startup.
 const dataDir = env.DATA_DIR || "./data";
 initStore(`${dataDir}/gh-migrate.db`);
+
+// Reconnect to any in-flight env-app migrations that survived the restart.
+recoverOrphans();
 
 const authUser = env.GH_MIGRATE_USER;
 const authPass = env.GH_MIGRATE_PASS;

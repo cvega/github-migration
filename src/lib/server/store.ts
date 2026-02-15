@@ -9,6 +9,8 @@ import type {
   Migration,
   MigrationEvent,
   MigrationState,
+  PipelineStep,
+  AuthMode,
   Counts,
   BatchSummary,
   BatchListItem,
@@ -24,16 +26,23 @@ export function initStore(dbPath: string): void {
   db = new Database(dbPath, { create: true });
   applySchema(db);
 
-  // Mark orphaned pending/running migrations as failed (server restarted mid-migration).
-  // Seed data (id LIKE 'seed-%') is excluded so dev/test fixtures survive restarts.
+  // Non-recoverable orphans: mark as failed.
+  // Recoverable ones (env-app auth with a github_migration_id) are left as 'running'
+  // so that recoverOrphans() in the manager can reconnect them.
   const orphaned = db
     .prepare(
-      "UPDATE migrations SET state = 'failed', failure_reason = 'Server restarted during migration', completed_at = ? WHERE state IN ('pending', 'running') AND id NOT LIKE 'seed-%'",
+      `UPDATE migrations
+       SET state = 'failed',
+           failure_reason = 'Server restarted during migration',
+           completed_at = ?
+       WHERE state IN ('pending', 'running')
+         AND id NOT LIKE 'seed-%'
+         AND NOT (auth_mode = 'env-app' AND github_migration_id IS NOT NULL)`,
     )
     .run(new Date().toISOString());
   if (orphaned.changes > 0) {
     console.log(
-      `[store] Marked ${orphaned.changes} orphaned migration(s) as failed`,
+      `[store] Marked ${orphaned.changes} non-recoverable orphaned migration(s) as failed`,
     );
   }
 }
@@ -119,6 +128,49 @@ export function updateMigrationState(
       extra?.elapsedSeconds ?? null,
       id,
     );
+}
+
+/** Lightweight checkpoint update — records pipeline progress for crash recovery. */
+export function updateCheckpoint(
+  id: string,
+  step: PipelineStep,
+  extras?: {
+    authMode?: AuthMode;
+    githubMigrationId?: string;
+  },
+): void {
+  getDb()
+    .prepare(
+      `UPDATE migrations SET
+        pipeline_step = ?,
+        auth_mode = COALESCE(?, auth_mode),
+        github_migration_id = COALESCE(?, github_migration_id)
+      WHERE id = ?`,
+    )
+    .run(
+      step,
+      extras?.authMode ?? null,
+      extras?.githubMigrationId ?? null,
+      id,
+    );
+}
+
+/**
+ * Returns migrations that can be reconnected after a server restart:
+ * env-app auth + a github_migration_id already assigned.
+ */
+export function getRecoverableMigrations(): Migration[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM migrations
+       WHERE state IN ('pending', 'running')
+         AND auth_mode = 'env-app'
+         AND github_migration_id IS NOT NULL
+         AND id NOT LIKE 'seed-%'
+       ORDER BY started_at ASC`,
+    )
+    .all() as Record<string, unknown>[];
+  return rows.map(rowToMigration);
 }
 
 export function getMigration(id: string): Migration | null {

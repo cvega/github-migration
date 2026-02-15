@@ -26,6 +26,15 @@ export type MigrationState =
   | "failed"
   | "cancelled";
 
+export type PipelineStep =
+  | "preflight"
+  | "archiving"
+  | "ghec_starting"
+  | "monitoring"
+  | "post_migration";
+
+export type AuthMode = "pat" | "request-app" | "env-app";
+
 export type Phase =
   | "QUEUED"
   | "PENDING_VALIDATION"

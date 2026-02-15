@@ -15,7 +15,7 @@ import type {
   PaginatedResult,
   PaginationParams,
 } from "$lib/types";
-import { runMigrationPipeline } from "./migration";
+import { runMigrationPipeline, resumeMigration } from "./migration";
 import {
   insertMigration,
   updateMigrationState,
@@ -31,6 +31,7 @@ import {
   getBatchListItem,
   listBatchIds,
   listBatchIdsPaginated,
+  getRecoverableMigrations,
 } from "./store";
 
 const MAX_CONCURRENT = 10;
@@ -384,5 +385,100 @@ function broadcastEvent(migrationId: string, event: MigrationEvent): void {
     } catch {
       globalSubscribers.delete(ctrl);
     }
+  }
+}
+
+// ── Crash recovery ──────────────────────────────────────────────────────────
+
+/**
+ * Attempt to reconnect to in-flight migrations that were interrupted by a
+ * server restart. Only env-app auth migrations with a github_migration_id
+ * are eligible — PAT and per-request app creds are lost on crash.
+ *
+ * Call this once during server startup, after initStore().
+ */
+export function recoverOrphans(): void {
+  const recoverable = getRecoverableMigrations();
+  if (recoverable.length === 0) return;
+
+  console.log(
+    `[manager] Attempting to recover ${recoverable.length} interrupted migration(s)`,
+  );
+
+  for (const migration of recoverable) {
+    const id = migration.id;
+
+    // Create an AbortController so these can still be cancelled.
+    const ac = new AbortController();
+    controllers.set(id, ac);
+
+    // Emit callback — same wiring as start().
+    const emit = (event: MigrationEvent) => {
+      insertEvent(event);
+
+      if (event.eventType === "complete") {
+        updateMigrationState(id, "succeeded", {
+          completedAt: new Date().toISOString(),
+          elapsedSeconds: event.payload.elapsed,
+        });
+      } else if (event.eventType === "failure") {
+        updateMigrationState(id, "failed", {
+          failureReason:
+            event.payload.detail?.failureReason ||
+            event.payload.error ||
+            "Unknown error",
+          completedAt: new Date().toISOString(),
+        });
+      } else if (event.eventType === "snapshot") {
+        const snap = event.payload.progress?.current;
+        const srcCounts = event.payload.sourceCounts;
+        if (snap) {
+          const extra: Parameters<typeof updateMigrationState>[2] = {};
+          if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
+          if (snap.migrationLogUrl)
+            extra.migrationLogUrl = snap.migrationLogUrl;
+          const tgt: Counts = {
+            commits: snap.commits,
+            branches: snap.branches,
+            tags: snap.tags,
+            issues: snap.issues,
+            pullRequests: snap.pullRequests,
+            releases: snap.releases,
+          };
+          extra.targetCounts = tgt;
+          if (srcCounts) extra.sourceCounts = srcCounts;
+          if (Object.keys(extra).length > 0) {
+            updateMigrationState(id, "running", extra);
+          }
+        }
+      }
+
+      broadcastEvent(id, event);
+    };
+
+    // Fire-and-forget: resume in the background.
+    resumeMigration(migration, emit)
+      .then((result) => {
+        updateMigrationState(id, result.state, {
+          githubMigrationId: result.githubMigrationId ?? undefined,
+          sourceCounts: result.sourceCounts ?? undefined,
+          targetCounts: result.targetCounts ?? undefined,
+          warningsCount: result.warningsCount,
+          completedAt: result.completedAt ?? undefined,
+          elapsedSeconds: result.elapsedSeconds ?? undefined,
+          failureReason: result.failureReason ?? undefined,
+          migrationLogUrl: result.migrationLogUrl ?? undefined,
+        });
+        controllers.delete(id);
+        console.log(`[manager] Recovered migration ${id}: ${result.state}`);
+      })
+      .catch((err) => {
+        console.error(`[manager] Recovery failed for ${id}:`, err);
+        updateMigrationState(id, "failed", {
+          failureReason: err instanceof Error ? err.message : String(err),
+          completedAt: new Date().toISOString(),
+        });
+        controllers.delete(id);
+      });
   }
 }

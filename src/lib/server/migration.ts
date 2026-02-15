@@ -7,7 +7,7 @@
  * in SQLite and broadcast via SSE.
  */
 // bun:sqlite built-in UUIDv7 — time-sortable, zero deps
-import type { CreateMigrationRequest, Migration } from "$lib/types";
+import type { CreateMigrationRequest, Migration, AuthMode } from "$lib/types";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,8 @@ import {
 } from "./github";
 import { uploadArchive } from "./upload";
 import { runMonitor, type EventEmitter } from "./monitor";
-import { resolveSourceAuth, resolveTargetAuth } from "./auth";
+import { resolveSourceAuth, resolveTargetAuth, isSourceAppConfigured, isTargetAppConfigured } from "./auth";
+import { updateCheckpoint } from "./store";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {
   id?: string;
@@ -89,6 +90,9 @@ export async function runMigrationPipeline(
     const sourceAuth = resolveSourceAuth(opts.sourceToken, opts.sourceApp);
     const targetAuth = resolveTargetAuth(opts.targetToken, opts.targetApp);
 
+    // Determine auth mode for crash recovery eligibility.
+    const authMode: AuthMode = determineAuthMode(opts);
+
     // Build clients — when using GitHub App auth, the underlying Octokit
     // instances use createAppAuth as their auth strategy, automatically
     // refreshing installation tokens before they expire.
@@ -104,6 +108,7 @@ export async function runMigrationPipeline(
     );
 
     // ── Step 1: Preflight ──────────────────────────────────────────
+    updateCheckpoint(migrationId, "preflight", { authMode });
     await preflight(clients, migration, opts, emitStep);
 
     // Fetch source counts.
@@ -119,6 +124,7 @@ export async function runMigrationPipeline(
     }
 
     // ── Step 2+3: Resolve archives ─────────────────────────────────
+    updateCheckpoint(migrationId, "archiving");
     const { gitArchiveUrl, metadataArchiveUrl } = await resolveArchives(
       clients,
       migration,
@@ -127,6 +133,7 @@ export async function runMigrationPipeline(
     );
 
     // ── Step 4: Start migration on GHEC ────────────────────────────
+    updateCheckpoint(migrationId, "ghec_starting");
     const orgId = await getOrgId(clients.targetGraphql, migration.targetOrg);
     const migSourceId = await createMigrationSource(
       clients.targetGraphql,
@@ -157,6 +164,7 @@ export async function runMigrationPipeline(
     });
 
     migration.githubMigrationId = githubMigrationId;
+    updateCheckpoint(migrationId, "monitoring", { githubMigrationId });
     emitStep(`Migration started (${githubMigrationId})`);
 
     // ── Step 5: Monitor until terminal state ───────────────────────
@@ -200,6 +208,7 @@ export async function runMigrationPipeline(
       (Date.now() - new Date(startedAt).getTime()) / 1000;
 
     // ── Post-migration: Archive source repo if requested ───────────
+    updateCheckpoint(migrationId, "post_migration");
     if (opts.archiveSource) {
       try {
         const repoNodeId = await getRepoNodeId(
@@ -451,4 +460,114 @@ function extractOrg(repoSlug: string): string {
 function extractRepo(repoSlug: string): string {
   const idx = repoSlug.indexOf("/");
   return idx > 0 ? repoSlug.substring(idx + 1) : repoSlug;
+}
+
+/**
+ * Determine auth mode for crash recovery eligibility.
+ * Only 'env-app' migrations can be reconnected — the credentials
+ * live in env vars and are available after a restart.
+ */
+function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
+  // If explicit tokens were provided in the request, it's PAT auth.
+  if (opts.sourceToken || opts.targetToken) return "pat";
+  // If explicit app creds were provided per-request, those are lost on crash.
+  if (opts.sourceApp || opts.targetApp) return "request-app";
+  // Otherwise, both sides must be using env-configured GitHub App.
+  if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
+  return "pat";
+}
+
+/**
+ * Resume a migration that was interrupted by a server restart.
+ * Only works for env-app auth migrations that have a github_migration_id.
+ * Re-creates clients from env vars and reconnects to the GHEC migration.
+ */
+export async function resumeMigration(
+  migration: Migration,
+  emit: EventEmitter,
+): Promise<Migration> {
+  const migrationId = migration.id;
+
+  const emitStep = (message: string) => {
+    emit({
+      migrationId,
+      eventType: "step",
+      phase: null,
+      payload: { message },
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  emitStep(
+    `Reconnecting to in-flight migration ${migration.githubMigrationId}`,
+  );
+
+  try {
+    // Re-create clients from env-configured GitHub App credentials.
+    const sourceAuth = resolveSourceAuth();
+    const targetAuth = resolveTargetAuth();
+
+    const clients = createClients({
+      sourceApiUrl: migration.sourceApiUrl,
+      sourceAuth,
+      targetAuth,
+    });
+
+    // Resume monitoring the existing GHEC migration.
+    const terminalPhase = await runMonitor({
+      clients,
+      migrationId,
+      githubMigrationId: migration.githubMigrationId!,
+      targetOrg: migration.targetOrg,
+      targetRepo: migration.targetRepo,
+      sourceOrg: migration.sourceOrg,
+      sourceRepo: migration.sourceRepo,
+      emit,
+    });
+
+    if (terminalPhase === "FAILED") {
+      migration.state = "failed";
+      migration.failureReason = "Migration failed on GHEC";
+      migration.completedAt = new Date().toISOString();
+      migration.elapsedSeconds =
+        (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+      return migration;
+    }
+
+    // Fetch final target counts.
+    try {
+      migration.targetCounts = await getRepoCounts(
+        clients.target,
+        clients.targetGraphql,
+        migration.targetOrg,
+        migration.targetRepo,
+      );
+    } catch {
+      // Non-fatal
+    }
+
+    migration.state = "succeeded";
+    migration.completedAt = new Date().toISOString();
+    migration.elapsedSeconds =
+      (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+
+    return migration;
+  } catch (err) {
+    migration.state = "failed";
+    migration.failureReason =
+      err instanceof Error ? err.message : String(err);
+    migration.completedAt = new Date().toISOString();
+    migration.elapsedSeconds =
+      (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
+
+    emit({
+      migrationId,
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { error: migration.failureReason ?? undefined },
+      createdAt: new Date().toISOString(),
+    });
+
+    return migration;
+  }
 }

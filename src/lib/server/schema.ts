@@ -55,4 +55,13 @@ export function applySchema(db: Database): void {
   if (!cols.some((c) => c.name === "batch_id")) {
     db.run("ALTER TABLE migrations ADD COLUMN batch_id TEXT");
   }
+
+  // Schema migration: add pipeline_step + auth_mode columns (crash recovery support).
+  const colNames = new Set(cols.map((c) => c.name));
+  if (!colNames.has("pipeline_step")) {
+    db.run("ALTER TABLE migrations ADD COLUMN pipeline_step TEXT");
+  }
+  if (!colNames.has("auth_mode")) {
+    db.run("ALTER TABLE migrations ADD COLUMN auth_mode TEXT");
+  }
 }
