@@ -21,4 +21,3 @@ build/
 .svelte-kit/
 data/
 *.db
-bun.lock
