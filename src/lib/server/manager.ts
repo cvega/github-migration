@@ -389,7 +389,7 @@ export function recoverOrphans(): void {
     controllers.set(id, ac);
 
     // Fire-and-forget: resume in the background.
-    resumeMigration(migration, createEmitHandler(id))
+    resumeMigration(migration, createEmitHandler(id), ac.signal)
       .then((result) => {
         handlePipelineResult(id, result);
         console.log(`[manager] Recovered migration ${id}: ${result.state}`);

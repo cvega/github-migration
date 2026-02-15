@@ -226,17 +226,19 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
 
     return migration;
   } catch (err) {
-    // If aborted, try to cancel on GHEC.
-    if (opts.signal?.aborted && migration.githubMigrationId) {
-      try {
-        const cancelClients = createClients({
-          sourceApiUrl: migration.sourceApiUrl,
-          sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
-          targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
-        });
-        await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
-      } catch {
-        // Best-effort
+    if (opts.signal?.aborted) {
+      // User-initiated cancellation — try to abort on GHEC if it was started.
+      if (migration.githubMigrationId) {
+        try {
+          const cancelClients = createClients({
+            sourceApiUrl: migration.sourceApiUrl,
+            sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
+            targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
+          });
+          await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
+        } catch {
+          // Best-effort
+        }
       }
       migration.state = "cancelled";
     } else {
@@ -247,13 +249,16 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     migration.completedAt = new Date().toISOString();
     migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
 
-    emit({
-      migrationId,
-      eventType: "failure",
-      phase: "FAILED",
-      payload: { error: migration.failureReason ?? undefined },
-      createdAt: new Date().toISOString(),
-    });
+    // Only emit a failure event for genuine errors, not user cancellations.
+    if (migration.state !== "cancelled") {
+      emit({
+        migrationId,
+        eventType: "failure",
+        phase: "FAILED",
+        payload: { error: migration.failureReason ?? undefined },
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     return migration;
   }
@@ -458,6 +463,7 @@ function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
 export async function resumeMigration(
   migration: Migration,
   emit: EventEmitter,
+  signal?: AbortSignal,
 ): Promise<Migration> {
   const migrationId = migration.id;
 
@@ -494,6 +500,7 @@ export async function resumeMigration(
       sourceOrg: migration.sourceOrg,
       sourceRepo: migration.sourceRepo,
       sourceCounts: migration.sourceCounts,
+      signal,
       emit,
     });
 
