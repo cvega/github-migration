@@ -134,6 +134,26 @@ export const handle: Handle = async ({ event, resolve }) => {
     response.headers.set(key, value);
   }
 
+  // Compress HTML/JSON SSR responses (static assets are precompressed by adapter-node).
+  const contentType = response.headers.get("content-type") || "";
+  const acceptEncoding = event.request.headers.get("accept-encoding") || "";
+  const isCompressible =
+    contentType.includes("text/html") || contentType.includes("application/json");
+  if (isCompressible && !response.headers.has("content-encoding") && response.body) {
+    const encoding = acceptEncoding.includes("gzip") ? "gzip" : null;
+    if (encoding) {
+      const compressed = response.body.pipeThrough(new CompressionStream(encoding));
+      const headers = new Headers(response.headers);
+      headers.set("content-encoding", encoding);
+      headers.delete("content-length");
+      return new Response(compressed, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+  }
+
   return response;
 };
 

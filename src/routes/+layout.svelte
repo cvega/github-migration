@@ -69,7 +69,7 @@
 	<nav class="border-b border-gray-700 bg-gray-900">
 		<div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
 			<a href="/" class="flex items-center gap-2 text-base font-semibold text-gray-50 hover:text-gray-200 transition-colors">
-				<img src="/imgs/GitHub_Invertocat_White_Clearspace.png" alt="GitHub" class="h-9 w-9" />
+				<img src="/imgs/github-logo.png" alt="GitHub" class="h-9 w-9" />
 				GitHub Migrate
 			</a>
 			<div class="flex items-center gap-4">
