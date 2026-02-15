@@ -3,6 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { formatElapsed } from '$lib/format';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
@@ -61,17 +62,6 @@
 		failed: 'x-circle-fill',
 		cancelled: 'skip'
 	};
-
-	function formatElapsed(seconds: number | null): string {
-		if (!seconds) return '—';
-		const m = Math.floor(seconds / 60);
-		const s = Math.round(seconds % 60);
-		if (m >= 60) {
-			const h = Math.floor(m / 60);
-			return `${h}h ${m % 60}m`;
-		}
-		return m > 0 ? `${m}m ${s}s` : `${s}s`;
-	}
 
 	async function handleCancelAll() {
 		if (!confirm(`Cancel all ${batch.pendingCount + batch.runningCount} active migrations?`)) return;

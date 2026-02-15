@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
+	import { formatElapsed } from '$lib/format';
 	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatsTable from '$lib/components/StatsTable.svelte';
@@ -19,7 +20,7 @@
 	let failureDetail = $state<FailureDetailType | null>(null);
 
 	let sse: ReturnType<typeof createMigrationEventSource> | null = null;
-	let lastSseLen = $state(0);
+	let lastProcessedId = $state<number | undefined>(undefined);
 
 	onMount(() => {
 		// Seed from server-loaded data.
@@ -48,21 +49,27 @@
 	});
 
 	// React to new SSE events via rune-backed reactive getter.
-	// Track SSE buffer length separately from eventLog to handle the 500-event
-	// cap in the SSE store — eventLog grows unbounded while sse.events wraps.
+	// Track last processed event id rather than array length, because the SSE
+	// store caps its buffer at ~501 entries and length stabilises after that.
 	$effect(() => {
 		if (!sse) return;
 		const events = sse.events;
-		if (events.length === lastSseLen) return;
-		// When the buffer wraps (trim to 500), events.length can decrease.
-		const newCount = events.length > lastSseLen
-			? events.length - lastSseLen
-			: events.length;
-		for (const ev of events.slice(-newCount)) {
-			eventLog = [...eventLog.slice(-(1000 - 1)), ev];
-			processEvent(ev);
+		if (events.length === 0) return;
+
+		// Find events newer than what we already processed.
+		const startIdx = lastProcessedId === undefined
+			? 0
+			: events.findIndex(e => e.id !== undefined && e.id! > lastProcessedId!);
+
+		if (startIdx === -1) return; // no new events
+
+		for (let i = startIdx; i < events.length; i++) {
+			eventLog = [...eventLog.slice(-(1000 - 1)), events[i]];
+			processEvent(events[i]);
 		}
-		lastSseLen = events.length;
+
+		const lastEvent = events[events.length - 1];
+		if (lastEvent.id !== undefined) lastProcessedId = lastEvent.id;
 	});
 
 	function processEvent(ev: MigrationEvent) {
@@ -93,13 +100,6 @@
 			polledMigration = { ...migration, state: 'cancelled' };
 			refreshMigrations();
 		}
-	}
-
-	function formatElapsed(seconds: number | null): string {
-		if (!seconds) return '—';
-		const m = Math.floor(seconds / 60);
-		const s = Math.round(seconds % 60);
-		return m > 0 ? `${m}m ${s}s` : `${s}s`;
 	}
 
 	function repoUrl(apiUrl: string, org: string, repo: string): string {

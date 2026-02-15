@@ -2,6 +2,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount, onDestroy, setContext } from 'svelte';
+	import { GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { GitHubStatus } from '$lib/types';
@@ -18,7 +19,7 @@
 	const migrating = $derived(activeMigrations > 0);
 
 	// Expose live ghStatus to child pages via context.
-	setContext('ghStatus', { get value() { return ghStatus; } });
+	setContext<GhStatusContext>(GH_STATUS_KEY, { get value() { return ghStatus; } });
 
 	// Re-seed when navigating between pages (layout data re-runs).
 	$effect(() => {

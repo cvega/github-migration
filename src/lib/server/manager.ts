@@ -27,17 +27,115 @@ import {
   getRecoverableMigrations,
   insertEvent,
   insertMigration,
-  listBatchIds,
-  listBatchIdsPaginated,
+  listBatchItemsPaginated,
   listMigrations,
   listMigrationsPaginated,
   updateMigrationState,
 } from "./store";
 
+/** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
 
 /** Active migration abort controllers, keyed by migration ID. */
 const controllers = new Map<string, AbortController>();
+
+// ── Shared emit / result helpers ────────────────────────────────────────────
+
+/**
+ * Build a `(event: MigrationEvent) => void` callback that persists the
+ * event, updates the migration row in SQLite, and broadcasts via SSE.
+ *
+ * Used by both `start()` and `recoverOrphans()` so the logic stays DRY.
+ */
+function createEmitHandler(id: string): (event: MigrationEvent) => void {
+  return (event: MigrationEvent) => {
+    // 1. Persist event row and capture the auto-increment ID.
+    const eventId = insertEvent(event);
+    // Mutate in-place so broadcastEvent sees the id — safe because
+    // callers (monitor / pipeline) create a fresh object per emit.
+    event.id = eventId;
+
+    // 2. Update migration state from terminal / progress events immediately
+    //    so the DB reflects changes before the SSE broadcast triggers a
+    //    client-side refresh.
+    if (event.eventType === "complete") {
+      updateMigrationState(id, "succeeded", {
+        completedAt: new Date().toISOString(),
+        elapsedSeconds: event.payload.elapsed,
+      });
+    } else if (event.eventType === "failure") {
+      updateMigrationState(id, "failed", {
+        failureReason:
+          event.payload.detail?.failureReason || event.payload.error || "Unknown error",
+        completedAt: new Date().toISOString(),
+      });
+    } else if (event.eventType === "step") {
+      // Keep state as 'running' once pipeline starts, propagate source counts.
+      const current = getMigration(id);
+      const newState = current?.state === "pending" ? "running" : (current?.state ?? "running");
+      const extra: Parameters<typeof updateMigrationState>[2] = {};
+      if (event.payload.counts) {
+        extra.sourceCounts = event.payload.counts;
+      }
+      if (newState !== current?.state || Object.keys(extra).length > 0) {
+        updateMigrationState(id, newState as MigrationState, extra);
+      }
+    } else if (event.eventType === "snapshot") {
+      // Propagate live data from snapshots to the migration record.
+      const snap = event.payload.progress?.current;
+      const srcCounts = event.payload.sourceCounts;
+      if (snap) {
+        const extra: Parameters<typeof updateMigrationState>[2] = {};
+        if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
+        if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
+        const tgt: Counts = {
+          commits: snap.commits,
+          branches: snap.branches,
+          tags: snap.tags,
+          issues: snap.issues,
+          pullRequests: snap.pullRequests,
+          releases: snap.releases,
+        };
+        extra.targetCounts = tgt;
+        if (srcCounts) extra.sourceCounts = srcCounts;
+        if (Object.keys(extra).length > 0) {
+          updateMigrationState(id, "running", extra);
+        }
+      }
+    }
+
+    // 3. Broadcast to SSE subscribers.
+    broadcastEvent(id, event);
+  };
+}
+
+/** Shared `.then()` handler for the fire-and-forget pipeline / resume promise. */
+function handlePipelineResult(id: string, result: Migration): void {
+  updateMigrationState(id, result.state, {
+    githubMigrationId: result.githubMigrationId ?? undefined,
+    sourceCounts: result.sourceCounts ?? undefined,
+    targetCounts: result.targetCounts ?? undefined,
+    // result.warningsCount is always 0 (not updated during monitoring).
+    // Use || undefined so COALESCE(NULL, warnings_count) preserves the
+    // value accumulated from snapshot events.
+    warningsCount: result.warningsCount || undefined,
+    completedAt: result.completedAt ?? undefined,
+    elapsedSeconds: result.elapsedSeconds ?? undefined,
+    failureReason: result.failureReason ?? undefined,
+    migrationLogUrl: result.migrationLogUrl ?? undefined,
+  });
+  controllers.delete(id);
+}
+
+/** Shared `.catch()` handler for unexpected pipeline crashes. */
+function handlePipelineError(id: string, err: unknown): void {
+  console.error(`Migration ${id} crashed:`, err);
+  updateMigrationState(id, "failed", {
+    failureReason: err instanceof Error ? err.message : String(err),
+    completedAt: new Date().toISOString(),
+  });
+  controllers.delete(id);
+}
 
 /** SSE subscribers: migrationId → Set<writable stream controllers>. */
 const sseSubscribers = new Map<string, Set<ReadableStreamDefaultController<string>>>();
@@ -94,90 +192,10 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     ...req,
     id,
     signal: ac.signal,
-    emit: (event: MigrationEvent) => {
-      // Persist event.
-      insertEvent(event);
-
-      // Update migration state from terminal events immediately so the
-      // DB reflects the new state before the SSE broadcast triggers a
-      // client-side refresh.  The .then() handler below may also update
-      // state with richer data from the pipeline result — this is
-      // intentionally idempotent (two UPDATEs to the same row are safe
-      // and ensure the dashboard never misses a transition).
-      if (event.eventType === "complete") {
-        updateMigrationState(id, "succeeded", {
-          completedAt: new Date().toISOString(),
-          elapsedSeconds: event.payload.elapsed,
-        });
-      } else if (event.eventType === "failure") {
-        updateMigrationState(id, "failed", {
-          failureReason:
-            event.payload.detail?.failureReason || event.payload.error || "Unknown error",
-          completedAt: new Date().toISOString(),
-        });
-      } else if (event.eventType === "step") {
-        // Keep state as 'running' once pipeline starts, and propagate source counts if present.
-        const current = getMigration(id);
-        const newState = current?.state === "pending" ? "running" : (current?.state ?? "running");
-        const extra: Parameters<typeof updateMigrationState>[2] = {};
-        if (event.payload.counts) {
-          extra.sourceCounts = event.payload.counts;
-        }
-        if (newState !== current?.state || Object.keys(extra).length > 0) {
-          updateMigrationState(id, newState as MigrationState, extra);
-        }
-      } else if (event.eventType === "snapshot") {
-        // Propagate live data from snapshots to the migration record
-        // so the DB stays current during active migrations.
-        const snap = event.payload.progress?.current;
-        const srcCounts = event.payload.sourceCounts;
-        if (snap) {
-          const extra: Parameters<typeof updateMigrationState>[2] = {};
-          if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
-          if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
-          // Update target counts from the live snapshot.
-          const tgt: Counts = {
-            commits: snap.commits,
-            branches: snap.branches,
-            tags: snap.tags,
-            issues: snap.issues,
-            pullRequests: snap.pullRequests,
-            releases: snap.releases,
-          };
-          extra.targetCounts = tgt;
-          if (srcCounts) extra.sourceCounts = srcCounts;
-          if (Object.keys(extra).length > 0) {
-            updateMigrationState(id, "running", extra);
-          }
-        }
-      }
-
-      // Broadcast to SSE subscribers.
-      broadcastEvent(id, event);
-    },
+    emit: createEmitHandler(id),
   })
-    .then((result) => {
-      // Update final state from pipeline result.
-      updateMigrationState(id, result.state, {
-        githubMigrationId: result.githubMigrationId ?? undefined,
-        sourceCounts: result.sourceCounts ?? undefined,
-        targetCounts: result.targetCounts ?? undefined,
-        warningsCount: result.warningsCount,
-        completedAt: result.completedAt ?? undefined,
-        elapsedSeconds: result.elapsedSeconds ?? undefined,
-        failureReason: result.failureReason ?? undefined,
-        migrationLogUrl: result.migrationLogUrl ?? undefined,
-      });
-      controllers.delete(id);
-    })
-    .catch((err) => {
-      console.error(`Migration ${id} crashed:`, err);
-      updateMigrationState(id, "failed", {
-        failureReason: err instanceof Error ? err.message : String(err),
-        completedAt: new Date().toISOString(),
-      });
-      controllers.delete(id);
-    });
+    .then((result) => handlePipelineResult(id, result))
+    .catch((err) => handlePipelineError(id, err));
 
   return migration;
 }
@@ -218,6 +236,7 @@ export function startBatch(req: BatchMigrationRequest): BatchSummary {
       lockSource: req.lockSource,
       targetRepoVisibility: req.targetRepoVisibility,
       directPassthrough: req.directPassthrough,
+      archiveSource: req.archiveSource,
     };
 
     try {
@@ -274,30 +293,8 @@ export function getBatchPaginated(
   return { summary, migrations };
 }
 
-export function listBatches(): BatchSummary[] {
-  const ids = listBatchIds();
-  const summaries: BatchSummary[] = [];
-  for (const id of ids) {
-    const summary = getBatchSummary(id);
-    if (summary) summaries.push(summary);
-  }
-  return summaries;
-}
-
 export function listBatchesPaginated(params: PaginationParams): PaginatedResult<BatchListItem> {
-  const result = listBatchIdsPaginated(params);
-  const items: BatchListItem[] = [];
-  for (const id of result.data) {
-    const item = getBatchListItem(id);
-    if (item) items.push(item);
-  }
-  return {
-    data: items,
-    total: result.total,
-    page: result.page,
-    limit: result.limit,
-    totalPages: result.totalPages,
-  };
+  return listBatchItemsPaginated(params);
 }
 
 export function get(migrationId: string): Migration | null {
@@ -343,7 +340,9 @@ export function subscribeGlobal(controller: ReadableStreamDefaultController<stri
 }
 
 function broadcastEvent(migrationId: string, event: MigrationEvent): void {
-  const data = `data: ${JSON.stringify(event)}\n\n`;
+  // Include SSE id: field so browsers auto-send Last-Event-ID on reconnect.
+  const idLine = event.id != null ? `id: ${event.id}\n` : "";
+  const data = `${idLine}data: ${JSON.stringify(event)}\n\n`;
 
   // Per-migration subscribers.
   const subs = sseSubscribers.get(migrationId);
@@ -389,70 +388,12 @@ export function recoverOrphans(): void {
     const ac = new AbortController();
     controllers.set(id, ac);
 
-    // Emit callback — same wiring as start().
-    const emit = (event: MigrationEvent) => {
-      insertEvent(event);
-
-      if (event.eventType === "complete") {
-        updateMigrationState(id, "succeeded", {
-          completedAt: new Date().toISOString(),
-          elapsedSeconds: event.payload.elapsed,
-        });
-      } else if (event.eventType === "failure") {
-        updateMigrationState(id, "failed", {
-          failureReason:
-            event.payload.detail?.failureReason || event.payload.error || "Unknown error",
-          completedAt: new Date().toISOString(),
-        });
-      } else if (event.eventType === "snapshot") {
-        const snap = event.payload.progress?.current;
-        const srcCounts = event.payload.sourceCounts;
-        if (snap) {
-          const extra: Parameters<typeof updateMigrationState>[2] = {};
-          if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
-          if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
-          const tgt: Counts = {
-            commits: snap.commits,
-            branches: snap.branches,
-            tags: snap.tags,
-            issues: snap.issues,
-            pullRequests: snap.pullRequests,
-            releases: snap.releases,
-          };
-          extra.targetCounts = tgt;
-          if (srcCounts) extra.sourceCounts = srcCounts;
-          if (Object.keys(extra).length > 0) {
-            updateMigrationState(id, "running", extra);
-          }
-        }
-      }
-
-      broadcastEvent(id, event);
-    };
-
     // Fire-and-forget: resume in the background.
-    resumeMigration(migration, emit)
+    resumeMigration(migration, createEmitHandler(id), ac.signal)
       .then((result) => {
-        updateMigrationState(id, result.state, {
-          githubMigrationId: result.githubMigrationId ?? undefined,
-          sourceCounts: result.sourceCounts ?? undefined,
-          targetCounts: result.targetCounts ?? undefined,
-          warningsCount: result.warningsCount,
-          completedAt: result.completedAt ?? undefined,
-          elapsedSeconds: result.elapsedSeconds ?? undefined,
-          failureReason: result.failureReason ?? undefined,
-          migrationLogUrl: result.migrationLogUrl ?? undefined,
-        });
-        controllers.delete(id);
+        handlePipelineResult(id, result);
         console.log(`[manager] Recovered migration ${id}: ${result.state}`);
       })
-      .catch((err) => {
-        console.error(`[manager] Recovery failed for ${id}:`, err);
-        updateMigrationState(id, "failed", {
-          failureReason: err instanceof Error ? err.message : String(err),
-          completedAt: new Date().toISOString(),
-        });
-        controllers.delete(id);
-      });
+      .catch((err) => handlePipelineError(id, err));
   }
 }

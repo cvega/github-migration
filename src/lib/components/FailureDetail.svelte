@@ -1,6 +1,7 @@
 <!-- Failure detail panel -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
+	import { formatElapsed } from '$lib/format';
 	import type { FailureDetail as FailureDetailType } from '$lib/types';
 
 	let { detail }: { detail: FailureDetailType } = $props();
@@ -9,11 +10,6 @@
 	const errors = $derived(logEntries.filter((e) => e.severity === 'ERROR'));
 	const warnings = $derived(logEntries.filter((e) => e.severity === 'WARNING'));
 
-	function formatElapsed(seconds: number): string {
-		const m = Math.floor(seconds / 60);
-		const s = Math.round(seconds % 60);
-		return m > 0 ? `${m}m ${s}s` : `${s}s`;
-	}
 </script>
 
 <div class="rounded-md border border-red-500/30 bg-red-500/5 p-5">

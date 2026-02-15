@@ -37,6 +37,8 @@ const SCHEMA_DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_events_migration_id ON events(migration_id);
   CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(migration_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_migrations_state ON migrations(state);
+  CREATE INDEX IF NOT EXISTS idx_migrations_batch_id ON migrations(batch_id);
 `;
 
 /**

@@ -119,6 +119,7 @@ export function createGlobalEventSource() {
   let source: EventSource | null = null;
   let destroyed = false;
   let retryCount = 0;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function connect() {
     if (destroyed) return;
@@ -129,8 +130,6 @@ export function createGlobalEventSource() {
       retryCount = 0;
       _connected = true;
     };
-
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     source.onmessage = (e) => {
       try {
@@ -159,6 +158,7 @@ export function createGlobalEventSource() {
   function destroy() {
     destroyed = true;
     _connected = false;
+    if (debounceTimer) clearTimeout(debounceTimer);
     source?.close();
     source = null;
   }

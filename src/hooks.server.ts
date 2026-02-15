@@ -31,6 +31,7 @@ if (!authEnabled) {
 
 const AUTH_MAX_ATTEMPTS = 5;
 const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_TRACKED_IPS = 10_000;
 const failedAttempts = new Map<string, { count: number; firstAttempt: number }>();
 
 function isRateLimited(ip: string): boolean {
@@ -48,6 +49,11 @@ function recordFailedAttempt(ip: string): void {
   const now = Date.now();
   const entry = failedAttempts.get(ip);
   if (!entry || now - entry.firstAttempt > AUTH_WINDOW_MS) {
+    // Evict the oldest entry if at capacity.
+    if (!entry && failedAttempts.size >= MAX_TRACKED_IPS) {
+      const oldest = failedAttempts.keys().next().value;
+      if (oldest) failedAttempts.delete(oldest);
+    }
     failedAttempts.set(ip, { count: 1, firstAttempt: now });
   } else {
     entry.count++;
@@ -82,15 +88,17 @@ const securityHeaders: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'",
+  // Content-Security-Policy is managed by SvelteKit's kit.csp config
+  // (svelte.config.js) which auto-injects nonces for scripts.
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
   if (authEnabled) {
-    const ip =
-      event.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      event.getClientAddress();
+    // Use SvelteKit's getClientAddress() which respects the ADDRESS_HEADER
+    // env var (e.g. ADDRESS_HEADER=x-forwarded-for) when behind a trusted
+    // reverse proxy.  Manually reading X-Forwarded-For here would allow
+    // attackers to spoof IPs and bypass rate-limiting.
+    const ip = event.getClientAddress();
 
     if (isRateLimited(ip)) {
       return new Response("Too many failed attempts — try again later", {
@@ -107,7 +115,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       });
     }
 
-    const decoded = atob(authHeader.slice(6));
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
     const colonIdx = decoded.indexOf(":");
     if (colonIdx < 0) {
       recordFailedAttempt(ip);

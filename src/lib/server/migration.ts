@@ -177,6 +177,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,
       sourceRepo: migration.sourceRepo,
+      sourceCounts: migration.sourceCounts,
       signal: opts.signal,
       emit,
     });
@@ -188,6 +189,15 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       migration.completedAt = new Date().toISOString();
       migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
       return migration;
+    }
+
+    // If the signal was aborted during poll() (not during sleep — which throws),
+    // the monitor exits cleanly with null. Re-throw so the catch block handles
+    // cancellation properly instead of falling through to "succeeded".
+    if (!terminalPhase) {
+      throw new Error(
+        opts.signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+      );
     }
 
     // Fetch final target counts.
@@ -225,17 +235,19 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
 
     return migration;
   } catch (err) {
-    // If aborted, try to cancel on GHEC.
-    if (opts.signal?.aborted && migration.githubMigrationId) {
-      try {
-        const cancelClients = createClients({
-          sourceApiUrl: migration.sourceApiUrl,
-          sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
-          targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
-        });
-        await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
-      } catch {
-        // Best-effort
+    if (opts.signal?.aborted) {
+      // User-initiated cancellation — try to abort on GHEC if it was started.
+      if (migration.githubMigrationId) {
+        try {
+          const cancelClients = createClients({
+            sourceApiUrl: migration.sourceApiUrl,
+            sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
+            targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
+          });
+          await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
+        } catch {
+          // Best-effort
+        }
       }
       migration.state = "cancelled";
     } else {
@@ -246,13 +258,16 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     migration.completedAt = new Date().toISOString();
     migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
 
-    emit({
-      migrationId,
-      eventType: "failure",
-      phase: "FAILED",
-      payload: { error: migration.failureReason ?? undefined },
-      createdAt: new Date().toISOString(),
-    });
+    // Only emit a failure event for genuine errors, not user cancellations.
+    if (migration.state !== "cancelled") {
+      emit({
+        migrationId,
+        eventType: "failure",
+        phase: "FAILED",
+        payload: { error: migration.failureReason ?? undefined },
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     return migration;
   }
@@ -379,19 +394,19 @@ async function resolveArchives(
 
     const orgDbId = await getOrgDatabaseId(clients.targetGraphql, migration.targetOrg);
 
-    const gitBuf = new Uint8Array(await Bun.file(gitTmpPath).arrayBuffer());
+    // Stream from disk via Bun.file() (BunFile extends Blob) — avoids
+    // buffering entire archives into memory.
     const gitUploadToken = await clients.getTargetToken();
     const gitArchiveUrl = await uploadArchive(
-      gitBuf,
+      Bun.file(gitTmpPath),
       "git-archive.tar.gz",
       orgDbId,
       gitUploadToken,
     );
 
-    const metaBuf = new Uint8Array(await Bun.file(metaTmpPath).arrayBuffer());
     const metaUploadToken = await clients.getTargetToken();
     const metadataArchiveUrl = await uploadArchive(
-      metaBuf,
+      Bun.file(metaTmpPath),
       "metadata-archive.tar.gz",
       orgDbId,
       metaUploadToken,
@@ -457,6 +472,7 @@ function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
 export async function resumeMigration(
   migration: Migration,
   emit: EventEmitter,
+  signal?: AbortSignal,
 ): Promise<Migration> {
   const migrationId = migration.id;
 
@@ -492,6 +508,8 @@ export async function resumeMigration(
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,
       sourceRepo: migration.sourceRepo,
+      sourceCounts: migration.sourceCounts,
+      signal,
       emit,
     });
 
@@ -501,6 +519,14 @@ export async function resumeMigration(
       migration.completedAt = new Date().toISOString();
       migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
       return migration;
+    }
+
+    // Guard against monitor exiting without a terminal phase (e.g. signal
+    // aborted during a poll network call, not during sleep which throws).
+    if (!terminalPhase) {
+      throw new Error(
+        signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+      );
     }
 
     // Fetch final target counts.
@@ -521,18 +547,28 @@ export async function resumeMigration(
 
     return migration;
   } catch (err) {
-    migration.state = "failed";
-    migration.failureReason = err instanceof Error ? err.message : String(err);
+    // Mirror the cancellation logic from runMigrationPipeline: if the signal
+    // was aborted, treat as cancellation rather than failure.
+    if (signal?.aborted) {
+      migration.state = "cancelled";
+    } else {
+      migration.state = "failed";
+      migration.failureReason = err instanceof Error ? err.message : String(err);
+    }
+
     migration.completedAt = new Date().toISOString();
     migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
 
-    emit({
-      migrationId,
-      eventType: "failure",
-      phase: "FAILED",
-      payload: { error: migration.failureReason ?? undefined },
-      createdAt: new Date().toISOString(),
-    });
+    // Only emit failure events for genuine errors, not user cancellations.
+    if (migration.state !== "cancelled") {
+      emit({
+        migrationId,
+        eventType: "failure",
+        phase: "FAILED",
+        payload: { error: migration.failureReason ?? undefined },
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     return migration;
   }
