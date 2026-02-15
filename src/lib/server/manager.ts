@@ -22,6 +22,7 @@ import {
   getBatchMigrations,
   getBatchMigrationsPaginated,
   getBatchSummary,
+  getDb,
   getEvents,
   getMigration,
   getRecoverableMigrations,
@@ -32,6 +33,7 @@ import {
   listMigrationsPaginated,
   updateMigrationState,
 } from "./store";
+import { extractOrg, extractRepo } from "./util";
 
 /** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
@@ -49,68 +51,88 @@ const controllers = new Map<string, AbortController>();
  */
 function createEmitHandler(id: string): (event: MigrationEvent) => void {
   return (event: MigrationEvent) => {
-    // 1. Persist event row and capture the auto-increment ID.
-    const eventId = insertEvent(event);
-    // Mutate in-place so broadcastEvent sees the id — safe because
-    // callers (monitor / pipeline) create a fresh object per emit.
-    event.id = eventId;
+    // Wrap event persistence + state update in a transaction so the DB
+    // is never in a state where the event row exists but the migration
+    // row hasn't been updated (or vice-versa).
+    getDb().transaction(() => {
+      // 1. Persist event row and capture the auto-increment ID.
+      const eventId = insertEvent(event);
+      // Mutate in-place so broadcastEvent sees the id — safe because
+      // callers (monitor / pipeline) create a fresh object per emit.
+      event.id = eventId;
 
-    // 2. Update migration state from terminal / progress events immediately
-    //    so the DB reflects changes before the SSE broadcast triggers a
-    //    client-side refresh.
-    if (event.eventType === "complete") {
-      updateMigrationState(id, "succeeded", {
-        completedAt: new Date().toISOString(),
-        elapsedSeconds: event.payload.elapsed,
-      });
-    } else if (event.eventType === "failure") {
-      updateMigrationState(id, "failed", {
-        failureReason:
-          event.payload.detail?.failureReason || event.payload.error || "Unknown error",
-        completedAt: new Date().toISOString(),
-      });
-    } else if (event.eventType === "step") {
-      // Keep state as 'running' once pipeline starts, propagate source counts.
-      const current = getMigration(id);
-      const newState = current?.state === "pending" ? "running" : (current?.state ?? "running");
-      const extra: Parameters<typeof updateMigrationState>[2] = {};
-      if (event.payload.counts) {
-        extra.sourceCounts = event.payload.counts;
-      }
-      if (newState !== current?.state || Object.keys(extra).length > 0) {
-        updateMigrationState(id, newState as MigrationState, extra);
-      }
-    } else if (event.eventType === "snapshot") {
-      // Propagate live data from snapshots to the migration record.
-      const snap = event.payload.progress?.current;
-      const srcCounts = event.payload.sourceCounts;
-      if (snap) {
+      // 2. Update migration state from terminal / progress events immediately
+      //    so the DB reflects changes before the SSE broadcast triggers a
+      //    client-side refresh.
+      if (event.eventType === "complete") {
+        updateMigrationState(id, "succeeded", {
+          completedAt: new Date().toISOString(),
+          elapsedSeconds: event.payload.elapsed,
+        });
+      } else if (event.eventType === "failure") {
+        updateMigrationState(id, "failed", {
+          failureReason:
+            event.payload.detail?.failureReason || event.payload.error || "Unknown error",
+          completedAt: new Date().toISOString(),
+        });
+      } else if (event.eventType === "step") {
+        // Keep state as 'running' once pipeline starts, propagate source counts.
+        const current = getMigration(id);
+        const newState = current?.state === "pending" ? "running" : (current?.state ?? "running");
         const extra: Parameters<typeof updateMigrationState>[2] = {};
-        if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
-        if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
-        const tgt: Counts = {
-          commits: snap.commits,
-          branches: snap.branches,
-          tags: snap.tags,
-          issues: snap.issues,
-          pullRequests: snap.pullRequests,
-          releases: snap.releases,
-        };
-        extra.targetCounts = tgt;
-        if (srcCounts) extra.sourceCounts = srcCounts;
-        if (Object.keys(extra).length > 0) {
-          updateMigrationState(id, "running", extra);
+        if (event.payload.counts) {
+          extra.sourceCounts = event.payload.counts;
+        }
+        if (newState !== current?.state || Object.keys(extra).length > 0) {
+          updateMigrationState(id, newState as MigrationState, extra);
+        }
+      } else if (event.eventType === "snapshot") {
+        // Propagate live data from snapshots to the migration record.
+        // Guard: don't overwrite a terminal state (e.g. cancelled) back to running.
+        const current = getMigration(id);
+        if (current && ["succeeded", "failed", "cancelled"].includes(current.state)) {
+          // Skip — migration already reached a terminal state.
+        } else {
+          const snap = event.payload.progress?.current;
+          const srcCounts = event.payload.sourceCounts;
+          if (snap) {
+            const extra: Parameters<typeof updateMigrationState>[2] = {};
+            if (snap.warningsCount > 0) extra.warningsCount = snap.warningsCount;
+            if (snap.migrationLogUrl) extra.migrationLogUrl = snap.migrationLogUrl;
+            const tgt: Counts = {
+              commits: snap.commits,
+              branches: snap.branches,
+              tags: snap.tags,
+              issues: snap.issues,
+              pullRequests: snap.pullRequests,
+              releases: snap.releases,
+            };
+            extra.targetCounts = tgt;
+            if (srcCounts) extra.sourceCounts = srcCounts;
+            if (Object.keys(extra).length > 0) {
+              updateMigrationState(id, "running", extra);
+            }
+          }
         }
       }
-    }
+    })();
 
-    // 3. Broadcast to SSE subscribers.
+    // 3. Broadcast to SSE subscribers (outside transaction — side-effect).
     broadcastEvent(id, event);
   };
 }
 
 /** Shared `.then()` handler for the fire-and-forget pipeline / resume promise. */
 function handlePipelineResult(id: string, result: Migration): void {
+  // Guard: if the migration has already reached a terminal state (e.g. via
+  // a "complete" or "failure" event in createEmitHandler, or a cancellation),
+  // skip the redundant update to avoid overwriting it.
+  const current = getMigration(id);
+  if (current && ["succeeded", "failed", "cancelled"].includes(current.state)) {
+    controllers.delete(id);
+    return;
+  }
+
   updateMigrationState(id, result.state, {
     githubMigrationId: result.githubMigrationId ?? undefined,
     sourceCounts: result.sourceCounts ?? undefined,
@@ -146,20 +168,12 @@ const globalSubscribers = new Set<ReadableStreamDefaultController<string>>();
 // ── Public API ──────────────────────────────────────────────────────────────
 
 export function start(req: CreateMigrationRequest, batchId?: string): Migration {
-  const active = getActiveMigrationCount();
-  if (active >= MAX_CONCURRENT) {
-    throw new Error(
-      `Concurrency limit reached (${MAX_CONCURRENT}). Wait for a running migration to complete.`,
-    );
-  }
-
   const id = Bun.randomUUIDv7();
   const now = new Date().toISOString();
 
   // Determine source org/repo from the request.
-  const parts = req.sourceRepo.split("/");
-  const sourceOrg = parts.length > 1 ? parts[0] : req.sourceRepo;
-  const sourceRepoName = parts.length > 1 ? parts[1] : req.sourceRepo;
+  const sourceOrg = extractOrg(req.sourceRepo);
+  const sourceRepoName = extractRepo(req.sourceRepo);
 
   const migration: Migration = {
     id,
@@ -181,7 +195,17 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     elapsedSeconds: null,
   };
 
-  insertMigration(migration);
+  // Atomic check-and-insert: wrap concurrency check + insert in a
+  // transaction so no two callers can race past MAX_CONCURRENT.
+  getDb().transaction(() => {
+    const active = getActiveMigrationCount();
+    if (active >= MAX_CONCURRENT) {
+      throw new Error(
+        `Concurrency limit reached (${MAX_CONCURRENT}). Wait for a running migration to complete.`,
+      );
+    }
+    insertMigration(migration);
+  })();
 
   // Create an AbortController for cancellation.
   const ac = new AbortController();
@@ -242,9 +266,14 @@ export function startBatch(req: BatchMigrationRequest): BatchSummary {
     try {
       const migration = start(migReq, batchId);
       migrations.push(migration);
-    } catch {
-      // Hit concurrency limit — collect remaining repos as skipped.
-      skippedRepos.push(trimmed);
+    } catch (err) {
+      // Only treat concurrency-limit errors as "skipped" — rethrow anything
+      // unexpected (DB failures, etc.) so it surfaces instead of being silent.
+      if (err instanceof Error && err.message.startsWith("Concurrency limit reached")) {
+        skippedRepos.push(trimmed);
+      } else {
+        throw err;
+      }
     }
   }
 

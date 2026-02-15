@@ -126,6 +126,17 @@
 		{/if}
 	</div>
 
+	<!-- Skipped repos warning (from query param) -->
+	{#if page.url.searchParams.has('skipped')}
+		{@const skipped = Number(page.url.searchParams.get('skipped'))}
+		{#if skipped > 0}
+			<div class="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400 flex items-center gap-2">
+				<Octicon name="alert" size={16} class="shrink-0" />
+				{skipped} {skipped === 1 ? 'repository was' : 'repositories were'} skipped due to the concurrency limit ({batch.totalCount} started).
+			</div>
+		{/if}
+	{/if}
+
 	<!-- Overall progress -->
 	<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
 		<div class="flex items-center justify-between mb-3">

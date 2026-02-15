@@ -10,7 +10,7 @@
  * @param fallback - String to return when seconds is null/0 (default "—").
  */
 export function formatElapsed(seconds: number | null, fallback = "—"): string {
-  if (!seconds) return fallback;
+  if (seconds == null) return fallback;
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   if (m >= 60) {

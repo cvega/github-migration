@@ -103,7 +103,8 @@
 	}
 
 	function repoUrl(apiUrl: string, org: string, repo: string): string {
-		const base = apiUrl.includes('api.github.com')
+		const hostname = new URL(apiUrl).hostname;
+		const base = hostname === 'api.github.com' || hostname === 'github.com'
 			? 'https://github.com'
 			: apiUrl.replace(/\/+$/, '').replace(/\/api\/v3$/, '');
 		return `${base}/${org}/${repo}`;

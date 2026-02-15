@@ -42,6 +42,7 @@ import {
 import { type EventEmitter, runMonitor } from "./monitor";
 import { updateCheckpoint } from "./store";
 import { uploadArchive } from "./upload";
+import { extractOrg, extractRepo } from "./util";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {
   id?: string;
@@ -387,8 +388,20 @@ async function resolveArchives(
     const sourceToken = await clients.getSourceToken();
 
     await Promise.all([
-      downloadToFile(gitSourceUrl, sourceToken, gitTmpPath, opts.noSslVerify),
-      downloadToFile(metaSourceUrl, sourceToken, metaTmpPath, opts.noSslVerify),
+      downloadToFile(
+        gitSourceUrl,
+        sourceToken,
+        gitTmpPath,
+        opts.noSslVerify,
+        migration.sourceApiUrl,
+      ),
+      downloadToFile(
+        metaSourceUrl,
+        sourceToken,
+        metaTmpPath,
+        opts.noSslVerify,
+        migration.sourceApiUrl,
+      ),
     ]);
 
     // Upload to GitHub storage (sequential to limit peak memory to one archive).
@@ -421,13 +434,32 @@ async function resolveArchives(
   }
 }
 
+/**
+ * Validate that a download URL points to the same host as the source API.
+ * Prevents SSRF / token leakage if GHES returns a crafted archive URL.
+ */
+function assertTrustedHost(downloadUrl: string, sourceApiUrl: string): void {
+  const download = new URL(downloadUrl);
+  const source = new URL(sourceApiUrl);
+  if (download.hostname !== source.hostname) {
+    throw new Error(
+      `Refusing to send credentials to ${download.hostname} — expected ${source.hostname}`,
+    );
+  }
+}
+
 /** Stream a download to a temp file instead of buffering in memory. */
 async function downloadToFile(
   url: string,
   token: string,
   destPath: string,
   noSslVerify?: boolean,
+  sourceApiUrl?: string,
 ): Promise<void> {
+  // Validate the download URL against the source API host if provided.
+  if (sourceApiUrl) {
+    assertTrustedHost(url, sourceApiUrl);
+  }
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     // Bun supports a `tls` option for self-signed certificates.
@@ -438,18 +470,6 @@ async function downloadToFile(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Extract org from "org/repo" format — returns whole string if no slash. */
-function extractOrg(repoSlug: string): string {
-  const idx = repoSlug.indexOf("/");
-  return idx > 0 ? repoSlug.substring(0, idx) : repoSlug;
-}
-
-/** Extract repo name from "org/repo" format. */
-function extractRepo(repoSlug: string): string {
-  const idx = repoSlug.indexOf("/");
-  return idx > 0 ? repoSlug.substring(idx + 1) : repoSlug;
-}
 
 /**
  * Determine auth mode for crash recovery eligibility.

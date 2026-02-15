@@ -160,6 +160,39 @@ export function createClients(opts: {
   };
 }
 
+/**
+ * Create a standalone Octokit client for a single side — used when you only
+ * need one side (e.g. rate limit checks) without constructing a full pair.
+ */
+export function createSingleClient(
+  auth: AuthInput,
+  baseUrl: string,
+): InstanceType<typeof RetryOctokit> {
+  const throttleOpts = {
+    onRateLimit: (
+      retryAfter: number,
+      options: Record<string, unknown>,
+      _octokit: unknown,
+      retryCount: number,
+    ) => {
+      console.warn(
+        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
+      );
+      return retryCount < 3;
+    },
+    onSecondaryRateLimit: (
+      retryAfter: number,
+      options: Record<string, unknown>,
+      _octokit: unknown,
+      retryCount: number,
+    ) => {
+      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
+      return retryCount < 3;
+    },
+  };
+  return buildSide(auth, normalizeApiUrl(baseUrl), throttleOpts).client;
+}
+
 // ── GHES operations ────────────────────────────────────────────────────────
 
 /** Response shape for GHES /api/v3/meta. */
@@ -249,11 +282,18 @@ export async function waitForArchive(
   archiveId: number,
   signal?: AbortSignal,
   pollInterval = 60_000,
+  maxWaitMs = 2 * 60 * 60 * 1000, // 2 hours default
 ): Promise<string> {
+  const deadline = Date.now() + maxWaitMs;
   while (!signal?.aborted) {
     const status = await getArchiveStatus(client, org, archiveId);
     if (status === "exported") return getArchiveUrl(client, org, archiveId);
     if (status === "failed") throw new Error(`Archive export ${archiveId} failed`);
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Archive export ${archiveId} timed out after ${Math.round(maxWaitMs / 60_000)} minutes`,
+      );
+    }
     await sleep(pollInterval, signal);
   }
   throw new Error("Archive wait aborted");
@@ -268,8 +308,15 @@ export async function doesOrgExist(
   try {
     await client.orgs.get({ org });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "status" in error &&
+      (error as { status: number }).status === 404
+    ) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -281,8 +328,15 @@ export async function doesRepoExist(
   try {
     await client.repos.get({ owner, repo });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "status" in error &&
+      (error as { status: number }).status === 404
+    ) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -337,17 +391,12 @@ export async function startMigration(
   gql: typeof graphql,
   opts: StartMigrationOpts,
 ): Promise<string> {
-  const visibilityDecl = opts.targetRepoVisibility ? "$targetRepoVisibility: String," : "";
-  const visibilityField = opts.targetRepoVisibility
-    ? "targetRepoVisibility: $targetRepoVisibility,"
-    : "";
-
   const mutation = `mutation startRepositoryMigration(
 		$sourceId: ID!, $ownerId: ID!, $sourceRepositoryUrl: URI!,
 		$repositoryName: String!, $continueOnError: Boolean!,
 		$gitArchiveUrl: String, $metadataArchiveUrl: String,
 		$accessToken: String!, $githubPat: String, $skipReleases: Boolean,
-		${visibilityDecl} $lockSource: Boolean
+		$targetRepoVisibility: String, $lockSource: Boolean
 	) {
 		startRepositoryMigration(input: {
 			sourceId: $sourceId, ownerId: $ownerId,
@@ -355,7 +404,7 @@ export async function startMigration(
 			repositoryName: $repositoryName, continueOnError: $continueOnError,
 			gitArchiveUrl: $gitArchiveUrl, metadataArchiveUrl: $metadataArchiveUrl,
 			accessToken: $accessToken, githubPat: $githubPat,
-			skipReleases: $skipReleases, ${visibilityField} lockSource: $lockSource
+			skipReleases: $skipReleases, targetRepoVisibility: $targetRepoVisibility, lockSource: $lockSource
 		}) {
 			repositoryMigration { id }
 		}
@@ -372,9 +421,9 @@ export async function startMigration(
     accessToken: opts.sourceToken,
     githubPat: opts.targetToken,
     skipReleases: opts.skipReleases ?? false,
+    targetRepoVisibility: opts.targetRepoVisibility || null,
     lockSource: opts.lockSource ?? false,
   };
-  if (opts.targetRepoVisibility) variables.targetRepoVisibility = opts.targetRepoVisibility;
 
   const result = await gql<{
     startRepositoryMigration: { repositoryMigration: { id: string } };
@@ -539,17 +588,27 @@ export async function archiveRepository(gql: typeof graphql, repoNodeId: string)
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/** Check if a URL points to the github.com API (not a GHES instance). */
+function isGitHubDotCom(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "api.github.com" || hostname === "github.com";
+  } catch {
+    return url.includes("api.github.com");
+  }
+}
+
 function normalizeApiUrl(url: string): string {
   url = url.replace(/\/+$/, "");
   // GHES: https://ghes.example.com → https://ghes.example.com/api/v3
-  if (!url.includes("api.github.com") && !url.endsWith("/api/v3")) {
+  if (!isGitHubDotCom(url) && !url.endsWith("/api/v3")) {
     return `${url}/api/v3`;
   }
   return url;
 }
 
 export function sourceBaseUrl(apiUrl: string): string {
-  if (apiUrl.includes("api.github.com")) return "https://github.com";
+  if (isGitHubDotCom(apiUrl)) return "https://github.com";
   const u = apiUrl.replace(/\/+$/, "");
   if (u.endsWith("/api/v3")) return u.replace(/\/api\/v3$/, "");
   if (u.includes("://api.")) return u.replace("://api.", "://");
@@ -557,7 +616,7 @@ export function sourceBaseUrl(apiUrl: string): string {
 }
 
 export function isGhecSource(apiUrl: string): boolean {
-  return apiUrl.includes("api.github.com");
+  return isGitHubDotCom(apiUrl);
 }
 
 function isVersionAtLeast(version: string, min: string): boolean {

@@ -21,7 +21,7 @@
  */
 import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/types";
-import { createClients, getRateLimit, type RateLimitInfo } from "./github";
+import { createSingleClient, getRateLimit, type RateLimitInfo } from "./github";
 
 export type DisplayAuthMode = "pat" | "github-app";
 
@@ -206,35 +206,23 @@ export async function fetchLiveRateLimits(): Promise<{
   };
 
   try {
-    if (sourceAuth && targetAuth) {
-      const clients = createClients({
-        sourceApiUrl: env.GH_SOURCE_API_URL || "https://api.github.com",
-        sourceAuth,
-        targetAuth,
-      });
-      const [src, tgt] = await Promise.all([
-        getRateLimit(clients.source).catch(() => null),
-        getRateLimit(clients.target).catch(() => null),
-      ]);
-      results.source = src;
-      results.target = tgt;
-    } else if (sourceAuth) {
-      const dummyTarget: AuthInput = { token: "unused" };
-      const clients = createClients({
-        sourceApiUrl: env.GH_SOURCE_API_URL || "https://api.github.com",
-        sourceAuth,
-        targetAuth: dummyTarget,
-      });
-      results.source = await getRateLimit(clients.source).catch(() => null);
-    } else if (targetAuth) {
-      const dummySource: AuthInput = { token: "unused" };
-      const clients = createClients({
-        sourceApiUrl: env.GH_SOURCE_API_URL || "https://api.github.com",
-        sourceAuth: dummySource,
-        targetAuth,
-      });
-      results.target = await getRateLimit(clients.target).catch(() => null);
+    const fetches: Promise<void>[] = [];
+    if (sourceAuth) {
+      const sourceBaseUrl = env.GH_SOURCE_API_URL || "https://api.github.com";
+      fetches.push(
+        getRateLimit(createSingleClient(sourceAuth, sourceBaseUrl))
+          .then((r) => { results.source = r; })
+          .catch(() => {}),
+      );
     }
+    if (targetAuth) {
+      fetches.push(
+        getRateLimit(createSingleClient(targetAuth, "https://api.github.com"))
+          .then((r) => { results.target = r; })
+          .catch(() => {}),
+      );
+    }
+    await Promise.all(fetches);
   } catch {
     // Non-fatal — return whatever we have
   }

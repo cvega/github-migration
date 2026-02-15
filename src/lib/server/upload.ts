@@ -8,10 +8,41 @@
  */
 
 const MULTIPART_CUTOFF = 100 * 1024 * 1024; // 100 MiB
+const UPLOAD_MAX_RETRIES = 3;
+const UPLOAD_RETRY_DELAY_MS = 5_000;
 
 /** Normalise to Blob so fetch always gets a valid BodyInit. */
 function toBlob(data: Blob | Uint8Array): Blob {
   return data instanceof Blob ? data : new Blob([data as BlobPart]);
+}
+
+/**
+ * Retry wrapper — retries a function up to `maxRetries` times with a
+ * linear backoff delay for transient network / server errors.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = UPLOAD_MAX_RETRIES,
+  delayMs = UPLOAD_RETRY_DELAY_MS,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        const wait = delayMs * (attempt + 1);
+        console.warn(
+          `[upload] ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${wait}ms:`,
+          err instanceof Error ? err.message : err,
+        );
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function uploadArchive(
@@ -21,11 +52,13 @@ export async function uploadArchive(
   targetToken: string,
   uploadsUrl = "https://uploads.github.com",
 ): Promise<string> {
-  const size = archive instanceof Blob ? archive.size : archive.byteLength;
-  if (size > MULTIPART_CUTOFF) {
-    return uploadMultipart(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
-  }
-  return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
+  return withRetry(async () => {
+    const size = archive instanceof Blob ? archive.size : archive.byteLength;
+    if (size > MULTIPART_CUTOFF) {
+      return uploadMultipart(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
+    }
+    return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
+  }, `upload ${name}`);
 }
 
 async function uploadSingle(

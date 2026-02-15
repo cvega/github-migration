@@ -18,3 +18,15 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+/** Extract org from "org/repo" format — returns whole string if no slash. */
+export function extractOrg(repoSlug: string): string {
+  const idx = repoSlug.indexOf("/");
+  return idx > 0 ? repoSlug.substring(0, idx) : idx === 0 ? "" : repoSlug;
+}
+
+/** Extract repo name from "org/repo" format. */
+export function extractRepo(repoSlug: string): string {
+  const idx = repoSlug.indexOf("/");
+  return idx > 0 ? repoSlug.substring(idx + 1) : idx === 0 ? repoSlug.substring(1) : repoSlug;
+}

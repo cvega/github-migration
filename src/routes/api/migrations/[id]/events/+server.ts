@@ -39,9 +39,13 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
       // Subscribe to live events.
       unsubscribe = subscribe(params.id, controller);
 
-      // If the migration is already terminal, close after replay.
-      if (["succeeded", "failed", "cancelled"].includes(migration.state)) {
-        controller.enqueue(`data: ${JSON.stringify({ type: "done", state: migration.state })}\n\n`);
+      // Re-read migration state AFTER subscribing to close the race window.
+      // If the migration went terminal between the initial read and subscribe(),
+      // the broadcast would have been missed. Checking again ensures we detect it.
+      const freshMigration = get(params.id);
+      const terminalState = freshMigration?.state ?? migration.state;
+      if (["succeeded", "failed", "cancelled"].includes(terminalState)) {
+        controller.enqueue(`data: ${JSON.stringify({ type: "done", state: terminalState })}\n\n`);
         controller.close();
         unsubscribe();
         unsubscribe = null;

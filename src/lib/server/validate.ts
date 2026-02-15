@@ -8,6 +8,13 @@
 
 const VALID_VISIBILITIES = ["private", "public", "internal"] as const;
 
+/** Check if a value is undefined, null, or an empty/whitespace-only string. */
+function isBlank(value: unknown): boolean {
+  return (
+    value === undefined || value === null || (typeof value === "string" && value.trim() === "")
+  );
+}
+
 const BOOLEAN_FIELDS = [
   "noSslVerify",
   "skipReleases",
@@ -62,7 +69,7 @@ function validateAppAuth(value: unknown, fieldName: string): string | null {
   const required = ["appId", "privateKey", "installationId"] as const;
 
   for (const key of required) {
-    if (!(key in app) || app[key] === undefined || app[key] === null) {
+    if (!(key in app) || isBlank(app[key])) {
       return `Field "${fieldName}.${key}" is required`;
     }
     if (typeof app[key] !== "string") {

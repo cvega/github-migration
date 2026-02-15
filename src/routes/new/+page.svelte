@@ -154,7 +154,9 @@
 				}
 
 				const batch = await res.json();
-				goto(`/batches/${batch.id}`);
+				const skipped = batch.skippedRepos?.length ?? 0;
+				const qs = skipped > 0 ? `?skipped=${skipped}` : '';
+				goto(`/batches/${batch.id}${qs}`);
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -227,6 +229,7 @@
 					ondragover={(e) => { e.preventDefault(); dragOver = true; }}
 					ondragleave={() => dragOver = false}
 					ondrop={handleDrop}
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (e.currentTarget.querySelector('input[type="file"]') as HTMLElement)?.click(); } }}
 				>
 					<div class="flex items-center justify-center gap-1.5 text-gray-400">
 						<Octicon name="upload" size={16} />

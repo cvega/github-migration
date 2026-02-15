@@ -134,13 +134,25 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
   if (await poll()) return terminalPhase;
 
   // Tick loop.
+  const MAX_CONSECUTIVE_ERRORS = 10;
+  let consecutiveErrors = 0;
   while (!cfg.signal?.aborted) {
     await sleep(interval, cfg.signal);
     if (cfg.signal?.aborted) break;
     try {
       if (await poll()) return terminalPhase;
+      consecutiveErrors = 0;
     } catch (err) {
-      console.warn("Monitor poll error — will retry", err);
+      consecutiveErrors++;
+      console.warn(
+        `Monitor poll error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}) — will retry`,
+        err,
+      );
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        throw new Error(
+          `Monitor: ${MAX_CONSECUTIVE_ERRORS} consecutive poll failures — aborting. Last error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 
@@ -294,12 +306,20 @@ async function fetchFailureDetail(
 
   if (snap.migrationLogUrl) {
     try {
-      const token = await cfg.clients.getTargetToken();
-      const resp = await fetch(snap.migrationLogUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (resp.ok) {
-        detail.logEntries = (await resp.json()) as LogEntry[];
+      // The migration log URL always comes from GHEC (the target), so it
+      // should always be on a *.github.com domain.  Validate before sending
+      // credentials to prevent leakage if the API response were ever spoofed.
+      const logHost = new URL(snap.migrationLogUrl).hostname;
+      if (!logHost.endsWith(".github.com") && logHost !== "github.com") {
+        console.warn(`[monitor] Refusing to fetch migration log from untrusted host: ${logHost}`);
+      } else {
+        const token = await cfg.clients.getTargetToken();
+        const resp = await fetch(snap.migrationLogUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (resp.ok) {
+          detail.logEntries = (await resp.json()) as LogEntry[];
+        }
       }
     } catch {
       // Non-fatal
@@ -308,8 +328,3 @@ async function fetchFailureDetail(
 
   return detail;
 }
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-// Re-export shared sleep utility.
-export { sleep } from "$lib/server/util";

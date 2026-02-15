@@ -3,7 +3,7 @@
  * graceful shutdown, and store initialization.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Handle, HandleServerError } from "@sveltejs/kit";
 import { env } from "$env/dynamic/private";
 import { recoverOrphans } from "$lib/server/manager";
@@ -123,12 +123,13 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
     const user = decoded.slice(0, colonIdx);
     const pass = decoded.slice(colonIdx + 1);
-    const userMatch =
-      user.length === authUser!.length &&
-      timingSafeEqual(Buffer.from(user), Buffer.from(authUser!));
-    const passMatch =
-      pass.length === authPass!.length &&
-      timingSafeEqual(Buffer.from(pass), Buffer.from(authPass!));
+    // Use HMAC-SHA256 comparison — produces fixed-length buffers regardless
+    // of input length, eliminating the timing side-channel that a
+    // length-check-before-timingSafeEqual pattern would introduce.
+    const hmacKey = "gh-migrate-auth";
+    const hmac = (v: string) => createHmac("sha256", hmacKey).update(v).digest();
+    const userMatch = timingSafeEqual(hmac(user), hmac(authUser!));
+    const passMatch = timingSafeEqual(hmac(pass), hmac(authPass!));
     if (!userMatch || !passMatch) {
       recordFailedAttempt(ip);
       return new Response("Forbidden", { status: 403 });
@@ -168,7 +169,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 // ── Error handler ───────────────────────────────────────────────────────────
 
 export const handleError: HandleServerError = async ({ error, event }) => {
-  const id = crypto.randomUUID().slice(0, 8);
+  const id = Bun.randomUUIDv7().slice(0, 8);
   console.error(`[error ${id}] ${event.request.method} ${event.url.pathname}`, error);
   return {
     message: `Internal error (ref: ${id})`,

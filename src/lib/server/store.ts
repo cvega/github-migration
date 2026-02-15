@@ -2,7 +2,6 @@
  * SQLite persistence layer for migrations and events.
  */
 
-import type { SQLQueryBindings } from "bun:sqlite";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -70,6 +69,34 @@ export function closeStore(): void {
   }
 }
 
+// ── Column projections ─────────────────────────────────────────────────────
+
+/** Explicit column list for migration queries — keeps projections in sync with the schema. */
+const MIGRATION_COLS = [
+  "id",
+  "batch_id",
+  "github_migration_id",
+  "source_api_url",
+  "source_org",
+  "source_repo",
+  "target_org",
+  "target_repo",
+  "state",
+  "failure_reason",
+  "migration_log_url",
+  "warnings_count",
+  "source_counts",
+  "target_counts",
+  "started_at",
+  "completed_at",
+  "elapsed_seconds",
+  "pipeline_step",
+  "auth_mode",
+].join(", ");
+
+/** Explicit column list for event queries. */
+const EVENT_COLS = "id, migration_id, event_type, phase, payload, created_at";
+
 // ── Migrations ─────────────────────────────────────────────────────────────
 
 export function insertMigration(m: Migration): void {
@@ -95,6 +122,17 @@ export function insertMigration(m: Migration): void {
     );
 }
 
+/**
+ * Update migration state and optional extra fields.
+ *
+ * **COALESCE constraint:** The UPDATE uses `COALESCE(?, column)` for every
+ * extra field, meaning `null` (the default when a field isn't provided)
+ * preserves the existing DB value. This is intentional — it lets callers
+ * update only the fields they care about. However, it also means you
+ * **cannot** explicitly set a field back to `NULL` once it has a value.
+ * If that ever becomes necessary, introduce a sentinel value or a
+ * separate "clear" query.
+ */
 export function updateMigrationState(
   id: string,
   state: MigrationState,
@@ -167,7 +205,7 @@ export function updateCheckpoint(
 export function getRecoverableMigrations(): Migration[] {
   const rows = getDb()
     .prepare(
-      `SELECT * FROM migrations
+      `SELECT ${MIGRATION_COLS} FROM migrations
        WHERE state IN ('pending', 'running')
          AND auth_mode = 'env-app'
          AND github_migration_id IS NOT NULL
@@ -179,7 +217,7 @@ export function getRecoverableMigrations(): Migration[] {
 }
 
 export function getMigration(id: string): Migration | null {
-  const row = getDb().prepare("SELECT * FROM migrations WHERE id = ?").get(id) as
+  const row = getDb().prepare(`SELECT ${MIGRATION_COLS} FROM migrations WHERE id = ?`).get(id) as
     | Record<string, unknown>
     | undefined;
   if (!row) return null;
@@ -187,10 +225,9 @@ export function getMigration(id: string): Migration | null {
 }
 
 export function listMigrations(): Migration[] {
-  const rows = getDb().prepare("SELECT * FROM migrations ORDER BY started_at DESC").all() as Record<
-    string,
-    unknown
-  >[];
+  const rows = getDb()
+    .prepare(`SELECT ${MIGRATION_COLS} FROM migrations ORDER BY started_at DESC`)
+    .all() as Record<string, unknown>[];
   return rows.map(rowToMigration);
 }
 
@@ -201,7 +238,7 @@ export function listMigrationsPaginated(params: PaginationParams): PaginatedResu
     count: number;
   };
   const rows = getDb()
-    .prepare("SELECT * FROM migrations ORDER BY started_at DESC LIMIT ? OFFSET ?")
+    .prepare(`SELECT ${MIGRATION_COLS} FROM migrations ORDER BY started_at DESC LIMIT ? OFFSET ?`)
     .all(limit, offset) as Record<string, unknown>[];
   return {
     data: rows.map(rowToMigration),
@@ -273,7 +310,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
 
 export function getBatchMigrations(batchId: string): Migration[] {
   const rows = getDb()
-    .prepare("SELECT * FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC")
+    .prepare(`SELECT ${MIGRATION_COLS} FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC`)
     .all(batchId) as Record<string, unknown>[];
   return rows.map(rowToMigration);
 }
@@ -289,7 +326,7 @@ export function getBatchMigrationsPaginated(
     .get(batchId) as { count: number };
   const rows = getDb()
     .prepare(
-      "SELECT * FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC LIMIT ? OFFSET ?",
+      `SELECT ${MIGRATION_COLS} FROM migrations WHERE batch_id = ? ORDER BY source_repo ASC LIMIT ? OFFSET ?`,
     )
     .all(batchId, limit, offset) as Record<string, unknown>[];
   return {
@@ -411,19 +448,16 @@ const VALID_EVENT_TYPES = new Set([
 ]);
 
 export function getEvents(migrationId: string, afterId?: number): MigrationEvent[] {
-  let query = "SELECT * FROM events WHERE migration_id = ?";
-  const params: SQLQueryBindings[] = [migrationId];
-
-  if (afterId !== undefined) {
-    query += " AND id > ?";
-    params.push(afterId);
-  }
-
-  query += " ORDER BY id ASC";
-
-  const rows = getDb()
-    .prepare(query)
-    .all(...params) as Record<string, unknown>[];
+  const rows =
+    afterId !== undefined
+      ? (getDb()
+          .prepare(
+            `SELECT ${EVENT_COLS} FROM events WHERE migration_id = ? AND id > ? ORDER BY id ASC`,
+          )
+          .all(migrationId, afterId) as Record<string, unknown>[])
+      : (getDb()
+          .prepare(`SELECT ${EVENT_COLS} FROM events WHERE migration_id = ? ORDER BY id ASC`)
+          .all(migrationId) as Record<string, unknown>[]);
   return rows
     .filter((row) => VALID_EVENT_TYPES.has(row.event_type as string))
     .map(

@@ -23,8 +23,8 @@
 
 	// Re-seed when navigating between pages (layout data re-runs).
 	$effect(() => {
-		liveSource = data.sourceAuth.rateLimitLive ?? liveSource;
-		liveTarget = data.targetAuth.rateLimitLive ?? liveTarget;
+		liveSource = data.sourceAuth.rateLimitLive ?? untrack(() => liveSource);
+		liveTarget = data.targetAuth.rateLimitLive ?? untrack(() => liveTarget);
 		activeMigrations = data.activeMigrations;
 		ghStatus = data.ghStatus;
 	});
