@@ -3,7 +3,6 @@
  * real-time progress. Emits events via a callback that the manager wires
  * to SSE + SQLite.
  *
- * Port of pkg/monitor/monitor.go
  */
 import { sleep } from "$lib/server/util";
 import type {
@@ -206,7 +205,7 @@ async function takeSnapshot(
   return snap;
 }
 
-// ── Phase detection (port of pkg/monitor/phase.go) ──────────────────────────
+// ── Phase detection ─────────────────────────────────────────────────────────
 
 function detectPhase(
   migrationState: string,
