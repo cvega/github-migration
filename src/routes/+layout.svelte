@@ -1,9 +1,10 @@
 <!-- Root layout -->
 <script lang="ts">
 	import '../app.css';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, setContext } from 'svelte';
 	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import type { GitHubStatus } from '$lib/types';
 
 	let { data, children } = $props();
 	const sourceApp = $derived(data.sourceAuth.mode === 'github-app');
@@ -13,13 +14,18 @@
 	let liveSource = $state(untrack(() => data.sourceAuth.rateLimitLive ?? null));
 	let liveTarget = $state(untrack(() => data.targetAuth.rateLimitLive ?? null));
 	let activeMigrations = $state(untrack(() => data.activeMigrations));
+	let ghStatus: GitHubStatus = $state(untrack(() => data.ghStatus));
 	const migrating = $derived(activeMigrations > 0);
+
+	// Expose live ghStatus to child pages via context.
+	setContext('ghStatus', { get value() { return ghStatus; } });
 
 	// Re-seed when navigating between pages (layout data re-runs).
 	$effect(() => {
 		liveSource = data.sourceAuth.rateLimitLive ?? liveSource;
 		liveTarget = data.targetAuth.rateLimitLive ?? liveTarget;
 		activeMigrations = data.activeMigrations;
+		ghStatus = data.ghStatus;
 	});
 
 	// Poll /api/rate-limits every 30s to keep the navbar current.
@@ -33,6 +39,7 @@
 				if (body.source) liveSource = body.source;
 				if (body.target) liveTarget = body.target;
 				activeMigrations = body.activeMigrations ?? activeMigrations;
+				if (body.ghStatus) ghStatus = body.ghStatus;
 			}
 		} catch {
 			// Non-fatal

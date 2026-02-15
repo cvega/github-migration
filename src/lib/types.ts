@@ -258,3 +258,17 @@ export interface BatchListItem {
   cancelledCount: number;
   startedAt: string;
 }
+
+// ── GitHub Status ──────────────────────────────────────────────────────────
+
+export interface GitHubStatusIncident {
+  name: string;
+  status: string;
+  url: string;
+}
+
+export interface GitHubStatus {
+  ok: boolean;
+  incidentCount: number;
+  incidents: GitHubStatusIncident[];
+}
