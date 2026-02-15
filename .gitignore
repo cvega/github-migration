@@ -21,3 +21,6 @@ build/
 .svelte-kit/
 data/
 *.db
+
+# Environment variables
+.env
