@@ -41,11 +41,23 @@
 	});
 
 	const isActive = $derived(batch.queuedCount > 0 || batch.pendingCount > 0 || batch.runningCount > 0);
+	const barTotal = $derived(batch.totalCount || 1);
 	const pctComplete = $derived(
 		batch.totalCount > 0
 			? Math.round(((batch.succeededCount + batch.failedCount + batch.cancelledCount) / batch.totalCount) * 100)
 			: 0
 	);
+	const barSegments = $derived.by(() => {
+		const segs: Array<{ color: string; pct: number; topInset: string; bottomInset: string }> = [];
+		if (batch.succeededCount > 0) segs.push({ color: '#22c55e', pct: (batch.succeededCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.runningCount > 0)   segs.push({ color: '#22c55e', pct: (batch.runningCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.pendingCount > 0)   segs.push({ color: 'rgba(234,179,8,0.5)', pct: (batch.pendingCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.queuedCount > 0)    segs.push({ color: 'rgba(59,130,246,0.4)', pct: (batch.queuedCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.failedCount > 0)    segs.push({ color: '#ef4444', pct: (batch.failedCount / barTotal) * 100, topInset: '2px', bottomInset: '1px' });
+		if (batch.cancelledCount > 0) segs.push({ color: '#4b5563', pct: (batch.cancelledCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		let left = 0;
+		return segs.map(s => { const seg = { ...s, left }; left += s.pct; return seg; });
+	});
 
 	const stateStyles: Record<string, string> = {
 		queued: 'bg-blue-500/15 text-blue-400',
@@ -136,31 +148,10 @@
 		</div>
 
 		<!-- Stacked progress bar -->
-		<div class="h-4 overflow-hidden rounded-full bg-gray-800 flex">
-			{#if batch.succeededCount > 0}
-				<div class="bg-green-500 transition-all duration-500"
-					style="width: {(batch.succeededCount / batch.totalCount) * 100}%"></div>
-			{/if}
-			{#if batch.runningCount > 0}
-				<div class="bg-green-500 animate-pulse transition-all duration-500"
-					style="width: {(batch.runningCount / batch.totalCount) * 100}%"></div>
-			{/if}
-			{#if batch.pendingCount > 0}
-				<div class="bg-yellow-500/50 transition-all duration-500"
-					style="width: {(batch.pendingCount / batch.totalCount) * 100}%"></div>
-			{/if}
-			{#if batch.queuedCount > 0}
-				<div class="bg-blue-500/40 transition-all duration-500"
-					style="width: {(batch.queuedCount / batch.totalCount) * 100}%"></div>
-			{/if}
-			{#if batch.failedCount > 0}
-				<div class="bg-red-500 transition-all duration-500"
-					style="width: {(batch.failedCount / batch.totalCount) * 100}%"></div>
-			{/if}
-			{#if batch.cancelledCount > 0}
-				<div class="bg-gray-600 transition-all duration-500"
-					style="width: {(batch.cancelledCount / batch.totalCount) * 100}%"></div>
-			{/if}
+		<div style="position: relative; height: 16px; border-radius: 8px; overflow: hidden; background: #1f2937;">
+			{#each barSegments as seg}
+				<div style="position: absolute; top: {seg.topInset}; bottom: {seg.bottomInset}; left: {seg.left}%; width: {seg.pct}%; background: {seg.color};"></div>
+			{/each}
 		</div>
 
 		<!-- Stats row -->
