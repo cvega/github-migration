@@ -7,16 +7,17 @@
 import { get, events as getEvents, subscribe } from "$lib/server/manager";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, url, request }) => {
   const migration = get(params.id);
   if (!migration) {
     return new Response("Not found", { status: 404 });
   }
 
-  const afterId = url.searchParams.get("after");
-  const parsedAfterId = afterId ? parseInt(afterId, 10) : undefined;
-  if (afterId && (parsedAfterId === undefined || Number.isNaN(parsedAfterId))) {
-    return new Response('Invalid "after" parameter — must be a number', {
+  // Support both ?after= query param and standard SSE Last-Event-ID header.
+  const afterParam = url.searchParams.get("after") ?? request.headers.get("Last-Event-ID");
+  const parsedAfterId = afterParam ? parseInt(afterParam, 10) : undefined;
+  if (afterParam && (parsedAfterId === undefined || Number.isNaN(parsedAfterId))) {
+    return new Response('Invalid "after" / Last-Event-ID — must be a number', {
       status: 400,
     });
   }
@@ -30,7 +31,8 @@ export const GET: RequestHandler = async ({ params, url }) => {
       if (parsedAfterId !== undefined) {
         const missed = getEvents(params.id, parsedAfterId);
         for (const event of missed) {
-          controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+          const idLine = event.id != null ? `id: ${event.id}\n` : "";
+          controller.enqueue(`${idLine}data: ${JSON.stringify(event)}\n\n`);
         }
       }
 

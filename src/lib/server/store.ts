@@ -259,8 +259,10 @@ function rowToMigration(row: Record<string, unknown>): Migration {
     failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
     migrationLogUrl: typeof row.migration_log_url === "string" ? row.migration_log_url : null,
     warningsCount: typeof row.warnings_count === "number" ? row.warnings_count : 0,
-    sourceCounts: typeof row.source_counts === "string" ? safeJsonParse<Counts>(row.source_counts) : null,
-    targetCounts: typeof row.target_counts === "string" ? safeJsonParse<Counts>(row.target_counts) : null,
+    sourceCounts:
+      typeof row.source_counts === "string" ? safeJsonParse<Counts>(row.source_counts) : null,
+    targetCounts:
+      typeof row.target_counts === "string" ? safeJsonParse<Counts>(row.target_counts) : null,
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
     elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
@@ -338,9 +340,7 @@ export function getBatchListItem(batchId: string): BatchListItem | null {
   };
 }
 
-export function listBatchItemsPaginated(
-  params: PaginationParams,
-): PaginatedResult<BatchListItem> {
+export function listBatchItemsPaginated(params: PaginationParams): PaginatedResult<BatchListItem> {
   const { page, limit } = params;
   const offset = (page - 1) * limit;
   const { count: total } = getDb()
@@ -384,19 +384,20 @@ export function listBatchItemsPaginated(
 
 // ── Events ─────────────────────────────────────────────────────────────────
 
-export function insertEvent(event: MigrationEvent): void {
-  getDb()
-    .prepare(
-      `INSERT INTO events (migration_id, event_type, phase, payload, created_at)
+export function insertEvent(event: MigrationEvent): number {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO events (migration_id, event_type, phase, payload, created_at)
 			 VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      event.migrationId,
-      event.eventType,
-      event.phase,
-      JSON.stringify(event.payload),
-      event.createdAt,
-    );
+  ).run(
+    event.migrationId,
+    event.eventType,
+    event.phase,
+    JSON.stringify(event.payload),
+    event.createdAt,
+  );
+  // Return the auto-increment row ID so callers can include it in SSE id: fields.
+  return (db.query("SELECT last_insert_rowid() AS id").get() as { id: number }).id;
 }
 
 const VALID_EVENT_TYPES = new Set([

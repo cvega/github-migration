@@ -31,6 +31,8 @@ export interface MonitorConfig {
   targetRepo: string;
   sourceOrg?: string;
   sourceRepo?: string;
+  /** Pre-fetched source counts — skip the redundant API call if provided. */
+  sourceCounts?: Counts | null;
   pollInterval?: number; // ms, default 60_000
   signal?: AbortSignal;
   emit: EventEmitter;
@@ -43,9 +45,9 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
   let lastPhase: Phase | null = null;
   let terminalPhase: Phase = "UNKNOWN";
 
-  // Fetch source counts once as baseline for progress %.
-  let sourceCounts: Counts | null = null;
-  if (cfg.sourceOrg && cfg.sourceRepo) {
+  // Use pre-fetched source counts if available, otherwise fetch once.
+  let sourceCounts: Counts | null = cfg.sourceCounts ?? null;
+  if (!sourceCounts && cfg.sourceOrg && cfg.sourceRepo) {
     try {
       sourceCounts = await getRepoCounts(
         cfg.clients.source,

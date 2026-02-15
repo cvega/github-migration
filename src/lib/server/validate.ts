@@ -89,3 +89,14 @@ export async function parseJsonBody(
     return { error: "Invalid JSON in request body" };
   }
 }
+
+/**
+ * Narrow a validated JSON body to a specific request type.
+ *
+ * Centralises the single `as T` assertion so API endpoints don't need
+ * the `as unknown as T` double-cast.  The caller is responsible for
+ * calling `validateCommonFields` first to verify structural correctness.
+ */
+export function narrowBody<T>(data: Record<string, unknown>): T {
+  return data as T;
+}

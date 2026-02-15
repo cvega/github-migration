@@ -177,6 +177,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,
       sourceRepo: migration.sourceRepo,
+      sourceCounts: migration.sourceCounts,
       signal: opts.signal,
       emit,
     });
@@ -492,6 +493,7 @@ export async function resumeMigration(
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,
       sourceRepo: migration.sourceRepo,
+      sourceCounts: migration.sourceCounts,
       emit,
     });
 

@@ -49,8 +49,9 @@ const controllers = new Map<string, AbortController>();
  */
 function createEmitHandler(id: string): (event: MigrationEvent) => void {
   return (event: MigrationEvent) => {
-    // 1. Persist event row.
-    insertEvent(event);
+    // 1. Persist event row and capture the auto-increment ID.
+    const eventId = insertEvent(event);
+    event.id = eventId;
 
     // 2. Update migration state from terminal / progress events immediately
     //    so the DB reflects changes before the SSE broadcast triggers a
@@ -333,7 +334,9 @@ export function subscribeGlobal(controller: ReadableStreamDefaultController<stri
 }
 
 function broadcastEvent(migrationId: string, event: MigrationEvent): void {
-  const data = `data: ${JSON.stringify(event)}\n\n`;
+  // Include SSE id: field so browsers auto-send Last-Event-ID on reconnect.
+  const idLine = event.id != null ? `id: ${event.id}\n` : "";
+  const data = `${idLine}data: ${JSON.stringify(event)}\n\n`;
 
   // Per-migration subscribers.
   const subs = sseSubscribers.get(migrationId);

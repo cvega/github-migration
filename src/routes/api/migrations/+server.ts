@@ -4,7 +4,7 @@
 import { json } from "@sveltejs/kit";
 import { isSourceAppConfigured, isTargetAppConfigured } from "$lib/server/auth";
 import { listPaginated, start } from "$lib/server/manager";
-import { parseJsonBody, validateCommonFields } from "$lib/server/validate";
+import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
 import type { RequestHandler } from "./$types";
@@ -14,7 +14,7 @@ export const POST: RequestHandler = async ({ request }) => {
   if ("error" in parsed) {
     return json({ error: parsed.error }, { status: 400 });
   }
-  const body = parsed.data as unknown as CreateMigrationRequest;
+  const body = narrowBody<CreateMigrationRequest>(parsed.data);
 
   const validationError = validateCommonFields(parsed.data);
   if (validationError) {
