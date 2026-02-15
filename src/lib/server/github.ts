@@ -301,7 +301,7 @@ export async function getOrgId(
   gql: typeof graphql,
   org: string,
 ): Promise<string> {
-  const result: { organization: { id: string } } = await gql(
+  const result = await gql<{ organization: { id: string } }>(
     `query($login: String!) { organization(login: $login) { id } }`,
     { login: org },
   );
@@ -312,7 +312,7 @@ export async function getOrgDatabaseId(
   gql: typeof graphql,
   org: string,
 ): Promise<string> {
-  const result: { organization: { databaseId: number } } = await gql(
+  const result = await gql<{ organization: { databaseId: number } }>(
     `query($login: String!) { organization(login: $login) { databaseId } }`,
     { login: org },
   );
@@ -323,7 +323,7 @@ export async function createMigrationSource(
   gql: typeof graphql,
   orgId: string,
 ): Promise<string> {
-  const result = (await gql(
+  const result = await gql<{ createMigrationSource: { migrationSource: { id: string } } }>(
     `mutation($name: String!, $sourceUrl: String!, $ownerId: ID!, $type: MigrationSourceType!) {
 			createMigrationSource(input: { name: $name, url: $sourceUrl, ownerId: $ownerId, type: $type }) {
 				migrationSource { id }
@@ -335,7 +335,7 @@ export async function createMigrationSource(
       ownerId: orgId,
       type: "GITHUB_ARCHIVE",
     },
-  )) as { createMigrationSource: { migrationSource: { id: string } } };
+  );
   return result.createMigrationSource.migrationSource.id;
 }
 
@@ -399,9 +399,9 @@ export async function startMigration(
   if (opts.targetRepoVisibility)
     variables.targetRepoVisibility = opts.targetRepoVisibility;
 
-  const result = (await gql(mutation, variables)) as {
+  const result = await gql<{
     startRepositoryMigration: { repositoryMigration: { id: string } };
-  };
+  }>(mutation, variables);
   return result.startRepositoryMigration.repositoryMigration.id;
 }
 
@@ -417,7 +417,7 @@ export async function getMigration(
   gql: typeof graphql,
   migrationId: string,
 ): Promise<GhecMigration> {
-  const result = (await gql(
+  const result = await gql<{ node: GhecMigration }>(
     `query($id: ID!) {
 			node(id: $id) {
 				... on Migration {
@@ -428,7 +428,7 @@ export async function getMigration(
 			}
 		}`,
     { id: migrationId },
-  )) as { node: GhecMigration };
+  );
   return result.node;
 }
 
@@ -436,12 +436,12 @@ export async function abortMigration(
   gql: typeof graphql,
   migrationId: string,
 ): Promise<boolean> {
-  const result = (await gql(
+  const result = await gql<{ abortRepositoryMigration: { success: boolean } }>(
     `mutation($migrationId: ID!) {
 			abortRepositoryMigration(input: { migrationId: $migrationId }) { success }
 		}`,
     { migrationId },
-  )) as { abortRepositoryMigration: { success: boolean } };
+  );
   return result.abortRepositoryMigration.success;
 }
 
@@ -449,19 +449,46 @@ export async function abortMigration(
 
 export async function getRepoCounts(
   client: InstanceType<typeof RetryOctokit>,
+  gql: typeof graphql,
   owner: string,
   repo: string,
 ): Promise<Counts> {
-  const [commits, branches, tags, issues, pullRequests, releases] =
-    await Promise.all([
-      getResourceCount(client, owner, repo, "commits"),
-      getResourceCount(client, owner, repo, "branches"),
-      getResourceCount(client, owner, repo, "tags"),
-      getResourceCount(client, owner, repo, "issues"),
-      getResourceCount(client, owner, repo, "pulls"),
-      getResourceCount(client, owner, repo, "releases"),
-    ]);
-  return { commits, branches, tags, issues, pullRequests, releases };
+  const [gqlResult, commits] = await Promise.all([
+    gql<{
+      repository: {
+        refs: { totalCount: number };
+        tags: { totalCount: number };
+        issues: { totalCount: number };
+        pullRequests: { totalCount: number };
+        releases: { totalCount: number };
+      };
+    }>(
+      `query repoCounts($owner: String!, $repo: String!) {
+        repository(owner: $owner, name: $repo) {
+          refs(refPrefix: "refs/heads/") { totalCount }
+          tags: refs(refPrefix: "refs/tags/") { totalCount }
+          issues(states: [OPEN, CLOSED]) { totalCount }
+          pullRequests(states: [OPEN, CLOSED, MERGED]) { totalCount }
+          releases { totalCount }
+        }
+      }`,
+      { owner, repo },
+    ).catch(() => null),
+    getResourceCount(client, owner, repo, "commits"),
+  ]);
+
+  if (gqlResult) {
+    return {
+      commits,
+      branches: gqlResult.repository.refs.totalCount,
+      tags: gqlResult.repository.tags.totalCount,
+      issues: gqlResult.repository.issues.totalCount,
+      pullRequests: gqlResult.repository.pullRequests.totalCount,
+      releases: gqlResult.repository.releases.totalCount,
+    };
+  }
+  // Fallback: if GraphQL fails, zero out the non-commit fields
+  return { commits, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
 }
 
 async function getResourceCount(
@@ -518,12 +545,12 @@ export async function getRepoNodeId(
   owner: string,
   name: string,
 ): Promise<string> {
-  const result = (await gql(
+  const result = await gql<{ repository: { id: string } }>(
     `query($owner: String!, $name: String!) {
 			repository(owner: $owner, name: $name) { id }
 		}`,
     { owner, name },
-  )) as { repository: { id: string } };
+  );
   return result.repository.id;
 }
 
@@ -531,14 +558,14 @@ export async function archiveRepository(
   gql: typeof graphql,
   repoNodeId: string,
 ): Promise<boolean> {
-  const result = (await gql(
+  const result = await gql<{ archiveRepository: { repository: { isArchived: boolean } } }>(
     `mutation($repositoryId: ID!) {
 			archiveRepository(input: { repositoryId: $repositoryId }) {
 				repository { isArchived }
 			}
 		}`,
     { repositoryId: repoNodeId },
-  )) as { archiveRepository: { repository: { isArchived: boolean } } };
+  );
   return result.archiveRepository.repository.isArchived;
 }
 

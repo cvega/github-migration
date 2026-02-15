@@ -49,6 +49,7 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
     try {
       sourceCounts = await getRepoCounts(
         cfg.clients.source,
+        cfg.clients.sourceGraphql,
         cfg.sourceOrg,
         cfg.sourceRepo,
       );
@@ -174,6 +175,7 @@ async function takeSnapshot(
     try {
       counts = await getRepoCounts(
         cfg.clients.target,
+        cfg.clients.targetGraphql,
         cfg.targetOrg,
         cfg.targetRepo,
       );

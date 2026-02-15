@@ -110,6 +110,7 @@ export async function runMigrationPipeline(
     try {
       migration.sourceCounts = await getRepoCounts(
         clients.source,
+        clients.sourceGraphql,
         migration.sourceOrg,
         migration.sourceRepo,
       );
@@ -185,6 +186,7 @@ export async function runMigrationPipeline(
     try {
       migration.targetCounts = await getRepoCounts(
         clients.target,
+        clients.targetGraphql,
         migration.targetOrg,
         migration.targetRepo,
       );
