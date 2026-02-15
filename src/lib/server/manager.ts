@@ -51,6 +51,8 @@ function createEmitHandler(id: string): (event: MigrationEvent) => void {
   return (event: MigrationEvent) => {
     // 1. Persist event row and capture the auto-increment ID.
     const eventId = insertEvent(event);
+    // Mutate in-place so broadcastEvent sees the id — safe because
+    // callers (monitor / pipeline) create a fresh object per emit.
     event.id = eventId;
 
     // 2. Update migration state from terminal / progress events immediately
@@ -388,9 +390,6 @@ export function recoverOrphans(): void {
         handlePipelineResult(id, result);
         console.log(`[manager] Recovered migration ${id}: ${result.state}`);
       })
-      .catch((err) => {
-        console.error(`[manager] Recovery failed for ${id}:`, err);
-        handlePipelineError(id, err);
-      });
+      .catch((err) => handlePipelineError(id, err));
   }
 }
