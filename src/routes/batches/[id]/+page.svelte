@@ -417,11 +417,11 @@
 	<div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
 		<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
 			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
-				<Octicon name="sync" size={20} />
+				<Octicon name="sync" size={24} />
 				Restart Failed Migrations
 			</h2>
 			<button onclick={() => showRestartModal = false} class="text-gray-400 hover:text-gray-50 transition-colors">
-				<Octicon name="x" size={20} />
+				<Octicon name="x" size={24} />
 			</button>
 		</div>
 
