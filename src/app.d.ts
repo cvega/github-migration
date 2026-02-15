@@ -6,8 +6,9 @@ declare global {
       message: string;
       code?: string;
     }
-    // interface Locals {}
-    // interface PageData {}
+    interface Locals {
+      authEnabled: boolean;
+    }
     // interface PageState {}
     // interface Platform {}
   }

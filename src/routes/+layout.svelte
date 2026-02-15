@@ -2,12 +2,15 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount, onDestroy, setContext } from 'svelte';
+	import { page } from '$app/state';
 	import { GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { GitHubStatus } from '$lib/types';
 
 	let { data, children } = $props();
+
+	const isLoginPage = $derived(page.url.pathname === '/login');
 	const sourceApp = $derived(data.sourceAuth.mode === 'github-app');
 	const targetApp = $derived(data.targetAuth.mode === 'github-app');
 
@@ -73,6 +76,9 @@
 	);
 </script>
 
+{#if isLoginPage}
+	{@render children()}
+{:else}
 <div class="min-h-screen bg-gray-950 text-gray-200">
 	<nav class="border-b border-gray-700 bg-gray-900">
 		<div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
@@ -100,6 +106,15 @@
 					<Octicon name="plus" size={16} />
 					New Migration
 				</a>
+				{#if data.authEnabled}
+					<form method="POST" action="/logout" class="m-0 flex self-stretch">
+						<button type="submit"
+							class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 text-sm text-gray-400 hover:text-gray-50 hover:bg-gray-700 transition-colors"
+							title="Sign out">
+							<Octicon name="sign-out" size={16} />
+						</button>
+					</form>
+				{/if}
 			</div>
 		</div>
 	</nav>
@@ -108,3 +123,4 @@
 		{@render children()}
 	</main>
 </div>
+{/if}

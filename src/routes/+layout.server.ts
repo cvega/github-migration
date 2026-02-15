@@ -5,7 +5,7 @@ import { fetchGitHubStatus } from "$lib/server/github-status";
 import { getActiveMigrationCount } from "$lib/server/store";
 import type { LayoutServerLoad } from "./$types";
 
-export const load: LayoutServerLoad = async () => {
+export const load: LayoutServerLoad = async ({ locals }) => {
   const auth = getAuthConfig();
 
   // Fetch live rate limits and GitHub platform status in parallel.
@@ -20,5 +20,6 @@ export const load: LayoutServerLoad = async () => {
     targetAuth: auth.target,
     activeMigrations,
     ghStatus,
+    authEnabled: locals.authEnabled ?? false,
   };
 };

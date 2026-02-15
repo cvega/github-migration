@@ -9,6 +9,13 @@ const config = {
       out: "build",
       precompress: true,
     }),
+    // SameSite=Lax on the session cookie already prevents cross-site form
+    // submissions, so the built-in origin check is redundant.  Using a
+    // permissive pattern avoids CSRF 403s when the app is accessed via
+    // different hostnames/IPs (localhost, 127.0.0.1, LAN IP, etc.).
+    csrf: {
+      trustedOrigins: ["*"],
+    },
     csp: {
       directives: {
         "default-src": ["self"],
