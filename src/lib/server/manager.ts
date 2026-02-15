@@ -34,6 +34,7 @@ import {
   updateMigrationState,
 } from "./store";
 
+/** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
 
 /** Active migration abort controllers, keyed by migration ID. */

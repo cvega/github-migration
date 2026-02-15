@@ -1,6 +1,7 @@
 <!-- Migration card for the dashboard list -->
 <script lang="ts">
 	import type { Migration } from '$lib/types';
+	import { formatElapsed } from '$lib/format';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
 
@@ -21,13 +22,6 @@
 		failed: 'x-circle-fill',
 		cancelled: 'skip'
 	};
-
-	function formatElapsed(seconds: number | null): string {
-		if (!seconds) return '';
-		const m = Math.floor(seconds / 60);
-		const s = Math.round(seconds % 60);
-		return m > 0 ? `${m}m ${s}s` : `${s}s`;
-	}
 
 	function timeAgo(dateStr: string): string {
 		const diff = Date.now() - new Date(dateStr).getTime();
@@ -57,7 +51,7 @@
 
 		<div class="flex items-center gap-3">
 			{#if migration.elapsedSeconds}
-				<span class="text-xs text-gray-500">{formatElapsed(migration.elapsedSeconds)}</span>
+				<span class="text-xs text-gray-500">{formatElapsed(migration.elapsedSeconds, '')}</span>
 			{/if}
 			<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {stateStyles[migration.state] || stateStyles.pending}">
 				<Octicon name={stateIcons[migration.state] || 'clock'} size={12} />

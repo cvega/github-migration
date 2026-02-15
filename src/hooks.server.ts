@@ -31,6 +31,7 @@ if (!authEnabled) {
 
 const AUTH_MAX_ATTEMPTS = 5;
 const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_TRACKED_IPS = 10_000;
 const failedAttempts = new Map<string, { count: number; firstAttempt: number }>();
 
 function isRateLimited(ip: string): boolean {
@@ -48,6 +49,11 @@ function recordFailedAttempt(ip: string): void {
   const now = Date.now();
   const entry = failedAttempts.get(ip);
   if (!entry || now - entry.firstAttempt > AUTH_WINDOW_MS) {
+    // Evict the oldest entry if at capacity.
+    if (!entry && failedAttempts.size >= MAX_TRACKED_IPS) {
+      const oldest = failedAttempts.keys().next().value;
+      if (oldest) failedAttempts.delete(oldest);
+    }
     failedAttempts.set(ip, { count: 1, firstAttempt: now });
   } else {
     entry.count++;
@@ -107,7 +113,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       });
     }
 
-    const decoded = atob(authHeader.slice(6));
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
     const colonIdx = decoded.indexOf(":");
     if (colonIdx < 0) {
       recordFailedAttempt(ip);

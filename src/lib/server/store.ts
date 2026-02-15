@@ -22,6 +22,15 @@ import type {
 
 let db: Database;
 
+/** Parse JSON from a DB column, returning null on malformed data. */
+function safeJsonParse<T>(json: string): T | null {
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function initStore(dbPath: string): void {
   mkdirSync(dirname(dbPath), { recursive: true });
   db = new Database(dbPath, { create: true });
@@ -250,8 +259,8 @@ function rowToMigration(row: Record<string, unknown>): Migration {
     failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
     migrationLogUrl: typeof row.migration_log_url === "string" ? row.migration_log_url : null,
     warningsCount: typeof row.warnings_count === "number" ? row.warnings_count : 0,
-    sourceCounts: typeof row.source_counts === "string" ? JSON.parse(row.source_counts) : null,
-    targetCounts: typeof row.target_counts === "string" ? JSON.parse(row.target_counts) : null,
+    sourceCounts: typeof row.source_counts === "string" ? safeJsonParse<Counts>(row.source_counts) : null,
+    targetCounts: typeof row.target_counts === "string" ? safeJsonParse<Counts>(row.target_counts) : null,
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
     elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
@@ -457,7 +466,7 @@ export function getEvents(migrationId: string, afterId?: number): MigrationEvent
           migrationId: row.migration_id as string,
           eventType: row.event_type,
           phase: row.phase ?? null,
-          payload: JSON.parse(row.payload as string),
+          payload: safeJsonParse(row.payload as string) ?? {},
           createdAt: row.created_at as string,
         }) as MigrationEvent,
     );

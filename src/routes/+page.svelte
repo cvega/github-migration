@@ -1,6 +1,7 @@
 <!-- Dashboard page -->
 <script lang="ts">
 	import { onMount, onDestroy, getContext } from 'svelte';
+	import { GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { createGlobalEventSource, migrations } from '$lib/stores/migrations.svelte';
@@ -8,9 +9,9 @@
 	import Pagination from '$lib/components/Pagination.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
-	import type { Migration, BatchListItem, PaginatedResult, GitHubStatus as GitHubStatusType } from '$lib/types';
+	import type { Migration, BatchListItem, PaginatedResult } from '$lib/types';
 
-	const ghStatusCtx = getContext<{ readonly value: GitHubStatusType }>('ghStatus');
+	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
 
 	let { data } = $props();
 

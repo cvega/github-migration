@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
+	import { formatElapsed } from '$lib/format';
 	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatsTable from '$lib/components/StatsTable.svelte';
@@ -93,13 +94,6 @@
 			polledMigration = { ...migration, state: 'cancelled' };
 			refreshMigrations();
 		}
-	}
-
-	function formatElapsed(seconds: number | null): string {
-		if (!seconds) return '—';
-		const m = Math.floor(seconds / 60);
-		const s = Math.round(seconds % 60);
-		return m > 0 ? `${m}m ${s}s` : `${s}s`;
 	}
 
 	function repoUrl(apiUrl: string, org: string, repo: string): string {
