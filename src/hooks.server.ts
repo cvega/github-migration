@@ -88,8 +88,8 @@ const securityHeaders: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'",
+  // Content-Security-Policy is managed by SvelteKit's kit.csp config
+  // (svelte.config.js) which auto-injects nonces for scripts.
 };
 
 export const handle: Handle = async ({ event, resolve }) => {

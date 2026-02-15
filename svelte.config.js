@@ -9,6 +9,16 @@ const config = {
       out: "build",
       precompress: true,
     }),
+    csp: {
+      directives: {
+        "default-src": ["self"],
+        "script-src": ["self"],
+        "style-src": ["self", "unsafe-inline"],
+        "img-src": ["self", "data:"],
+        "connect-src": ["self"],
+        "font-src": ["self"],
+      },
+    },
   },
 };
 
