@@ -191,12 +191,14 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       return migration;
     }
 
-    // If the signal was aborted during poll() (not during sleep — which throws),
-    // the monitor exits cleanly with null. Re-throw so the catch block handles
-    // cancellation properly instead of falling through to "succeeded".
-    if (!terminalPhase) {
+    // If the monitor didn't reach SUCCEEDED, something went wrong — either
+    // GHEC never reported success, the signal was aborted during a poll()
+    // network call (not during sleep, which throws), or the monitor exited
+    // with UNKNOWN.  Re-throw so the catch block handles it properly
+    // instead of falling through to "succeeded".
+    if (terminalPhase !== "SUCCEEDED") {
       throw new Error(
-        opts.signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+        opts.signal?.aborted ? "Migration cancelled" : `Monitor exited in phase ${terminalPhase}`,
       );
     }
 
@@ -521,11 +523,11 @@ export async function resumeMigration(
       return migration;
     }
 
-    // Guard against monitor exiting without a terminal phase (e.g. signal
-    // aborted during a poll network call, not during sleep which throws).
-    if (!terminalPhase) {
+    // Guard against monitor exiting without reaching SUCCEEDED (e.g. signal
+    // aborted during a poll network call, or UNKNOWN exit).
+    if (terminalPhase !== "SUCCEEDED") {
       throw new Error(
-        signal?.aborted ? "Migration cancelled" : "Monitor exited without terminal state",
+        signal?.aborted ? "Migration cancelled" : `Monitor exited in phase ${terminalPhase}`,
       );
     }
 

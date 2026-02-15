@@ -23,10 +23,10 @@ import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/types";
 import { createClients, getRateLimit, type RateLimitInfo } from "./github";
 
-export type AuthMode = "pat" | "github-app";
+export type DisplayAuthMode = "pat" | "github-app";
 
 export interface SideAuthConfig {
-  mode: AuthMode;
+  mode: DisplayAuthMode;
   appId?: string;
   installationId?: string;
   /** Static rate limit ceiling for this auth mode. */
