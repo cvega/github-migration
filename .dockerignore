@@ -1,0 +1,16 @@
+node_modules
+.git
+.gitignore
+data
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+build
+.svelte-kit
+seed.ts
+docs
+README.md
+Makefile

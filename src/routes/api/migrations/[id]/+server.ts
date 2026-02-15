@@ -1,0 +1,34 @@
+/** GET    /api/migrations/[id] — get migration details.
+ *  DELETE /api/migrations/[id] — cancel a running migration.
+ */
+import { json } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
+import { get, cancel } from "$lib/server/manager";
+
+export const GET: RequestHandler = async ({ params }) => {
+  const migration = get(params.id);
+  if (!migration) return json({ error: "Not found" }, { status: 404 });
+  return json(migration);
+};
+
+export const DELETE: RequestHandler = async ({ params }) => {
+  const migration = get(params.id);
+  if (!migration) return json({ error: "Not found" }, { status: 404 });
+
+  if (migration.state !== "pending" && migration.state !== "running") {
+    return json(
+      { error: `Cannot cancel migration in state "${migration.state}"` },
+      { status: 409 },
+    );
+  }
+
+  const cancelled = cancel(params.id);
+  if (!cancelled) {
+    return json(
+      { error: "Could not cancel — migration may have already completed" },
+      { status: 409 },
+    );
+  }
+
+  return json({ status: "cancelled" });
+};

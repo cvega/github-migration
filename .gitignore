@@ -1,0 +1,24 @@
+# Binaries
+bin/
+*.exe
+
+# Test output
+coverage.out
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Archives (from --keep-archive)
+*.tar.gz
+node_modules/
+build/
+.svelte-kit/
+data/
+*.db
+bun.lock

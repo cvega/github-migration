@@ -1,0 +1,25 @@
+services:
+  gh-migrate:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - gh-migrate-data:/data
+      - gh-migrate-archives:/archives
+    environment:
+      - DATA_DIR=/data
+      - ARCHIVE_DIR=/archives
+      - PORT=3000
+      # Optional basic auth:
+      # - GH_MIGRATE_USER=admin
+      # - GH_MIGRATE_PASS=changeme
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  gh-migrate-data:
+  gh-migrate-archives:
