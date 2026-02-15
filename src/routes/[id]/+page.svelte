@@ -28,7 +28,7 @@
 		for (const ev of eventLog) processEvent(ev);
 
 		// Only subscribe to SSE if migration is still active.
-		if (migration.state === 'pending' || migration.state === 'running') {
+		if (migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running') {
 			sse = createMigrationEventSource(migration.id);
 		}
 
@@ -36,7 +36,7 @@
 		const interval = setInterval(async () => {
 			const res = await fetch(`/api/migrations/${migration.id}`);
 			if (res.ok) polledMigration = await res.json();
-			if (migration.state !== 'pending' && migration.state !== 'running') {
+			if (migration.state !== 'queued' && migration.state !== 'pending' && migration.state !== 'running') {
 				clearInterval(interval);
 			}
 		}, 5000);
@@ -85,7 +85,7 @@
 		}
 	}
 
-	const isActive = $derived(migration.state === 'pending' || migration.state === 'running');
+	const isActive = $derived(migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running');
 	const stateColor = $derived(
 		migration.state === 'succeeded' ? 'text-green-400' :
 		migration.state === 'failed' ? 'text-red-400' :

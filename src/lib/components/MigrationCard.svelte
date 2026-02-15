@@ -8,6 +8,7 @@
 	let { migration }: { migration: Migration } = $props();
 
 	const stateStyles: Record<string, string> = {
+		queued: 'bg-blue-500/15 text-blue-400',
 		pending: 'bg-yellow-500/15 text-yellow-400',
 		running: 'bg-green-600/15 text-green-400',
 		succeeded: 'bg-green-600/15 text-green-400',
@@ -16,6 +17,7 @@
 	};
 
 	const stateIcons: Record<string, IconName> = {
+		queued: 'hourglass',
 		pending: 'clock',
 		running: 'sync',
 		succeeded: 'check-circle',

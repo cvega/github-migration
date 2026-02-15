@@ -33,11 +33,11 @@
 		globalSSE?.destroy();
 	});
 
-	const active = $derived(migrations.value.filter((m: Migration) => m.state === 'pending' || m.state === 'running'));
-	const completed = $derived(migrations.value.filter((m: Migration) => m.state !== 'pending' && m.state !== 'running'));
+	const active = $derived(migrations.value.filter((m: Migration) => m.state === 'queued' || m.state === 'pending' || m.state === 'running'));
+	const completed = $derived(migrations.value.filter((m: Migration) => m.state !== 'queued' && m.state !== 'pending' && m.state !== 'running'));
 
 	function batchStateBadge(b: BatchListItem): { label: string; style: string } {
-		if (b.runningCount > 0 || b.pendingCount > 0) return { label: 'active', style: 'bg-green-600/15 text-green-400' };
+		if (b.runningCount > 0 || b.pendingCount > 0 || b.queuedCount > 0) return { label: 'active', style: 'bg-green-600/15 text-green-400' };
 		if (b.failedCount > 0 && b.succeededCount > 0) return { label: 'partial', style: 'bg-yellow-600/15 text-yellow-400' };
 		if (b.failedCount > 0) return { label: 'failed', style: 'bg-red-500/15 text-red-400' };
 		return { label: 'done', style: 'bg-green-600/15 text-green-400' };
@@ -88,6 +88,7 @@
 							{#if batch.succeededCount > 0}<span class="text-green-400">{batch.succeededCount} ok</span>{/if}
 							{#if batch.runningCount > 0}<span class="text-green-400">{batch.runningCount} running</span>{/if}
 							{#if batch.pendingCount > 0}<span class="text-yellow-400">{batch.pendingCount} pending</span>{/if}
+						{#if batch.queuedCount > 0}<span class="text-blue-400">{batch.queuedCount} queued</span>{/if}
 							{#if batch.failedCount > 0}<span class="text-red-400">{batch.failedCount} failed</span>{/if}
 							<span class="text-gray-600 font-mono text-[10px]">{batch.id.slice(0, 8)}</span>
 						</div>

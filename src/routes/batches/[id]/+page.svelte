@@ -30,7 +30,7 @@
 				polledMigrations = result.migrations;
 			}
 			// Stop polling when all done.
-			if (batch.pendingCount === 0 && batch.runningCount === 0) {
+			if (batch.queuedCount === 0 && batch.pendingCount === 0 && batch.runningCount === 0) {
 				clearInterval(interval);
 			}
 		}, 3000);
@@ -40,7 +40,7 @@
 		clearInterval(interval);
 	});
 
-	const isActive = $derived(batch.pendingCount > 0 || batch.runningCount > 0);
+	const isActive = $derived(batch.queuedCount > 0 || batch.pendingCount > 0 || batch.runningCount > 0);
 	const pctComplete = $derived(
 		batch.totalCount > 0
 			? Math.round(((batch.succeededCount + batch.failedCount + batch.cancelledCount) / batch.totalCount) * 100)
@@ -48,6 +48,7 @@
 	);
 
 	const stateStyles: Record<string, string> = {
+		queued: 'bg-blue-500/15 text-blue-400',
 		pending: 'bg-yellow-500/15 text-yellow-400',
 		running: 'bg-green-600/15 text-green-400',
 		succeeded: 'bg-green-600/15 text-green-400',
@@ -56,6 +57,7 @@
 	};
 
 	const stateIcons: Record<string, IconName> = {
+		queued: 'hourglass',
 		pending: 'clock',
 		running: 'sync',
 		succeeded: 'check-circle',
@@ -64,7 +66,7 @@
 	};
 
 	async function handleCancelAll() {
-		if (!confirm(`Cancel all ${batch.pendingCount + batch.runningCount} active migrations?`)) return;
+		if (!confirm(`Cancel all ${batch.queuedCount + batch.pendingCount + batch.runningCount} active migrations?`)) return;
 		const cancelRes = await fetch(`/api/batches/${batch.id}`, { method: 'DELETE' });
 		if (!cancelRes.ok) {
 			alert(`Failed to cancel batch: HTTP ${cancelRes.status}`);
@@ -79,8 +81,8 @@
 		}
 	}
 
-	// Sort: running first, then pending, then failed, then succeeded, then cancelled.
-	const sortOrder: Record<string, number> = { running: 0, pending: 1, failed: 2, succeeded: 3, cancelled: 4 };
+	// Sort: running first, then pending, then queued, then failed, then succeeded, then cancelled.
+	const sortOrder: Record<string, number> = { running: 0, pending: 1, queued: 2, failed: 3, succeeded: 4, cancelled: 5 };
 	const sortedMigrations = $derived(
 		[...migrationsResult.data].sort((a, b) => (sortOrder[a.state] ?? 5) - (sortOrder[b.state] ?? 5))
 	);
@@ -126,17 +128,6 @@
 		{/if}
 	</div>
 
-	<!-- Skipped repos warning (from query param) -->
-	{#if page.url.searchParams.has('skipped')}
-		{@const skipped = Number(page.url.searchParams.get('skipped'))}
-		{#if skipped > 0}
-			<div class="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400 flex items-center gap-2">
-				<Octicon name="alert" size={16} class="shrink-0" />
-				{skipped} {skipped === 1 ? 'repository was' : 'repositories were'} skipped due to the concurrency limit ({batch.totalCount} started).
-			</div>
-		{/if}
-	{/if}
-
 	<!-- Overall progress -->
 	<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
 		<div class="flex items-center justify-between mb-3">
@@ -158,6 +149,10 @@
 				<div class="bg-yellow-500/50 transition-all duration-500"
 					style="width: {(batch.pendingCount / batch.totalCount) * 100}%"></div>
 			{/if}
+			{#if batch.queuedCount > 0}
+				<div class="bg-blue-500/40 transition-all duration-500"
+					style="width: {(batch.queuedCount / batch.totalCount) * 100}%"></div>
+			{/if}
 			{#if batch.failedCount > 0}
 				<div class="bg-red-500 transition-all duration-500"
 					style="width: {(batch.failedCount / batch.totalCount) * 100}%"></div>
@@ -178,6 +173,9 @@
 			{/if}
 			{#if batch.pendingCount > 0}
 				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount} pending</span>
+			{/if}
+			{#if batch.queuedCount > 0}
+				<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount} queued</span>
 			{/if}
 			{#if batch.failedCount > 0}
 				<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount} failed</span>

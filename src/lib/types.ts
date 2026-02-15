@@ -19,7 +19,7 @@ export const DEFAULT_PAGE_SIZE = 25;
 
 // ── Migration types ────────────────────────────────────────────────────────
 
-export type MigrationState = "pending" | "running" | "succeeded" | "failed" | "cancelled";
+export type MigrationState = "queued" | "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type PipelineStep =
   | "preflight"
@@ -237,6 +237,7 @@ export interface BatchMigrationRequest {
 export interface BatchSummary {
   id: string;
   totalCount: number;
+  queuedCount: number;
   pendingCount: number;
   runningCount: number;
   succeededCount: number;
@@ -244,13 +245,13 @@ export interface BatchSummary {
   cancelledCount: number;
   startedAt: string;
   migrations: Migration[];
-  skippedRepos?: string[];
 }
 
 /** Lightweight batch info for list views — no embedded migrations array. */
 export interface BatchListItem {
   id: string;
   totalCount: number;
+  queuedCount: number;
   pendingCount: number;
   runningCount: number;
   succeededCount: number;

@@ -154,9 +154,7 @@
 				}
 
 				const batch = await res.json();
-				const skipped = batch.skippedRepos?.length ?? 0;
-				const qs = skipped > 0 ? `?skipped=${skipped}` : '';
-				goto(`/batches/${batch.id}${qs}`);
+				goto(`/batches/${batch.id}`);
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';

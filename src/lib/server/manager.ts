@@ -25,6 +25,7 @@ import {
   getDb,
   getEvents,
   getMigration,
+  getNextQueuedMigration,
   getRecoverableMigrations,
   insertEvent,
   insertMigration,
@@ -40,6 +41,16 @@ const MAX_CONCURRENT = 10;
 
 /** Active migration abort controllers, keyed by migration ID. */
 const controllers = new Map<string, AbortController>();
+
+/**
+ * In-memory queue: holds the CreateMigrationRequest for each queued migration
+ * so we can start it later when a slot opens. Keyed by migration ID.
+ *
+ * Credentials (PATs / App keys) live here — never persisted to disk.
+ * On server restart, queued items are marked failed by initStore's orphan
+ * cleanup (their in-memory requests are lost).
+ */
+const queuedRequests = new Map<string, CreateMigrationRequest>();
 
 // ── Shared emit / result helpers ────────────────────────────────────────────
 
@@ -130,6 +141,7 @@ function handlePipelineResult(id: string, result: Migration): void {
   const current = getMigration(id);
   if (current && ["succeeded", "failed", "cancelled"].includes(current.state)) {
     controllers.delete(id);
+    drainQueue();
     return;
   }
 
@@ -147,6 +159,7 @@ function handlePipelineResult(id: string, result: Migration): void {
     migrationLogUrl: result.migrationLogUrl ?? undefined,
   });
   controllers.delete(id);
+  drainQueue();
 }
 
 /** Shared `.catch()` handler for unexpected pipeline crashes. */
@@ -157,6 +170,53 @@ function handlePipelineError(id: string, err: unknown): void {
     completedAt: new Date().toISOString(),
   });
   controllers.delete(id);
+  drainQueue();
+}
+
+// ── Queue drain ─────────────────────────────────────────────────────────────
+
+/**
+ * Promote queued migrations to running, filling available concurrency slots.
+ * Called automatically whenever a migration completes, fails, or is cancelled.
+ * FIFO order — oldest queued item starts first.
+ */
+function drainQueue(): void {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const active = getActiveMigrationCount();
+    if (active >= MAX_CONCURRENT) break;
+
+    const next = getNextQueuedMigration();
+    if (!next) break;
+
+    const req = queuedRequests.get(next.id);
+    if (!req) {
+      // Credentials lost (shouldn't happen unless server logic is wrong).
+      console.error(`[manager] No queued request for migration ${next.id} — marking failed`);
+      updateMigrationState(next.id, "failed", {
+        failureReason: "Queued migration request lost (internal error)",
+        completedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+    queuedRequests.delete(next.id);
+
+    // Transition from queued → pending and launch the pipeline.
+    updateMigrationState(next.id, "pending");
+    const ac = new AbortController();
+    controllers.set(next.id, ac);
+
+    console.log(`[manager] Dequeuing migration ${next.id} (${next.sourceOrg}/${next.sourceRepo})`);
+
+    runMigrationPipeline({
+      ...req,
+      id: next.id,
+      signal: ac.signal,
+      emit: createEmitHandler(next.id),
+    })
+      .then((result) => handlePipelineResult(next.id, result))
+      .catch((err) => handlePipelineError(next.id, err));
+  }
 }
 
 /** SSE subscribers: migrationId → Set<writable stream controllers>. */
@@ -225,6 +285,15 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
 }
 
 export function cancel(migrationId: string): boolean {
+  // Handle queued migrations — no abort controller, just remove from queue.
+  if (queuedRequests.has(migrationId)) {
+    queuedRequests.delete(migrationId);
+    updateMigrationState(migrationId, "cancelled", {
+      completedAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
   const ac = controllers.get(migrationId);
   if (!ac) return false;
   ac.abort();
@@ -232,15 +301,50 @@ export function cancel(migrationId: string): boolean {
   updateMigrationState(migrationId, "cancelled", {
     completedAt: new Date().toISOString(),
   });
+  drainQueue();
   return true;
 }
 
 // ── Batch operations ────────────────────────────────────────────────────────
 
+/**
+ * Enqueue a migration: insert a DB row with state='queued' and store the
+ * request in memory so drainQueue() can launch it when a slot opens.
+ */
+function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
+  const id = Bun.randomUUIDv7();
+  const now = new Date().toISOString();
+  const sourceOrg = extractOrg(req.sourceRepo);
+  const sourceRepoName = extractRepo(req.sourceRepo);
+
+  const migration: Migration = {
+    id,
+    batchId,
+    githubMigrationId: null,
+    sourceApiUrl: req.sourceApiUrl || "https://api.github.com",
+    sourceOrg,
+    sourceRepo: sourceRepoName,
+    targetOrg: req.targetOrg,
+    targetRepo: req.targetRepo || sourceRepoName,
+    state: "queued",
+    failureReason: null,
+    migrationLogUrl: null,
+    warningsCount: 0,
+    sourceCounts: null,
+    targetCounts: null,
+    startedAt: now,
+    completedAt: null,
+    elapsedSeconds: null,
+  };
+
+  insertMigration(migration);
+  queuedRequests.set(id, req);
+  return migration;
+}
+
 export function startBatch(req: BatchMigrationRequest): BatchSummary {
   const batchId = Bun.randomUUIDv7();
   const migrations: Migration[] = [];
-  const skippedRepos: string[] = [];
 
   for (const repo of req.repos) {
     const trimmed = repo.trim();
@@ -263,37 +367,33 @@ export function startBatch(req: BatchMigrationRequest): BatchSummary {
       archiveSource: req.archiveSource,
     };
 
+    // Try to start immediately; if at capacity, queue for later.
     try {
       const migration = start(migReq, batchId);
       migrations.push(migration);
     } catch (err) {
-      // Only treat concurrency-limit errors as "skipped" — rethrow anything
-      // unexpected (DB failures, etc.) so it surfaces instead of being silent.
       if (err instanceof Error && err.message.startsWith("Concurrency limit reached")) {
-        skippedRepos.push(trimmed);
+        // Queue remaining repos — they'll auto-start as slots open.
+        const migration = enqueue(migReq, batchId);
+        migrations.push(migration);
       } else {
         throw err;
       }
     }
   }
 
-  if (migrations.length === 0 && skippedRepos.length > 0) {
-    throw new Error(
-      `Concurrency limit reached (${MAX_CONCURRENT}). All ${skippedRepos.length} repos were skipped.`,
-    );
-  }
-
+  const now = new Date().toISOString();
   return {
     id: batchId,
     totalCount: migrations.length,
+    queuedCount: migrations.filter((m) => m.state === "queued").length,
     pendingCount: migrations.filter((m) => m.state === "pending").length,
     runningCount: migrations.filter((m) => m.state === "running").length,
     succeededCount: 0,
     failedCount: 0,
     cancelledCount: 0,
-    startedAt: migrations[0]?.startedAt || new Date().toISOString(),
+    startedAt: migrations[0]?.startedAt || now,
     migrations,
-    ...(skippedRepos.length > 0 ? { skippedRepos } : {}),
   };
 }
 
@@ -301,7 +401,7 @@ export function cancelBatch(batchId: string): number {
   const migrations = getBatchMigrations(batchId);
   let cancelledCount = 0;
   for (const m of migrations) {
-    if (m.state === "pending" || m.state === "running") {
+    if (m.state === "queued" || m.state === "pending" || m.state === "running") {
       if (cancel(m.id)) cancelledCount++;
     }
   }

@@ -44,7 +44,7 @@ export function initStore(dbPath: string): void {
        SET state = 'failed',
            failure_reason = 'Server restarted during migration',
            completed_at = ?
-       WHERE state IN ('pending', 'running')
+       WHERE state IN ('queued', 'pending', 'running')
          AND id NOT LIKE 'seed-%'
          AND NOT (auth_mode = 'env-app' AND github_migration_id IS NOT NULL)`,
     )
@@ -275,7 +275,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   if (typeof targetRepo !== "string")
     throw new Error(`Invalid migration row ${id}: missing target_repo`);
   const state = row.state;
-  const validStates: MigrationState[] = ["pending", "running", "succeeded", "failed", "cancelled"];
+  const validStates: MigrationState[] = ["queued", "pending", "running", "succeeded", "failed", "cancelled"];
   if (typeof state !== "string" || !validStates.includes(state as MigrationState)) {
     throw new Error(`Invalid migration row ${id}: invalid state "${state}"`);
   }
@@ -353,6 +353,7 @@ export function getBatchListItem(batchId: string): BatchListItem | null {
 			SELECT
 				batch_id,
 				COUNT(*) AS total,
+				SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
 				SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
 				SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
 				SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
@@ -368,6 +369,7 @@ export function getBatchListItem(batchId: string): BatchListItem | null {
   return {
     id: batchId,
     totalCount: row.total as number,
+    queuedCount: row.queued as number,
     pendingCount: row.pending as number,
     runningCount: row.running as number,
     succeededCount: row.succeeded as number,
@@ -388,6 +390,7 @@ export function listBatchItemsPaginated(params: PaginationParams): PaginatedResu
       `SELECT
         batch_id,
         COUNT(*) AS total,
+        SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
         SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
         SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
         SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
@@ -405,6 +408,7 @@ export function listBatchItemsPaginated(params: PaginationParams): PaginatedResu
     data: rows.map((row) => ({
       id: row.batch_id as string,
       totalCount: row.total as number,
+      queuedCount: row.queued as number,
       pendingCount: row.pending as number,
       runningCount: row.running as number,
       succeededCount: row.succeeded as number,
@@ -471,4 +475,17 @@ export function getEvents(migrationId: string, afterId?: number): MigrationEvent
           createdAt: row.created_at as string,
         }) as MigrationEvent,
     );
+}
+
+// ── Queue ──────────────────────────────────────────────────────────────────
+
+/** Return the oldest queued migration (FIFO across all batches), or null. */
+export function getNextQueuedMigration(): Migration | null {
+  const row = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations WHERE state = 'queued' ORDER BY started_at ASC LIMIT 1`,
+    )
+    .get() as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return rowToMigration(row);
 }

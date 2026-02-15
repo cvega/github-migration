@@ -15,7 +15,7 @@ export const DELETE: RequestHandler = async ({ params }) => {
   const migration = get(params.id);
   if (!migration) return json({ error: "Not found" }, { status: 404 });
 
-  if (migration.state !== "pending" && migration.state !== "running") {
+  if (migration.state !== "queued" && migration.state !== "pending" && migration.state !== "running") {
     return json(
       { error: `Cannot cancel migration in state "${migration.state}"` },
       { status: 409 },
