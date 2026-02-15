@@ -47,7 +47,8 @@ export type EventType =
   | "milestone"
   | "snapshot"
   | "complete"
-  | "failure";
+  | "failure"
+  | "restart";
 
 export interface Counts {
   commits: number;
@@ -143,6 +144,7 @@ export interface MigrationEventPayloadMap {
   snapshot: SnapshotPayload;
   complete: CompletePayload;
   failure: FailurePayload;
+  restart: { message: string };
 }
 
 /** Base shape shared by all migration events. */
@@ -178,6 +180,7 @@ export interface Migration {
   startedAt: string;
   completedAt: string | null;
   elapsedSeconds: number | null;
+  authMode: AuthMode | null;
 }
 
 export interface AppAuth {
@@ -216,6 +219,23 @@ export interface CreateMigrationRequest {
   directPassthrough?: boolean;
   gitArchivePath?: string;
   metadataArchivePath?: string;
+}
+
+/**
+ * Restart request — repo info comes from the existing DB row,
+ * user only provides credentials and options.
+ */
+export interface RestartMigrationRequest {
+  sourceToken?: string;
+  targetToken?: string;
+  sourceApp?: AppAuth;
+  targetApp?: AppAuth;
+  noSslVerify?: boolean;
+  skipReleases?: boolean;
+  lockSource?: boolean;
+  archiveSource?: boolean;
+  targetRepoVisibility?: "private" | "public" | "internal";
+  directPassthrough?: boolean;
 }
 
 export interface BatchMigrationRequest {

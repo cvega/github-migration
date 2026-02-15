@@ -14,6 +14,7 @@ import type {
   MigrationState,
   PaginatedResult,
   PaginationParams,
+  RestartMigrationRequest,
 } from "$lib/types";
 import { resumeMigration, runMigrationPipeline } from "./migration";
 import {
@@ -32,6 +33,7 @@ import {
   listBatchItemsPaginated,
   listMigrations,
   listMigrationsPaginated,
+  resetMigration,
   updateMigrationState,
 } from "./store";
 import { extractOrg, extractRepo } from "./util";
@@ -406,6 +408,110 @@ export function cancelBatch(batchId: string): number {
     }
   }
   return cancelledCount;
+}
+
+// ── Restart operations ──────────────────────────────────────────────────────
+
+/**
+ * Restart a failed or cancelled migration.
+ * Reuses the same migration ID — clears transient fields and re-runs the pipeline.
+ * Credentials must be provided (or env-app must be configured).
+ */
+export function restart(
+  migrationId: string,
+  creds: RestartMigrationRequest,
+): Migration {
+  const existing = getMigration(migrationId);
+  if (!existing) throw new Error("Migration not found");
+  if (existing.state !== "failed" && existing.state !== "cancelled") {
+    throw new Error(`Cannot restart migration in state "${existing.state}"`);
+  }
+
+  // Build a CreateMigrationRequest from DB fields + provided creds.
+  const req: CreateMigrationRequest = {
+    sourceApiUrl: existing.sourceApiUrl,
+    sourceRepo: `${existing.sourceOrg}/${existing.sourceRepo}`,
+    targetOrg: existing.targetOrg,
+    targetRepo: existing.targetRepo,
+    sourceToken: creds.sourceToken,
+    targetToken: creds.targetToken,
+    sourceApp: creds.sourceApp,
+    targetApp: creds.targetApp,
+    noSslVerify: creds.noSslVerify,
+    skipReleases: creds.skipReleases,
+    lockSource: creds.lockSource,
+    archiveSource: creds.archiveSource,
+    targetRepoVisibility: creds.targetRepoVisibility,
+    directPassthrough: creds.directPassthrough,
+  };
+
+  // Atomic: check concurrency + reset the row.
+  let queued = false;
+  getDb().transaction(() => {
+    const active = getActiveMigrationCount();
+    if (active >= MAX_CONCURRENT) {
+      queued = true;
+      resetMigration(migrationId, "queued");
+    } else {
+      resetMigration(migrationId, "pending");
+    }
+  })();
+
+  // Insert a "restart" audit event.
+  const restartEvent: MigrationEvent = {
+    migrationId,
+    eventType: "restart",
+    phase: null,
+    payload: { message: `Migration restarted (previously ${existing.state})` },
+    createdAt: new Date().toISOString(),
+  };
+  const eventId = insertEvent(restartEvent);
+  restartEvent.id = eventId;
+  broadcastEvent(migrationId, restartEvent);
+
+  // Start pipeline or queue.
+  if (queued) {
+    queuedRequests.set(migrationId, req);
+  } else {
+    const ac = new AbortController();
+    controllers.set(migrationId, ac);
+    runMigrationPipeline({
+      ...req,
+      id: migrationId,
+      signal: ac.signal,
+      emit: createEmitHandler(migrationId),
+    })
+      .then((result) => handlePipelineResult(migrationId, result))
+      .catch((err) => handlePipelineError(migrationId, err));
+  }
+
+  return getMigration(migrationId)!;
+}
+
+export function restartBatch(
+  batchId: string,
+  creds: RestartMigrationRequest,
+): { restarted: number; errors: Array<{ id: string; error: string }> } {
+  const migrations = getBatchMigrations(batchId);
+  const eligible = migrations.filter(
+    (m) => m.state === "failed" || m.state === "cancelled",
+  );
+
+  const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
+
+  for (const m of eligible) {
+    try {
+      restart(m.id, creds);
+      results.restarted++;
+    } catch (err) {
+      results.errors.push({
+        id: m.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return results;
 }
 
 export function getBatch(batchId: string): BatchSummary | null {

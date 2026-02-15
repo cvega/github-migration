@@ -216,6 +216,33 @@ export function getRecoverableMigrations(): Migration[] {
   return rows.map(rowToMigration);
 }
 
+/**
+ * Reset a failed/cancelled migration for restart.
+ * Clears all transient fields and sets state to the given value.
+ * Unlike updateMigrationState (which uses COALESCE and can't null-out fields),
+ * this explicitly sets fields to NULL.
+ */
+export function resetMigration(id: string, newState: "pending" | "queued"): void {
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `UPDATE migrations SET
+        state = ?,
+        github_migration_id = NULL,
+        failure_reason = NULL,
+        migration_log_url = NULL,
+        warnings_count = 0,
+        source_counts = NULL,
+        target_counts = NULL,
+        started_at = ?,
+        completed_at = NULL,
+        elapsed_seconds = NULL,
+        pipeline_step = NULL
+      WHERE id = ?`,
+    )
+    .run(newState, now, id);
+}
+
 export function getMigration(id: string): Migration | null {
   const row = getDb().prepare(`SELECT ${MIGRATION_COLS} FROM migrations WHERE id = ?`).get(id) as
     | Record<string, unknown>
@@ -303,6 +330,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
     elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
+    authMode: typeof row.auth_mode === "string" ? (row.auth_mode as AuthMode) : null,
   };
 }
 
@@ -449,6 +477,7 @@ const VALID_EVENT_TYPES = new Set([
   "snapshot",
   "complete",
   "failure",
+  "restart",
 ]);
 
 export function getEvents(migrationId: string, afterId?: number): MigrationEvent[] {

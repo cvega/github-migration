@@ -1,13 +1,13 @@
 <!-- Batch detail page -->
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { formatElapsed } from '$lib/format';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
-	import type { BatchListItem, Migration, PaginatedResult } from '$lib/types';
+	import type { BatchListItem, Migration, PaginatedResult, AppAuth } from '$lib/types';
 
 	let { data } = $props();
 
@@ -21,7 +21,77 @@
 	let interval: ReturnType<typeof setInterval>;
 	const currentPage = $derived(migrationsResult.page);
 
+	// ── Restart modal state ────────────────────────────────────────────────
+	let showRestartModal = $state(false);
+	let restartSubmitting = $state(false);
+	let restartError = $state('');
+	let restartResult = $state<{ restarted: number; errors: Array<{ id: string; error: string }> } | null>(null);
+
+	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
+	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
+	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
+	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
+
+	let restartSourceToken = $state('');
+	let restartTargetToken = $state('');
+	let restartSourceAppId = $state('');
+	let restartSourceAppKey = $state('');
+	let restartSourceAppInstallationId = $state('');
+	let restartTargetAppId = $state('');
+	let restartTargetAppKey = $state('');
+	let restartTargetAppInstallationId = $state('');
+
+	let restartSkipReleases = $state(false);
+	let restartMigrationMode = $state<'dry-run' | 'production'>('dry-run');
+	let restartDirectPassthrough = $state(false);
+	let restartNoSslVerify = $state(false);
+	let restartTargetRepoVisibility = $state('');
+
+	const restartableCount = $derived(batch.failedCount + batch.cancelledCount);
+	const restartLabel = $derived.by(() => {
+		if (batch.failedCount > 0 && batch.cancelledCount > 0)
+			return `Restart ${restartableCount} Failed/Cancelled`;
+		if (batch.cancelledCount > 0)
+			return `Restart ${restartableCount} Cancelled`;
+		return `Restart ${restartableCount} Failed`;
+	});
+
 	onMount(() => {
+		refreshBatch();   // immediate fetch so we never show stale SSR data
+		startPolling();
+
+		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+
+		// Refresh when user returns to this tab (e.g. after restarting from detail page).
+		document.addEventListener('visibilitychange', onVisible);
+
+		return () => {
+			if (interval) clearInterval(interval);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
+	});
+
+	function onVisible() {
+		if (document.visibilityState === 'visible') {
+			refreshBatch();
+			if (batch.queuedCount > 0 || batch.pendingCount > 0 || batch.runningCount > 0) {
+				startPolling();
+			}
+		}
+	}
+
+	async function refreshBatch() {
+		const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+		if (res.ok) {
+			const result = await res.json();
+			polledBatch = result.summary;
+			polledMigrations = result.migrations;
+		}
+	}
+
+	function startPolling() {
+		if (interval) clearInterval(interval);
 		interval = setInterval(async () => {
 			const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
 			if (res.ok) {
@@ -29,16 +99,11 @@
 				polledBatch = result.summary;
 				polledMigrations = result.migrations;
 			}
-			// Stop polling when all done.
 			if (batch.queuedCount === 0 && batch.pendingCount === 0 && batch.runningCount === 0) {
 				clearInterval(interval);
 			}
 		}, 3000);
-	});
-
-	onDestroy(() => {
-		clearInterval(interval);
-	});
+	}
 
 	const isActive = $derived(batch.queuedCount > 0 || batch.pendingCount > 0 || batch.runningCount > 0);
 	const barTotal = $derived(batch.totalCount || 1);
@@ -93,6 +158,93 @@
 		}
 	}
 
+	function openRestartModal() {
+		restartError = '';
+		restartResult = null;
+		restartSubmitting = false;
+		restartSourceToken = '';
+		restartTargetToken = '';
+		restartSourceAppId = '';
+		restartSourceAppKey = '';
+		restartSourceAppInstallationId = '';
+		restartTargetAppId = '';
+		restartTargetAppKey = '';
+		restartTargetAppInstallationId = '';
+		restartSkipReleases = false;
+		restartMigrationMode = 'dry-run';
+		restartDirectPassthrough = false;
+		restartNoSslVerify = false;
+		restartTargetRepoVisibility = '';
+		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		else restartSourceAuthMode = 'pat';
+		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+		else restartTargetAuthMode = 'pat';
+		showRestartModal = true;
+	}
+
+	async function handleBatchRestart(e: Event) {
+		e.preventDefault();
+		restartError = '';
+		restartResult = null;
+		restartSubmitting = true;
+
+		try {
+			const sourceApp: AppAuth | undefined =
+				restartSourceAuthMode === 'app'
+					? { appId: restartSourceAppId, privateKey: restartSourceAppKey, installationId: restartSourceAppInstallationId }
+					: undefined;
+			const targetApp: AppAuth | undefined =
+				restartTargetAuthMode === 'app'
+					? { appId: restartTargetAppId, privateKey: restartTargetAppKey, installationId: restartTargetAppInstallationId }
+					: undefined;
+
+			const body = {
+				sourceToken: restartSourceAuthMode === 'pat' ? restartSourceToken || undefined : undefined,
+				targetToken: restartTargetAuthMode === 'pat' ? restartTargetToken || undefined : undefined,
+				sourceApp,
+				targetApp,
+				skipReleases: restartSkipReleases,
+				lockSource: restartMigrationMode === 'production',
+				archiveSource: restartMigrationMode === 'production',
+				directPassthrough: restartDirectPassthrough,
+				noSslVerify: restartNoSslVerify,
+				targetRepoVisibility: restartTargetRepoVisibility || undefined,
+			};
+
+			const res = await fetch(`/api/batches/${batch.id}/restart`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+
+			if (!res.ok) {
+				const data = await res.json();
+				restartError = data.error || `HTTP ${res.status}`;
+				return;
+			}
+
+			restartResult = await res.json();
+
+			// Refresh batch data and restart polling.
+			const refreshRes = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+			if (refreshRes.ok) {
+				const result = await refreshRes.json();
+				polledBatch = result.summary;
+				polledMigrations = result.migrations;
+			}
+			startPolling();
+
+			// Auto-close if no errors.
+			if (!restartResult?.errors?.length) {
+				showRestartModal = false;
+			}
+		} catch (err) {
+			restartError = err instanceof Error ? err.message : 'Unknown error';
+		} finally {
+			restartSubmitting = false;
+		}
+	}
+
 	// Sort: running first, then pending, then queued, then failed, then succeeded, then cancelled.
 	const sortOrder: Record<string, number> = { running: 0, pending: 1, queued: 2, failed: 3, succeeded: 4, cancelled: 5 };
 	const sortedMigrations = $derived(
@@ -131,13 +283,22 @@
 				{batch.totalCount} repositories · started {new Date(batch.startedAt).toLocaleString()}
 			</p>
 		</div>
-		{#if isActive}
-			<button onclick={handleCancelAll}
-				class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
-				<Octicon name="x-circle" size={16} />
-				Cancel All
-			</button>
-		{/if}
+		<div class="flex items-center gap-2">
+			{#if restartableCount > 0}
+				<button onclick={openRestartModal}
+					class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
+					<Octicon name="sync" size={16} />
+					{restartLabel}
+				</button>
+			{/if}
+			{#if isActive}
+				<button onclick={handleCancelAll}
+					class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
+					<Octicon name="x-circle" size={16} />
+					Cancel All
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- Overall progress -->
@@ -245,3 +406,212 @@
 		</a>
 	</div>
 </div>
+
+<!-- Restart modal -->
+{#if showRestartModal}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+	onkeydown={(e) => { if (e.key === 'Escape') showRestartModal = false; }}>
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<div class="absolute inset-0" onclick={() => showRestartModal = false}></div>
+	<div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+		<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
+			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
+				<Octicon name="sync" size={20} />
+				Restart Failed Migrations
+			</h2>
+			<button onclick={() => showRestartModal = false} class="text-gray-400 hover:text-gray-50 transition-colors">
+				<Octicon name="x" size={20} />
+			</button>
+		</div>
+
+		<form class="space-y-5 p-5" onsubmit={handleBatchRestart}>
+			<!-- Batch info (read-only) -->
+			<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3">
+				<p class="text-sm text-gray-300">
+					Restarting <span class="font-medium text-gray-50">{restartableCount}</span> failed/cancelled migration{restartableCount === 1 ? '' : 's'} in this batch.
+				</p>
+			</div>
+
+			{#if restartError}
+				<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+					{restartError}
+				</div>
+			{/if}
+
+			{#if restartResult}
+				<div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+					<p>{restartResult.restarted} migration(s) restarted successfully.</p>
+					{#if restartResult.errors.length > 0}
+						<p class="mt-1 text-red-400">{restartResult.errors.length} failed:</p>
+						<ul class="mt-1 list-disc list-inside text-xs text-red-300">
+							{#each restartResult.errors as err}
+								<li>{err.id}: {err.error}</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Source Auth -->
+			<div class="space-y-3">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
+					<Octicon name="server" size={16} />Source Authentication
+				</h3>
+				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
+					<button type="button"
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => restartSourceAuthMode = 'pat'}>
+						PAT
+					</button>
+					<button type="button"
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => restartSourceAuthMode = 'app'}>
+						GitHub App
+					</button>
+					{#if sourceEnvApp}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartSourceAuthMode = 'env-app'}>
+							Env App
+						</button>
+					{/if}
+				</div>
+				{#if restartSourceAuthMode === 'pat'}
+					<input type="password" bind:value={restartSourceToken} placeholder="ghp_..."
+						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+				{:else if restartSourceAuthMode === 'app'}
+					<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
+						<input type="text" bind:value={restartSourceAppId} placeholder="App ID"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						<input type="text" bind:value={restartSourceAppInstallationId} placeholder="Installation ID"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						<textarea bind:value={restartSourceAppKey} placeholder="Private Key (PEM)" rows="3"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
+					</div>
+				{:else}
+					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
+				{/if}
+			</div>
+
+			<!-- Target Auth -->
+			<div class="space-y-3">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
+					<Octicon name="repo-push" size={16} />Target Authentication
+				</h3>
+				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
+					<button type="button"
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => restartTargetAuthMode = 'pat'}>
+						PAT
+					</button>
+					<button type="button"
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => restartTargetAuthMode = 'app'}>
+						GitHub App
+					</button>
+					{#if targetEnvApp}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartTargetAuthMode = 'env-app'}>
+							Env App
+						</button>
+					{/if}
+				</div>
+				{#if restartTargetAuthMode === 'pat'}
+					<input type="password" bind:value={restartTargetToken} placeholder="ghp_..."
+						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+				{:else if restartTargetAuthMode === 'app'}
+					<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
+						<input type="text" bind:value={restartTargetAppId} placeholder="App ID"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						<input type="text" bind:value={restartTargetAppInstallationId} placeholder="Installation ID"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						<textarea bind:value={restartTargetAppKey} placeholder="Private Key (PEM)" rows="3"
+							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
+					</div>
+				{:else}
+					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
+				{/if}
+			</div>
+
+			<!-- Options -->
+			<div class="space-y-3">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
+					<Octicon name="gear" size={16} />Options
+				</h3>
+
+				<div>
+					<span class="block text-sm font-medium text-gray-400 mb-1.5">Migration Mode</span>
+					<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartMigrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartMigrationMode = 'dry-run'}>
+							Dry Run
+						</button>
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartMigrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartMigrationMode = 'production'}>
+							Production
+						</button>
+					</div>
+					{#if restartMigrationMode === 'production'}
+						<div class="mt-2 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+							<Octicon name="alert" size={12} class="shrink-0" />
+							Source repositories will be locked during migration and archived after success.
+						</div>
+					{/if}
+				</div>
+
+				<div>
+					<label for="batch-restart-visibility" class="block text-sm font-medium text-gray-400 mb-1">
+						Repository Visibility <span class="text-gray-600">(optional)</span>
+					</label>
+					<select id="batch-restart-visibility" bind:value={restartTargetRepoVisibility}
+						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+						<option value="">Default</option>
+						<option value="private">Private</option>
+						<option value="public">Public</option>
+						<option value="internal">Internal</option>
+					</select>
+				</div>
+
+				<label class="flex items-center gap-3">
+					<input type="checkbox" bind:checked={restartSkipReleases}
+						class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
+					<span class="text-sm text-gray-400">Skip releases</span>
+				</label>
+
+				<label class="flex items-center gap-3">
+					<input type="checkbox" bind:checked={restartDirectPassthrough}
+						class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
+					<span class="text-sm text-gray-400">Direct passthrough (skip download/upload)</span>
+				</label>
+
+				<label class="flex items-center gap-3">
+					<input type="checkbox" bind:checked={restartNoSslVerify}
+						class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
+					<span class="text-sm text-gray-400">Skip SSL verification (self-signed certs)</span>
+				</label>
+			</div>
+
+			<!-- Actions -->
+			<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
+				<button type="button" onclick={() => showRestartModal = false}
+					class="text-sm text-gray-400 hover:text-gray-50 transition-colors">
+					Cancel
+				</button>
+				<button type="submit" disabled={restartSubmitting}
+					class="flex items-center gap-1.5 rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+					{#if restartSubmitting}
+						Restarting...
+					{:else}
+						<Octicon name="sync" size={16} />
+						Restart {restartableCount} Migration{restartableCount === 1 ? '' : 's'}
+					{/if}
+				</button>
+			</div>
+		</form>
+	</div>
+</div>
+{/if}
