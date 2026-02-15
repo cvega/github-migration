@@ -1,34 +1,43 @@
 /**
  * Archive upload to GitHub-managed storage (uploads.github.com).
  * Supports single-part and multipart uploads.
+ *
+ * Accepts `Blob` (including `BunFile` from `Bun.file()`) or `Uint8Array`
+ * so callers can stream from disk without buffering the entire archive
+ * into memory.
  */
 
 const MULTIPART_CUTOFF = 100 * 1024 * 1024; // 100 MiB
 
+/** Normalise to Blob so fetch always gets a valid BodyInit. */
+function toBlob(data: Blob | Uint8Array): Blob {
+  return data instanceof Blob ? data : new Blob([data as BlobPart]);
+}
+
 export async function uploadArchive(
-  archive: Uint8Array,
+  archive: Blob | Uint8Array,
   name: string,
   orgDatabaseId: string,
   targetToken: string,
   uploadsUrl = "https://uploads.github.com",
 ): Promise<string> {
-  if (archive.byteLength > MULTIPART_CUTOFF) {
-    return uploadMultipart(archive, name, orgDatabaseId, targetToken, uploadsUrl);
+  const size = archive instanceof Blob ? archive.size : archive.byteLength;
+  if (size > MULTIPART_CUTOFF) {
+    return uploadMultipart(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
   }
-  return uploadSingle(archive, name, orgDatabaseId, targetToken, uploadsUrl);
+  return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
 }
 
 async function uploadSingle(
-  archive: Uint8Array,
+  archive: Blob | Uint8Array,
+  size: number,
   name: string,
   orgDatabaseId: string,
   token: string,
   uploadsUrl: string,
 ): Promise<string> {
   const url = `${uploadsUrl}/organizations/${orgDatabaseId}/gei/archive?name=${name}`;
-  console.log(
-    `Uploading archive (single): ${name} (${(archive.length / 1024 / 1024).toFixed(1)} MiB)`,
-  );
+  console.log(`Uploading archive (single): ${name} (${(size / 1024 / 1024).toFixed(1)} MiB)`);
 
   const resp = await fetch(url, {
     method: "POST",
@@ -36,7 +45,7 @@ async function uploadSingle(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/octet-stream",
     },
-    body: archive.buffer as ArrayBuffer,
+    body: toBlob(archive),
   });
 
   if (!resp.ok) throw new Error(`Upload failed: ${resp.status} ${await resp.text()}`);
@@ -46,14 +55,15 @@ async function uploadSingle(
 }
 
 async function uploadMultipart(
-  archive: Uint8Array,
+  archive: Blob | Uint8Array,
+  totalSize: number,
   name: string,
   orgDatabaseId: string,
   token: string,
   uploadsUrl: string,
 ): Promise<string> {
   const partSize = MULTIPART_CUTOFF;
-  const totalParts = Math.ceil(archive.length / partSize);
+  const totalParts = Math.ceil(totalSize / partSize);
 
   console.log(`Starting multipart upload: ${name} (${totalParts} parts)`);
 
@@ -68,7 +78,7 @@ async function uploadMultipart(
     body: JSON.stringify({
       content_type: "application/octet-stream",
       name,
-      size: archive.length,
+      size: totalSize,
     }),
   });
 
@@ -78,7 +88,10 @@ async function uploadMultipart(
   // Step 2: Upload parts
   for (let part = 0; part < totalParts; part++) {
     const start = part * partSize;
-    const end = Math.min(start + partSize, archive.length);
+    const end = Math.min(start + partSize, totalSize);
+
+    // Slice from the source — Blob.slice() is lazy (no copy),
+    // Uint8Array.slice() copies but only one chunk at a time.
     const chunk = archive.slice(start, end);
 
     console.log(`Uploading part ${part + 1}/${totalParts}`);
@@ -89,7 +102,7 @@ async function uploadMultipart(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/octet-stream",
       },
-      body: chunk.buffer as ArrayBuffer,
+      body: toBlob(chunk),
     });
 
     if (!partResp.ok) throw new Error(`Part ${part + 1} upload failed: ${partResp.status}`);

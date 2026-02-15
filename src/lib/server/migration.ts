@@ -380,19 +380,19 @@ async function resolveArchives(
 
     const orgDbId = await getOrgDatabaseId(clients.targetGraphql, migration.targetOrg);
 
-    const gitBuf = new Uint8Array(await Bun.file(gitTmpPath).arrayBuffer());
+    // Stream from disk via Bun.file() (BunFile extends Blob) — avoids
+    // buffering entire archives into memory.
     const gitUploadToken = await clients.getTargetToken();
     const gitArchiveUrl = await uploadArchive(
-      gitBuf,
+      Bun.file(gitTmpPath),
       "git-archive.tar.gz",
       orgDbId,
       gitUploadToken,
     );
 
-    const metaBuf = new Uint8Array(await Bun.file(metaTmpPath).arrayBuffer());
     const metaUploadToken = await clients.getTargetToken();
     const metadataArchiveUrl = await uploadArchive(
-      metaBuf,
+      Bun.file(metaTmpPath),
       "metadata-archive.tar.gz",
       orgDbId,
       metaUploadToken,
