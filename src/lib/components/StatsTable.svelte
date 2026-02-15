@@ -37,7 +37,7 @@
 						{#if match}
 							<span class="text-green-400"><Octicon name="check-circle" size={16} /></span>
 						{:else}
-							<span class="text-yellow-400">{row.src > 0 ? Math.round((row.tgt / row.src) * 100) + '%' : '—'}</span>
+							<span class="text-yellow-400">{row.src > 0 ? Math.floor((row.tgt / row.src) * 10000) / 100 + '%' : '—'}</span>
 						{/if}
 					</td>
 				</tr>

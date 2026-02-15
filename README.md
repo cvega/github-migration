@@ -90,7 +90,9 @@ src/
     types.ts        # shared TypeScript types
   routes/           # SvelteKit pages + API endpoints
   hooks.server.ts   # auth, security headers, startup init
-seed.ts             # dev seed script
+scripts/
+  postbuild.ts      # patches static asset cache headers
+  seed.ts           # dev seed script
 ```
 
 ## Quick Start

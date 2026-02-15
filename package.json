@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite dev",
-    "build": "bunx --bun svelte-kit sync && bunx --bun vite build",
+    "build": "bunx --bun svelte-kit sync && bunx --bun vite build && bun scripts/postbuild.ts",
     "preview": "bunx --bun vite preview",
     "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json",
     "ci": "bun run check && bun run build",
     "format": "bunx --bun biome format --write .",
     "lint": "bunx --bun biome lint .",
-    "seed": "bun seed.ts"
+    "seed": "bun scripts/seed.ts"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0",
