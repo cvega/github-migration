@@ -27,8 +27,7 @@ import {
   getRecoverableMigrations,
   insertEvent,
   insertMigration,
-  listBatchIds,
-  listBatchIdsPaginated,
+  listBatchItemsPaginated,
   listMigrations,
   listMigrationsPaginated,
   updateMigrationState,
@@ -275,30 +274,8 @@ export function getBatchPaginated(
   return { summary, migrations };
 }
 
-export function listBatches(): BatchSummary[] {
-  const ids = listBatchIds();
-  const summaries: BatchSummary[] = [];
-  for (const id of ids) {
-    const summary = getBatchSummary(id);
-    if (summary) summaries.push(summary);
-  }
-  return summaries;
-}
-
 export function listBatchesPaginated(params: PaginationParams): PaginatedResult<BatchListItem> {
-  const result = listBatchIdsPaginated(params);
-  const items: BatchListItem[] = [];
-  for (const id of result.data) {
-    const item = getBatchListItem(id);
-    if (item) items.push(item);
-  }
-  return {
-    data: items,
-    total: result.total,
-    page: result.page,
-    limit: result.limit,
-    totalPages: result.totalPages,
-  };
+  return listBatchItemsPaginated(params);
 }
 
 export function get(migrationId: string): Migration | null {

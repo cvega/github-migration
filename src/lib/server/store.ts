@@ -300,48 +300,10 @@ export function getBatchMigrationsPaginated(
 }
 
 export function getBatchSummary(batchId: string): BatchSummary | null {
-  // Fetch all migrations once and derive counts in JS to avoid a second query.
+  const item = getBatchListItem(batchId);
+  if (!item) return null;
   const migrations = getBatchMigrations(batchId);
-  if (migrations.length === 0) return null;
-
-  let pending = 0,
-    running = 0,
-    succeeded = 0,
-    failed = 0,
-    cancelled = 0;
-  let startedAt = migrations[0].startedAt;
-  for (const m of migrations) {
-    switch (m.state) {
-      case "pending":
-        pending++;
-        break;
-      case "running":
-        running++;
-        break;
-      case "succeeded":
-        succeeded++;
-        break;
-      case "failed":
-        failed++;
-        break;
-      case "cancelled":
-        cancelled++;
-        break;
-    }
-    if (m.startedAt < startedAt) startedAt = m.startedAt;
-  }
-
-  return {
-    id: batchId,
-    totalCount: migrations.length,
-    pendingCount: pending,
-    runningCount: running,
-    succeededCount: succeeded,
-    failedCount: failed,
-    cancelledCount: cancelled,
-    startedAt,
-    migrations,
-  };
+  return { ...item, migrations };
 }
 
 /** Lightweight batch info — aggregate counts only, no embedded migrations. */
@@ -376,21 +338,9 @@ export function getBatchListItem(batchId: string): BatchListItem | null {
   };
 }
 
-export function listBatchIds(): string[] {
-  const rows = getDb()
-    .prepare(
-      `
-			SELECT batch_id, MIN(started_at) AS first_started
-			FROM migrations WHERE batch_id IS NOT NULL
-			GROUP BY batch_id
-			ORDER BY first_started DESC
-		`,
-    )
-    .all() as Record<string, unknown>[];
-  return rows.map((r) => r.batch_id as string);
-}
-
-export function listBatchIdsPaginated(params: PaginationParams): PaginatedResult<string> {
+export function listBatchItemsPaginated(
+  params: PaginationParams,
+): PaginatedResult<BatchListItem> {
   const { page, limit } = params;
   const offset = (page - 1) * limit;
   const { count: total } = getDb()
@@ -398,17 +348,33 @@ export function listBatchIdsPaginated(params: PaginationParams): PaginatedResult
     .get() as { count: number };
   const rows = getDb()
     .prepare(
-      `
-			SELECT batch_id, MIN(started_at) as first_started
-			FROM migrations WHERE batch_id IS NOT NULL
-			GROUP BY batch_id
-			ORDER BY first_started DESC
-			LIMIT ? OFFSET ?
-		`,
+      `SELECT
+        batch_id,
+        COUNT(*) AS total,
+        SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
+        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
+        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+        MIN(started_at) AS started_at
+      FROM migrations
+      WHERE batch_id IS NOT NULL
+      GROUP BY batch_id
+      ORDER BY MIN(started_at) DESC
+      LIMIT ? OFFSET ?`,
     )
     .all(limit, offset) as Record<string, unknown>[];
   return {
-    data: rows.map((r) => r.batch_id as string),
+    data: rows.map((row) => ({
+      id: row.batch_id as string,
+      totalCount: row.total as number,
+      pendingCount: row.pending as number,
+      runningCount: row.running as number,
+      succeededCount: row.succeeded as number,
+      failedCount: row.failed as number,
+      cancelledCount: row.cancelled as number,
+      startedAt: row.started_at as string,
+    })),
     total,
     page,
     limit,
