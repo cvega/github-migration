@@ -1,13 +1,18 @@
 <!-- Batch detail page -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
 	import { formatElapsed } from '$lib/format';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
 	import type { BatchListItem, Migration, PaginatedResult, AppAuth } from '$lib/types';
+
+	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
+	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);
 
 	let { data } = $props();
 
@@ -289,20 +294,39 @@
 				{batch.totalCount} repositories · started {new Date(batch.startedAt).toLocaleString()}
 			</p>
 		</div>
-		<div class="flex items-center gap-2">
-			{#if restartableCount > 0}
-				<button onclick={openRestartModal}
-					class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
-					<Octicon name="sync" size={16} />
-					{restartLabel}
-				</button>
-			{/if}
-			{#if isActive}
-				<button onclick={handleCancelAll}
-					class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
-					<Octicon name="x-circle" size={16} />
-					Cancel All
-				</button>
+		<div class="flex flex-col items-end gap-2">
+			<div class="flex items-center gap-2">
+				<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors
+					{auth.migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : auth.sourceApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
+					<Octicon name={auth.sourceApp ? 'shield-lock' : 'key'} size={12} />
+					Source: {auth.sourceApp ? 'App' : 'PAT'}
+					<span class="{auth.migrating ? 'text-yellow-500' : 'text-gray-500'}">{auth.sourceRateText}</span>
+				</span>
+				<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors
+					{auth.migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : auth.targetApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
+					<Octicon name={auth.targetApp ? 'shield-lock' : 'key'} size={12} />
+					Target: {auth.targetApp ? 'App' : 'PAT'}
+					<span class="{auth.migrating ? 'text-yellow-500' : 'text-gray-500'}">{auth.targetRateText}</span>
+				</span>
+				<GitHubStatus status={ghStatusCtx.value} />
+			</div>
+			{#if restartableCount > 0 || isActive}
+				<div class="flex items-center gap-2">
+					{#if restartableCount > 0}
+						<button onclick={openRestartModal}
+							class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
+							<Octicon name="sync" size={16} />
+							{restartLabel}
+						</button>
+					{/if}
+					{#if isActive}
+						<button onclick={handleCancelAll}
+							class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
+							<Octicon name="x-circle" size={16} />
+							Cancel All
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>

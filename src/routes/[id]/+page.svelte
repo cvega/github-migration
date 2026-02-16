@@ -279,6 +279,13 @@
 					<span class="text-gray-600">·</span>
 					<span class="text-yellow-400">{migration.warningsCount} warnings</span>
 				{/if}
+				{#if migration.batchId}
+					<span class="text-gray-600">·</span>
+					<a href="/batches/{migration.batchId}" class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors">
+						<Octicon name="stack" size={12} />
+						Batch
+					</a>
+				{/if}
 			</div>
 		</div>
 		{#if isActive}
