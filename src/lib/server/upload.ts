@@ -19,26 +19,40 @@ function toBlob(data: Blob | Uint8Array): Blob {
 /**
  * Retry wrapper — retries a function up to `maxRetries` times with a
  * linear backoff delay for transient network / server errors.
+ * Accepts an optional AbortSignal to bail out of retries on cancellation.
  */
 async function withRetry<T>(
   fn: () => Promise<T>,
   label: string,
   maxRetries = UPLOAD_MAX_RETRIES,
   delayMs = UPLOAD_RETRY_DELAY_MS,
+  signal?: AbortSignal,
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) throw new Error("Aborted");
     try {
       return await fn();
     } catch (err) {
       lastError = err;
+      if (signal?.aborted) throw new Error("Aborted");
       if (attempt < maxRetries) {
         const wait = delayMs * (attempt + 1);
         console.warn(
           `[upload] ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${wait}ms:`,
           err instanceof Error ? err.message : err,
         );
-        await new Promise((r) => setTimeout(r, wait));
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+          }, wait);
+          function onAbort() {
+            clearTimeout(timer);
+            reject(new Error("Aborted"));
+          }
+          signal?.addEventListener("abort", onAbort, { once: true });
+        });
       }
     }
   }
@@ -51,14 +65,21 @@ export async function uploadArchive(
   orgDatabaseId: string,
   targetToken: string,
   uploadsUrl = "https://uploads.github.com",
+  signal?: AbortSignal,
 ): Promise<string> {
-  return withRetry(async () => {
-    const size = archive instanceof Blob ? archive.size : archive.byteLength;
-    if (size > MULTIPART_CUTOFF) {
-      return uploadMultipart(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
-    }
-    return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
-  }, `upload ${name}`);
+  return withRetry(
+    async () => {
+      const size = archive instanceof Blob ? archive.size : archive.byteLength;
+      if (size > MULTIPART_CUTOFF) {
+        return uploadMultipart(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
+      }
+      return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl);
+    },
+    `upload ${name}`,
+    UPLOAD_MAX_RETRIES,
+    UPLOAD_RETRY_DELAY_MS,
+    signal,
+  );
 }
 
 async function uploadSingle(

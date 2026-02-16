@@ -185,10 +185,17 @@ function handlePipelineError(id: string, err: unknown): void {
 function drainQueue(): void {
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const active = getActiveMigrationCount();
-    if (active >= MAX_CONCURRENT) break;
+    // Atomic: check concurrency + dequeue + transition in a single transaction
+    // so concurrent drainQueue() calls can't both see active < MAX_CONCURRENT.
+    const next = getDb().transaction(() => {
+      const active = getActiveMigrationCount();
+      if (active >= MAX_CONCURRENT) return null;
+      const queued = getNextQueuedMigration();
+      if (!queued) return null;
+      updateMigrationState(queued.id, "pending");
+      return queued;
+    })();
 
-    const next = getNextQueuedMigration();
     if (!next) break;
 
     const req = queuedRequests.get(next.id);
@@ -203,8 +210,7 @@ function drainQueue(): void {
     }
     queuedRequests.delete(next.id);
 
-    // Transition from queued → pending and launch the pipeline.
-    updateMigrationState(next.id, "pending");
+    // Launch the pipeline.
     const ac = new AbortController();
     controllers.set(next.id, ac);
 

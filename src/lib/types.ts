@@ -34,7 +34,7 @@ export type PipelineStep =
   | "monitoring"
   | "post_migration";
 
-export type AuthMode = "pat" | "request-app" | "env-app";
+export type AuthMode = "pat" | "request-app" | "env-app" | "env-pat";
 
 export type Phase =
   | "QUEUED"

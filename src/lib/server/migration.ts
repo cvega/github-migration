@@ -420,6 +420,8 @@ async function resolveArchives(
       "git-archive.tar.gz",
       orgDbId,
       gitUploadToken,
+      undefined,
+      opts.signal,
     );
 
     const metaUploadToken = await clients.getTargetToken();
@@ -428,6 +430,8 @@ async function resolveArchives(
       "metadata-archive.tar.gz",
       orgDbId,
       metaUploadToken,
+      undefined,
+      opts.signal,
     );
 
     emitStep("Archives uploaded");
@@ -486,8 +490,8 @@ function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
   if (opts.sourceApp || opts.targetApp) return "request-app";
   // Otherwise, both sides must be using env-configured GitHub App.
   if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
-  // Env PATs are also resumable (like env-app) since they survive restarts.
-  if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-app";
+  // Env PATs are also resumable since they survive restarts.
+  if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-pat";
   return "pat";
 }
 

@@ -46,7 +46,8 @@ export function initStore(dbPath: string): void {
            completed_at = ?
        WHERE state IN ('queued', 'pending', 'running')
          AND id NOT LIKE 'seed-%'
-         AND NOT (auth_mode = 'env-app' AND github_migration_id IS NOT NULL)`,
+         AND NOT (auth_mode IN ('env-app', 'env-pat') AND github_migration_id IS NOT NULL)`,
+
     )
     .run(new Date().toISOString());
   if (orphaned.changes > 0) {
@@ -207,7 +208,7 @@ export function getRecoverableMigrations(): Migration[] {
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
        WHERE state IN ('pending', 'running')
-         AND auth_mode = 'env-app'
+         AND auth_mode IN ('env-app', 'env-pat')
          AND github_migration_id IS NOT NULL
          AND id NOT LIKE 'seed-%'
        ORDER BY started_at ASC`,
@@ -313,6 +314,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   if (typeof state !== "string" || !validStates.includes(state as MigrationState)) {
     throw new Error(`Invalid migration row ${id}: invalid state "${state}"`);
   }
+  const validAuthModes: AuthMode[] = ["pat", "request-app", "env-app", "env-pat"];
   const startedAt = row.started_at;
   if (typeof startedAt !== "string")
     throw new Error(`Invalid migration row ${id}: missing started_at`);
@@ -337,7 +339,10 @@ function rowToMigration(row: Record<string, unknown>): Migration {
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
     elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,
-    authMode: typeof row.auth_mode === "string" ? (row.auth_mode as AuthMode) : null,
+    authMode:
+      typeof row.auth_mode === "string" && validAuthModes.includes(row.auth_mode as AuthMode)
+        ? (row.auth_mode as AuthMode)
+        : null,
   };
 }
 
