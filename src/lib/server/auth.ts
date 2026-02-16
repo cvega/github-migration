@@ -228,14 +228,18 @@ export async function fetchLiveRateLimits(): Promise<{
       const sourceBaseUrl = env.GH_SOURCE_API_URL || "https://api.github.com";
       fetches.push(
         getRateLimit(createSingleClient(sourceAuth, sourceBaseUrl))
-          .then((r) => { results.source = r; })
+          .then((r) => {
+            results.source = r;
+          })
           .catch(() => {}),
       );
     }
     if (targetAuth) {
       fetches.push(
         getRateLimit(createSingleClient(targetAuth, "https://api.github.com"))
-          .then((r) => { results.target = r; })
+          .then((r) => {
+            results.target = r;
+          })
           .catch(() => {}),
       );
     }

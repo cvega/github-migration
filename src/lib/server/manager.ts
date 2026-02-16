@@ -419,10 +419,7 @@ export function cancelBatch(batchId: string): number {
  * Reuses the same migration ID — clears transient fields and re-runs the pipeline.
  * Credentials must be provided (or env-app must be configured).
  */
-export function restart(
-  migrationId: string,
-  creds: RestartMigrationRequest,
-): Migration {
+export function restart(migrationId: string, creds: RestartMigrationRequest): Migration {
   const existing = getMigration(migrationId);
   if (!existing) throw new Error("Migration not found");
   if (existing.state !== "failed" && existing.state !== "cancelled") {
@@ -495,9 +492,7 @@ export function restartBatch(
   creds: RestartMigrationRequest,
 ): { restarted: number; errors: Array<{ id: string; error: string }> } {
   const migrations = getBatchMigrations(batchId);
-  const eligible = migrations.filter(
-    (m) => m.state === "failed" || m.state === "cancelled",
-  );
+  const eligible = migrations.filter((m) => m.state === "failed" || m.state === "cancelled");
 
   const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
 

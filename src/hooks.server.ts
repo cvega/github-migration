@@ -3,14 +3,10 @@
  * headers, graceful shutdown, and store initialization.
  */
 
-import { redirect, type Handle, type HandleServerError } from "@sveltejs/kit";
+import { type Handle, type HandleServerError, redirect } from "@sveltejs/kit";
 import { env } from "$env/dynamic/private";
 import { recoverOrphans } from "$lib/server/manager";
-import {
-  authEnabled,
-  isValidSession,
-  SESSION_COOKIE,
-} from "$lib/server/session";
+import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/session";
 import { closeStore, initStore } from "$lib/server/store";
 
 // Initialize SQLite on server startup.

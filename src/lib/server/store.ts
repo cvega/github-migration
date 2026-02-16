@@ -302,7 +302,14 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   if (typeof targetRepo !== "string")
     throw new Error(`Invalid migration row ${id}: missing target_repo`);
   const state = row.state;
-  const validStates: MigrationState[] = ["queued", "pending", "running", "succeeded", "failed", "cancelled"];
+  const validStates: MigrationState[] = [
+    "queued",
+    "pending",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+  ];
   if (typeof state !== "string" || !validStates.includes(state as MigrationState)) {
     throw new Error(`Invalid migration row ${id}: invalid state "${state}"`);
   }
