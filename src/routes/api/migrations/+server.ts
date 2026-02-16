@@ -2,7 +2,7 @@
  *  GET  /api/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { isSourceAppConfigured, isTargetAppConfigured } from "$lib/server/auth";
+import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { listPaginated, start } from "$lib/server/manager";
 import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
@@ -54,20 +54,20 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   }
 
-  if (!body.sourceToken && !body.sourceApp && !isSourceAppConfigured()) {
+  if (!body.sourceToken && !body.sourceApp && !isSourceAuthAvailable()) {
     return json(
       {
         error:
-          "Missing source auth — provide a PAT, app credentials, or configure a source GitHub App via env vars",
+          "Missing source auth — provide a PAT, app credentials, or configure auth via env vars",
       },
       { status: 400 },
     );
   }
-  if (!body.targetToken && !body.targetApp && !isTargetAppConfigured()) {
+  if (!body.targetToken && !body.targetApp && !isTargetAuthAvailable()) {
     return json(
       {
         error:
-          "Missing target auth — provide a PAT, app credentials, or configure a target GitHub App via env vars",
+          "Missing target auth — provide a PAT, app credentials, or configure auth via env vars",
       },
       { status: 400 },
     );

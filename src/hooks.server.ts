@@ -8,7 +8,6 @@ import { env } from "$env/dynamic/private";
 import { recoverOrphans } from "$lib/server/manager";
 import {
   authEnabled,
-  isRateLimited,
   isValidSession,
   SESSION_COOKIE,
 } from "$lib/server/session";

@@ -255,6 +255,7 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     startedAt: now,
     completedAt: null,
     elapsedSeconds: null,
+    authMode: null,
   };
 
   // Atomic check-and-insert: wrap concurrency check + insert in a
@@ -337,6 +338,7 @@ function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
     startedAt: now,
     completedAt: null,
     elapsedSeconds: null,
+    authMode: null,
   };
 
   insertMigration(migration);

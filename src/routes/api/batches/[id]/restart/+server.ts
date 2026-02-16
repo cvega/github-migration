@@ -1,6 +1,6 @@
 /** POST /api/batches/[id]/restart — restart all failed/cancelled migrations in a batch. */
 import { json } from "@sveltejs/kit";
-import { isSourceAppConfigured, isTargetAppConfigured } from "$lib/server/auth";
+import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { getBatch, restartBatch } from "$lib/server/manager";
 import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { RestartMigrationRequest } from "$lib/types";
@@ -21,20 +21,20 @@ export const POST: RequestHandler = async ({ params, request }) => {
     return json({ error: validationError }, { status: 400 });
   }
 
-  if (!body.sourceToken && !body.sourceApp && !isSourceAppConfigured()) {
+  if (!body.sourceToken && !body.sourceApp && !isSourceAuthAvailable()) {
     return json(
       {
         error:
-          "Missing source auth — provide a PAT, app credentials, or configure a source GitHub App via env vars",
+          "Missing source auth — provide a PAT, app credentials, or configure auth via env vars",
       },
       { status: 400 },
     );
   }
-  if (!body.targetToken && !body.targetApp && !isTargetAppConfigured()) {
+  if (!body.targetToken && !body.targetApp && !isTargetAuthAvailable()) {
     return json(
       {
         error:
-          "Missing target auth — provide a PAT, app credentials, or configure a target GitHub App via env vars",
+          "Missing target auth — provide a PAT, app credentials, or configure auth via env vars",
       },
       { status: 400 },
     );

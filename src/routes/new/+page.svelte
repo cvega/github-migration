@@ -41,9 +41,15 @@
 	// ── Auth mode ───────────────────────────────────────────────────────────
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
+	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
+	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
 
-	let sourceAuthMode = $state<'pat' | 'app' | 'env-app'>(untrack(() => sourceEnvApp) ? 'env-app' : 'pat');
-	let targetAuthMode = $state<'pat' | 'app' | 'env-app'>(untrack(() => targetEnvApp) ? 'env-app' : 'pat');
+	let sourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
+		untrack(() => sourceEnvApp) ? 'env-app' : untrack(() => sourceEnvPat) ? 'env-pat' : 'pat'
+	);
+	let targetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
+		untrack(() => targetEnvApp) ? 'env-app' : untrack(() => targetEnvPat) ? 'env-pat' : 'pat'
+	);
 
 	let sourceAppId = $state('');
 	let sourceAppKey = $state('');
@@ -286,6 +292,13 @@
 							Env App
 						</button>
 					{/if}
+					{#if sourceEnvPat}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => sourceAuthMode = 'env-pat'}>
+							Env PAT
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -319,12 +332,12 @@
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
 				</div>
-			{:else}
+			{:else if sourceAuthMode === 'env-app'}
 				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
+			{:else}
+				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_SOURCE_PAT).</p>
 			{/if}
 		</div>
-
-		<!-- Target -->
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
 			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="repo-push" size={16} />Target</h3>
 
@@ -370,6 +383,13 @@
 							Env App
 						</button>
 					{/if}
+					{#if targetEnvPat}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => targetAuthMode = 'env-pat'}>
+							Env PAT
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -403,8 +423,10 @@
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
 				</div>
-			{:else}
+			{:else if targetAuthMode === 'env-app'}
 				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
+			{:else}
+				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_TARGET_PAT).</p>
 			{/if}
 
 			<div>

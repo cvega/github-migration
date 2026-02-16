@@ -29,8 +29,10 @@
 
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
-	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
-	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
+	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
+	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
+	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
+	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
 
 	let restartSourceToken = $state('');
 	let restartTargetToken = $state('');
@@ -61,7 +63,9 @@
 		startPolling();
 
 		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
 		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
 
 		// Refresh when user returns to this tab (e.g. after restarting from detail page).
 		document.addEventListener('visibilitychange', onVisible);
@@ -176,8 +180,10 @@
 		restartNoSslVerify = false;
 		restartTargetRepoVisibility = '';
 		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
 		else restartSourceAuthMode = 'pat';
 		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
 		else restartTargetAuthMode = 'pat';
 		showRestartModal = true;
 	}
@@ -476,6 +482,13 @@
 							Env App
 						</button>
 					{/if}
+					{#if sourceEnvPat}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartSourceAuthMode = 'env-pat'}>
+							Env PAT
+						</button>
+					{/if}
 				</div>
 				{#if restartSourceAuthMode === 'pat'}
 					<input type="password" bind:value={restartSourceToken} placeholder="ghp_..."
@@ -489,8 +502,10 @@
 						<textarea bind:value={restartSourceAppKey} placeholder="Private Key (PEM)" rows="3"
 							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
-				{:else}
+				{:else if restartSourceAuthMode === 'env-app'}
 					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
+				{:else}
+					<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_SOURCE_PAT).</p>
 				{/if}
 			</div>
 
@@ -517,6 +532,13 @@
 							Env App
 						</button>
 					{/if}
+					{#if targetEnvPat}
+						<button type="button"
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => restartTargetAuthMode = 'env-pat'}>
+							Env PAT
+						</button>
+					{/if}
 				</div>
 				{#if restartTargetAuthMode === 'pat'}
 					<input type="password" bind:value={restartTargetToken} placeholder="ghp_..."
@@ -530,8 +552,10 @@
 						<textarea bind:value={restartTargetAppKey} placeholder="Private Key (PEM)" rows="3"
 							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
-				{:else}
+				{:else if restartTargetAuthMode === 'env-app'}
 					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
+				{:else}
+					<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_TARGET_PAT).</p>
 				{/if}
 			</div>
 

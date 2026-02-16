@@ -3,7 +3,7 @@
 	import '../app.css';
 	import { onMount, onDestroy, setContext } from 'svelte';
 	import { page } from '$app/state';
-	import { GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
+	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
 	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { GitHubStatus } from '$lib/types';
@@ -23,6 +23,15 @@
 
 	// Expose live ghStatus to child pages via context.
 	setContext<GhStatusContext>(GH_STATUS_KEY, { get value() { return ghStatus; } });
+
+	// Expose live auth pill data to child pages via context.
+	setContext<AuthPillContext>(AUTH_PILL_KEY, {
+		get sourceApp() { return sourceApp; },
+		get targetApp() { return targetApp; },
+		get sourceRateText() { return sourceRateText; },
+		get targetRateText() { return targetRateText; },
+		get migrating() { return migrating; },
+	});
 
 	// Re-seed when navigating between pages (layout data re-runs).
 	$effect(() => {
@@ -87,20 +96,6 @@
 				GitHub Migrate
 			</a>
 			<div class="flex items-center gap-4">
-				<div class="flex items-center gap-2">
-					<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors
-						{migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : sourceApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
-					<Octicon name={sourceApp ? 'shield-lock' : 'key'} size={12} />
-						Source: {sourceApp ? 'App' : 'PAT'}
-						<span class="{migrating ? 'text-yellow-500' : 'text-gray-500'}">{sourceRateText}</span>
-					</span>
-					<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors
-						{migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : targetApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
-					<Octicon name={targetApp ? 'shield-lock' : 'key'} size={12} />
-						Target: {targetApp ? 'App' : 'PAT'}
-						<span class="{migrating ? 'text-yellow-500' : 'text-gray-500'}">{targetRateText}</span>
-					</span>
-				</div>
 				<a href="/new"
 					class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
 					<Octicon name="plus" size={16} />

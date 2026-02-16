@@ -29,6 +29,8 @@ export interface SideAuthConfig {
   mode: DisplayAuthMode;
   appId?: string;
   installationId?: string;
+  /** Whether an env-level PAT is configured for this side. */
+  hasEnvPat?: boolean;
   /** Static rate limit ceiling for this auth mode. */
   rateLimit: number;
   /** Live rate limit info – populated if credentials are available. */
@@ -76,23 +78,24 @@ function getTargetAppConfig(): AppCredentials | null {
   return { appId, privateKey: decodePrivateKey(privateKeyRaw), installationId };
 }
 
-function sideConfig(app: AppCredentials | null): SideAuthConfig {
+function sideConfig(app: AppCredentials | null, envPat?: string): SideAuthConfig {
   if (app) {
     return {
       mode: "github-app",
       appId: app.appId,
       installationId: app.installationId,
+      hasEnvPat: !!envPat,
       rateLimit: 15_000,
     };
   }
-  return { mode: "pat", rateLimit: 5_000 };
+  return { mode: "pat", hasEnvPat: !!envPat, rateLimit: 5_000 };
 }
 
 /** Returns auth configuration for both sides (no secrets exposed). */
 export function getAuthConfig(): AuthConfig {
   return {
-    source: sideConfig(getSourceAppConfig()),
-    target: sideConfig(getTargetAppConfig()),
+    source: sideConfig(getSourceAppConfig(), env.GH_SOURCE_PAT),
+    target: sideConfig(getTargetAppConfig(), env.GH_TARGET_PAT),
   };
 }
 
@@ -106,12 +109,22 @@ export function isTargetAppConfigured(): boolean {
   return getTargetAppConfig() !== null;
 }
 
+/** Whether any env-level auth (App or PAT) is available for the source. */
+export function isSourceAuthAvailable(): boolean {
+  return getSourceAppConfig() !== null || !!env.GH_SOURCE_PAT;
+}
+
+/** Whether any env-level auth (App or PAT) is available for the target. */
+export function isTargetAuthAvailable(): boolean {
+  return getTargetAppConfig() !== null || !!env.GH_TARGET_PAT;
+}
+
 // ── Auth input resolution (for auto-refreshing Octokit clients) ─────────
 
 /**
  * Resolve source auth input — returns credentials (not a resolved token)
  * so that `createClients` can set up auto-refreshing auth.
- * Priority: request PAT → request App → env App → error.
+ * Priority: request PAT → request App → env App → env PAT → error.
  */
 export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
   if (requestToken) return { token: requestToken };
@@ -130,13 +143,15 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(envApp.installationId),
     };
   }
+  const envPat = env.GH_SOURCE_PAT;
+  if (envPat) return { token: envPat };
   throw new Error("No source token provided and no source GitHub App configured");
 }
 
 /**
  * Resolve target auth input — returns credentials (not a resolved token)
  * so that `createClients` can set up auto-refreshing auth.
- * Priority: request PAT → request App → env App → error.
+ * Priority: request PAT → request App → env App → env PAT → error.
  */
 export function resolveTargetAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
   if (requestToken) return { token: requestToken };
@@ -155,6 +170,8 @@ export function resolveTargetAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(envApp.installationId),
     };
   }
+  const envPat = env.GH_TARGET_PAT;
+  if (envPat) return { token: envPat };
   throw new Error("No target token provided and no target GitHub App configured");
 }
 

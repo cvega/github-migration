@@ -32,8 +32,10 @@
 	// Auth mode for restart
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
-	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
-	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app'>('pat');
+	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
+	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
+	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
+	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
 
 	// PAT fields
 	let restartSourceToken = $state('');
@@ -66,9 +68,11 @@
 
 		startPolling();
 
-		// Initialise restart auth modes based on env-app availability.
+		// Initialise restart auth modes based on env auth availability.
 		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
 		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
 
 		return () => {
 			if (pollInterval) clearInterval(pollInterval);
@@ -168,8 +172,10 @@
 		restartNoSslVerify = false;
 		restartTargetRepoVisibility = '';
 		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
+		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
 		else restartSourceAuthMode = 'pat';
 		if (targetEnvApp) restartTargetAuthMode = 'env-app';
+		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
 		else restartTargetAuthMode = 'pat';
 		showRestartModal = true;
 	}

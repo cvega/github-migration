@@ -15,7 +15,9 @@ import { env } from "$env/dynamic/private";
 import type { AuthMode, CreateMigrationRequest, Migration } from "$lib/types";
 import {
   isSourceAppConfigured,
+  isSourceAuthAvailable,
   isTargetAppConfigured,
+  isTargetAuthAvailable,
   resolveSourceAuth,
   resolveTargetAuth,
 } from "./auth";
@@ -77,6 +79,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     startedAt,
     completedAt: null,
     elapsedSeconds: null,
+    authMode: null,
   };
 
   const emitStep = (message: string) => {
@@ -483,6 +486,8 @@ function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
   if (opts.sourceApp || opts.targetApp) return "request-app";
   // Otherwise, both sides must be using env-configured GitHub App.
   if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
+  // Env PATs are also resumable (like env-app) since they survive restarts.
+  if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-app";
   return "pat";
 }
 
