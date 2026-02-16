@@ -30,6 +30,8 @@
 		get targetApp() { return targetApp; },
 		get sourceRateText() { return sourceRateText; },
 		get targetRateText() { return targetRateText; },
+		get sourceRatePct() { return sourceRatePct; },
+		get targetRatePct() { return targetRatePct; },
 		get migrating() { return migrating; },
 	});
 
@@ -83,6 +85,9 @@
 			? formatRate(liveTarget.remaining, liveTarget.limit)
 			: `${(data.targetAuth.rateLimit / 1000).toFixed(0)}K`
 	);
+	// Percentage remaining (0–100), or -1 if no live data.
+	const sourceRatePct = $derived(liveSource ? Math.round((liveSource.remaining / liveSource.limit) * 100) : -1);
+	const targetRatePct = $derived(liveTarget ? Math.round((liveTarget.remaining / liveTarget.limit) * 100) : -1);
 </script>
 
 {#if isLoginPage}

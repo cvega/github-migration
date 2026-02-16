@@ -19,5 +19,7 @@ export interface AuthPillContext {
   readonly targetApp: boolean;
   readonly sourceRateText: string;
   readonly targetRateText: string;
+  readonly sourceRatePct: number;
+  readonly targetRatePct: number;
   readonly migrating: boolean;
 }

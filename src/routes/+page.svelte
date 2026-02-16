@@ -9,6 +9,7 @@
 	import Pagination from '$lib/components/Pagination.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
+	import AuthPill from '$lib/components/AuthPill.svelte';
 	import type { Migration, BatchListItem, PaginatedResult } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
@@ -67,18 +68,8 @@
 			</p>
 		</div>
 		<div class="flex items-center gap-2">
-			<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors
-				{auth.migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : auth.sourceApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
-				<Octicon name={auth.sourceApp ? 'shield-lock' : 'key'} size={12} />
-				Source: {auth.sourceApp ? 'App' : 'PAT'}
-				<span class="{auth.migrating ? 'text-yellow-500' : 'text-gray-500'}">{auth.sourceRateText}</span>
-			</span>
-			<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors
-				{auth.migrating ? 'bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30' : auth.targetApp ? 'bg-green-600/15 text-green-400' : 'bg-gray-800 text-gray-400'}">
-				<Octicon name={auth.targetApp ? 'shield-lock' : 'key'} size={12} />
-				Target: {auth.targetApp ? 'App' : 'PAT'}
-				<span class="{auth.migrating ? 'text-yellow-500' : 'text-gray-500'}">{auth.targetRateText}</span>
-			</span>
+			<AuthPill label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
+			<AuthPill label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
 			<GitHubStatus status={ghStatusCtx.value} />
 		</div>
 	</div>

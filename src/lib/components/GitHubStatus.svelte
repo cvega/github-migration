@@ -23,7 +23,7 @@
 </script>
 
 {#if status.ok}
-	<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium {style}" title={label}>
+	<span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-4 {style}" title={label}>
 		<span class="relative flex h-2 w-2">
 			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
 			<span class="relative inline-flex h-2 w-2 rounded-full bg-green-400"></span>
@@ -35,7 +35,7 @@
 		href="https://www.githubstatus.com"
 		target="_blank"
 		rel="noopener noreferrer"
-		class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium {style} hover:ring-yellow-400/50 transition-all"
+		class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-4 {style} hover:ring-yellow-400/50 transition-all"
 		title={status.incidents.map(i => `${i.name} (${i.status})`).join('\n')}
 	>
 		<Octicon name={icon} size={12} />
