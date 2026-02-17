@@ -23,6 +23,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
+ENV ARCHIVE_DIR=/archives
 ENV PORT=3000
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
