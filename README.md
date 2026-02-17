@@ -1,7 +1,7 @@
-<h1 align="center">
-  <img src="static/imgs/github-logo.png" width="36" height="36" alt="GitHub" style="vertical-align: middle;" />
-  GitHub Migrate
-</h1>
+<p align="center">
+  <img src="static/imgs/github-logo.png" width="80" height="80" alt="GitHub" />
+</p>
+<h1 align="center">GitHub Migrate</h1>
 
 <p align="center">
   <strong>Web UI for migrating repositories between GitHub Enterprise Server and GitHub Enterprise Cloud</strong>
