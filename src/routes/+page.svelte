@@ -61,11 +61,19 @@
 <div class="space-y-8">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-2xl font-bold text-gray-50">Migrations</h1>
-			<p class="mt-1 text-sm text-gray-400">
-				{migrationsResult.total} total · {active.length} active on this page
-			</p>
+		<div class="flex items-center gap-3">
+			<img
+				src="/imgs/logo.png"
+				alt=""
+				class="hidden h-14 w-14 rounded-lg border border-gray-700"
+				onload={(e) => { (e.currentTarget as HTMLElement).classList.remove('hidden'); }}
+			/>
+			<div>
+				<h1 class="text-2xl font-bold text-gray-50">Migrations</h1>
+				<p class="mt-1 text-sm text-gray-400">
+					{migrationsResult.total} total · {active.length} active on this page
+				</p>
+			</div>
 		</div>
 		<div class="flex items-center gap-2">
 			<AuthPill label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
