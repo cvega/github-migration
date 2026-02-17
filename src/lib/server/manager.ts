@@ -4,6 +4,7 @@
  */
 // bun:sqlite built-in UUIDv7 — time-sortable, zero deps
 import type {
+  AuthMode,
   BatchListItem,
   BatchMigrationRequest,
   BatchSummary,
@@ -16,6 +17,12 @@ import type {
   PaginationParams,
   RestartMigrationRequest,
 } from "$lib/types";
+import {
+  isSourceAppConfigured,
+  isSourceAuthAvailable,
+  isTargetAppConfigured,
+  isTargetAuthAvailable,
+} from "./auth";
 import { resumeMigration, runMigrationPipeline } from "./migration";
 import {
   getActiveMigrationCount,
@@ -27,6 +34,7 @@ import {
   getEvents,
   getMigration,
   getNextQueuedMigration,
+  getQueuedEnvMigrations,
   getRecoverableMigrations,
   insertEvent,
   insertMigration,
@@ -45,12 +53,34 @@ const MAX_CONCURRENT = 10;
 const controllers = new Map<string, AbortController>();
 
 /**
+ * Determine auth mode from a request without running the full pipeline.
+ * Mirror of migration.ts's determineAuthMode but operates on CreateMigrationRequest.
+ */
+function determineAuthModeFromRequest(req: CreateMigrationRequest): AuthMode {
+  if (req.sourceToken || req.targetToken) return "pat";
+  if (req.sourceApp || req.targetApp) return "request-app";
+  if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
+  if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-pat";
+  return "pat";
+}
+
+/** Parse JSON safely, returning null on failure. */
+function safeParseJson(json: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * In-memory queue: holds the CreateMigrationRequest for each queued migration
  * so we can start it later when a slot opens. Keyed by migration ID.
  *
- * Credentials (PATs / App keys) live here — never persisted to disk.
- * On server restart, queued items are marked failed by initStore's orphan
- * cleanup (their in-memory requests are lost).
+ * Per-request credentials (PATs / App keys) live here — never persisted.
+ * On server restart, env-auth queued migrations are recovered from the DB
+ * (request_options column + env-var credentials). Non-env queued items are
+ * marked failed (their credentials are lost).
  */
 const queuedRequests = new Map<string, CreateMigrationRequest>();
 
@@ -262,6 +292,7 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     completedAt: null,
     elapsedSeconds: null,
     authMode: null,
+    requestOptions: null,
   };
 
   // Atomic check-and-insert: wrap concurrency check + insert in a
@@ -326,6 +357,23 @@ function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
   const sourceOrg = extractOrg(req.sourceRepo);
   const sourceRepoName = extractRepo(req.sourceRepo);
 
+  // Determine auth mode early so queued env-auth migrations can survive restarts.
+  const authMode = determineAuthModeFromRequest(req);
+
+  // Persist non-credential request options so they can be reconstructed on recovery.
+  const requestOptions = JSON.stringify({
+    sourceApiUrl: req.sourceApiUrl,
+    sourceRepo: req.sourceRepo,
+    targetOrg: req.targetOrg,
+    targetRepo: req.targetRepo,
+    noSslVerify: req.noSslVerify,
+    skipReleases: req.skipReleases,
+    lockSource: req.lockSource,
+    archiveSource: req.archiveSource,
+    targetRepoVisibility: req.targetRepoVisibility,
+    directPassthrough: req.directPassthrough,
+  });
+
   const migration: Migration = {
     id,
     batchId,
@@ -344,7 +392,8 @@ function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
     startedAt: now,
     completedAt: null,
     elapsedSeconds: null,
-    authMode: null,
+    authMode,
+    requestOptions,
   };
 
   insertMigration(migration);
@@ -614,24 +663,57 @@ function broadcastEvent(migrationId: string, event: MigrationEvent): void {
  * Call this once during server startup, after initStore().
  */
 export function recoverOrphans(): void {
+  // 1. Recover running/pending env-auth migrations (reconnect to GHEC).
   const recoverable = getRecoverableMigrations();
-  if (recoverable.length === 0) return;
+  if (recoverable.length > 0) {
+    console.log(`[manager] Attempting to recover ${recoverable.length} interrupted migration(s)`);
 
-  console.log(`[manager] Attempting to recover ${recoverable.length} interrupted migration(s)`);
+    for (const migration of recoverable) {
+      const id = migration.id;
 
-  for (const migration of recoverable) {
-    const id = migration.id;
+      // Create an AbortController so these can still be cancelled.
+      const ac = new AbortController();
+      controllers.set(id, ac);
 
-    // Create an AbortController so these can still be cancelled.
-    const ac = new AbortController();
-    controllers.set(id, ac);
+      // Fire-and-forget: resume in the background.
+      resumeMigration(migration, createEmitHandler(id), ac.signal)
+        .then((result) => {
+          handlePipelineResult(id, result);
+          console.log(`[manager] Recovered migration ${id}: ${result.state}`);
+        })
+        .catch((err) => handlePipelineError(id, err));
+    }
+  }
 
-    // Fire-and-forget: resume in the background.
-    resumeMigration(migration, createEmitHandler(id), ac.signal)
-      .then((result) => {
-        handlePipelineResult(id, result);
-        console.log(`[manager] Recovered migration ${id}: ${result.state}`);
-      })
-      .catch((err) => handlePipelineError(id, err));
+  // 2. Re-enqueue queued env-auth migrations (haven't started yet).
+  const queued = getQueuedEnvMigrations();
+  if (queued.length > 0) {
+    console.log(`[manager] Re-enqueuing ${queued.length} queued env-auth migration(s)`);
+
+    for (const migration of queued) {
+      const id = migration.id;
+
+      // Reconstruct the CreateMigrationRequest from persisted options.
+      const opts = migration.requestOptions ? safeParseJson(migration.requestOptions) : null;
+      if (!opts) {
+        console.error(`[manager] No request_options for queued migration ${id} — marking failed`);
+        updateMigrationState(id, "failed", {
+          failureReason: "Queued migration request options lost (internal error)",
+          completedAt: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      const req = opts as unknown as CreateMigrationRequest;
+      // Fill in repo identity from DB row if missing (sourceRepo in request uses org/repo format).
+      if (!req.sourceRepo) req.sourceRepo = `${migration.sourceOrg}/${migration.sourceRepo}`;
+      if (!req.targetOrg) req.targetOrg = migration.targetOrg;
+      if (!req.targetRepo) req.targetRepo = migration.targetRepo;
+
+      queuedRequests.set(id, req);
+    }
+
+    // Promote queued → running as slots are available.
+    drainQueue();
   }
 }

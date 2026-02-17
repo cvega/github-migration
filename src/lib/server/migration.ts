@@ -80,6 +80,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     completedAt: null,
     elapsedSeconds: null,
     authMode: null,
+    requestOptions: null,
   };
 
   const emitStep = (message: string) => {

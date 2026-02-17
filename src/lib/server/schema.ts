@@ -23,7 +23,10 @@ const SCHEMA_DDL = `
     target_counts TEXT,
     started_at TEXT NOT NULL,
     completed_at TEXT,
-    elapsed_seconds REAL
+    elapsed_seconds REAL,
+    pipeline_step TEXT,
+    auth_mode TEXT,
+    request_options TEXT
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -42,28 +45,12 @@ const SCHEMA_DDL = `
 `;
 
 /**
- * Apply pragmas, create tables/indexes, and run lightweight schema migrations.
+ * Apply pragmas and create tables/indexes.
  * Safe to call on an existing database — all statements use IF NOT EXISTS.
  */
 export function applySchema(db: Database): void {
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA foreign_keys = ON");
   db.run(SCHEMA_DDL);
-
-  // Schema migration: add batch_id column if missing (for DBs created before batch support).
-  const cols = db.prepare("PRAGMA table_info(migrations)").all() as Array<{
-    name: string;
-  }>;
-  if (!cols.some((c) => c.name === "batch_id")) {
-    db.run("ALTER TABLE migrations ADD COLUMN batch_id TEXT");
-  }
-
-  // Schema migration: add pipeline_step + auth_mode columns (crash recovery support).
-  const colNames = new Set(cols.map((c) => c.name));
-  if (!colNames.has("pipeline_step")) {
-    db.run("ALTER TABLE migrations ADD COLUMN pipeline_step TEXT");
-  }
-  if (!colNames.has("auth_mode")) {
-    db.run("ALTER TABLE migrations ADD COLUMN auth_mode TEXT");
-  }
 }
+

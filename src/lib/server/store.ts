@@ -36,8 +36,10 @@ export function initStore(dbPath: string): void {
   applySchema(db);
 
   // Non-recoverable orphans: mark as failed.
-  // Recoverable ones (env-app auth with a github_migration_id) are left as 'running'
+  // Recoverable running/pending ones (env auth with a github_migration_id) are left
   // so that recoverOrphans() in the manager can reconnect them.
+  // Recoverable queued ones (env auth, no github_migration_id needed) are also left
+  // so that recoverOrphans() can re-enqueue them.
   const orphaned = db
     .prepare(
       `UPDATE migrations
@@ -46,7 +48,8 @@ export function initStore(dbPath: string): void {
            completed_at = ?
        WHERE state IN ('queued', 'pending', 'running')
          AND id NOT LIKE 'seed-%'
-         AND NOT (auth_mode IN ('env-app', 'env-pat') AND github_migration_id IS NOT NULL)`,
+         AND NOT (auth_mode IN ('env-app', 'env-pat') AND github_migration_id IS NOT NULL)
+         AND NOT (auth_mode IN ('env-app', 'env-pat') AND state = 'queued')`,
     )
     .run(new Date().toISOString());
   if (orphaned.changes > 0) {
@@ -92,6 +95,7 @@ const MIGRATION_COLS = [
   "elapsed_seconds",
   "pipeline_step",
   "auth_mode",
+  "request_options",
 ].join(", ");
 
 /** Explicit column list for event queries. */
@@ -103,8 +107,9 @@ export function insertMigration(m: Migration): void {
   getDb()
     .prepare(
       `INSERT INTO migrations (id, batch_id, github_migration_id, source_api_url, source_org, source_repo,
-				target_org, target_repo, state, started_at, source_counts, target_counts)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				target_org, target_repo, state, started_at, source_counts, target_counts,
+				auth_mode, request_options)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       m.id,
@@ -119,6 +124,8 @@ export function insertMigration(m: Migration): void {
       m.startedAt,
       m.sourceCounts ? JSON.stringify(m.sourceCounts) : null,
       m.targetCounts ? JSON.stringify(m.targetCounts) : null,
+      m.authMode,
+      m.requestOptions,
     );
 }
 
@@ -199,8 +206,8 @@ export function updateCheckpoint(
 }
 
 /**
- * Returns migrations that can be reconnected after a server restart:
- * env-app auth + a github_migration_id already assigned.
+ * Returns running/pending migrations that can be reconnected after a server restart:
+ * env auth + a github_migration_id already assigned.
  */
 export function getRecoverableMigrations(): Migration[] {
   const rows = getDb()
@@ -209,6 +216,24 @@ export function getRecoverableMigrations(): Migration[] {
        WHERE state IN ('pending', 'running')
          AND auth_mode IN ('env-app', 'env-pat')
          AND github_migration_id IS NOT NULL
+         AND id NOT LIKE 'seed-%'
+       ORDER BY started_at ASC`,
+    )
+    .all() as Record<string, unknown>[];
+  return rows.map(rowToMigration);
+}
+
+/**
+ * Returns queued migrations with env-based auth that can be re-enqueued
+ * after a server restart. These haven't started yet (no github_migration_id)
+ * but their credentials survive in env vars.
+ */
+export function getQueuedEnvMigrations(): Migration[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations
+       WHERE state = 'queued'
+         AND auth_mode IN ('env-app', 'env-pat')
          AND id NOT LIKE 'seed-%'
        ORDER BY started_at ASC`,
     )
@@ -342,6 +367,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
       typeof row.auth_mode === "string" && validAuthModes.includes(row.auth_mode as AuthMode)
         ? (row.auth_mode as AuthMode)
         : null,
+    requestOptions: typeof row.request_options === "string" ? row.request_options : null,
   };
 }
 

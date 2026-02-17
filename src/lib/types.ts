@@ -187,6 +187,7 @@ export interface Migration {
   completedAt: string | null;
   elapsedSeconds: number | null;
   authMode: AuthMode | null;
+  requestOptions: string | null;
 }
 
 export interface AppAuth {
