@@ -56,6 +56,13 @@
 		params.set('bp', String(p));
 		goto(`/?${params.toString()}`, { keepFocus: true, noScroll: false });
 	}
+	let logoEl: HTMLImageElement | undefined = $state();
+	let logoLoaded = $state(false);
+
+	$effect(() => {
+		if (logoEl?.complete && logoEl.naturalWidth > 0) logoLoaded = true;
+	});
+
 </script>
 
 <div class="space-y-8">
@@ -63,10 +70,12 @@
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
 			<img
+				bind:this={logoEl}
 				src="/imgs/logo.png"
 				alt=""
-				class="hidden h-14 w-14 rounded-lg border border-gray-700"
-				onload={(e) => { (e.currentTarget as HTMLElement).classList.remove('hidden'); }}
+				class="{logoLoaded ? '' : 'hidden'} h-14 w-14 rounded-lg border border-gray-700"
+				onload={() => { logoLoaded = true; }}
+				onerror={() => { logoLoaded = false; }}
 			/>
 			<div>
 				<h1 class="text-2xl font-bold text-gray-50">Migrations</h1>
