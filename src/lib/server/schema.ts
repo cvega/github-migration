@@ -53,4 +53,3 @@ export function applySchema(db: Database): void {
   db.run("PRAGMA foreign_keys = ON");
   db.run(SCHEMA_DDL);
 }
-
