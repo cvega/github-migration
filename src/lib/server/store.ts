@@ -47,7 +47,6 @@ export function initStore(dbPath: string): void {
        WHERE state IN ('queued', 'pending', 'running')
          AND id NOT LIKE 'seed-%'
          AND NOT (auth_mode IN ('env-app', 'env-pat') AND github_migration_id IS NOT NULL)`,
-
     )
     .run(new Date().toISOString());
   if (orphaned.changes > 0) {
