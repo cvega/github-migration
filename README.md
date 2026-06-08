@@ -197,80 +197,24 @@ Configure a GitHub App for auto-refreshing installation tokens. These migrations
 
 Per-request PATs or App credentials always take precedence over env-configured auth.
 
-### Docker Compose Example
-
-```yaml
-services:
-  gh-migrate:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    volumes:
-      - gh-migrate-data:/data
-      - gh-migrate-archives:/archives
-    environment:
-      - DATA_DIR=/data
-      - ARCHIVE_DIR=/archives
-      - PORT=3000
-      # Basic auth:
-      # - GH_MIGRATE_USER=admin
-      # - GH_MIGRATE_PASS=changeme
-      # Env PATs:
-      # - GH_SOURCE_PAT=ghp_...
-      # - GH_TARGET_PAT=ghp_...
-      # Source GitHub App:
-      # - GH_SOURCE_APP_ID=12345
-      # - GH_SOURCE_APP_PRIVATE_KEY=base64-encoded-pem
-      # - GH_SOURCE_APP_INSTALLATION_ID=67890
-      # - GH_SOURCE_API_URL=https://ghes.example.com/api/v3
-      # Target GitHub App:
-      # - GH_TARGET_APP_ID=12345
-      # - GH_TARGET_APP_PRIVATE_KEY=base64-encoded-pem
-      # - GH_TARGET_APP_INSTALLATION_ID=67890
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-volumes:
-  gh-migrate-data:
-  gh-migrate-archives:
-```
+A ready-to-edit [docker-compose.yml](docker-compose.yml) and [.env.example](.env.example) cover all of the above.
 
 ---
 
 ## API
 
-### Migrations
+All endpoints return JSON. SSE streams emit migration/batch state changes.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/migrations?page=1&limit=25` | List (paginated) |
-| `POST` | `/api/migrations` | Start single migration |
-| `GET` | `/api/migrations/:id` | Get details |
-| `DELETE` | `/api/migrations/:id` | Cancel |
+| `GET` `POST` | `/api/migrations` | List (paginated) · start single |
+| `GET` `DELETE` | `/api/migrations/:id` | Details · cancel |
 | `POST` | `/api/migrations/:id/restart` | Restart failed/cancelled |
-| `GET` | `/api/migrations/:id/events` | SSE event stream |
-
-### Batches
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/batches?page=1&limit=25` | List (paginated) |
-| `POST` | `/api/batches` | Start batch (up to 500 repos) |
-| `GET` | `/api/batches/:id` | Summary + migrations |
-| `DELETE` | `/api/batches/:id` | Cancel all in batch |
+| `GET` | `/api/migrations/:id/events` | Per-migration SSE stream |
+| `GET` `POST` | `/api/batches` | List (paginated) · start batch (≤500 repos) |
+| `GET` `DELETE` | `/api/batches/:id` | Summary + migrations · cancel all |
 | `POST` | `/api/batches/:id/restart` | Restart all failed/cancelled in batch |
-
-### Other
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/events` | Global SSE stream |
-| `GET` | `/api/rate-limits` | Live rate limit info |
+| `GET` | `/api/health` · `/api/events` · `/api/rate-limits` | Health · global SSE · live rate limits |
 
 ---
 
@@ -327,9 +271,3 @@ make docker        build Docker image
 make docker-up     docker compose up -d
 make docker-down   docker compose down
 ```
-
----
-
-<p align="center">
-  <sub>Built with <a href="https://bun.sh">Bun</a> · <a href="https://svelte.dev">SvelteKit</a> · <a href="https://tailwindcss.com">Tailwind CSS</a></sub>
-</p>
