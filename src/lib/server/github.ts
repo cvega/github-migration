@@ -48,6 +48,22 @@ interface ThrottleOptions {
   ) => boolean;
 }
 
+/** Default throttling behaviour: log and retry up to 3 times on rate limits. */
+function makeThrottleOptions(): ThrottleOptions {
+  return {
+    onRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      console.warn(
+        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
+      );
+      return retryCount < 3;
+    },
+    onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
+      return retryCount < 3;
+    },
+  };
+}
+
 function buildSide(
   auth: AuthInput,
   baseUrl: string,
@@ -107,28 +123,7 @@ export function createClients(opts: {
   targetAuth: AuthInput;
   noSslVerify?: boolean;
 }): GitHubClients {
-  const throttleOpts = {
-    onRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(
-        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
-      );
-      return retryCount < 3;
-    },
-    onSecondaryRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
-      return retryCount < 3;
-    },
-  };
+  const throttleOpts = makeThrottleOptions();
 
   const srcBaseUrl = normalizeApiUrl(opts.sourceApiUrl);
 
@@ -168,29 +163,7 @@ export function createSingleClient(
   auth: AuthInput,
   baseUrl: string,
 ): InstanceType<typeof RetryOctokit> {
-  const throttleOpts = {
-    onRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(
-        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
-      );
-      return retryCount < 3;
-    },
-    onSecondaryRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
-      return retryCount < 3;
-    },
-  };
-  return buildSide(auth, normalizeApiUrl(baseUrl), throttleOpts).client;
+  return buildSide(auth, normalizeApiUrl(baseUrl), makeThrottleOptions()).client;
 }
 
 // ── GHES operations ────────────────────────────────────────────────────────
@@ -522,7 +495,6 @@ async function getResourceCount(
 ): Promise<number> {
   try {
     const params: Record<string, unknown> = { owner, repo, per_page: 1 };
-    if (resource === "issues" || resource === "pulls") params.state = "all";
 
     const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
     const link = response.headers.link;
