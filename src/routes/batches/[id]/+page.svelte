@@ -9,6 +9,7 @@
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
 	import type { IconName } from '@primer/octicons';
 	import type { BatchListItem, Migration, PaginatedResult, AppAuth } from '$lib/types';
 
@@ -475,104 +476,34 @@
 			{/if}
 
 			<!-- Source Auth -->
-			<div class="space-y-3">
-				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-					<Octicon name="server" size={16} />Source Authentication
-				</h3>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restartSourceAuthMode = 'pat'}>
-						PAT
-					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restartSourceAuthMode = 'app'}>
-						GitHub App
-					</button>
-					{#if sourceEnvApp}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartSourceAuthMode = 'env-app'}>
-							Env App
-						</button>
-					{/if}
-					{#if sourceEnvPat}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartSourceAuthMode = 'env-pat'}>
-							Env PAT
-						</button>
-					{/if}
-				</div>
-				{#if restartSourceAuthMode === 'pat'}
-					<input type="password" bind:value={restartSourceToken} placeholder="ghp_..."
-						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-				{:else if restartSourceAuthMode === 'app'}
-					<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
-						<input type="text" bind:value={restartSourceAppId} placeholder="App ID"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-						<input type="text" bind:value={restartSourceAppInstallationId} placeholder="Installation ID"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-						<textarea bind:value={restartSourceAppKey} placeholder="Private Key (PEM)" rows="3"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-					</div>
-				{:else if restartSourceAuthMode === 'env-app'}
-					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
-				{:else}
-					<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_SOURCE_PAT).</p>
-				{/if}
-			</div>
+			<AuthModeFields
+				title="Source Authentication"
+				icon="server"
+				envVar="GH_SOURCE_PAT"
+				envApp={sourceEnvApp}
+				envPat={sourceEnvPat}
+				envAppId={page.data.sourceAuth?.appId}
+				bind:mode={restartSourceAuthMode}
+				bind:token={restartSourceToken}
+				bind:appId={restartSourceAppId}
+				bind:installationId={restartSourceAppInstallationId}
+				bind:appKey={restartSourceAppKey}
+			/>
 
 			<!-- Target Auth -->
-			<div class="space-y-3">
-				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-					<Octicon name="repo-push" size={16} />Target Authentication
-				</h3>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restartTargetAuthMode = 'pat'}>
-						PAT
-					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restartTargetAuthMode = 'app'}>
-						GitHub App
-					</button>
-					{#if targetEnvApp}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartTargetAuthMode = 'env-app'}>
-							Env App
-						</button>
-					{/if}
-					{#if targetEnvPat}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartTargetAuthMode = 'env-pat'}>
-							Env PAT
-						</button>
-					{/if}
-				</div>
-				{#if restartTargetAuthMode === 'pat'}
-					<input type="password" bind:value={restartTargetToken} placeholder="ghp_..."
-						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-				{:else if restartTargetAuthMode === 'app'}
-					<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
-						<input type="text" bind:value={restartTargetAppId} placeholder="App ID"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-						<input type="text" bind:value={restartTargetAppInstallationId} placeholder="Installation ID"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-						<textarea bind:value={restartTargetAppKey} placeholder="Private Key (PEM)" rows="3"
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-					</div>
-				{:else if restartTargetAuthMode === 'env-app'}
-					<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
-				{:else}
-					<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_TARGET_PAT).</p>
-				{/if}
-			</div>
+			<AuthModeFields
+				title="Target Authentication"
+				icon="repo-push"
+				envVar="GH_TARGET_PAT"
+				envApp={targetEnvApp}
+				envPat={targetEnvPat}
+				envAppId={page.data.targetAuth?.appId}
+				bind:mode={restartTargetAuthMode}
+				bind:token={restartTargetToken}
+				bind:appId={restartTargetAppId}
+				bind:installationId={restartTargetAppInstallationId}
+				bind:appKey={restartTargetAppKey}
+			/>
 
 			<!-- Options -->
 			<div class="space-y-3">

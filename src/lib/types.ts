@@ -36,6 +36,9 @@ export type PipelineStep =
 
 export type AuthMode = "pat" | "request-app" | "env-app" | "env-pat";
 
+/** Auth selection in the UI auth-mode toggle (PAT, request-time App, or server env). */
+export type AuthFieldMode = "pat" | "app" | "env-app" | "env-pat";
+
 export type Phase =
   | "QUEUED"
   | "PENDING_VALIDATION"
