@@ -2,9 +2,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import type { AppAuth } from '$lib/types';
+	import { createMigrationForm } from '$lib/migration-form.svelte';
 
 	let mode = $state<'single' | 'batch'>('single');
 
@@ -28,35 +27,22 @@
 	// ── Shared fields ───────────────────────────────────────────────────────
 	let sourceApiUrl = $state('');
 	let targetOrg = $state('');
-	let sourceToken = $state('');
-	let targetToken = $state('');
-	let skipReleases = $state(false);
-	let migrationMode = $state<'dry-run' | 'production'>('dry-run');
-	let directPassthrough = $state(false);
-	let targetRepoVisibility = $state('');
-	let noSslVerify = $state(false);
 	let submitting = $state(false);
 	let error = $state('');
 
-	// ── Auth mode ───────────────────────────────────────────────────────────
+	// ── Auth mode + options (shared with restart modals) ────────────────────
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
 	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
 	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
 
-	let sourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
-		untrack(() => sourceEnvApp) ? 'env-app' : untrack(() => sourceEnvPat) ? 'env-pat' : 'pat'
-	);
-	let targetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
-		untrack(() => targetEnvApp) ? 'env-app' : untrack(() => targetEnvPat) ? 'env-pat' : 'pat'
-	);
-
-	let sourceAppId = $state('');
-	let sourceAppKey = $state('');
-	let sourceAppInstallationId = $state('');
-	let targetAppId = $state('');
-	let targetAppKey = $state('');
-	let targetAppInstallationId = $state('');
+	const form = createMigrationForm(() => ({
+		sourceEnvApp,
+		sourceEnvPat,
+		targetEnvApp,
+		targetEnvPat,
+	}));
+	form.initAuthModes();
 
 	// ── Derived ─────────────────────────────────────────────────────────────
 	const derivedTargetRepo = $derived(
@@ -99,27 +85,9 @@
 		submitting = true;
 
 		try {
-			const sourceApp: AppAuth | undefined =
-				sourceAuthMode === 'app'
-					? { appId: sourceAppId, privateKey: sourceAppKey, installationId: sourceAppInstallationId }
-					: undefined;
-			const targetApp: AppAuth | undefined =
-				targetAuthMode === 'app'
-					? { appId: targetAppId, privateKey: targetAppKey, installationId: targetAppInstallationId }
-					: undefined;
-
 			const commonFields = {
+				...form.buildPayload(),
 				sourceApiUrl: sourceApiUrl || undefined,
-				sourceToken: sourceAuthMode === 'pat' ? sourceToken || undefined : undefined,
-				targetToken: targetAuthMode === 'pat' ? targetToken || undefined : undefined,
-				sourceApp,
-				targetApp,
-				skipReleases,
-				lockSource: migrationMode === 'production',
-				archiveSource: migrationMode === 'production',
-				directPassthrough,
-				targetRepoVisibility: targetRepoVisibility || undefined,
-				noSslVerify
 			};
 
 			if (mode === 'single') {
@@ -276,63 +244,63 @@
 				<span class="block text-sm font-medium text-gray-400 mb-2">Authentication</span>
 				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => sourceAuthMode = 'pat'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.sourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.sourceAuthMode = 'pat'}>
 						PAT
 					</button>
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => sourceAuthMode = 'app'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.sourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.sourceAuthMode = 'app'}>
 						GitHub App
 					</button>
 					{#if sourceEnvApp}
 						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => sourceAuthMode = 'env-app'}>
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.sourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => form.state.sourceAuthMode = 'env-app'}>
 							Env App
 						</button>
 					{/if}
 					{#if sourceEnvPat}
 						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => sourceAuthMode = 'env-pat'}>
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.sourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => form.state.sourceAuthMode = 'env-pat'}>
 							Env PAT
 						</button>
 					{/if}
 				</div>
 			</div>
 
-			{#if sourceAuthMode === 'pat'}
+			{#if form.state.sourceAuthMode === 'pat'}
 				<div>
 					<label for="sourceToken" class="block text-sm font-medium text-gray-400">
 						Source PAT <span class="text-red-400">*</span>
 					</label>
-					<input id="sourceToken" type="password" required bind:value={sourceToken}
+					<input id="sourceToken" type="password" required bind:value={form.state.sourceToken}
 						placeholder="ghp_..."
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 				</div>
-			{:else if sourceAuthMode === 'app'}
+			{:else if form.state.sourceAuthMode === 'app'}
 				<div class="space-y-3 rounded-md border border-gray-700/50 bg-gray-800/50 p-4">
 					<div>
 						<label for="sourceAppId" class="block text-sm font-medium text-gray-400">App ID <span class="text-red-400">*</span></label>
-						<input id="sourceAppId" type="text" required bind:value={sourceAppId}
+						<input id="sourceAppId" type="text" required bind:value={form.state.sourceAppId}
 							placeholder="123456"
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 					</div>
 					<div>
 						<label for="sourceAppInstallationId" class="block text-sm font-medium text-gray-400">Installation ID <span class="text-red-400">*</span></label>
-						<input id="sourceAppInstallationId" type="text" required bind:value={sourceAppInstallationId}
+						<input id="sourceAppInstallationId" type="text" required bind:value={form.state.sourceAppInstallationId}
 							placeholder="12345678"
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 					</div>
 					<div>
 						<label for="sourceAppKey" class="block text-sm font-medium text-gray-400">Private Key (PEM) <span class="text-red-400">*</span></label>
-						<textarea id="sourceAppKey" required bind:value={sourceAppKey} rows="4"
+						<textarea id="sourceAppKey" required bind:value={form.state.sourceAppKey} rows="4"
 							placeholder={"-----BEGIN RSA PRIVATE KEY-----\n..."}
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
 				</div>
-			{:else if sourceAuthMode === 'env-app'}
+			{:else if form.state.sourceAuthMode === 'env-app'}
 				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
 			{:else}
 				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_SOURCE_PAT).</p>
@@ -367,63 +335,63 @@
 				<span class="block text-sm font-medium text-gray-400 mb-2">Authentication</span>
 				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => targetAuthMode = 'pat'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.targetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.targetAuthMode = 'pat'}>
 						PAT
 					</button>
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => targetAuthMode = 'app'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.targetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.targetAuthMode = 'app'}>
 						GitHub App
 					</button>
 					{#if targetEnvApp}
 						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => targetAuthMode = 'env-app'}>
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.targetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => form.state.targetAuthMode = 'env-app'}>
 							Env App
 						</button>
 					{/if}
 					{#if targetEnvPat}
 						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => targetAuthMode = 'env-pat'}>
+							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.targetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
+							onclick={() => form.state.targetAuthMode = 'env-pat'}>
 							Env PAT
 						</button>
 					{/if}
 				</div>
 			</div>
 
-			{#if targetAuthMode === 'pat'}
+			{#if form.state.targetAuthMode === 'pat'}
 				<div>
 					<label for="targetToken" class="block text-sm font-medium text-gray-400">
 						Target PAT <span class="text-red-400">*</span>
 					</label>
-					<input id="targetToken" type="password" required bind:value={targetToken}
+					<input id="targetToken" type="password" required bind:value={form.state.targetToken}
 						placeholder="ghp_..."
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 				</div>
-			{:else if targetAuthMode === 'app'}
+			{:else if form.state.targetAuthMode === 'app'}
 				<div class="space-y-3 rounded-md border border-gray-700/50 bg-gray-800/50 p-4">
 					<div>
 						<label for="targetAppId" class="block text-sm font-medium text-gray-400">App ID <span class="text-red-400">*</span></label>
-						<input id="targetAppId" type="text" required bind:value={targetAppId}
+						<input id="targetAppId" type="text" required bind:value={form.state.targetAppId}
 							placeholder="123456"
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 					</div>
 					<div>
 						<label for="targetAppInstallationId" class="block text-sm font-medium text-gray-400">Installation ID <span class="text-red-400">*</span></label>
-						<input id="targetAppInstallationId" type="text" required bind:value={targetAppInstallationId}
+						<input id="targetAppInstallationId" type="text" required bind:value={form.state.targetAppInstallationId}
 							placeholder="12345678"
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 					</div>
 					<div>
 						<label for="targetAppKey" class="block text-sm font-medium text-gray-400">Private Key (PEM) <span class="text-red-400">*</span></label>
-						<textarea id="targetAppKey" required bind:value={targetAppKey} rows="4"
+						<textarea id="targetAppKey" required bind:value={form.state.targetAppKey} rows="4"
 							placeholder={"-----BEGIN RSA PRIVATE KEY-----\n..."}
 							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
 					</div>
 				</div>
-			{:else if targetAuthMode === 'env-app'}
+			{:else if form.state.targetAuthMode === 'env-app'}
 				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
 			{:else}
 				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_TARGET_PAT).</p>
@@ -434,7 +402,7 @@
 					Repository Visibility
 					<span class="text-gray-600">(optional{mode === 'batch' ? ', applies to all repos' : ''})</span>
 				</label>
-				<select id="visibility" bind:value={targetRepoVisibility}
+				<select id="visibility" bind:value={form.state.targetRepoVisibility}
 					class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
 					<option value="">Default</option>
 					<option value="private">Private</option>
@@ -453,17 +421,17 @@
 				<span class="block text-sm font-medium text-gray-400 mb-1.5">Migration Mode</span>
 				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {migrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => migrationMode = 'dry-run'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.migrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.migrationMode = 'dry-run'}>
 						Dry Run
 					</button>
 					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {migrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => migrationMode = 'production'}>
+						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {form.state.migrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
+						onclick={() => form.state.migrationMode = 'production'}>
 						Production
 					</button>
 				</div>
-				{#if migrationMode === 'production'}
+				{#if form.state.migrationMode === 'production'}
 					<div class="mt-2 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
 						<Octicon name="alert" size={12} class="shrink-0" />
 						Source {mode === 'batch' ? 'repositories' : 'repository'} will be locked during migration and archived (read-only) after success.
@@ -472,19 +440,19 @@
 			</div>
 
 			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={skipReleases}
+				<input type="checkbox" bind:checked={form.state.skipReleases}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
 				<span class="text-sm text-gray-400">Skip releases</span>
 			</label>
 
 			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={directPassthrough}
+				<input type="checkbox" bind:checked={form.state.directPassthrough}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
 				<span class="text-sm text-gray-400">Direct passthrough (skip download/upload)</span>
 			</label>
 
 			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={noSslVerify}
+				<input type="checkbox" bind:checked={form.state.noSslVerify}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
 				<span class="text-sm text-gray-400">Skip SSL verification (self-signed certs)</span>
 			</label>
