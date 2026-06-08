@@ -1,5 +1,6 @@
 <!-- Migration card for the dashboard list -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import type { Migration } from '$lib/types';
 	import { formatElapsed } from '$lib/format';
 	import Octicon from '$lib/components/Octicon.svelte';
@@ -70,7 +71,7 @@
 		<span>{timeAgo(migration.startedAt)}</span>
 		{#if migration.batchId}
 			<!-- Use onclick to avoid nested <a> inside card link -->
-			<span>· <button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/batches/${migration.batchId}`; }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
+			<span>· <button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
 		{/if}
 		{#if migration.warningsCount > 0}
 			<span>· {migration.warningsCount} warnings</span>
