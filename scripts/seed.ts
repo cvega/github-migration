@@ -12,7 +12,7 @@
 /// <reference types="bun" />
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { applySchema } from "./src/lib/server/schema";
+import { applySchema } from "../src/lib/server/schema";
 
 mkdirSync("data", { recursive: true });
 const db = new Database("data/gh-migrate.db", { create: true });
