@@ -99,56 +99,15 @@ docker compose restart
 
 ```
 src/
-  app.css                     Tailwind v4 @theme (GitHub Primer dark palette)
-  app.html                    HTML shell
-  hooks.server.ts             auth, security headers, compression, startup init
+  hooks.server.ts       auth, security headers, compression, startup init
   lib/
-    types.ts                  shared TypeScript types (server + client)
-    format.ts                 date/number formatting helpers
-    context-keys.ts           Svelte context key constants
-    server/
-      manager.ts              concurrency (10), abort controllers, queue, SSE broadcast
-      migration.ts            pipeline: preflight → archiving → ghec_starting → monitoring
-      monitor.ts              polls GHEC status, detects phases, computes progress
-      store.ts                SQLite persistence, pagination, batch aggregation
-      schema.ts               DDL, indexes, schema migrations
-      github.ts               Octokit wrapper (REST + GraphQL, retry + throttle)
-      auth.ts                 PAT / GitHub App / env auth resolution
-      upload.ts               streaming multipart archive upload with retry + AbortSignal
-      validate.ts             request body validation
-      session.ts              cookie-based HMAC session auth + rate limiting
-      util.ts                 shared server utilities
-    components/
-      AuthPill.svelte         auth mode indicator badge
-      FailureDetail.svelte    expandable failure reason + log link
-      GitHubStatus.svelte     GitHub incident status banner
-      MigrationCard.svelte    migration list item card
-      Octicon.svelte          SVG icon wrapper (@primer/octicons)
-      Pagination.svelte       page navigation controls
-      PhaseTimeline.svelte    migration phase progress visualization
-      ProgressBar.svelte      animated progress bar with percentage
-      StatsTable.svelte       source/target counts comparison table
-    stores/
-      migrations.svelte.ts    client-side SSE + runes reactive state
+    server/             core logic: manager (queue/SSE), migration (pipeline),
+                        monitor, store (SQLite), github (Octokit), auth, upload
+    components/         Svelte UI (cards, timeline, progress, stats, …)
+    stores/             client-side SSE + runes reactive state
   routes/
-    +layout.server.ts         global load (auth, GitHub status, rate limits)
-    +layout.svelte            app shell (nav, SSE, auth gate)
-    +page.server.ts           dashboard load (paginated migrations)
-    +page.svelte              dashboard (migration list)
-    [id]/                     migration detail page
-    new/                      new migration form
-    batches/                  batch list + detail pages
-    api/
-      health/                 GET — health check
-      events/                 GET — global SSE stream
-      rate-limits/            GET — live rate limit info
-      migrations/             GET (list) · POST (create)
-        [id]/                 GET (detail) · DELETE (cancel)
-          events/             GET — per-migration SSE stream
-          restart/            POST — restart failed/cancelled
-      batches/                GET (list) · POST (create batch)
-        [id]/                 GET (detail) · DELETE (cancel batch)
-          restart/            POST — restart failed/cancelled in batch
+    [id]/  new/  batches/   migration detail, new form, batch pages
+    api/                REST + SSE endpoints (see API section below)
 ```
 
 ---
