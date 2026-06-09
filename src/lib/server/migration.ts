@@ -521,6 +521,10 @@ export async function resumeMigration(
   signal?: AbortSignal,
 ): Promise<Migration> {
   const migrationId = migration.id;
+  const githubMigrationId = migration.githubMigrationId;
+  if (!githubMigrationId) {
+    throw new Error(`Cannot resume migration ${migrationId}: missing githubMigrationId`);
+  }
 
   const emitStep = (message: string) => {
     emit({
@@ -549,7 +553,7 @@ export async function resumeMigration(
     const terminalPhase = await runMonitor({
       clients,
       migrationId,
-      githubMigrationId: migration.githubMigrationId!,
+      githubMigrationId,
       targetOrg: migration.targetOrg,
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,

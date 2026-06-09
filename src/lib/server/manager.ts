@@ -781,7 +781,9 @@ export function restart(migrationId: string, creds: RestartMigrationRequest): Mi
     launchPipeline(migrationId, req);
   }
 
-  return getMigration(migrationId)!;
+  const updated = getMigration(migrationId);
+  if (!updated) throw new Error(`Migration ${migrationId} not found after restart`);
+  return updated;
 }
 
 export function restartBatch(
@@ -876,10 +878,12 @@ export function subscribe(
   migrationId: string,
   controller: ReadableStreamDefaultController<string>,
 ): () => void {
-  if (!sseSubscribers.has(migrationId)) {
-    sseSubscribers.set(migrationId, new Set());
+  let subscribers = sseSubscribers.get(migrationId);
+  if (!subscribers) {
+    subscribers = new Set();
+    sseSubscribers.set(migrationId, subscribers);
   }
-  sseSubscribers.get(migrationId)!.add(controller);
+  subscribers.add(controller);
 
   return () => {
     sseSubscribers.get(migrationId)?.delete(controller);

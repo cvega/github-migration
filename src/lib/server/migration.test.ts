@@ -178,6 +178,12 @@ describe("resumeMigration finalize", () => {
     expect(result.state).toBe("succeeded");
     expect(result.targetCounts).toBeNull();
   });
+
+  test("missing githubMigrationId rejects with a precondition error", async () => {
+    await expect(resumeMigration(makeMigration({ githubMigrationId: null }), emit)).rejects.toThrow(
+      /missing githubMigrationId/,
+    );
+  });
 });
 
 // ── assertTrustedHost (SSRF / credential-leak guard) ──────────────────────────
