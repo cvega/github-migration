@@ -177,7 +177,7 @@
 				<span><button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
 			{/if}
 			{#if migration.warningsCount > 0}
-				<span class="inline-flex items-center gap-1 text-yellow-500/80"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>
+				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>
 			{/if}
 			<span class="inline-flex items-center gap-1.5" title="{sourcePlatform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub.com'} to GitHub Enterprise Cloud">
 				<span class="inline-flex items-center gap-1"><Octicon name="server" size={12} />{sourcePlatform}</span>

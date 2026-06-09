@@ -58,10 +58,10 @@
 	const rateClass = $derived.by(() => {
 		switch (tier) {
 			case 'green': return migrating ? 'text-green-500' : 'text-gray-500';
-			case 'yellow': return 'text-yellow-500';
+			case 'yellow': return 'text-yellow-400';
 			case 'orange': return 'text-orange-500';
 			case 'red': return 'text-red-500';
-			default: return migrating ? 'text-yellow-500' : 'text-gray-500';
+			default: return migrating ? 'text-yellow-400' : 'text-gray-500';
 		}
 	});
 

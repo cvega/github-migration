@@ -445,7 +445,7 @@
 							<div class="text-xl font-bold text-gray-50">{r.t.toLocaleString()}</div>
 							<div class="text-xs text-gray-500">{r.label}</div>
 							{#if r.s !== r.t}
-								<div class="text-[10px] text-yellow-500">{r.t} of {r.s.toLocaleString()}</div>
+								<div class="text-[10px] text-yellow-400">{r.t} of {r.s.toLocaleString()}</div>
 							{/if}
 						</div>
 					{/each}
