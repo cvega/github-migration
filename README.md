@@ -13,7 +13,7 @@
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178c6?logo=typescript&logoColor=white&labelColor=14151a" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Ready-2496ed?logo=docker&logoColor=white&labelColor=14151a" />
-  <img alt="Coverage" src="https://img.shields.io/badge/coverage-79%25-dfb317?labelColor=14151a" />
+  <img alt="Coverage" src="https://img.shields.io/badge/coverage-82%25-dfb317?labelColor=14151a" />
 </p>
 
 <p align="center">
