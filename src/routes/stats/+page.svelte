@@ -219,17 +219,19 @@
 
 			<!-- Top source orgs -->
 			<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
-				<h2 class="mb-3 flex items-center gap-2 text-sm font-medium text-gray-300">
+				<h2 class="mb-1 flex items-center gap-2 text-sm font-medium text-gray-300">
 					<Octicon name="organization" size={16} class="text-gray-500" />Top Source Organizations
 				</h2>
+				<p class="mb-3 text-xs text-gray-500">Repositories migrated, by source org</p>
 				{#if stats.topOrgs.length > 0}
+					{@const maxOrgCount = Math.max(...stats.topOrgs.map((o) => o.count))}
 					<ul class="space-y-2">
 						{#each stats.topOrgs.slice(0, 5) as o (o.org)}
-							{@const pct = stats.total > 0 ? (o.count / stats.total) * 100 : 0}
+							{@const pct = maxOrgCount > 0 ? (o.count / maxOrgCount) * 100 : 0}
 							<li class="text-sm">
 								<div class="mb-1 flex items-center justify-between">
 									<span class="inline-flex items-center gap-1.5 text-gray-300"><Octicon name="repo" size={12} class="text-gray-500" />{o.org}</span>
-									<span class="text-xs text-gray-500">{fmtNum(o.count)}</span>
+									<span class="text-xs text-gray-500">{fmtNum(o.count)} repos</span>
 								</div>
 								<div class="h-1.5 overflow-hidden rounded-full bg-gray-800">
 									<div class="h-full rounded-full bg-blue-500/70" style="width: {pct}%"></div>
