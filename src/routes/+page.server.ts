@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { listBatchesPaginated, listPaginated } from "$lib/server/manager";
+import { listBatchesPaginated, listPaginated, stateCounts } from "$lib/server/manager";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
 import type { PageServerLoad } from "./$types";
 
@@ -26,6 +26,7 @@ export const load: PageServerLoad = async ({ url }) => {
   return {
     migrations: listPaginated({ page, limit }),
     batches: listBatchesPaginated({ page: batchPage, limit: 10 }),
+    stateCounts: stateCounts(),
     logoUrl: resolveLogoUrl(),
   };
 };

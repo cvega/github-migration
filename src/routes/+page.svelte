@@ -54,6 +54,16 @@
 	const active = $derived(migrations.value.filter((m: Migration) => m.state === 'queued' || m.state === 'pending' || m.state === 'running'));
 	const completed = $derived(migrations.value.filter((m: Migration) => m.state !== 'queued' && m.state !== 'pending' && m.state !== 'running'));
 
+	// Global state counts (whole dataset, not just this page) — power the
+	// section-overview tiles so their totals match the real database, while the
+	// card lists below remain paginated.
+	const counts = $derived(data.stateCounts);
+	const activeTotal = $derived(counts.queued + counts.pending + counts.running);
+	const completedTotal = $derived(counts.succeeded + counts.failed + counts.cancelled);
+
+	// Most recent batch on this page (rows arrive newest-first), for recency metadata.
+	const newestBatch = $derived(batchesResult.data[0] ?? null);
+
 	function batchStateBadge(b: BatchListItem): { label: string; style: string } {
 		if (b.runningCount > 0 || b.pendingCount > 0 || b.queuedCount > 0) return { label: 'active', style: 'bg-green-600/15 text-green-400' };
 		if (b.failedCount > 0 && b.succeededCount > 0) return { label: 'partial', style: 'bg-yellow-600/15 text-yellow-400' };
@@ -112,45 +122,74 @@
 	</div>
 
 	<!-- Section overview — click a tile to jump to that section -->
-	{#if batchesResult.data.length > 0 || active.length > 0 || completed.length > 0}
+	{#if batchesResult.total > 0 || activeTotal > 0 || completedTotal > 0}
 		<div class="flex flex-col gap-3 sm:flex-row">
-			{#if batchesResult.data.length > 0}
+			{#if batchesResult.total > 0}
 				<a href="#batches"
 					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
-					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-400">
+					<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
 						<Octicon name="stack" size={16} />
 					</span>
-					<span class="min-w-0">
-						<span class="block text-xl font-bold leading-none text-gray-50">{batchesResult.total}</span>
-						<span class="mt-1 block text-xs text-gray-500">{batchesResult.total === 1 ? 'Batch' : 'Batches'}</span>
+					<span class="min-w-0 flex-1">
+						<span class="flex items-baseline gap-1.5">
+							<span class="text-2xl font-bold leading-none text-gray-50 tabular-nums">{batchesResult.total}</span>
+							<span class="text-sm font-medium text-gray-400">{batchesResult.total === 1 ? 'Batch' : 'Batches'}</span>
+						</span>
+						<span class="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
+							<Octicon name="clock" size={12} />
+							{#if newestBatch}newest {timeAgo(newestBatch.startedAt)}{:else}all repos{/if}
+						</span>
 					</span>
-					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+					<span class="flex shrink-0 items-center gap-1 text-xs font-medium text-gray-600 transition-colors group-hover:text-blue-400">
+						View
+						<Octicon name="arrow-down" size={12} class="transition-transform group-hover:translate-y-0.5" />
+					</span>
 				</a>
 			{/if}
-			{#if active.length > 0}
+			{#if activeTotal > 0}
 				<a href="#active"
 					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
-					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-green-600/15 text-green-400">
+					<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-600/15 text-green-400">
 						<Octicon name="play" size={16} />
 					</span>
-					<span class="min-w-0">
-						<span class="block text-xl font-bold leading-none text-gray-50">{active.length}</span>
-						<span class="mt-1 block text-xs text-gray-500">Active</span>
+					<span class="min-w-0 flex-1">
+						<span class="flex items-baseline gap-1.5">
+							<span class="text-2xl font-bold leading-none text-gray-50 tabular-nums">{activeTotal}</span>
+							<span class="text-sm font-medium text-gray-400">Active</span>
+						</span>
+						<span class="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
+							{#if counts.running > 0}<span class="inline-flex items-center gap-1 text-green-400" title="Running"><Octicon name="sync" size={12} />{counts.running}</span>{/if}
+							{#if counts.queued > 0}<span class="inline-flex items-center gap-1 text-blue-400" title="Queued"><Octicon name="hourglass" size={12} />{counts.queued}</span>{/if}
+							{#if counts.pending > 0}<span class="inline-flex items-center gap-1 text-yellow-400" title="Pending"><Octicon name="clock" size={12} />{counts.pending}</span>{/if}
+						</span>
 					</span>
-					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+					<span class="flex shrink-0 items-center gap-1 text-xs font-medium text-gray-600 transition-colors group-hover:text-green-400">
+						View
+						<Octicon name="arrow-down" size={12} class="transition-transform group-hover:translate-y-0.5" />
+					</span>
 				</a>
 			{/if}
-			{#if completed.length > 0}
+			{#if completedTotal > 0}
 				<a href="#completed"
 					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
-					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gray-700/50 text-gray-300">
+					<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-700/50 text-gray-300">
 						<Octicon name="check-circle" size={16} />
 					</span>
-					<span class="min-w-0">
-						<span class="block text-xl font-bold leading-none text-gray-50">{completed.length}</span>
-						<span class="mt-1 block text-xs text-gray-500">Completed</span>
+					<span class="min-w-0 flex-1">
+						<span class="flex items-baseline gap-1.5">
+							<span class="text-2xl font-bold leading-none text-gray-50 tabular-nums">{completedTotal}</span>
+							<span class="text-sm font-medium text-gray-400">Completed</span>
+						</span>
+						<span class="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
+							{#if counts.succeeded > 0}<span class="inline-flex items-center gap-1 text-green-400" title="Succeeded"><Octicon name="check-circle-fill" size={12} />{counts.succeeded}</span>{/if}
+							{#if counts.failed > 0}<span class="inline-flex items-center gap-1 text-red-400" title="Failed"><Octicon name="x-circle-fill" size={12} />{counts.failed}</span>{/if}
+							{#if counts.cancelled > 0}<span class="inline-flex items-center gap-1 text-gray-400" title="Cancelled"><Octicon name="skip" size={12} />{counts.cancelled}</span>{/if}
+						</span>
 					</span>
-					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+					<span class="flex shrink-0 items-center gap-1 text-xs font-medium text-gray-600 transition-colors group-hover:text-gray-300">
+						View
+						<Octicon name="arrow-down" size={12} class="transition-transform group-hover:translate-y-0.5" />
+					</span>
 				</a>
 			{/if}
 		</div>

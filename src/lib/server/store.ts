@@ -316,6 +316,29 @@ export function getActiveMigrationCount(): number {
 }
 
 /**
+ * Count migrations grouped by state across the entire table.
+ * Backs the dashboard's section-overview tiles, which summarise the whole
+ * dataset (not just the current page). A single indexed GROUP BY.
+ */
+export function getStateCounts(): Record<MigrationState, number> {
+  const counts: Record<MigrationState, number> = {
+    queued: 0,
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  const rows = getDb()
+    .prepare("SELECT state, COUNT(*) AS count FROM migrations GROUP BY state")
+    .all() as Array<{ state: string; count: number }>;
+  for (const r of rows) {
+    if (r.state in counts) counts[r.state as MigrationState] = r.count;
+  }
+  return counts;
+}
+
+/**
  * Aggregate analytics across all migrations for the /stats dashboard.
  * Scalar aggregates are computed in SQL; resource counts (stored as JSON)
  * are summed in a single pass over the succeeded rows.

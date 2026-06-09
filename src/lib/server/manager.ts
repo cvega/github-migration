@@ -38,6 +38,7 @@ import {
   getNextQueuedMigration,
   getQueuedEnvMigrations,
   getRecoverableMigrations,
+  getStateCounts,
   insertEvent,
   insertMigration,
   listBatchItemsPaginated,
@@ -809,6 +810,11 @@ export function listPaginated(params: PaginationParams): PaginatedResult<Migrati
 
 export function stats(): MigrationStats {
   return getMigrationStats();
+}
+
+/** Global migration counts grouped by state (whole table, not a page). */
+export function stateCounts(): Record<MigrationState, number> {
+  return getStateCounts();
 }
 
 export function events(migrationId: string, afterId?: number): MigrationEvent[] {
