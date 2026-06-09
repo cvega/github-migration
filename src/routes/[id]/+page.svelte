@@ -84,10 +84,13 @@
 		const events = sse.events;
 		if (events.length === 0) return;
 
-		// Find events newer than what we already processed.
-		const startIdx = lastProcessedId === undefined
-			? 0
-			: events.findIndex(e => e.id !== undefined && e.id! > lastProcessedId!);
+		// Find events newer than what we already processed. Capture the id in a
+		// const so it narrows inside the closure without a non-null assertion.
+		const lastId = lastProcessedId;
+		const startIdx =
+			lastId === undefined
+				? 0
+				: events.findIndex(e => e.id !== undefined && e.id > lastId);
 
 		if (startIdx === -1) return; // no new events
 

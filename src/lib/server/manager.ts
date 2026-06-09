@@ -136,6 +136,33 @@ function safeParseJson(json: string): Record<string, unknown> | null {
 }
 
 /**
+ * Narrow persisted request_options JSON (written by `start()`) back into a
+ * CreateMigrationRequest during crash recovery. Only non-credential fields are
+ * persisted; the caller backfills repo identity from the DB row. Validates each
+ * field's type rather than asserting the whole shape with an unchecked cast.
+ */
+function requestFromPersistedOptions(opts: Record<string, unknown>): CreateMigrationRequest {
+  const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+  const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
+  const visibility = opts.targetRepoVisibility;
+  return {
+    sourceApiUrl: str(opts.sourceApiUrl),
+    sourceRepo: str(opts.sourceRepo) ?? "",
+    targetOrg: str(opts.targetOrg) ?? "",
+    targetRepo: str(opts.targetRepo),
+    noSslVerify: bool(opts.noSslVerify),
+    skipReleases: bool(opts.skipReleases),
+    lockSource: bool(opts.lockSource),
+    archiveSource: bool(opts.archiveSource),
+    targetRepoVisibility:
+      visibility === "private" || visibility === "public" || visibility === "internal"
+        ? visibility
+        : undefined,
+    directPassthrough: bool(opts.directPassthrough),
+  };
+}
+
+/**
  * In-memory queue: holds the CreateMigrationRequest for each queued migration
  * so we can start it later when a slot opens. Keyed by migration ID.
  *
@@ -457,7 +484,6 @@ function handlePipelineError(id: string, err: unknown): void {
  * FIFO order — oldest queued item starts first.
  */
 function drainQueue(): void {
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     // Atomic: check concurrency + dequeue + transition in a single transaction
     // so concurrent drainQueue() calls can't both see active < MAX_CONCURRENT.
@@ -952,7 +978,7 @@ export function recoverOrphans(): void {
         continue;
       }
 
-      const req = opts as unknown as CreateMigrationRequest;
+      const req = requestFromPersistedOptions(opts);
       // Fill in repo identity from DB row if missing (sourceRepo in request uses org/repo format).
       if (!req.sourceRepo) req.sourceRepo = `${migration.sourceOrg}/${migration.sourceRepo}`;
       if (!req.targetOrg) req.targetOrg = migration.targetOrg;
