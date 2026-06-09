@@ -5,7 +5,7 @@
  *   • ~2,500 individual migrations
  *   • ~150 batches (5–40 repos each)
  *   • 10 currently running migrations (5 individual + 5 inside an active batch)
- *   • Realistic distribution: ~70% succeeded, ~15% failed, ~8% cancelled, ~7% running/pending
+ *   • Realistic distribution: ~92% succeeded, ~5% failed, ~3% cancelled, plus running/pending
  *
  * Run: bun seed.ts
  */
@@ -26,6 +26,19 @@ console.log("✓ Cleaned previous seed data\n");
 // ── Helpers ────────────────────────────────────────────────────────────────
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
 const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+/**
+ * Mimic a GitHub GraphQL global node ID for a RepositoryMigration, e.g.
+ * `RM_kgDOABcdEfGhIjk`. Real IDs are `RM_` + base64url of an opaque payload;
+ * `kgC`/`kgD` is the common prefix seen in practice.
+ */
+function fakeMigrationNodeId(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const len = rand(14, 18);
+  let suffix = "";
+  for (let i = 0; i < len; i++) suffix += alphabet[rand(0, alphabet.length - 1)];
+  return `RM_${pick(["kgC", "kgD"])}${suffix}`;
+}
 
 /**
  * Repo size in KB, log-distributed across ~12 KB → ~4.5 GB so the dataset has
@@ -277,7 +290,7 @@ function createMigration(opts: MigrationOpts) {
   insertMigration.run(
     opts.id,
     opts.batchId ?? null,
-    `RM_${opts.id.replace("seed-", "")}`,
+    fakeMigrationNodeId(),
     sourceApiUrl,
     sourceOrg,
     repo,
@@ -595,7 +608,7 @@ const transaction = db.transaction(() => {
     for (let i = 0; i < batchSize; i++) {
       const r = Math.random();
       const state: "succeeded" | "failed" | "cancelled" =
-        r < 0.7 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
+        r < 0.92 ? "succeeded" : r < 0.97 ? "failed" : "cancelled";
 
       createMigration({
         id: `seed-batch-${String(b).padStart(4, "0")}-m${String(i).padStart(3, "0")}`,
@@ -625,7 +638,7 @@ const transaction = db.transaction(() => {
   for (let i = 0; i < remaining; i++) {
     const r = Math.random();
     const state: "succeeded" | "failed" | "cancelled" =
-      r < 0.72 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
+      r < 0.93 ? "succeeded" : r < 0.975 ? "failed" : "cancelled";
 
     createMigration({
       id: `seed-ind-${String(i).padStart(4, "0")}`,

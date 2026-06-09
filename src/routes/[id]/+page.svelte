@@ -201,6 +201,19 @@
 
 	const sourceRepoUrl = $derived(repoUrl(migration.sourceApiUrl, migration.sourceOrg, migration.sourceRepo));
 	const targetRepoUrl = $derived(`https://github.com/${migration.targetOrg}/${migration.targetRepo}`);
+
+	// ── Copy migration node ID ─────────────────────────────────────────────
+	let copiedId = $state(false);
+	async function copyMigrationId() {
+		if (!migration.githubMigrationId) return;
+		try {
+			await navigator.clipboard.writeText(migration.githubMigrationId);
+			copiedId = true;
+			setTimeout(() => (copiedId = false), 1500);
+		} catch {
+			// Clipboard unavailable (e.g. insecure context); ignore.
+		}
+	}
 </script>
 
 <div class="space-y-6">
@@ -265,7 +278,19 @@
 	</div>
 
 	<!-- Phase timeline -->
-	<PhaseTimeline {currentPhase} failed={migration.state === 'failed'} />
+	<div class="flex items-stretch gap-3">
+		<div class="min-w-0 flex-1">
+			<PhaseTimeline {currentPhase} failed={migration.state === 'failed'} />
+		</div>
+		{#if migration.githubMigrationId}
+			<button onclick={copyMigrationId}
+				title="Copy migration ID: {migration.githubMigrationId}"
+				class="flex shrink-0 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors">
+				<Octicon name={copiedId ? 'check' : 'copy'} size={16} />
+				{copiedId ? 'Copied' : 'Copy ID'}
+			</button>
+		{/if}
+	</div>
 
 	<!-- Live stats overview (during active migration) -->
 	{#if isActive && latestProgress}
@@ -456,7 +481,7 @@
 
 	<!-- Failure details -->
 	{#if migration.state === 'failed' && failureDetail}
-		<FailureDetail detail={failureDetail} />
+		<FailureDetail detail={failureDetail} {migration} events={eventLog} />
 	{/if}
 
 	<!-- Event log -->

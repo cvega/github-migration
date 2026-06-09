@@ -13,6 +13,7 @@ import type {
   Migration,
   MigrationEvent,
   MigrationState,
+  MigrationStats,
   PaginatedResult,
   PaginationParams,
   RestartMigrationRequest,
@@ -33,6 +34,7 @@ import {
   getDb,
   getEvents,
   getMigration,
+  getMigrationStats,
   getNextQueuedMigration,
   getQueuedEnvMigrations,
   getRecoverableMigrations,
@@ -785,6 +787,10 @@ export function list(): Migration[] {
 
 export function listPaginated(params: PaginationParams): PaginatedResult<Migration> {
   return listMigrationsPaginated(params);
+}
+
+export function stats(): MigrationStats {
+  return getMigrationStats();
 }
 
 export function events(migrationId: string, afterId?: number): MigrationEvent[] {

@@ -195,6 +195,53 @@ export interface Migration {
   requestOptions: string | null;
 }
 
+/** Aggregate analytics across all migrations, for the /stats dashboard. */
+export interface MigrationStats {
+  total: number;
+  byState: Record<MigrationState, number>;
+  /** Finished migrations (succeeded + failed + cancelled). */
+  finished: number;
+  /** Success rate over finished migrations, 0–100. */
+  successRate: number;
+  duration: {
+    avgSeconds: number | null;
+    totalSeconds: number;
+    minSeconds: number | null;
+    maxSeconds: number | null;
+  };
+  data: {
+    totalKb: number;
+    avgKb: number | null;
+    largestKb: number | null;
+    largestRepo: string | null;
+  };
+  resources: Counts;
+  platforms: {
+    ghes: number;
+    ghec: number;
+  };
+  /** Per-platform success rate (0–100) over finished migrations. */
+  platformSuccess: {
+    ghes: { finished: number; succeeded: number; rate: number };
+    ghec: { finished: number; succeeded: number; rate: number };
+  };
+  warnings: {
+    total: number;
+    withWarnings: number;
+  };
+  /** Fastest and slowest succeeded migrations. */
+  records: {
+    fastest: { repo: string; seconds: number } | null;
+    slowest: { repo: string; seconds: number } | null;
+  };
+  /** Top source organizations by migration count. */
+  topOrgs: Array<{ org: string; count: number }>;
+  failuresByReason: Array<{ reason: string; count: number }>;
+  /** Completions per calendar day (UTC), oldest first. */
+  throughput: Array<{ date: string; succeeded: number; failed: number }>;
+  batches: number;
+}
+
 export interface AppAuth {
   appId: string;
   privateKey: string;

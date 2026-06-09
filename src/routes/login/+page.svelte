@@ -17,7 +17,7 @@
 		<!-- Logo + title -->
 		<div class="mb-8 text-center">
 			<img src="/imgs/github-logo.png" alt="GitHub" class="mx-auto h-16 w-16 mb-4" />
-			<h1 class="text-2xl font-bold text-gray-50">GitHub Migrate</h1>
+			<h1 class="text-2xl font-bold text-gray-50">GitHub Migration Dashboard</h1>
 			<p class="mt-1 text-sm text-gray-500">Sign in to continue</p>
 		</div>
 

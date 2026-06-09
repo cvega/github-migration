@@ -98,9 +98,14 @@
 		<div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
 			<a href="/" class="flex items-center gap-2 text-base font-semibold text-gray-50 hover:text-gray-200 transition-colors">
 				<img src="/imgs/github-logo.png" alt="GitHub" class="h-9 w-9" />
-				GitHub Migrate
+				GitHub Migration Dashboard
 			</a>
 			<div class="flex items-center gap-4">
+				<a href="/stats"
+					class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 hover:bg-gray-700 transition-colors">
+					<Octicon name="graph" size={16} />
+					Stats
+				</a>
 				<a href="/new"
 					class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
 					<Octicon name="paper-airplane" size={16} />

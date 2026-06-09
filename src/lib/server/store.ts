@@ -14,6 +14,7 @@ import type {
   Migration,
   MigrationEvent,
   MigrationState,
+  MigrationStats,
   PaginatedResult,
   PaginationParams,
   PipelineStep,
@@ -312,6 +313,226 @@ export function getActiveMigrationCount(): number {
     .prepare("SELECT COUNT(*) as count FROM migrations WHERE state IN ('pending', 'running')")
     .get() as { count: number };
   return row.count;
+}
+
+/**
+ * Aggregate analytics across all migrations for the /stats dashboard.
+ * Scalar aggregates are computed in SQL; resource counts (stored as JSON)
+ * are summed in a single pass over the succeeded rows.
+ */
+export function getMigrationStats(): MigrationStats {
+  const db = getDb();
+
+  const stateRows = db
+    .prepare("SELECT state, COUNT(*) AS count FROM migrations GROUP BY state")
+    .all() as Array<{ state: MigrationState; count: number }>;
+
+  const byState: Record<MigrationState, number> = {
+    queued: 0,
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  let total = 0;
+  for (const r of stateRows) {
+    if (r.state in byState) byState[r.state] = r.count;
+    total += r.count;
+  }
+
+  const finished = byState.succeeded + byState.failed + byState.cancelled;
+  const successRate = finished > 0 ? Math.round((byState.succeeded / finished) * 1000) / 10 : 0;
+
+  const dur = db
+    .prepare(
+      `SELECT
+        SUM(elapsed_seconds) AS total,
+        AVG(elapsed_seconds) AS avg,
+        MIN(elapsed_seconds) AS min,
+        MAX(elapsed_seconds) AS max
+      FROM migrations
+      WHERE state = 'succeeded' AND elapsed_seconds IS NOT NULL`,
+    )
+    .get() as { total: number | null; avg: number | null; min: number | null; max: number | null };
+
+  const sizeAgg = db
+    .prepare(
+      `SELECT SUM(source_size_kb) AS total, AVG(source_size_kb) AS avg
+      FROM migrations
+      WHERE state = 'succeeded' AND source_size_kb IS NOT NULL`,
+    )
+    .get() as { total: number | null; avg: number | null };
+
+  const largest = db
+    .prepare(
+      `SELECT source_org || '/' || source_repo AS repo, source_size_kb AS kb
+      FROM migrations
+      WHERE state = 'succeeded' AND source_size_kb IS NOT NULL
+      ORDER BY source_size_kb DESC LIMIT 1`,
+    )
+    .get() as { repo: string; kb: number } | undefined;
+
+  const platformRows = db
+    .prepare(
+      `SELECT
+        SUM(CASE WHEN source_api_url LIKE '%api.github.com%' THEN 1 ELSE 0 END) AS ghec,
+        SUM(CASE WHEN source_api_url NOT LIKE '%api.github.com%' THEN 1 ELSE 0 END) AS ghes
+      FROM migrations`,
+    )
+    .get() as { ghec: number | null; ghes: number | null };
+
+  // Per-platform success rates over finished (succeeded/failed/cancelled) migrations.
+  const platformSuccessRows = db
+    .prepare(
+      `SELECT
+        CASE WHEN source_api_url LIKE '%api.github.com%' THEN 'ghec' ELSE 'ghes' END AS platform,
+        SUM(CASE WHEN state IN ('succeeded', 'failed', 'cancelled') THEN 1 ELSE 0 END) AS finished,
+        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
+      FROM migrations
+      GROUP BY platform`,
+    )
+    .all() as Array<{ platform: "ghes" | "ghec"; finished: number; succeeded: number }>;
+
+  const platformSuccess = {
+    ghes: { finished: 0, succeeded: 0, rate: 0 },
+    ghec: { finished: 0, succeeded: 0, rate: 0 },
+  };
+  for (const r of platformSuccessRows) {
+    const entry = platformSuccess[r.platform];
+    entry.finished = r.finished;
+    entry.succeeded = r.succeeded;
+    entry.rate = r.finished > 0 ? Math.round((r.succeeded / r.finished) * 1000) / 10 : 0;
+  }
+
+  const warningsAgg = db
+    .prepare(
+      `SELECT
+        SUM(warnings_count) AS total,
+        SUM(CASE WHEN warnings_count > 0 THEN 1 ELSE 0 END) AS with_warnings
+      FROM migrations`,
+    )
+    .get() as { total: number | null; with_warnings: number | null };
+
+  const fastest = db
+    .prepare(
+      `SELECT source_org || '/' || source_repo AS repo, elapsed_seconds AS seconds
+      FROM migrations
+      WHERE state = 'succeeded' AND elapsed_seconds IS NOT NULL AND elapsed_seconds > 0
+      ORDER BY elapsed_seconds ASC LIMIT 1`,
+    )
+    .get() as { repo: string; seconds: number } | undefined;
+
+  const slowest = db
+    .prepare(
+      `SELECT source_org || '/' || source_repo AS repo, elapsed_seconds AS seconds
+      FROM migrations
+      WHERE state = 'succeeded' AND elapsed_seconds IS NOT NULL
+      ORDER BY elapsed_seconds DESC LIMIT 1`,
+    )
+    .get() as { repo: string; seconds: number } | undefined;
+
+  const topOrgs = db
+    .prepare(
+      `SELECT source_org AS org, COUNT(*) AS count
+      FROM migrations
+      GROUP BY source_org
+      ORDER BY count DESC, org ASC LIMIT 6`,
+    )
+    .all() as Array<{ org: string; count: number }>;
+
+  const failureRows = db
+    .prepare(
+      `SELECT failure_reason AS reason, COUNT(*) AS count
+      FROM migrations
+      WHERE state = 'failed' AND failure_reason IS NOT NULL AND failure_reason != ''
+      GROUP BY failure_reason
+      ORDER BY count DESC, reason ASC`,
+    )
+    .all() as Array<{ reason: string; count: number }>;
+
+  // Completions per UTC calendar day (substr of ISO timestamp = YYYY-MM-DD).
+  const throughputRows = db
+    .prepare(
+      `SELECT
+        substr(completed_at, 1, 10) AS date,
+        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
+        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed
+      FROM migrations
+      WHERE completed_at IS NOT NULL AND state IN ('succeeded', 'failed')
+      GROUP BY date
+      ORDER BY date ASC`,
+    )
+    .all() as Array<{ date: string; succeeded: number; failed: number }>;
+
+  // Resource totals live in the target_counts JSON blob — sum them in one pass.
+  const resources: Counts = {
+    commits: 0,
+    branches: 0,
+    tags: 0,
+    issues: 0,
+    pullRequests: 0,
+    releases: 0,
+  };
+  const countRows = db
+    .prepare(
+      "SELECT target_counts FROM migrations WHERE state = 'succeeded' AND target_counts IS NOT NULL",
+    )
+    .all() as Array<{ target_counts: string }>;
+  for (const r of countRows) {
+    try {
+      const c = JSON.parse(r.target_counts) as Partial<Counts>;
+      resources.commits += c.commits ?? 0;
+      resources.branches += c.branches ?? 0;
+      resources.tags += c.tags ?? 0;
+      resources.issues += c.issues ?? 0;
+      resources.pullRequests += c.pullRequests ?? 0;
+      resources.releases += c.releases ?? 0;
+    } catch {
+      // Skip malformed JSON rather than failing the whole stats query.
+    }
+  }
+
+  const { count: batches } = db
+    .prepare("SELECT COUNT(DISTINCT batch_id) AS count FROM migrations WHERE batch_id IS NOT NULL")
+    .get() as { count: number };
+
+  return {
+    total,
+    byState,
+    finished,
+    successRate,
+    duration: {
+      avgSeconds: dur.avg,
+      totalSeconds: dur.total ?? 0,
+      minSeconds: dur.min,
+      maxSeconds: dur.max,
+    },
+    data: {
+      totalKb: sizeAgg.total ?? 0,
+      avgKb: sizeAgg.avg,
+      largestKb: largest?.kb ?? null,
+      largestRepo: largest?.repo ?? null,
+    },
+    resources,
+    platforms: {
+      ghes: platformRows.ghes ?? 0,
+      ghec: platformRows.ghec ?? 0,
+    },
+    platformSuccess,
+    warnings: {
+      total: warningsAgg.total ?? 0,
+      withWarnings: warningsAgg.with_warnings ?? 0,
+    },
+    records: {
+      fastest: fastest ?? null,
+      slowest: slowest ?? null,
+    },
+    topOrgs,
+    failuresByReason: failureRows,
+    throughput: throughputRows,
+    batches,
+  };
 }
 
 function rowToMigration(row: Record<string, unknown>): Migration {

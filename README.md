@@ -1,7 +1,7 @@
 <p align="center">
   <img src="static/imgs/github-logo.png" width="80" height="80" alt="GitHub" />
 </p>
-<h1 align="center">GitHub Migrate</h1>
+<h1 align="center">GitHub Migration Dashboard</h1>
 
 <p align="center">
   <strong>Web UI for migrating repositories between GitHub Enterprise Server and GitHub Enterprise Cloud</strong>
@@ -11,11 +11,7 @@
   <img alt="Bun" src="https://img.shields.io/badge/Bun-1.3.9+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a" />
   <img alt="SvelteKit" src="https://img.shields.io/badge/SvelteKit-2-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
-  <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind-v4-06b6d4?logo=tailwindcss&logoColor=06b6d4&labelColor=14151a" />
-  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-WAL-003b57?logo=sqlite&logoColor=white&labelColor=14151a" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white&labelColor=14151a" />
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-7-646cff?logo=vite&logoColor=white&labelColor=14151a" />
-  <img alt="Biome" src="https://img.shields.io/badge/Biome-2.3-60a5fa?logo=biome&logoColor=white&labelColor=14151a" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178c6?logo=typescript&logoColor=white&labelColor=14151a" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Ready-2496ed?logo=docker&logoColor=white&labelColor=14151a" />
 </p>
 
@@ -40,6 +36,33 @@
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/dashboard.png" alt="Dashboard" /><br />
+      <strong>Dashboard</strong> — active &amp; completed migrations, batches
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/stats.png" alt="Statistics" /><br />
+      <strong>Statistics</strong> — success rate, throughput, platform breakdown
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/batch.png" alt="Batch detail" /><br />
+      <strong>Batch detail</strong> — per-repo progress &amp; controls
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/new-migration.png" alt="New migration" /><br />
+      <strong>New migration</strong> — single &amp; batch request form
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Requirements
 
 - [Bun](https://bun.sh) ≥ 1.3.9
@@ -52,7 +75,7 @@
 ### Docker Compose (recommended)
 
 ```bash
-cp .env.example .env        # configure env vars (see below)
+cp .env.example .env         # configure env vars (see below)
 docker compose up -d         # app at http://localhost:3000
 ```
 
@@ -123,7 +146,7 @@ Each migration follows a 5-step pipeline managed by a concurrency-limited queue 
 queued → pending → preflight → archiving → ghec_starting → monitoring → succeeded/failed
 ```
 
-1. **Preflight** — validates GHES version (≥ 3.4.1), target org access, warns if target repo exists
+1. **Preflight** — validates GHES version (≥ 3.15), target org access, warns if target repo exists
 2. **Archiving** (GHES only) — triggers git + metadata archive export, downloads to disk
 3. **GHEC Starting** — uploads archives (streaming multipart for large files), calls `startRepositoryMigration` via GraphQL
 4. **Monitoring** — polls GHEC migration status, detects phase transitions, computes progress deltas
@@ -142,15 +165,42 @@ Priority: per-request PAT → per-request App → env App → env PAT.
 
 ### Database
 
-SQLite (WAL mode, `bun:sqlite`) with two tables:
+SQLite via `bun:sqlite` in WAL mode, with two tables.
 
-**`migrations`** — `id` (UUIDv7 PK), `batch_id`, `github_migration_id`, `source_api_url`, `source_org`, `source_repo`, `target_org`, `target_repo`, `state`, `pipeline_step`, `auth_mode`, `failure_reason`, `migration_log_url`, `warnings_count`, `source_counts` (JSON), `target_counts` (JSON), `started_at`, `completed_at`, `elapsed_seconds`
+**`migrations`** — one row per repository migration:
 
-**`events`** — `id` (autoincrement PK), `migration_id` (FK), `event_type`, `phase`, `payload` (JSON), `created_at`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | Primary key (UUIDv7, time-sortable) |
+| `batch_id` | TEXT | Groups migrations started together (nullable) |
+| `github_migration_id` | TEXT | GHEC-assigned migration ID (nullable) |
+| `source_api_url` · `source_org` · `source_repo` | TEXT | Where the repo comes from |
+| `target_org` · `target_repo` | TEXT | Where the repo lands |
+| `state` | TEXT | Lifecycle state (see below) |
+| `pipeline_step` | TEXT | Current step within the pipeline |
+| `auth_mode` | TEXT | `pat` · `request-app` · `env-app` · `env-pat` |
+| `failure_reason` · `migration_log_url` | TEXT | Populated on failure / completion |
+| `warnings_count` | INTEGER | Non-fatal warnings surfaced during migration |
+| `source_counts` · `target_counts` | JSON | Commit/issue/PR counts, before and after |
+| `started_at` · `completed_at` | TEXT | ISO timestamps |
+| `elapsed_seconds` | REAL | Total run time |
 
-States: `queued` · `pending` · `running` · `succeeded` · `failed` · `cancelled`
+**`events`** — append-only audit/progress log, one row per state change:
 
-Batches are a logical grouping via `migrations.batch_id` — no separate table.
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key (autoincrement) |
+| `migration_id` | TEXT | Foreign key → `migrations.id` |
+| `event_type` | TEXT | What happened |
+| `phase` | TEXT | Pipeline phase at the time (nullable) |
+| `payload` | JSON | Event-specific detail |
+| `created_at` | TEXT | ISO timestamp |
+
+**States:** `queued` → `pending` → `running` → `succeeded` / `failed` / `cancelled`
+
+There is no separate batches table — a batch is simply a set of `migrations` rows sharing the same `batch_id`.
+
+**Why SQLite?** The workload is single-node, low-volume, and read-heavy, and write throughput is naturally capped by GitHub's limit of up to 10 concurrent migrations per org. WAL mode lets the dashboard and SSE pollers read while a migration writes, and an in-process `bun:sqlite` database removes a whole moving part (no separate DB server to run, network, or back up).
 
 ---
 
@@ -239,7 +289,7 @@ All endpoints return JSON. SSE streams emit migration/batch state changes.
 
 ### "Concurrency limit reached"
 
-GitHub allows max 10 concurrent migrations per org. Excess migrations are automatically queued and promoted FIFO as slots open.
+GitHub allows **up to** 10 concurrent migrations per org — that's a ceiling, not a guarantee, and the effective limit can be lower depending on GitHub-side load and throttling. Excess migrations are automatically queued and promoted FIFO as slots open.
 
 ### Migration stuck in "running" after restart
 
