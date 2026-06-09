@@ -179,7 +179,7 @@ interface GhesMigrationResponse {
   state: string;
 }
 
-const MIN_GHES_VERSION = "3.8.0";
+const MIN_GHES_VERSION = "3.15.0";
 
 export async function checkGhesVersion(client: InstanceType<typeof RetryOctokit>): Promise<string> {
   const { data } = await client.request("GET /api/v3/meta");
@@ -608,7 +608,7 @@ export function isGhecSource(apiUrl: string): boolean {
   return isGitHubDotCom(apiUrl);
 }
 
-function isVersionAtLeast(version: string, min: string): boolean {
+export function isVersionAtLeast(version: string, min: string): boolean {
   const v = version.split(".").map(Number);
   const m = min.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
