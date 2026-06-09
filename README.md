@@ -215,6 +215,7 @@ All via environment variables. See [.env.example](.env.example) for the full lis
 | `ARCHIVE_DIR` | OS temp | Temp directory for GHES archive exports |
 | `GH_MIGRATE_USER` | — | Basic auth username (optional — if unset, no auth) |
 | `GH_MIGRATE_PASS` | — | Basic auth password (optional — if unset, no auth) |
+| `ORIGIN` | — | Public URL (e.g. `https://migrate.example.com`). Set this only when running behind a TLS-terminating reverse proxy, so CSRF origin checks on the login form match the browser's `Origin` header. |
 
 ### PATs (optional, per side)
 
@@ -302,6 +303,10 @@ The stall watchdog only acts on migrations that have started importing and show 
 ### SSE not reconnecting
 
 The client retries with exponential backoff (1s → 30s, max 20 attempts). If the server is behind a proxy, ensure it doesn't buffer SSE responses. Set `X-Accel-Buffering: no` for nginx.
+
+### Login returns 403 "Cross-site POST form submissions are forbidden"
+
+This means SvelteKit's CSRF origin check saw a request `Origin` that didn't match the server's computed origin — almost always because the app runs behind a TLS-terminating reverse proxy (HTTPS outside, HTTP inside). Set the `ORIGIN` env var to the public URL (e.g. `ORIGIN=https://migrate.example.com`) so the origins match. Only the login form is affected; the JSON `/api/*` endpoints are not.
 
 ### Archive upload fails for large repos
 
