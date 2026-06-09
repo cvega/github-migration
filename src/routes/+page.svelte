@@ -111,9 +111,54 @@
 		</div>
 	</div>
 
+	<!-- Section overview — click a tile to jump to that section -->
+	{#if batchesResult.data.length > 0 || active.length > 0 || completed.length > 0}
+		<div class="flex flex-col gap-3 sm:flex-row">
+			{#if batchesResult.data.length > 0}
+				<a href="#batches"
+					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
+					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-400">
+						<Octicon name="stack" size={16} />
+					</span>
+					<span class="min-w-0">
+						<span class="block text-xl font-bold leading-none text-gray-50">{batchesResult.total}</span>
+						<span class="mt-1 block text-xs text-gray-500">{batchesResult.total === 1 ? 'Batch' : 'Batches'}</span>
+					</span>
+					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+				</a>
+			{/if}
+			{#if active.length > 0}
+				<a href="#active"
+					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
+					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-green-600/15 text-green-400">
+						<Octicon name="play" size={16} />
+					</span>
+					<span class="min-w-0">
+						<span class="block text-xl font-bold leading-none text-gray-50">{active.length}</span>
+						<span class="mt-1 block text-xs text-gray-500">Active</span>
+					</span>
+					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+				</a>
+			{/if}
+			{#if completed.length > 0}
+				<a href="#completed"
+					class="group flex flex-1 items-center gap-3 rounded-md border border-gray-700 bg-gray-900 px-4 py-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
+					<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gray-700/50 text-gray-300">
+						<Octicon name="check-circle" size={16} />
+					</span>
+					<span class="min-w-0">
+						<span class="block text-xl font-bold leading-none text-gray-50">{completed.length}</span>
+						<span class="mt-1 block text-xs text-gray-500">Completed</span>
+					</span>
+					<Octicon name="chevron-down" size={16} class="ml-auto shrink-0 text-gray-600 transition-colors group-hover:text-gray-400" />
+				</a>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- Batches -->
 	{#if batchesResult.data.length > 0}
-		<section>
+		<section id="batches" class="scroll-mt-6">
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
 				<Octicon name="stack" size={16} />
 				Batches
@@ -166,7 +211,7 @@
 
 	<!-- Active migrations -->
 	{#if active.length > 0}
-		<section>
+		<section id="active" class="scroll-mt-6">
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
 				<Octicon name="play" size={16} class="text-green-400" />
 				Active
@@ -181,7 +226,7 @@
 
 	<!-- Completed migrations -->
 	{#if completed.length > 0}
-		<section>
+		<section id="completed" class="scroll-mt-6">
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
 				<Octicon name="check-circle" size={16} class="text-gray-400" />
 				Completed
