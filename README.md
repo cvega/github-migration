@@ -13,6 +13,7 @@
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178c6?logo=typescript&logoColor=white&labelColor=14151a" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Ready-2496ed?logo=docker&logoColor=white&labelColor=14151a" />
+  <img alt="Coverage" src="https://img.shields.io/badge/coverage-79%25-dfb317?labelColor=14151a" />
 </p>
 
 <p align="center">
@@ -96,15 +97,19 @@ bun build/index.js           # production server at http://localhost:3000
 bun install                  # install deps
 bun run dev                  # dev server → http://localhost:5173
 bun run check                # svelte-check + TypeScript diagnostics
-bun run ci                   # check + build (pre-deploy gate)
+bun test                     # unit test suite
+bun run coverage:check       # tests + coverage gate (fails below floor)
 bun run lint                 # Biome lint
 bun run format               # Biome format
-bun run seed                 # populate DB with ~2,500 fake migrations
+bun run dup                  # jscpd duplication gate
+bun run seed                 # populate DB with ~3,800 fake migrations
+bun run verify               # full gate: typecheck, check, lint, format, coverage, dup, build, audit
+bun run ci                   # check + build (pre-deploy gate)
 ```
 
 ### Seeding
 
-The seed script generates ~2,500 migrations (~150 batches) across all states for UI testing. It's idempotent — only touches rows with `seed-` prefixed IDs.
+The seed script generates ~3,800 migrations (151 batches) across all states for UI testing. It's idempotent — only touches rows with `seed-` prefixed IDs.
 
 ```bash
 bun run seed                 # writes to ./data/gh-migrate.db

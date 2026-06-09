@@ -10,7 +10,7 @@ data
 !.env.example
 build
 .svelte-kit
-seed.ts
+scripts/seed.ts
 docs
 README.md
 Makefile
