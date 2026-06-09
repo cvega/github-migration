@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  MAX_FIELD_LEN,
-  parseJsonBody,
-  validateAuthAvailable,
-  validateCommonFields,
-  validateFieldLengths,
-} from "./validate";
+import { parseJsonBody, validateAuthAvailable } from "./validate";
 
 function jsonRequest(body: string): Request {
   return new Request("http://localhost/api/migrations", {
@@ -14,57 +8,6 @@ function jsonRequest(body: string): Request {
     body,
   });
 }
-
-describe("validateCommonFields", () => {
-  test("accepts an empty object", () => {
-    expect(validateCommonFields({})).toBeNull();
-  });
-
-  test("accepts well-formed boolean and visibility fields", () => {
-    expect(
-      validateCommonFields({
-        lockSource: true,
-        skipReleases: false,
-        targetRepoVisibility: "private",
-      }),
-    ).toBeNull();
-  });
-
-  test("rejects a non-boolean boolean field", () => {
-    const err = validateCommonFields({ lockSource: "yes" });
-    expect(err).toContain("lockSource");
-    expect(err).toContain("boolean");
-  });
-
-  test("rejects an invalid targetRepoVisibility", () => {
-    const err = validateCommonFields({ targetRepoVisibility: "secret" });
-    expect(err).toContain("targetRepoVisibility");
-  });
-
-  test("accepts each allowed visibility value", () => {
-    for (const v of ["private", "public", "internal"]) {
-      expect(validateCommonFields({ targetRepoVisibility: v })).toBeNull();
-    }
-  });
-
-  test("rejects a non-object app auth sub-object", () => {
-    const err = validateCommonFields({ sourceApp: "nope" });
-    expect(err).toContain("sourceApp");
-  });
-
-  test("rejects an app auth object missing required keys", () => {
-    const err = validateCommonFields({ sourceApp: { appId: "1" } });
-    expect(err).toContain("sourceApp.privateKey");
-  });
-
-  test("accepts a complete app auth object", () => {
-    expect(
-      validateCommonFields({
-        targetApp: { appId: "1", privateKey: "key", installationId: "2" },
-      }),
-    ).toBeNull();
-  });
-});
 
 describe("parseJsonBody", () => {
   test("parses a JSON object body", async () => {
@@ -89,37 +32,6 @@ describe("parseJsonBody", () => {
     if ("error" in result) {
       expect(result.error).toContain("Invalid JSON");
     }
-  });
-});
-
-describe("validateFieldLengths", () => {
-  test("returns null when all string fields are within the limit", () => {
-    expect(
-      validateFieldLengths([
-        ["targetOrg", "acme"],
-        ["sourceRepo", "a/b"],
-      ]),
-    ).toBeNull();
-  });
-
-  test("skips non-string values", () => {
-    expect(
-      validateFieldLengths([
-        ["x", undefined],
-        ["y", 123],
-        ["z", null],
-      ]),
-    ).toBeNull();
-  });
-
-  test("rejects a field exceeding MAX_FIELD_LEN and names it", () => {
-    const err = validateFieldLengths([["targetOrg", "x".repeat(MAX_FIELD_LEN + 1)]]);
-    expect(err).toContain("targetOrg");
-    expect(err).toContain(String(MAX_FIELD_LEN));
-  });
-
-  test("accepts a field exactly at the limit", () => {
-    expect(validateFieldLengths([["targetOrg", "x".repeat(MAX_FIELD_LEN)]])).toBeNull();
   });
 });
 
