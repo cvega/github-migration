@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDateTime, formatElapsed, formatRepoSize } from "./format";
+import { formatDateTime, formatElapsed, formatRepoSize, timeAgo } from "./format";
 
 describe("formatElapsed", () => {
   test("returns the fallback for null", () => {
@@ -61,5 +61,27 @@ describe("formatDateTime", () => {
     const out = formatDateTime("2026-06-08T15:42:00.000Z");
     expect(out).not.toBe("—");
     expect(out).toContain("2026");
+  });
+});
+
+describe("timeAgo", () => {
+  const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+
+  test("returns 'just now' for sub-minute ages", () => {
+    expect(timeAgo(iso(0))).toBe("just now");
+    expect(timeAgo(iso(30_000))).toBe("just now");
+  });
+
+  test("formats minutes", () => {
+    expect(timeAgo(iso(5 * 60_000))).toBe("5m ago");
+    expect(timeAgo(iso(59 * 60_000))).toBe("59m ago");
+  });
+
+  test("formats hours", () => {
+    expect(timeAgo(iso(3 * 3_600_000))).toBe("3h ago");
+  });
+
+  test("formats days", () => {
+    expect(timeAgo(iso(2 * 86_400_000))).toBe("2d ago");
   });
 });

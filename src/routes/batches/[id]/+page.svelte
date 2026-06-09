@@ -5,13 +5,13 @@
 	import { page } from '$app/state';
 	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
 	import { formatElapsed, formatDateTime } from '$lib/format';
+	import { STATE_STYLES, STATE_ICONS, isGitHubCloud } from '$lib/migration-display';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
-	import type { IconName } from '@primer/octicons';
 	import type { BatchListItem, Migration, PaginatedResult } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
@@ -130,24 +130,6 @@
 		return segs.map(s => { const seg = { ...s, left }; left += s.pct; return seg; });
 	});
 
-	const stateStyles: Record<string, string> = {
-		queued: 'bg-blue-500/15 text-blue-400',
-		pending: 'bg-yellow-500/15 text-yellow-400',
-		running: 'bg-green-600/15 text-green-400',
-		succeeded: 'bg-green-600/15 text-green-400',
-		failed: 'bg-red-500/15 text-red-400',
-		cancelled: 'bg-gray-500/15 text-gray-400'
-	};
-
-	const stateIcons: Record<string, IconName> = {
-		queued: 'hourglass',
-		pending: 'clock',
-		running: 'sync',
-		succeeded: 'check-circle',
-		failed: 'x-circle-fill',
-		cancelled: 'skip'
-	};
-
 	async function handleCancelAll() {
 		if (!confirm(`Cancel all ${batch.queuedCount + batch.pendingCount + batch.runningCount} active migrations?`)) return;
 		const cancelRes = await fetch(`/api/batches/${batch.id}`, { method: 'DELETE' });
@@ -230,7 +212,7 @@
 
 <div class="space-y-6">
 	{#snippet platformPill(apiUrl: string)}
-		{@const isCloud = apiUrl?.includes('api.github.com')}
+		{@const isCloud = isGitHubCloud(apiUrl)}
 		<span
 			class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium align-middle {isCloud ? 'bg-blue-500/15 text-blue-400' : 'bg-purple-500/15 text-purple-400'}"
 			title={isCloud ? 'GitHub Enterprise Cloud' : 'GitHub Enterprise Server'}>
@@ -354,8 +336,8 @@
 							</span>
 						</td>
 						<td class="px-4 py-3 text-center">
-							<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {stateStyles[migration.state]}">
-								<Octicon name={stateIcons[migration.state] || 'clock'} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
+							<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {STATE_STYLES[migration.state]}">
+								<Octicon name={STATE_ICONS[migration.state]} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
 								{migration.state}
 							</span>
 						</td>

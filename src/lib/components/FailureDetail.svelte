@@ -1,7 +1,8 @@
 <!-- Failure detail panel -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
+	import { formatElapsed, formatDateTime } from '$lib/format';
+	import { buildMigrationReportLines } from '$lib/report';
 	import type { FailureDetail as FailureDetailType, Migration, MigrationEvent } from '$lib/types';
 
 	let { detail, migration, events = [] }: { detail: FailureDetailType; migration: Migration; events?: MigrationEvent[] } = $props();
@@ -38,25 +39,7 @@
 	}
 
 	function buildReport(): string {
-		const lines = [
-			'GitHub Migration — Failure Report',
-			'==================================',
-			`Source repo:        ${migration.sourceOrg}/${migration.sourceRepo}`,
-			`Target repo:        ${migration.targetOrg}/${migration.targetRepo}`,
-			`Source API URL:     ${migration.sourceApiUrl}`,
-			`Migration ID:       ${migration.id}`,
-			`GHEC migration ID:  ${migration.githubMigrationId ?? '(not assigned)'}`,
-			`Batch ID:           ${migration.batchId ?? '(none)'}`,
-			`State:              ${migration.state}`,
-			`Failure reason:     ${detail.failureReason || '(none)'}`,
-			`Started:            ${formatDateTime(migration.startedAt)}`,
-			`Completed:          ${migration.completedAt ? formatDateTime(migration.completedAt) : '(n/a)'}`,
-			`Elapsed:            ${formatElapsed(detail.elapsed)}`,
-			`Source size:        ${migration.sourceSizeKb != null ? formatRepoSize(migration.sourceSizeKb) : '(unknown)'}`,
-			`Auth mode:          ${migration.authMode ?? '(unknown)'}`,
-			`Warnings:           ${migration.warningsCount}`,
-			`Migration log:      ${detail.logUrl || '(none)'}`,
-		];
+		const lines = buildMigrationReportLines(migration);
 
 		if (errors.length > 0) {
 			lines.push('', `Errors (${errors.length}):`);

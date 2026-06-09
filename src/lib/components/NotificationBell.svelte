@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import { timeAgo } from '$lib/format';
 	import type { IconName } from '@primer/octicons';
 	import type { ActivityItem, ActivityKind } from '$lib/types';
 
@@ -26,16 +27,6 @@
 		restarted: { icon: 'sync', color: 'text-blue-400', label: 'Restarted' },
 		notice: { icon: 'alert', color: 'text-yellow-400', label: 'Notice' }
 	};
-
-	function timeAgo(iso: string): string {
-		const diff = Date.now() - new Date(iso).getTime();
-		const mins = Math.floor(diff / 60_000);
-		if (mins < 1) return 'just now';
-		if (mins < 60) return `${mins}m ago`;
-		const hrs = Math.floor(mins / 60);
-		if (hrs < 24) return `${hrs}h ago`;
-		return `${Math.floor(hrs / 24)}d ago`;
-	}
 
 	async function refresh() {
 		try {

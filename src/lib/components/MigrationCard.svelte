@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import type { Migration, Snapshot, Counts, Phase } from '$lib/types';
 	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
+	import { STATE_STYLES, STATE_ICONS, isActiveState, sourcePlatform } from '$lib/migration-display';
+	import { buildMigrationReport } from '$lib/report';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
 
@@ -16,24 +18,6 @@
 		now?: number;
 	} = $props();
 
-	const stateStyles: Record<string, string> = {
-		queued: 'bg-blue-500/15 text-blue-400',
-		pending: 'bg-yellow-500/15 text-yellow-400',
-		running: 'bg-green-600/15 text-green-400',
-		succeeded: 'bg-green-600/15 text-green-400',
-		failed: 'bg-red-500/15 text-red-400',
-		cancelled: 'bg-gray-500/15 text-gray-400'
-	};
-
-	const stateIcons: Record<string, IconName> = {
-		queued: 'hourglass',
-		pending: 'clock',
-		running: 'sync',
-		succeeded: 'check-circle',
-		failed: 'x-circle-fill',
-		cancelled: 'skip'
-	};
-
 	const phaseMeta: Record<Phase, { label: string; icon: IconName }> = {
 		QUEUED: { label: 'Queued', icon: 'clock' },
 		PENDING_VALIDATION: { label: 'Validating', icon: 'shield-check' },
@@ -45,14 +29,10 @@
 		UNKNOWN: { label: 'Working', icon: 'sync' }
 	};
 
-	const isActive = $derived(
-		migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running'
-	);
+	const isActive = $derived(isActiveState(migration.state));
 
 	// Source platform: GitHub Enterprise Server vs. GitHub.com. Target is always GHEC.
-	const sourcePlatform = $derived(
-		migration.sourceApiUrl && !migration.sourceApiUrl.includes('api.github.com') ? 'GHES' : 'GHEC'
-	);
+	const platform = $derived(sourcePlatform(migration.sourceApiUrl));
 
 	// Live wall-clock elapsed for active migrations (ticks via `now`).
 	const liveElapsed = $derived(
@@ -75,36 +55,12 @@
 	// loaded on the card).
 	let copiedError = $state(false);
 
-	function buildErrorReport(): string {
-		const m = migration;
-		const lines = [
-			'GitHub Migration — Failure Report',
-			'==================================',
-			`Source repo:        ${m.sourceOrg}/${m.sourceRepo}`,
-			`Target repo:        ${m.targetOrg}/${m.targetRepo}`,
-			`Source API URL:     ${m.sourceApiUrl}`,
-			`Migration ID:       ${m.id}`,
-			`GHEC migration ID:  ${m.githubMigrationId ?? '(not assigned)'}`,
-			`Batch ID:           ${m.batchId ?? '(none)'}`,
-			`State:              ${m.state}`,
-			`Failure reason:     ${m.failureReason ?? '(none)'}`,
-			`Started:            ${formatDateTime(m.startedAt)}`,
-			`Completed:          ${m.completedAt ? formatDateTime(m.completedAt) : '(n/a)'}`,
-			`Elapsed:            ${formatElapsed(m.elapsedSeconds)}`,
-			`Source size:        ${m.sourceSizeKb != null ? formatRepoSize(m.sourceSizeKb) : '(unknown)'}`,
-			`Auth mode:          ${m.authMode ?? '(unknown)'}`,
-			`Warnings:           ${m.warningsCount}`,
-			`Migration log:      ${m.migrationLogUrl ?? '(none)'}`,
-		];
-		return lines.join('\n');
-	}
-
 	async function copyErrorDetails(e: MouseEvent) {
 		// The card is a link — don't navigate when copying.
 		e.preventDefault();
 		e.stopPropagation();
 		try {
-			await navigator.clipboard.writeText(buildErrorReport());
+			await navigator.clipboard.writeText(buildMigrationReport(migration));
 			copiedError = true;
 			setTimeout(() => (copiedError = false), 1500);
 		} catch {
@@ -137,8 +93,8 @@
 					<Octicon name="stopwatch" size={12} />{formatElapsed(liveElapsed, '')}
 				</span>
 			{/if}
-			<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {stateStyles[migration.state] || stateStyles.pending}">
-				<Octicon name={stateIcons[migration.state] || 'clock'} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
+			<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {STATE_STYLES[migration.state]}">
+				<Octicon name={STATE_ICONS[migration.state]} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
 				{migration.state}
 			</span>
 		</div>
@@ -179,8 +135,8 @@
 			{#if migration.warningsCount > 0}
 				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>
 			{/if}
-			<span class="inline-flex items-center gap-1.5" title="{sourcePlatform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub.com'} to GitHub Enterprise Cloud">
-				<span class="inline-flex items-center gap-1"><Octicon name="server" size={12} />{sourcePlatform}</span>
+		<span class="inline-flex items-center gap-1.5" title="{platform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub.com'} to GitHub Enterprise Cloud">
+			<span class="inline-flex items-center gap-1"><Octicon name="server" size={12} />{platform}</span>
 				<span class="text-gray-600">→</span>
 				<span class="inline-flex items-center gap-1"><Octicon name="cloud" size={12} />GHEC</span>
 			</span>

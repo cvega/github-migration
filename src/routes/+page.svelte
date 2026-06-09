@@ -10,6 +10,8 @@
 	import Octicon from '$lib/components/Octicon.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
+	import { timeAgo } from '$lib/format';
+	import { isActiveState } from '$lib/migration-display';
 	import type { Migration, BatchListItem, PaginatedResult, Snapshot, Counts } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
@@ -52,8 +54,8 @@
 		return map;
 	});
 
-	const active = $derived(migrations.value.filter((m: Migration) => m.state === 'queued' || m.state === 'pending' || m.state === 'running'));
-	const completed = $derived(migrations.value.filter((m: Migration) => m.state !== 'queued' && m.state !== 'pending' && m.state !== 'running'));
+	const active = $derived(migrations.value.filter((m: Migration) => isActiveState(m.state)));
+	const completed = $derived(migrations.value.filter((m: Migration) => !isActiveState(m.state)));
 
 	// ── Search ──────────────────────────────────────────────────────────────
 	// `data.q` is the server-applied query; when present the page renders a
@@ -109,16 +111,6 @@
 		if (b.failedCount > 0 && b.succeededCount > 0) return { label: 'partial', style: 'bg-yellow-600/15 text-yellow-400' };
 		if (b.failedCount > 0) return { label: 'failed', style: 'bg-red-500/15 text-red-400' };
 		return { label: 'done', style: 'bg-green-600/15 text-green-400' };
-	}
-
-	function timeAgo(dateStr: string): string {
-		const diff = Date.now() - new Date(dateStr).getTime();
-		const mins = Math.floor(diff / 60_000);
-		if (mins < 1) return 'just now';
-		if (mins < 60) return `${mins}m ago`;
-		const hrs = Math.floor(mins / 60);
-		if (hrs < 24) return `${hrs}h ago`;
-		return `${Math.floor(hrs / 24)}d ago`;
 	}
 
 	const pctOf = (n: number, total: number) => (total > 0 ? (n / total) * 100 : 0);

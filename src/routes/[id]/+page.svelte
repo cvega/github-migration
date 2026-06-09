@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
 	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
+	import { isActiveState, isGitHubCloud } from '$lib/migration-display';
 	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatsTable from '$lib/components/StatsTable.svelte';
@@ -57,7 +58,7 @@
 		for (const ev of eventLog) processEvent(ev);
 
 		// Only subscribe to SSE if migration is still active.
-		if (migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running') {
+		if (isActiveState(migration.state)) {
 			sse = createMigrationEventSource(migration.id);
 		}
 
@@ -118,7 +119,7 @@
 		}
 	}
 
-	const isActive = $derived(migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running');
+	const isActive = $derived(isActiveState(migration.state));
 	const stateColor = $derived(
 		migration.state === 'succeeded' ? 'text-green-400' :
 		migration.state === 'failed' ? 'text-red-400' :
@@ -140,7 +141,7 @@
 		pollInterval = setInterval(async () => {
 			const res = await fetch(`/api/migrations/${migration.id}`);
 			if (res.ok) polledMigration = await res.json();
-			if (migration.state !== 'queued' && migration.state !== 'pending' && migration.state !== 'running') {
+			if (!isActiveState(migration.state)) {
 				if (pollInterval) clearInterval(pollInterval);
 				pollInterval = null;
 			}
@@ -593,7 +594,7 @@
 				<Octicon name="arrow-right" size={12} class="text-gray-500" />
 				<span class="font-medium text-gray-50">{migration.targetOrg}/{migration.targetRepo}</span>
 			</div>
-			{#if migration.sourceApiUrl && !migration.sourceApiUrl.includes('api.github.com')}
+			{#if !isGitHubCloud(migration.sourceApiUrl)}
 				<p class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500">
 					<Octicon name="server" size={12} />
 					{migration.sourceApiUrl}
