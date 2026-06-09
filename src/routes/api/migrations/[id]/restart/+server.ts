@@ -1,8 +1,12 @@
 /** POST /api/migrations/[id]/restart — restart a failed or cancelled migration. */
 import { json } from "@sveltejs/kit";
-import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { restart } from "$lib/server/manager";
-import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
+import {
+  narrowBody,
+  parseJsonBody,
+  validateAuthAvailable,
+  validateCommonFields,
+} from "$lib/server/validate";
 import type { RestartMigrationRequest } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
@@ -20,23 +24,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
   }
 
   // Auth check: need at least one auth method per side.
-  if (!body.sourceToken && !body.sourceApp && !isSourceAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing source auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
-  }
-  if (!body.targetToken && !body.targetApp && !isTargetAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing target auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
+  const authError = validateAuthAvailable(body);
+  if (authError) {
+    return json({ error: authError }, { status: 400 });
   }
 
   try {

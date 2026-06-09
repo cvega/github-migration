@@ -2,9 +2,14 @@
  *  GET  /api/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { listPaginated, searchPaginated, start } from "$lib/server/manager";
-import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
+import {
+  narrowBody,
+  parseJsonBody,
+  validateAuthAvailable,
+  validateCommonFields,
+  validateFieldLengths,
+} from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
@@ -30,9 +35,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ error: 'Invalid sourceRepo format — expected "org/repo"' }, { status: 400 });
   }
 
-  // Input length limits.
-  const maxLen = 255;
-  const stringFields: [string, unknown][] = [
+  const lengthError = validateFieldLengths([
     ["sourceRepo", body.sourceRepo],
     ["targetOrg", body.targetOrg],
     ["targetRepo", body.targetRepo],
@@ -42,35 +45,14 @@ export const POST: RequestHandler = async ({ request }) => {
     ["targetRepoVisibility", body.targetRepoVisibility],
     ["gitArchivePath", body.gitArchivePath],
     ["metadataArchivePath", body.metadataArchivePath],
-  ];
-  for (const [name, val] of stringFields) {
-    if (typeof val === "string" && val.length > maxLen) {
-      return json(
-        {
-          error: `Field "${name}" exceeds maximum length of ${maxLen} characters`,
-        },
-        { status: 400 },
-      );
-    }
+  ]);
+  if (lengthError) {
+    return json({ error: lengthError }, { status: 400 });
   }
 
-  if (!body.sourceToken && !body.sourceApp && !isSourceAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing source auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
-  }
-  if (!body.targetToken && !body.targetApp && !isTargetAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing target auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
+  const authError = validateAuthAvailable(body);
+  if (authError) {
+    return json({ error: authError }, { status: 400 });
   }
 
   try {

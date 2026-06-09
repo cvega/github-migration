@@ -6,7 +6,12 @@
  * with a clean 400 instead of causing downstream errors.
  */
 
+import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
+
 const VALID_VISIBILITIES = ["private", "public", "internal"] as const;
+
+/** Maximum accepted length for any single string field in a request body. */
+export const MAX_FIELD_LEN = 255;
 
 /** Check if a value is undefined, null, or an empty/whitespace-only string. */
 function isBlank(value: unknown): boolean {
@@ -106,4 +111,38 @@ export async function parseJsonBody(
  */
 export function narrowBody<T>(data: Record<string, unknown>): T {
   return data as T;
+}
+
+/**
+ * Reject any provided string field longer than {@link MAX_FIELD_LEN}.
+ * `fields` is a list of `[name, value]` pairs; non-string values are skipped.
+ * Returns an error string, or null when all are within the limit.
+ */
+export function validateFieldLengths(fields: ReadonlyArray<[string, unknown]>): string | null {
+  for (const [name, val] of fields) {
+    if (typeof val === "string" && val.length > MAX_FIELD_LEN) {
+      return `Field "${name}" exceeds maximum length of ${MAX_FIELD_LEN} characters`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Verify that both sides have usable credentials: a per-request token/app, or
+ * env-configured auth. Returns an error string for the first missing side, or
+ * null when both are satisfied.
+ */
+export function validateAuthAvailable(creds: {
+  sourceToken?: unknown;
+  sourceApp?: unknown;
+  targetToken?: unknown;
+  targetApp?: unknown;
+}): string | null {
+  if (!creds.sourceToken && !creds.sourceApp && !isSourceAuthAvailable()) {
+    return "Missing source auth — provide a PAT, app credentials, or configure auth via env vars";
+  }
+  if (!creds.targetToken && !creds.targetApp && !isTargetAuthAvailable()) {
+    return "Missing target auth — provide a PAT, app credentials, or configure auth via env vars";
+  }
+  return null;
 }

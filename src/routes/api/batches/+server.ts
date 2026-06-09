@@ -2,9 +2,15 @@
  *  GET  /api/batches — list batches (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { listBatchesPaginated, startBatch } from "$lib/server/manager";
-import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
+import {
+  MAX_FIELD_LEN,
+  narrowBody,
+  parseJsonBody,
+  validateAuthAvailable,
+  validateCommonFields,
+  validateFieldLengths,
+} from "$lib/server/validate";
 import type { BatchMigrationRequest } from "$lib/types";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
@@ -31,8 +37,7 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ error: "Missing required field: targetOrg" }, { status: 400 });
   }
 
-  // Input length / size limits.
-  const maxLen = 255;
+  // Batch size limit.
   const maxRepos = 500;
   if (body.repos.length > maxRepos) {
     return json(
@@ -42,50 +47,30 @@ export const POST: RequestHandler = async ({ request }) => {
       { status: 400 },
     );
   }
-  const stringFields: [string, unknown][] = [
+
+  const lengthError = validateFieldLengths([
     ["targetOrg", body.targetOrg],
     ["sourceApiUrl", body.sourceApiUrl],
     ["sourceToken", body.sourceToken],
     ["targetToken", body.targetToken],
     ["targetRepoVisibility", body.targetRepoVisibility],
-  ];
-  for (const [name, val] of stringFields) {
-    if (typeof val === "string" && val.length > maxLen) {
-      return json(
-        {
-          error: `Field "${name}" exceeds maximum length of ${maxLen} characters`,
-        },
-        { status: 400 },
-      );
-    }
+  ]);
+  if (lengthError) {
+    return json({ error: lengthError }, { status: 400 });
   }
-  const oversizedRepo = body.repos.find((r) => r.length > maxLen);
+  const oversizedRepo = body.repos.find((r) => r.length > MAX_FIELD_LEN);
   if (oversizedRepo) {
     return json(
       {
-        error: `Repo entry exceeds maximum length of ${maxLen} characters: "${oversizedRepo.slice(0, 50)}..."`,
+        error: `Repo entry exceeds maximum length of ${MAX_FIELD_LEN} characters: "${oversizedRepo.slice(0, 50)}..."`,
       },
       { status: 400 },
     );
   }
 
-  if (!body.sourceToken && !body.sourceApp && !isSourceAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing source auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
-  }
-  if (!body.targetToken && !body.targetApp && !isTargetAuthAvailable()) {
-    return json(
-      {
-        error:
-          "Missing target auth — provide a PAT, app credentials, or configure auth via env vars",
-      },
-      { status: 400 },
-    );
+  const authError = validateAuthAvailable(body);
+  if (authError) {
+    return json({ error: authError }, { status: 400 });
   }
 
   // Validate repo format.

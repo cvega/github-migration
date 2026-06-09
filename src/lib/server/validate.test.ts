@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseJsonBody, validateCommonFields } from "./validate";
+import {
+  MAX_FIELD_LEN,
+  parseJsonBody,
+  validateAuthAvailable,
+  validateCommonFields,
+  validateFieldLengths,
+} from "./validate";
 
 function jsonRequest(body: string): Request {
   return new Request("http://localhost/api/migrations", {
@@ -83,5 +89,61 @@ describe("parseJsonBody", () => {
     if ("error" in result) {
       expect(result.error).toContain("Invalid JSON");
     }
+  });
+});
+
+describe("validateFieldLengths", () => {
+  test("returns null when all string fields are within the limit", () => {
+    expect(
+      validateFieldLengths([
+        ["targetOrg", "acme"],
+        ["sourceRepo", "a/b"],
+      ]),
+    ).toBeNull();
+  });
+
+  test("skips non-string values", () => {
+    expect(
+      validateFieldLengths([
+        ["x", undefined],
+        ["y", 123],
+        ["z", null],
+      ]),
+    ).toBeNull();
+  });
+
+  test("rejects a field exceeding MAX_FIELD_LEN and names it", () => {
+    const err = validateFieldLengths([["targetOrg", "x".repeat(MAX_FIELD_LEN + 1)]]);
+    expect(err).toContain("targetOrg");
+    expect(err).toContain(String(MAX_FIELD_LEN));
+  });
+
+  test("accepts a field exactly at the limit", () => {
+    expect(validateFieldLengths([["targetOrg", "x".repeat(MAX_FIELD_LEN)]])).toBeNull();
+  });
+});
+
+describe("validateAuthAvailable", () => {
+  // In the test env no GH_*_PAT/APP vars are set, so env auth is unavailable;
+  // credentials must come from the request body.
+
+  test("accepts a per-request token on both sides", () => {
+    expect(validateAuthAvailable({ sourceToken: "s", targetToken: "t" })).toBeNull();
+  });
+
+  test("accepts a per-request app on both sides", () => {
+    expect(
+      validateAuthAvailable({ sourceApp: { appId: "1" }, targetApp: { appId: "2" } }),
+    ).toBeNull();
+  });
+
+  test("rejects when source auth is missing", () => {
+    const err = validateAuthAvailable({ targetToken: "t" });
+    expect(err).toContain("source");
+  });
+
+  test("rejects when target auth is missing", () => {
+    const err = validateAuthAvailable({ sourceToken: "s" });
+    expect(err).toContain("target");
   });
 });
