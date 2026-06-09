@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isVersionAtLeast } from "./github";
+import { isGhecSource, isVersionAtLeast, sourceBaseUrl } from "./github";
 
 describe("isVersionAtLeast", () => {
   test("treats an equal version as satisfying the minimum", () => {
@@ -26,5 +26,29 @@ describe("isVersionAtLeast", () => {
   test("handles versions with missing patch segments", () => {
     expect(isVersionAtLeast("3.15", "3.15.0")).toBe(true);
     expect(isVersionAtLeast("3.15", "3.15.1")).toBe(false);
+  });
+});
+
+describe("isGhecSource", () => {
+  test("true for the github.com API host", () => {
+    expect(isGhecSource("https://api.github.com")).toBe(true);
+  });
+
+  test("false for a GHES host", () => {
+    expect(isGhecSource("https://ghes.example.com/api/v3")).toBe(false);
+  });
+});
+
+describe("sourceBaseUrl", () => {
+  test("maps the github.com API to github.com", () => {
+    expect(sourceBaseUrl("https://api.github.com")).toBe("https://github.com");
+  });
+
+  test("strips a trailing /api/v3 from a GHES URL", () => {
+    expect(sourceBaseUrl("https://ghes.example.com/api/v3")).toBe("https://ghes.example.com");
+  });
+
+  test("strips a trailing slash", () => {
+    expect(sourceBaseUrl("https://ghes.example.com/")).toBe("https://ghes.example.com");
   });
 });

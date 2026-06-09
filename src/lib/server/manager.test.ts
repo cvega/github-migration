@@ -10,7 +10,12 @@
  * in-memory database.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { BatchMigrationRequest, CreateMigrationRequest, Migration } from "../types";
+import type {
+  BatchMigrationRequest,
+  CreateMigrationRequest,
+  Migration,
+  MigrationEvent,
+} from "../types";
 import {
   __setPipelineRunnerForTests,
   cancel,
@@ -29,6 +34,8 @@ const MAX_CONCURRENT = 10;
 let launched: string[] = [];
 let resumed: string[] = [];
 let restorePipeline: () => void;
+/** The emit callback handed to the stubbed pipeline (drives createEmitHandler). */
+let capturedEmit: ((e: MigrationEvent) => void) | null = null;
 
 function req(repo: string): CreateMigrationRequest {
   return { sourceRepo: repo, targetOrg: "acme-cloud", sourceToken: "s", targetToken: "t" };
@@ -75,6 +82,12 @@ function defined<T>(value: T | undefined, message: string): T {
   return value;
 }
 
+/** Return the captured pipeline emit callback, failing if the stub never ran. */
+function requireEmit(): (e: MigrationEvent) => void {
+  if (!capturedEmit) throw new Error("pipeline emit was not captured");
+  return capturedEmit;
+}
+
 beforeEach(() => {
   initStore(":memory:");
   launched = [];
@@ -83,6 +96,7 @@ beforeEach(() => {
     // Never settles — the migration stays "running" and holds its slot.
     run: (opts) => {
       if (opts.id) launched.push(opts.id);
+      capturedEmit = opts.emit;
       return new Promise<Migration>(() => {});
     },
     resume: (migration) => {
@@ -226,5 +240,91 @@ describe("recoverOrphans", () => {
     );
     recoverOrphans();
     expect(resumed).not.toContain("orphan-pat");
+  });
+});
+
+describe("event → DB state machine (createEmitHandler)", () => {
+  function startAndEmit(event: Omit<MigrationEvent, "migrationId">): string {
+    const m = start(req("acme/widget"));
+    const emit = requireEmit();
+    emit({ ...event, migrationId: m.id } as MigrationEvent);
+    return m.id;
+  }
+
+  test("a 'complete' event marks the migration succeeded with timing", () => {
+    const id = startAndEmit({
+      eventType: "complete",
+      phase: "SUCCEEDED",
+      payload: { progress: { current: {} }, sourceCounts: null, elapsed: 321 },
+      createdAt: new Date().toISOString(),
+    } as Omit<MigrationEvent, "migrationId">);
+
+    const m = get(id);
+    expect(m?.state).toBe("succeeded");
+    expect(m?.completedAt).not.toBeNull();
+    expect(m?.elapsedSeconds).toBe(321);
+  });
+
+  test("a 'failure' event marks failed and records the reason", () => {
+    const id = startAndEmit({
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { error: "Archive upload failed: 413" },
+      createdAt: new Date().toISOString(),
+    } as Omit<MigrationEvent, "migrationId">);
+
+    const m = get(id);
+    expect(m?.state).toBe("failed");
+    expect(m?.failureReason).toBe("Archive upload failed: 413");
+  });
+
+  test("a 'step' event promotes pending → running", () => {
+    const id = startAndEmit({
+      eventType: "step",
+      phase: null,
+      payload: { message: "exporting" },
+      createdAt: new Date().toISOString(),
+    } as Omit<MigrationEvent, "migrationId">);
+
+    expect(get(id)?.state).toBe("running");
+  });
+
+  test("a late 'snapshot' does not overwrite a terminal (succeeded) state", () => {
+    const m = start(req("acme/widget"));
+    const emit = requireEmit();
+
+    emit({
+      migrationId: m.id,
+      eventType: "complete",
+      phase: "SUCCEEDED",
+      payload: { progress: { current: {} }, sourceCounts: null, elapsed: 10 },
+      createdAt: new Date().toISOString(),
+    } as MigrationEvent);
+    expect(get(m.id)?.state).toBe("succeeded");
+
+    // A straggler snapshot arriving after completion must not revert to running.
+    emit({
+      migrationId: m.id,
+      eventType: "snapshot",
+      phase: "IMPORTING_GIT",
+      payload: {
+        progress: {
+          current: {
+            commits: 5,
+            branches: 1,
+            tags: 0,
+            issues: 0,
+            pullRequests: 0,
+            releases: 0,
+            warningsCount: 0,
+            migrationLogUrl: "",
+          },
+        },
+        sourceCounts: null,
+      },
+      createdAt: new Date().toISOString(),
+    } as MigrationEvent);
+
+    expect(get(m.id)?.state).toBe("succeeded");
   });
 });
