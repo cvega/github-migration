@@ -34,25 +34,38 @@ export const SESSION_COOKIE = "gh_migrate_session";
 export const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
 
 /** Create a signed session token: `timestamp.hmac` */
-export function createSessionToken(): string {
-  const ts = Date.now().toString(36);
+export function createSessionToken(nowMs: number = Date.now()): string {
+  const ts = nowMs.toString(36);
   const sig = createHmac("sha256", SESSION_SECRET).update(ts).digest("hex");
   return `${ts}.${sig}`;
 }
 
-/** Validate a session token. Returns true if the signature is valid. */
-export function isValidSession(token: string): boolean {
+/**
+ * Validate a session token: the signature must verify **and** the signed
+ * issue time must be within `SESSION_MAX_AGE`. Enforcing expiry server-side
+ * (not just via the cookie's own `maxAge`) prevents a captured token from
+ * being replayed indefinitely.
+ */
+export function isValidSession(token: string, nowMs: number = Date.now()): boolean {
   const dotIdx = token.indexOf(".");
   if (dotIdx < 0) return false;
   const ts = token.slice(0, dotIdx);
   const sig = token.slice(dotIdx + 1);
   const expected = createHmac("sha256", SESSION_SECRET).update(ts).digest("hex");
   if (sig.length !== expected.length) return false;
+  let signatureValid: boolean;
   try {
-    return timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
+    signatureValid = timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
   } catch {
     return false;
   }
+  if (!signatureValid) return false;
+
+  // The timestamp is part of the signed payload, so it can be trusted once the
+  // signature checks out. Reject tokens older than the session lifetime.
+  const issuedMs = Number.parseInt(ts, 36);
+  if (!Number.isFinite(issuedMs)) return false;
+  return nowMs - issuedMs <= SESSION_MAX_AGE * 1000;
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────────────
