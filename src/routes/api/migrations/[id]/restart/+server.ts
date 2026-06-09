@@ -1,13 +1,8 @@
 /** POST /api/migrations/[id]/restart — restart a failed or cancelled migration. */
 import { json } from "@sveltejs/kit";
 import { restart } from "$lib/server/manager";
-import {
-  narrowBody,
-  parseJsonBody,
-  validateAuthAvailable,
-  validateCommonFields,
-} from "$lib/server/validate";
-import type { RestartMigrationRequest } from "$lib/types";
+import { restartSchema, validateBody } from "$lib/server/schemas";
+import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -15,13 +10,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
   if ("error" in parsed) {
     return json({ error: parsed.error }, { status: 400 });
   }
-  const body = narrowBody<RestartMigrationRequest>(parsed.data);
 
-  // Validate boolean and app-auth fields.
-  const validationError = validateCommonFields(parsed.data);
-  if (validationError) {
-    return json({ error: validationError }, { status: 400 });
+  const result = validateBody(restartSchema, parsed.data);
+  if (!result.ok) {
+    return json({ error: result.error }, { status: 400 });
   }
+  const body = result.value;
 
   // Auth check: need at least one auth method per side.
   const authError = validateAuthAvailable(body);

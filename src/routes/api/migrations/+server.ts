@@ -3,14 +3,8 @@
  */
 import { json } from "@sveltejs/kit";
 import { listPaginated, searchPaginated, start } from "$lib/server/manager";
-import {
-  narrowBody,
-  parseJsonBody,
-  validateAuthAvailable,
-  validateCommonFields,
-  validateFieldLengths,
-} from "$lib/server/validate";
-import type { CreateMigrationRequest } from "$lib/types";
+import { createMigrationSchema, validateBody } from "$lib/server/schemas";
+import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
@@ -19,36 +13,12 @@ export const POST: RequestHandler = async ({ request }) => {
   if ("error" in parsed) {
     return json({ error: parsed.error }, { status: 400 });
   }
-  const body = narrowBody<CreateMigrationRequest>(parsed.data);
 
-  const validationError = validateCommonFields(parsed.data);
-  if (validationError) {
-    return json({ error: validationError }, { status: 400 });
+  const result = validateBody(createMigrationSchema, parsed.data);
+  if (!result.ok) {
+    return json({ error: result.error }, { status: 400 });
   }
-
-  if (!body.sourceRepo || !body.targetOrg) {
-    return json({ error: "Missing required fields: sourceRepo, targetOrg" }, { status: 400 });
-  }
-
-  // Validate sourceRepo format.
-  if (!body.sourceRepo.includes("/")) {
-    return json({ error: 'Invalid sourceRepo format — expected "org/repo"' }, { status: 400 });
-  }
-
-  const lengthError = validateFieldLengths([
-    ["sourceRepo", body.sourceRepo],
-    ["targetOrg", body.targetOrg],
-    ["targetRepo", body.targetRepo],
-    ["sourceApiUrl", body.sourceApiUrl],
-    ["sourceToken", body.sourceToken],
-    ["targetToken", body.targetToken],
-    ["targetRepoVisibility", body.targetRepoVisibility],
-    ["gitArchivePath", body.gitArchivePath],
-    ["metadataArchivePath", body.metadataArchivePath],
-  ]);
-  if (lengthError) {
-    return json({ error: lengthError }, { status: 400 });
-  }
+  const body = result.value;
 
   const authError = validateAuthAvailable(body);
   if (authError) {
