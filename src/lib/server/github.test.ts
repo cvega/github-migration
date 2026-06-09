@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { isGhecSource, isVersionAtLeast, sourceBaseUrl } from "./github";
+import { describe, expect, spyOn, test } from "bun:test";
+import { isGhecSource, isVersionAtLeast, makeThrottleOptions, sourceBaseUrl } from "./github";
 
 describe("isVersionAtLeast", () => {
   test("treats an equal version as satisfying the minimum", () => {
@@ -50,5 +50,50 @@ describe("sourceBaseUrl", () => {
 
   test("strips a trailing slash", () => {
     expect(sourceBaseUrl("https://ghes.example.com/")).toBe("https://ghes.example.com");
+  });
+});
+
+describe("makeThrottleOptions", () => {
+  const reqOptions = { url: "/repos/acme/widget" };
+
+  test("onRateLimit retries while under the 3-attempt cap", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { onRateLimit } = makeThrottleOptions();
+
+    expect(onRateLimit(5, reqOptions, {}, 0)).toBe(true);
+    expect(onRateLimit(5, reqOptions, {}, 2)).toBe(true);
+
+    warn.mockRestore();
+  });
+
+  test("onRateLimit stops retrying at the cap", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { onRateLimit } = makeThrottleOptions();
+
+    expect(onRateLimit(5, reqOptions, {}, 3)).toBe(false);
+    expect(onRateLimit(5, reqOptions, {}, 10)).toBe(false);
+
+    warn.mockRestore();
+  });
+
+  test("onSecondaryRateLimit follows the same retry cap", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { onSecondaryRateLimit } = makeThrottleOptions();
+
+    expect(onSecondaryRateLimit(5, reqOptions, {}, 0)).toBe(true);
+    expect(onSecondaryRateLimit(5, reqOptions, {}, 2)).toBe(true);
+    expect(onSecondaryRateLimit(5, reqOptions, {}, 3)).toBe(false);
+
+    warn.mockRestore();
+  });
+
+  test("logs a warning when a rate limit is hit", () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const { onRateLimit } = makeThrottleOptions();
+
+    onRateLimit(5, reqOptions, {}, 0);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 });

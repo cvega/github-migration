@@ -460,7 +460,7 @@ async function resolveArchives(
  * Validate that a download URL points to the same host as the source API.
  * Prevents SSRF / token leakage if GHES returns a crafted archive URL.
  */
-function assertTrustedHost(downloadUrl: string, sourceApiUrl: string): void {
+export function assertTrustedHost(downloadUrl: string, sourceApiUrl: string): void {
   const download = new URL(downloadUrl);
   const source = new URL(sourceApiUrl);
   if (download.hostname !== source.hostname) {
@@ -498,7 +498,7 @@ async function downloadToFile(
  * Only 'env-app' migrations can be reconnected — the credentials
  * live in env vars and are available after a restart.
  */
-function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
+export function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
   // If explicit tokens were provided in the request, it's PAT auth.
   if (opts.sourceToken || opts.targetToken) return "pat";
   // If explicit app creds were provided per-request, those are lost on crash.

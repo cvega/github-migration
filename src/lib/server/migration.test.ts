@@ -12,6 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Migration, MigrationEvent, Phase } from "../types";
+import type { MigrationPipelineOpts } from "./migration";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // runMonitor's terminal phase is the key input that drives finalize; each test
@@ -60,7 +61,7 @@ mock.module("$lib/server/store", () => ({
 process.env.GH_SOURCE_PAT = "ghp_source_test";
 process.env.GH_TARGET_PAT = "ghp_target_test";
 
-const { resumeMigration } = await import("./migration");
+const { resumeMigration, assertTrustedHost, determineAuthMode } = await import("./migration");
 
 function makeMigration(over: Partial<Migration> = {}): Migration {
   return {
@@ -176,5 +177,119 @@ describe("resumeMigration finalize", () => {
 
     expect(result.state).toBe("succeeded");
     expect(result.targetCounts).toBeNull();
+  });
+});
+
+// ── assertTrustedHost (SSRF / credential-leak guard) ──────────────────────────
+// Before sending the source Bearer token to an archive download URL, the
+// pipeline asserts the URL's host matches the source API host. Pure URL logic.
+
+describe("assertTrustedHost", () => {
+  const sourceApi = "https://ghes.example.com/api/v3";
+
+  test("passes when the download host matches the source host", () => {
+    expect(() =>
+      assertTrustedHost("https://ghes.example.com/storage/archive.tar.gz", sourceApi),
+    ).not.toThrow();
+  });
+
+  test("throws, naming both hosts, when the download host differs", () => {
+    expect(() => assertTrustedHost("https://evil.example.com/archive.tar.gz", sourceApi)).toThrow(
+      /Refusing to send credentials to evil\.example\.com — expected ghes\.example\.com/,
+    );
+  });
+
+  test("a mismatched subdomain is still rejected", () => {
+    expect(() => assertTrustedHost("https://cdn.ghes.example.com/a", sourceApi)).toThrow();
+  });
+
+  test("compares hostname only — port, path, and scheme differences pass", () => {
+    expect(() =>
+      assertTrustedHost("http://ghes.example.com:8443/deep/path?x=1", sourceApi),
+    ).not.toThrow();
+  });
+});
+
+// ── determineAuthMode (crash-recovery eligibility) ───────────────────────────
+// Decides which auth mode a migration ran under, gating whether it can be
+// resumed after a restart. Reads request opts first, then env config.
+
+describe("determineAuthMode", () => {
+  const AUTH_ENV_KEYS = [
+    "GH_SOURCE_PAT",
+    "GH_TARGET_PAT",
+    "GH_SOURCE_APP_ID",
+    "GH_SOURCE_APP_PRIVATE_KEY",
+    "GH_SOURCE_APP_INSTALLATION_ID",
+    "GH_TARGET_APP_ID",
+    "GH_TARGET_APP_PRIVATE_KEY",
+    "GH_TARGET_APP_INSTALLATION_ID",
+  ] as const;
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    // Snapshot and clear all auth env so each case starts from a known state.
+    savedEnv = {};
+    for (const key of AUTH_ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    // Restore exactly, so we don't leak into resumeMigration tests or other files.
+    for (const key of AUTH_ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+
+  function opts(over: Partial<MigrationPipelineOpts> = {}): MigrationPipelineOpts {
+    return { sourceRepo: "acme/widget", targetOrg: "acme-cloud", emit: () => {}, ...over };
+  }
+
+  function setEnvApp(side: "SOURCE" | "TARGET"): void {
+    process.env[`GH_${side}_APP_ID`] = "123";
+    process.env[`GH_${side}_APP_PRIVATE_KEY`] = "-----BEGIN PRIVATE KEY-----";
+    process.env[`GH_${side}_APP_INSTALLATION_ID`] = "456";
+  }
+
+  test("a request token means pat auth", () => {
+    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("pat");
+    expect(determineAuthMode(opts({ targetToken: "ghp_y" }))).toBe("pat");
+  });
+
+  test("request app credentials (no tokens) mean request-app", () => {
+    const app = { appId: "1", privateKey: "-----KEY-----", installationId: "2" };
+    expect(determineAuthMode(opts({ sourceApp: app }))).toBe("request-app");
+    expect(determineAuthMode(opts({ targetApp: app }))).toBe("request-app");
+  });
+
+  test("env apps on both sides mean env-app (resumable)", () => {
+    setEnvApp("SOURCE");
+    setEnvApp("TARGET");
+    expect(determineAuthMode(opts())).toBe("env-app");
+  });
+
+  test("a single-sided env app falls through (not env-app)", () => {
+    setEnvApp("SOURCE");
+    // Target has no auth at all → no env-app, no env-pat → pat.
+    expect(determineAuthMode(opts())).toBe("pat");
+  });
+
+  test("env PATs on both sides mean env-pat", () => {
+    process.env.GH_SOURCE_PAT = "ghp_s";
+    process.env.GH_TARGET_PAT = "ghp_t";
+    expect(determineAuthMode(opts())).toBe("env-pat");
+  });
+
+  test("no credentials anywhere defaults to pat", () => {
+    expect(determineAuthMode(opts())).toBe("pat");
+  });
+
+  test("a request token takes precedence over configured env apps", () => {
+    setEnvApp("SOURCE");
+    setEnvApp("TARGET");
+    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("pat");
   });
 });

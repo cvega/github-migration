@@ -49,7 +49,7 @@ interface ThrottleOptions {
 }
 
 /** Default throttling behaviour: log and retry up to 3 times on rate limits. */
-function makeThrottleOptions(): ThrottleOptions {
+export function makeThrottleOptions(): ThrottleOptions {
   return {
     onRateLimit: (retryAfter, options, _octokit, retryCount) => {
       console.warn(
