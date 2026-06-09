@@ -301,11 +301,12 @@ export type AuthInput =
       installationId: number;
     };
 
-export interface CreateMigrationRequest {
-  sourceApiUrl?: string;
-  sourceRepo: string;
-  targetOrg: string;
-  targetRepo?: string;
+/**
+ * Credentials and per-migration option flags shared by every migration request
+ * (create, batch, and restart). The concrete request types extend this with
+ * the fields unique to each (e.g. `sourceRepo`, `repos`).
+ */
+export interface MigrationOptions {
   sourceToken?: string;
   targetToken?: string;
   sourceApp?: AppAuth;
@@ -316,41 +317,27 @@ export interface CreateMigrationRequest {
   archiveSource?: boolean;
   targetRepoVisibility?: "private" | "public" | "internal";
   directPassthrough?: boolean;
+}
+
+export interface CreateMigrationRequest extends MigrationOptions {
+  sourceApiUrl?: string;
+  sourceRepo: string;
+  targetOrg: string;
+  targetRepo?: string;
   gitArchivePath?: string;
   metadataArchivePath?: string;
 }
 
 /**
- * Restart request — repo info comes from the existing DB row,
- * user only provides credentials and options.
+ * Restart request — repo info comes from the existing DB row, so the user only
+ * provides credentials and options (exactly {@link MigrationOptions}).
  */
-export interface RestartMigrationRequest {
-  sourceToken?: string;
-  targetToken?: string;
-  sourceApp?: AppAuth;
-  targetApp?: AppAuth;
-  noSslVerify?: boolean;
-  skipReleases?: boolean;
-  lockSource?: boolean;
-  archiveSource?: boolean;
-  targetRepoVisibility?: "private" | "public" | "internal";
-  directPassthrough?: boolean;
-}
+export type RestartMigrationRequest = MigrationOptions;
 
-export interface BatchMigrationRequest {
+export interface BatchMigrationRequest extends MigrationOptions {
   sourceApiUrl?: string;
   repos: string[];
   targetOrg: string;
-  sourceToken?: string;
-  targetToken?: string;
-  sourceApp?: AppAuth;
-  targetApp?: AppAuth;
-  noSslVerify?: boolean;
-  skipReleases?: boolean;
-  lockSource?: boolean;
-  archiveSource?: boolean;
-  targetRepoVisibility?: "private" | "public" | "internal";
-  directPassthrough?: boolean;
 }
 
 export interface BatchSummary {

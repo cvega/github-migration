@@ -122,11 +122,18 @@ export function isTargetAuthAvailable(): boolean {
 // ── Auth input resolution (for auto-refreshing Octokit clients) ─────────
 
 /**
- * Resolve source auth input — returns credentials (not a resolved token)
- * so that `createClients` can set up auto-refreshing auth.
- * Priority: request PAT → request App → env App → env PAT → error.
+ * Resolve auth input for one side. Priority: request PAT → request App →
+ * env App → env PAT → error. Returns credentials (not a resolved token) so
+ * that `createClients` can set up auto-refreshing auth. Shared by the source
+ * and target resolvers, which differ only in env source and error label.
  */
-export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
+function resolveAuth(
+  requestToken: string | undefined,
+  requestApp: AppAuth | undefined,
+  getEnvApp: () => AppCredentials | null,
+  envPat: string | undefined,
+  side: "source" | "target",
+): AuthInput {
   if (requestToken) return { token: requestToken };
   if (requestApp) {
     return {
@@ -135,7 +142,7 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(requestApp.installationId),
     };
   }
-  const envApp = getSourceAppConfig();
+  const envApp = getEnvApp();
   if (envApp) {
     return {
       appId: envApp.appId,
@@ -143,36 +150,24 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(envApp.installationId),
     };
   }
-  const envPat = env.GH_SOURCE_PAT;
   if (envPat) return { token: envPat };
-  throw new Error("No source token provided and no source GitHub App configured");
+  throw new Error(`No ${side} token provided and no ${side} GitHub App configured`);
 }
 
 /**
- * Resolve target auth input — returns credentials (not a resolved token)
- * so that `createClients` can set up auto-refreshing auth.
+ * Resolve source auth input.
+ * Priority: request PAT → request App → env App → env PAT → error.
+ */
+export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
+  return resolveAuth(requestToken, requestApp, getSourceAppConfig, env.GH_SOURCE_PAT, "source");
+}
+
+/**
+ * Resolve target auth input.
  * Priority: request PAT → request App → env App → env PAT → error.
  */
 export function resolveTargetAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
-  if (requestToken) return { token: requestToken };
-  if (requestApp) {
-    return {
-      appId: requestApp.appId,
-      privateKey: decodePrivateKey(requestApp.privateKey),
-      installationId: Number(requestApp.installationId),
-    };
-  }
-  const envApp = getTargetAppConfig();
-  if (envApp) {
-    return {
-      appId: envApp.appId,
-      privateKey: envApp.privateKey,
-      installationId: Number(envApp.installationId),
-    };
-  }
-  const envPat = env.GH_TARGET_PAT;
-  if (envPat) return { token: envPat };
-  throw new Error("No target token provided and no target GitHub App configured");
+  return resolveAuth(requestToken, requestApp, getTargetAppConfig, env.GH_TARGET_PAT, "target");
 }
 
 /**

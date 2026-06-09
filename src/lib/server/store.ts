@@ -134,6 +134,37 @@ function likePattern(q: string): string {
   return `%${escaped}%`;
 }
 
+/**
+ * Aggregate SELECT columns for a batch summary row: total + per-state counts +
+ * earliest start. Shared by every batch-rollup query; pair with
+ * `GROUP BY batch_id` and map results with {@link rowToBatchListItem}.
+ */
+const BATCH_AGG_COLS = `
+  batch_id,
+  COUNT(*) AS total,
+  SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
+  SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
+  SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
+  SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
+  SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
+  SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+  MIN(started_at) AS started_at`;
+
+/** Map a {@link BATCH_AGG_COLS} result row to a BatchListItem. */
+function rowToBatchListItem(row: Record<string, unknown>): BatchListItem {
+  return {
+    id: row.batch_id as string,
+    totalCount: row.total as number,
+    queuedCount: row.queued as number,
+    pendingCount: row.pending as number,
+    runningCount: row.running as number,
+    succeededCount: row.succeeded as number,
+    failedCount: row.failed as number,
+    cancelledCount: row.cancelled as number,
+    startedAt: row.started_at as string,
+  };
+}
+
 // ── Migrations ─────────────────────────────────────────────────────────────
 
 export function insertMigration(m: Migration): void {
@@ -725,34 +756,13 @@ export function getBatchSummary(batchId: string): BatchSummary | null {
 export function getBatchListItem(batchId: string): BatchListItem | null {
   const row = getDb()
     .prepare(
-      `
-			SELECT
-				batch_id,
-				COUNT(*) AS total,
-				SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
-				SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
-				SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
-				SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
-				SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
-				SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-				MIN(started_at) AS started_at
-			FROM migrations WHERE batch_id = ?
-			GROUP BY batch_id
-		`,
+      `SELECT ${BATCH_AGG_COLS}
+       FROM migrations WHERE batch_id = ?
+       GROUP BY batch_id`,
     )
     .get(batchId) as Record<string, unknown> | undefined;
   if (!row) return null;
-  return {
-    id: batchId,
-    totalCount: row.total as number,
-    queuedCount: row.queued as number,
-    pendingCount: row.pending as number,
-    runningCount: row.running as number,
-    succeededCount: row.succeeded as number,
-    failedCount: row.failed as number,
-    cancelledCount: row.cancelled as number,
-    startedAt: row.started_at as string,
-  };
+  return rowToBatchListItem(row);
 }
 
 export function listBatchItemsPaginated(params: PaginationParams): PaginatedResult<BatchListItem> {
@@ -763,16 +773,7 @@ export function listBatchItemsPaginated(params: PaginationParams): PaginatedResu
     .get() as { count: number };
   const rows = getDb()
     .prepare(
-      `SELECT
-        batch_id,
-        COUNT(*) AS total,
-        SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
-        SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
-        SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
-        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
-        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
-        SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-        MIN(started_at) AS started_at
+      `SELECT ${BATCH_AGG_COLS}
       FROM migrations
       WHERE batch_id IS NOT NULL
       GROUP BY batch_id
@@ -781,17 +782,7 @@ export function listBatchItemsPaginated(params: PaginationParams): PaginatedResu
     )
     .all(limit, offset) as Record<string, unknown>[];
   return {
-    data: rows.map((row) => ({
-      id: row.batch_id as string,
-      totalCount: row.total as number,
-      queuedCount: row.queued as number,
-      pendingCount: row.pending as number,
-      runningCount: row.running as number,
-      succeededCount: row.succeeded as number,
-      failedCount: row.failed as number,
-      cancelledCount: row.cancelled as number,
-      startedAt: row.started_at as string,
-    })),
+    data: rows.map(rowToBatchListItem),
     total,
     page,
     limit,
@@ -820,16 +811,7 @@ export function searchBatchItemsPaginated(
     .get({ $q: like }) as { count: number };
   const rows = getDb()
     .prepare(
-      `SELECT
-        batch_id,
-        COUNT(*) AS total,
-        SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
-        SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
-        SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
-        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
-        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
-        SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-        MIN(started_at) AS started_at
+      `SELECT ${BATCH_AGG_COLS}
       FROM migrations
       WHERE batch_id IN (${matchingBatchIds})
       GROUP BY batch_id
@@ -838,17 +820,7 @@ export function searchBatchItemsPaginated(
     )
     .all({ $q: like, $limit: limit, $offset: offset }) as Record<string, unknown>[];
   return {
-    data: rows.map((row) => ({
-      id: row.batch_id as string,
-      totalCount: row.total as number,
-      queuedCount: row.queued as number,
-      pendingCount: row.pending as number,
-      runningCount: row.running as number,
-      succeededCount: row.succeeded as number,
-      failedCount: row.failed as number,
-      cancelledCount: row.cancelled as number,
-      startedAt: row.started_at as string,
-    })),
+    data: rows.map(rowToBatchListItem),
     total,
     page,
     limit,
