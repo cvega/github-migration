@@ -7,11 +7,16 @@
     "dev": "bunx --bun vite dev",
     "build": "bunx --bun svelte-kit sync && bunx --bun vite build && bun scripts/postbuild.ts",
     "preview": "bunx --bun vite preview",
-    "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json",
-    "ci": "bun run check && bun run build",
+    "typecheck": "bunx --bun tsc --noEmit",
+    "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "lint": "bunx --bun biome lint --error-on-warnings .",
     "format": "bunx --bun biome format --write .",
-    "lint": "bunx --bun biome lint .",
-    "seed": "bun scripts/seed.ts"
+    "format:check": "bunx --bun biome format .",
+    "test": "bun test",
+    "audit": "bun audit",
+    "ci": "bun run check && bun run build",
+    "seed": "bun scripts/seed.ts",
+    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run test && bun run build && bun run audit"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0",

@@ -47,12 +47,7 @@ import {
   updateMigrationState,
 } from "./store";
 import { extractOrg, extractRepo } from "./util";
-import {
-  ACTIVE_IMPORT_PHASES,
-  isLargeRepo,
-  loadWatchdogConfig,
-  progressSignal,
-} from "./watchdog";
+import { ACTIVE_IMPORT_PHASES, isLargeRepo, loadWatchdogConfig, progressSignal } from "./watchdog";
 
 /** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
@@ -370,11 +365,7 @@ function giveUpStalled(id: string): void {
 }
 
 /** Persist + broadcast a manager-originated event (audit trail for watchdog actions). */
-function emitManagerEvent(
-  id: string,
-  eventType: "banner",
-  payload: { message: string },
-): void {
+function emitManagerEvent(id: string, eventType: "banner", payload: { message: string }): void {
   const event: MigrationEvent = {
     migrationId: id,
     eventType,
