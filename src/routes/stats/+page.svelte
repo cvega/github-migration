@@ -297,6 +297,8 @@
 
 		<!-- Throughput over time -->
 		{#if stats.throughput.length > 0}
+			{@const firstDay = stats.throughput[0]}
+			{@const lastDay = stats.throughput[stats.throughput.length - 1]}
 			<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
 				<h2 class="mb-4 text-sm font-medium text-gray-300">Completions Over Time</h2>
 				<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height: 140px;">
@@ -314,12 +316,12 @@
 					{/each}
 				</div>
 				<div class="mt-3 flex items-center justify-between text-xs text-gray-500">
-					<span>{shortDate(stats.throughput[0].date)}</span>
+					<span>{firstDay ? shortDate(firstDay.date) : ''}</span>
 					<span class="flex items-center gap-3">
 						<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-green-500"></span>Succeeded</span>
 						<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-red-500"></span>Failed</span>
 					</span>
-					<span>{shortDate(stats.throughput[stats.throughput.length - 1].date)}</span>
+					<span>{lastDay ? shortDate(lastDay.date) : ''}</span>
 				</div>
 			</div>
 		{/if}

@@ -53,11 +53,13 @@ describe("uploadArchive — single part", () => {
 
     expect(uri).toBe("gei://archive/123");
     expect(calls).toHaveLength(1);
-    expect(calls[0].method).toBe("POST");
+    const call = calls[0];
+    if (!call) throw new Error("expected one recorded fetch call");
+    expect(call.method).toBe("POST");
     // Name must be URL-encoded (space → %20).
-    expect(calls[0].url).toContain("my%20archive.tar.gz");
-    expect(calls[0].url).toContain("/organizations/org-db-1/gei/archive");
-    expect(calls[0].headers.Authorization).toBe("Bearer tok");
+    expect(call.url).toContain("my%20archive.tar.gz");
+    expect(call.url).toContain("/organizations/org-db-1/gei/archive");
+    expect(call.headers.Authorization).toBe("Bearer tok");
   });
 
   test("accepts a Uint8Array body", async () => {
@@ -121,7 +123,10 @@ describe("uploadArchive — multipart (> 100 MiB)", () => {
     // start (POST) + 2 parts (PATCH) + complete (PUT) = 4 calls.
     expect(calls.map((c) => c.method)).toEqual(["POST", "PATCH", "PATCH", "PUT"]);
     // Relative Location headers are resolved against the uploads base URL.
-    expect(calls[1].url).toBe("https://uploads.example.com/uploads/next/1");
-    expect(calls[3].url).toBe("https://uploads.example.com/uploads/complete");
+    const startCall = calls[1];
+    const completeCall = calls[3];
+    if (!startCall || !completeCall) throw new Error("expected four recorded fetch calls");
+    expect(startCall.url).toBe("https://uploads.example.com/uploads/next/1");
+    expect(completeCall.url).toBe("https://uploads.example.com/uploads/complete");
   });
 });

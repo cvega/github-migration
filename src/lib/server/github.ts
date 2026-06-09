@@ -516,8 +516,8 @@ async function getResourceCount(
     const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
     const link = response.headers.link;
     if (link) {
-      const match = link.match(/page=(\d+)>;\s*rel="last"/);
-      if (match) return parseInt(match[1], 10);
+      const lastPage = link.match(/page=(\d+)>;\s*rel="last"/)?.[1];
+      if (lastPage) return parseInt(lastPage, 10);
     }
     return Array.isArray(response.data) ? response.data.length : 0;
   } catch {

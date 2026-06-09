@@ -95,12 +95,14 @@
 		if (startIdx === -1) return; // no new events
 
 		for (let i = startIdx; i < events.length; i++) {
-			eventLog = [...eventLog.slice(-(1000 - 1)), events[i]];
-			processEvent(events[i]);
+			const ev = events[i];
+			if (!ev) continue;
+			eventLog = [...eventLog.slice(-(1000 - 1)), ev];
+			processEvent(ev);
 		}
 
 		const lastEvent = events[events.length - 1];
-		if (lastEvent.id !== undefined) lastProcessedId = lastEvent.id;
+		if (lastEvent && lastEvent.id !== undefined) lastProcessedId = lastEvent.id;
 	});
 
 	function processEvent(ev: MigrationEvent) {
