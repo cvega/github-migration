@@ -22,5 +22,8 @@ build/
 data/
 *.db
 
+# jscpd duplication report output
+.jscpd/
+
 # Environment variables
 .env

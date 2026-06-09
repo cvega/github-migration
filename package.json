@@ -14,9 +14,10 @@
     "format:check": "bunx --bun biome format .",
     "test": "bun test",
     "audit": "bun audit",
+    "dup": "bunx jscpd",
     "ci": "bun run check && bun run build",
     "seed": "bun scripts/seed.ts",
-    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run test && bun run build && bun run audit"
+    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run test && bun run dup && bun run build && bun run audit"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0",
