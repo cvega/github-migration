@@ -6,7 +6,7 @@ import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { listBatchesPaginated, startBatch } from "$lib/server/manager";
 import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { BatchMigrationRequest } from "$lib/types";
-import { DEFAULT_PAGE_SIZE } from "$lib/types";
+import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -109,13 +109,5 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const GET: RequestHandler = async ({ url }) => {
-  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
-  const limit = Math.min(
-    100,
-    Math.max(
-      1,
-      parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
-    ),
-  );
-  return json(listBatchesPaginated({ page, limit }));
+  return json(listBatchesPaginated(parsePaginationParams(url.searchParams)));
 };

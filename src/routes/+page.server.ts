@@ -7,7 +7,7 @@ import {
   searchPaginated,
   stateCounts,
 } from "$lib/server/manager";
-import { DEFAULT_PAGE_SIZE } from "$lib/types";
+import { parsePaginationParams } from "$lib/types";
 import type { PageServerLoad } from "./$types";
 
 /** Max accepted search query length — defends against pathological inputs. */
@@ -22,14 +22,7 @@ function resolveLogoUrl(): string | null {
 }
 
 export const load: PageServerLoad = async ({ url }) => {
-  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
-  const limit = Math.min(
-    100,
-    Math.max(
-      1,
-      parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
-    ),
-  );
+  const { page, limit } = parsePaginationParams(url.searchParams);
   const batchPage = Math.max(1, parseInt(url.searchParams.get("bp") ?? "1", 10) || 1);
 
   // Free-text search: when present, return filtered/paginated results instead

@@ -6,7 +6,7 @@ import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
 import { listPaginated, searchPaginated, start } from "$lib/server/manager";
 import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
-import { DEFAULT_PAGE_SIZE } from "$lib/types";
+import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -83,14 +83,7 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 
 export const GET: RequestHandler = async ({ url }) => {
-  const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
-  const limit = Math.min(
-    100,
-    Math.max(
-      1,
-      parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
-    ),
-  );
+  const { page, limit } = parsePaginationParams(url.searchParams);
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
   if (q) {
     return json(searchPaginated({ q, page, limit }));

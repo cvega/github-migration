@@ -17,6 +17,26 @@ export interface PaginatedResult<T> {
 
 export const DEFAULT_PAGE_SIZE = 25;
 
+/** Hard cap on page size to bound query/response cost. */
+export const MAX_PAGE_SIZE = 100;
+
+/**
+ * Parse `?page=` and `?limit=` from a URLSearchParams into safe, clamped
+ * PaginationParams (page ≥ 1; 1 ≤ limit ≤ MAX_PAGE_SIZE). Invalid/missing
+ * values fall back to defaults. Shared by every paginated load/endpoint.
+ */
+export function parsePaginationParams(searchParams: URLSearchParams): PaginationParams {
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const limit = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(
+      1,
+      parseInt(searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
+    ),
+  );
+  return { page, limit };
+}
+
 // ── Migration types ────────────────────────────────────────────────────────
 
 export type MigrationState =

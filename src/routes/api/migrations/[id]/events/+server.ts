@@ -5,6 +5,7 @@
  */
 
 import { get, events as getEvents, subscribe } from "$lib/server/manager";
+import { sseResponse } from "$lib/server/sse";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url, request }) => {
@@ -22,61 +23,31 @@ export const GET: RequestHandler = async ({ params, url, request }) => {
     });
   }
 
-  let unsubscribe: (() => void) | null = null;
-  let keepalive: ReturnType<typeof setInterval> | null = null;
-
-  const stream = new ReadableStream<string>({
-    start(controller) {
-      // Replay missed events on reconnect.
-      if (parsedAfterId !== undefined) {
-        const missed = getEvents(params.id, parsedAfterId);
-        for (const event of missed) {
-          const idLine = event.id != null ? `id: ${event.id}\n` : "";
-          controller.enqueue(`${idLine}data: ${JSON.stringify(event)}\n\n`);
-        }
+  return sseResponse((controller) => {
+    // Replay missed events on reconnect.
+    if (parsedAfterId !== undefined) {
+      const missed = getEvents(params.id, parsedAfterId);
+      for (const event of missed) {
+        const idLine = event.id != null ? `id: ${event.id}\n` : "";
+        controller.enqueue(`${idLine}data: ${JSON.stringify(event)}\n\n`);
       }
+    }
 
-      // Subscribe to live events.
-      unsubscribe = subscribe(params.id, controller);
+    // Subscribe to live events.
+    const unsubscribe = subscribe(params.id, controller);
 
-      // Re-read migration state AFTER subscribing to close the race window.
-      // If the migration went terminal between the initial read and subscribe(),
-      // the broadcast would have been missed. Checking again ensures we detect it.
-      const freshMigration = get(params.id);
-      const terminalState = freshMigration?.state ?? migration.state;
-      if (["succeeded", "failed", "cancelled"].includes(terminalState)) {
-        controller.enqueue(`data: ${JSON.stringify({ type: "done", state: terminalState })}\n\n`);
-        controller.close();
-        unsubscribe();
-        unsubscribe = null;
-        return;
-      }
+    // Re-read migration state AFTER subscribing to close the race window.
+    // If the migration went terminal between the initial read and subscribe(),
+    // the broadcast would have been missed. Checking again ensures we detect it.
+    const freshMigration = get(params.id);
+    const terminalState = freshMigration?.state ?? migration.state;
+    if (["succeeded", "failed", "cancelled"].includes(terminalState)) {
+      controller.enqueue(`data: ${JSON.stringify({ type: "done", state: terminalState })}\n\n`);
+      controller.close();
+      unsubscribe();
+      return () => {};
+    }
 
-      // Send keepalive comment every 30s to prevent proxy timeouts.
-      keepalive = setInterval(() => {
-        try {
-          controller.enqueue(": keepalive\n\n");
-        } catch {
-          if (keepalive) clearInterval(keepalive);
-          unsubscribe?.();
-          unsubscribe = null;
-          keepalive = null;
-        }
-      }, 30_000);
-    },
-    cancel() {
-      if (keepalive) clearInterval(keepalive);
-      unsubscribe?.();
-      unsubscribe = null;
-      keepalive = null;
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
+    return unsubscribe;
   });
 };
