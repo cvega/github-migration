@@ -90,7 +90,7 @@ async function uploadSingle(
   token: string,
   uploadsUrl: string,
 ): Promise<string> {
-  const url = `${uploadsUrl}/organizations/${orgDatabaseId}/gei/archive?name=${name}`;
+  const url = `${uploadsUrl}/organizations/${orgDatabaseId}/gei/archive?name=${encodeURIComponent(name)}`;
   console.log(`Uploading archive (single): ${name} (${(size / 1024 / 1024).toFixed(1)} MiB)`);
 
   const resp = await fetch(url, {
