@@ -10,6 +10,7 @@
     "sourceMap": true,
     "strict": true,
     "module": "ESNext",
+    "noImplicitOverride": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "moduleResolution": "bundler",
