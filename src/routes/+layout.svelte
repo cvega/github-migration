@@ -6,6 +6,7 @@
 	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
 	import { untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import type { GitHubStatus } from '$lib/types';
 
 	let { data, children } = $props();
@@ -101,6 +102,7 @@
 				GitHub Migration Dashboard
 			</a>
 			<div class="flex items-center gap-4">
+				<NotificationBell initial={data.recentActivity} />
 				<a href="/stats"
 					class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 hover:bg-gray-700 transition-colors">
 					<Octicon name="graph" size={16} />

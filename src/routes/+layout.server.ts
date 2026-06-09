@@ -2,6 +2,7 @@
 
 import { fetchLiveRateLimits, getAuthConfig } from "$lib/server/auth";
 import { fetchGitHubStatus } from "$lib/server/github-status";
+import { recentActivity } from "$lib/server/manager";
 import { getActiveMigrationCount } from "$lib/server/store";
 import type { LayoutServerLoad } from "./$types";
 
@@ -20,6 +21,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     targetAuth: auth.target,
     activeMigrations,
     ghStatus,
+    recentActivity: recentActivity(20),
     authEnabled: locals.authEnabled ?? false,
   };
 };

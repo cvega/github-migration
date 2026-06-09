@@ -4,6 +4,7 @@
  */
 // bun:sqlite built-in UUIDv7 — time-sortable, zero deps
 import type {
+  ActivityItem,
   AuthMode,
   BatchListItem,
   BatchMigrationRequest,
@@ -37,6 +38,7 @@ import {
   getMigrationStats,
   getNextQueuedMigration,
   getQueuedEnvMigrations,
+  getRecentActivity,
   getRecoverableMigrations,
   getStateCounts,
   insertEvent,
@@ -831,6 +833,11 @@ export function stats(): MigrationStats {
 /** Global migration counts grouped by state (whole table, not a page). */
 export function stateCounts(): Record<MigrationState, number> {
   return getStateCounts();
+}
+
+/** Most recent lifecycle events across all migrations, for the notification feed. */
+export function recentActivity(limit = 20): ActivityItem[] {
+  return getRecentActivity(limit);
 }
 
 export function events(migrationId: string, afterId?: number): MigrationEvent[] {

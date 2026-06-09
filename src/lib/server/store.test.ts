@@ -11,7 +11,7 @@
  * mirroring how the app drives a migration through its lifecycle.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Counts, Migration } from "../types";
+import type { Counts, Migration, MigrationEvent } from "../types";
 import {
   getActiveMigrationCount,
   getBatchListItem,
@@ -22,6 +22,7 @@ import {
   getMigrationStats,
   getNextQueuedMigration,
   getQueuedEnvMigrations,
+  getRecentActivity,
   getRecoverableMigrations,
   initStore,
   insertEvent,
@@ -606,5 +607,81 @@ describe("searchBatchItemsPaginated", () => {
 
   test("returns nothing when no batch contains a match", () => {
     expect(searchBatchItemsPaginated({ q: "nonexistent", page: 1, limit: 10 }).total).toBe(0);
+  });
+});
+
+describe("getRecentActivity", () => {
+  function event(
+    migrationId: string,
+    eventType: MigrationEvent["eventType"],
+    payload: Record<string, unknown>,
+    createdAt: string,
+  ): void {
+    insertEvent({
+      migrationId,
+      eventType,
+      phase: null,
+      payload,
+      createdAt,
+    } as MigrationEvent);
+  }
+
+  beforeEach(() => {
+    insertMigration(makeMigration({ id: "act-1", sourceOrg: "acme", sourceRepo: "data-lake" }));
+    insertMigration(makeMigration({ id: "act-2", sourceOrg: "globex", sourceRepo: "billing" }));
+    // Lifecycle events (surfaced) interleaved with noise events (ignored).
+    event("act-1", "step", { message: "validating" }, "2026-06-01T10:00:00.000Z");
+    event("act-1", "complete", { elapsed: 120 }, "2026-06-01T10:05:00.000Z");
+    event("act-2", "snapshot", { progress: null }, "2026-06-01T10:06:00.000Z");
+    event("act-2", "failure", { error: "Archive upload failed: 413" }, "2026-06-01T10:07:00.000Z");
+    event(
+      "act-1",
+      "restart",
+      { message: "Migration restarted (previously failed)" },
+      "2026-06-01T10:08:00.000Z",
+    );
+    event("act-2", "banner", { message: "Watchdog: auto-restarting" }, "2026-06-01T10:09:00.000Z");
+  });
+
+  test("returns only lifecycle events, newest first", () => {
+    const activity = getRecentActivity();
+    expect(activity.map((a) => a.kind)).toEqual([
+      "notice", // banner (newest)
+      "restarted", // restart
+      "failed", // failure
+      "succeeded", // complete
+    ]);
+  });
+
+  test("excludes step/snapshot/phase noise", () => {
+    const kinds = new Set(getRecentActivity().map((a) => a.kind));
+    expect(kinds.has("succeeded")).toBe(true);
+    // 'step' and 'snapshot' have no corresponding ActivityKind and must be absent.
+    expect(getRecentActivity()).toHaveLength(4);
+  });
+
+  test("joins the migration's repo identity", () => {
+    const byKind = new Map(getRecentActivity().map((a) => [a.kind, a]));
+    expect(byKind.get("succeeded")?.repo).toBe("acme/data-lake");
+    expect(byKind.get("failed")?.repo).toBe("globex/billing");
+  });
+
+  test("derives a summary from the payload", () => {
+    const byKind = new Map(getRecentActivity().map((a) => [a.kind, a]));
+    expect(byKind.get("failed")?.summary).toBe("Archive upload failed: 413");
+    expect(byKind.get("restarted")?.summary).toBe("Migration restarted (previously failed)");
+    expect(byKind.get("notice")?.summary).toBe("Watchdog: auto-restarting");
+    // 'complete' needs no detail line.
+    expect(byKind.get("succeeded")?.summary).toBe("");
+  });
+
+  test("respects the limit", () => {
+    expect(getRecentActivity(2).map((a) => a.kind)).toEqual(["notice", "restarted"]);
+  });
+
+  test("returns an empty array when there is no activity", () => {
+    initStore(":memory:");
+    insertMigration(makeMigration({ id: "lonely" }));
+    expect(getRecentActivity()).toEqual([]);
   });
 });

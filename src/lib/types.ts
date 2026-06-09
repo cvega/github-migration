@@ -171,6 +171,26 @@ export type MigrationEvent = {
   [K in EventType]: MigrationEventBase<K>;
 }[EventType];
 
+/** Notification-feed kinds, derived from the underlying event type. */
+export type ActivityKind = "succeeded" | "failed" | "restarted" | "notice";
+
+/**
+ * A single entry in the recent-activity notification feed. Flattens a
+ * lifecycle event joined with its migration's repo identity, so the navbar
+ * bell can render "org/repo — <summary>" without extra lookups.
+ */
+export interface ActivityItem {
+  /** Underlying event row id (monotonic; used for unread tracking). */
+  id: number;
+  migrationId: string;
+  kind: ActivityKind;
+  /** "source_org/source_repo". */
+  repo: string;
+  /** Human-readable detail (failure reason, restart/watchdog message, or ""). */
+  summary: string;
+  createdAt: string;
+}
+
 export interface Migration {
   id: string;
   batchId: string | null;

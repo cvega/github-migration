@@ -7,6 +7,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { applySchema } from "$lib/server/schema";
 import type {
+  ActivityItem,
+  ActivityKind,
   AuthMode,
   BatchListItem,
   BatchSummary,
@@ -907,6 +909,71 @@ export function getEvents(migrationId: string, afterId?: number): MigrationEvent
           createdAt: row.created_at as string,
         }) as MigrationEvent,
     );
+}
+
+/** Event types surfaced in the recent-activity notification feed. */
+const ACTIVITY_EVENT_TYPES = ["complete", "failure", "restart", "banner"] as const;
+
+/** Map a stored event type to its notification-feed kind. */
+function activityKind(eventType: string): ActivityKind {
+  switch (eventType) {
+    case "complete":
+      return "succeeded";
+    case "failure":
+      return "failed";
+    case "restart":
+      return "restarted";
+    default:
+      return "notice";
+  }
+}
+
+/** Derive a human-readable detail line from a lifecycle event payload. */
+function activitySummary(eventType: string, payload: Record<string, unknown>): string {
+  if (eventType === "failure") {
+    const detail = payload.detail as { failureReason?: string } | undefined;
+    return (
+      (typeof payload.error === "string" && payload.error) ||
+      detail?.failureReason ||
+      "Migration failed"
+    );
+  }
+  if (eventType === "restart" || eventType === "banner") {
+    return typeof payload.message === "string" ? payload.message : "";
+  }
+  return ""; // complete — the repo + "succeeded" kind says enough.
+}
+
+/**
+ * Most recent lifecycle events across all migrations, newest first, joined
+ * with each migration's repo identity for the notification feed.
+ */
+export function getRecentActivity(limit = 20): ActivityItem[] {
+  const placeholders = ACTIVITY_EVENT_TYPES.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(
+      `SELECT e.id AS id, e.migration_id AS migration_id, e.event_type AS event_type,
+              e.payload AS payload, e.created_at AS created_at,
+              m.source_org AS source_org, m.source_repo AS source_repo
+       FROM events e
+       JOIN migrations m ON m.id = e.migration_id
+       WHERE e.event_type IN (${placeholders})
+       ORDER BY e.id DESC
+       LIMIT ?`,
+    )
+    .all(...ACTIVITY_EVENT_TYPES, limit) as Record<string, unknown>[];
+  return rows.map((row) => {
+    const eventType = row.event_type as string;
+    const payload = safeJsonParse<Record<string, unknown>>(row.payload as string) ?? {};
+    return {
+      id: row.id as number,
+      migrationId: row.migration_id as string,
+      kind: activityKind(eventType),
+      repo: `${row.source_org as string}/${row.source_repo as string}`,
+      summary: activitySummary(eventType, payload),
+      createdAt: row.created_at as string,
+    };
+  });
 }
 
 // ── Queue ──────────────────────────────────────────────────────────────────
