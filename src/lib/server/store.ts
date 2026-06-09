@@ -103,6 +103,35 @@ const MIGRATION_COLS = [
 /** Explicit column list for event queries. */
 const EVENT_COLS = "id, migration_id, event_type, phase, payload, created_at";
 
+/**
+ * Free-text search match clause. The same `$q` LIKE pattern is OR-ed across the
+ * repo identity fields plus the GHEC/internal IDs and failure reason, so a
+ * services engineer can paste a repo name, an `RM_…` id, or an error snippet.
+ *
+ * Uses a leading-wildcard LIKE, which can't use a btree index — a full table
+ * scan. That's fine at this dataset's scale (single-node, low thousands of
+ * rows); if it ever needs to scale, migrate to a SQLite FTS5 virtual table.
+ */
+const SEARCH_MATCH_CLAUSE = `(
+  source_org LIKE $q ESCAPE '\\'
+  OR source_repo LIKE $q ESCAPE '\\'
+  OR target_org LIKE $q ESCAPE '\\'
+  OR target_repo LIKE $q ESCAPE '\\'
+  OR github_migration_id LIKE $q ESCAPE '\\'
+  OR id LIKE $q ESCAPE '\\'
+  OR failure_reason LIKE $q ESCAPE '\\'
+)`;
+
+/**
+ * Build a LIKE pattern for a literal substring search, escaping the LIKE
+ * wildcards (`%`, `_`) and the escape char itself so user input can't act as
+ * a wildcard. Pair with `ESCAPE '\'` in the query.
+ */
+function likePattern(q: string): string {
+  const escaped = q.replace(/[\\%_]/g, (c) => `\\${c}`);
+  return `%${escaped}%`;
+}
+
 // ── Migrations ─────────────────────────────────────────────────────────────
 
 export function insertMigration(m: Migration): void {
@@ -299,6 +328,35 @@ export function listMigrationsPaginated(params: PaginationParams): PaginatedResu
   const rows = getDb()
     .prepare(`SELECT ${MIGRATION_COLS} FROM migrations ORDER BY started_at DESC LIMIT ? OFFSET ?`)
     .all(limit, offset) as Record<string, unknown>[];
+  return {
+    data: rows.map(rowToMigration),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+/**
+ * Paginated free-text search over migrations (repo identity, IDs, failure
+ * reason). See SEARCH_MATCH_CLAUSE for the matched fields and scaling notes.
+ */
+export function searchMigrationsPaginated(
+  params: PaginationParams & { q: string },
+): PaginatedResult<Migration> {
+  const { page, limit, q } = params;
+  const offset = (page - 1) * limit;
+  const like = likePattern(q);
+  const { count: total } = getDb()
+    .prepare(`SELECT COUNT(*) AS count FROM migrations WHERE ${SEARCH_MATCH_CLAUSE}`)
+    .get({ $q: like }) as { count: number };
+  const rows = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations
+       WHERE ${SEARCH_MATCH_CLAUSE}
+       ORDER BY started_at DESC LIMIT $limit OFFSET $offset`,
+    )
+    .all({ $q: like, $limit: limit, $offset: offset }) as Record<string, unknown>[];
   return {
     data: rows.map(rowToMigration),
     total,
@@ -720,6 +778,63 @@ export function listBatchItemsPaginated(params: PaginationParams): PaginatedResu
       LIMIT ? OFFSET ?`,
     )
     .all(limit, offset) as Record<string, unknown>[];
+  return {
+    data: rows.map((row) => ({
+      id: row.batch_id as string,
+      totalCount: row.total as number,
+      queuedCount: row.queued as number,
+      pendingCount: row.pending as number,
+      runningCount: row.running as number,
+      succeededCount: row.succeeded as number,
+      failedCount: row.failed as number,
+      cancelledCount: row.cancelled as number,
+      startedAt: row.started_at as string,
+    })),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+/**
+ * Paginated batch search: returns batches that contain at least one migration
+ * matching the query. The aggregate counts still reflect the whole batch (not
+ * just matching repos) so the rollup bar stays accurate.
+ */
+export function searchBatchItemsPaginated(
+  params: PaginationParams & { q: string },
+): PaginatedResult<BatchListItem> {
+  const { page, limit, q } = params;
+  const offset = (page - 1) * limit;
+  const like = likePattern(q);
+  // Batches with ≥1 matching migration. Embedded in both the count and the
+  // page query; `$q` is bound once per statement.
+  const matchingBatchIds = `
+    SELECT DISTINCT batch_id FROM migrations
+    WHERE batch_id IS NOT NULL AND ${SEARCH_MATCH_CLAUSE}`;
+  const { count: total } = getDb()
+    .prepare(`SELECT COUNT(*) AS count FROM (${matchingBatchIds})`)
+    .get({ $q: like }) as { count: number };
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        batch_id,
+        COUNT(*) AS total,
+        SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
+        SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END) AS pending,
+        SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) AS running,
+        SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
+        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN state = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+        MIN(started_at) AS started_at
+      FROM migrations
+      WHERE batch_id IN (${matchingBatchIds})
+      GROUP BY batch_id
+      ORDER BY MIN(started_at) DESC
+      LIMIT $limit OFFSET $offset`,
+    )
+    .all({ $q: like, $limit: limit, $offset: offset }) as Record<string, unknown>[];
   return {
     data: rows.map((row) => ({
       id: row.batch_id as string,

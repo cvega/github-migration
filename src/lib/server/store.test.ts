@@ -28,6 +28,8 @@ import {
   insertMigration,
   listMigrationsPaginated,
   resetMigration,
+  searchBatchItemsPaginated,
+  searchMigrationsPaginated,
   updateCheckpoint,
   updateMigrationSourceSize,
   updateMigrationState,
@@ -463,5 +465,146 @@ describe("getMigrationStats aggregation", () => {
     expect(stats.warnings.total).toBe(2);
     expect(stats.warnings.withWarnings).toBe(1);
     expect(stats.failuresByReason).toEqual([{ reason: "Archive upload failed", count: 1 }]);
+  });
+});
+
+describe("searchMigrationsPaginated", () => {
+  beforeEach(() => {
+    insertMigration(
+      makeMigration({
+        id: "se-1",
+        sourceOrg: "acme",
+        sourceRepo: "data-lake",
+        targetOrg: "acme-cloud",
+        targetRepo: "data-lake",
+      }),
+    );
+    insertMigration(
+      makeMigration({
+        id: "se-2",
+        sourceOrg: "acme",
+        sourceRepo: "billing",
+        targetOrg: "acme-cloud",
+        targetRepo: "billing",
+      }),
+    );
+    insertMigration(
+      makeMigration({
+        id: "se-3",
+        sourceOrg: "globex",
+        sourceRepo: "frontend",
+        targetOrg: "globex-cloud",
+        targetRepo: "data-warehouse",
+      }),
+    );
+    insertMigration(
+      makeMigration({
+        id: "se-4",
+        sourceOrg: "initech",
+        sourceRepo: "widget",
+        targetOrg: "initech-cloud",
+        targetRepo: "widget",
+        githubMigrationId: "RM_kgDOdatalake",
+      }),
+    );
+    insertMigration(
+      makeMigration({
+        id: "se-5",
+        sourceOrg: "umbrella",
+        sourceRepo: "unrelated",
+        targetOrg: "umbrella-cloud",
+        targetRepo: "unrelated",
+      }),
+    );
+    updateMigrationState("se-5", "failed", { failureReason: "Archive upload failed: 413" });
+  });
+
+  test("matches repo names across source and target (case-insensitive)", () => {
+    // "data": se-1 (data-lake), se-3 (data-warehouse target), se-4 (…datalake id).
+    expect(
+      searchMigrationsPaginated({ q: "data", page: 1, limit: 25 })
+        .data.map((m) => m.id)
+        .sort(),
+    ).toEqual(["se-1", "se-3", "se-4"]);
+    // The hyphenated literal only matches se-1 (the id "…datalake" has no hyphen).
+    expect(
+      searchMigrationsPaginated({ q: "DATA-LAKE", page: 1, limit: 25 }).data.map((m) => m.id),
+    ).toEqual(["se-1"]);
+  });
+
+  test("matches source/target org", () => {
+    expect(
+      searchMigrationsPaginated({ q: "acme", page: 1, limit: 25 })
+        .data.map((m) => m.id)
+        .sort(),
+    ).toEqual(["se-1", "se-2"]);
+  });
+
+  test("matches the GHEC migration ID", () => {
+    const result = searchMigrationsPaginated({ q: "RM_kgDOdatalake", page: 1, limit: 25 });
+    expect(result.data.map((m) => m.id)).toEqual(["se-4"]);
+  });
+
+  test("matches the internal migration ID", () => {
+    expect(
+      searchMigrationsPaginated({ q: "se-2", page: 1, limit: 25 }).data.map((m) => m.id),
+    ).toEqual(["se-2"]);
+  });
+
+  test("matches the failure reason text", () => {
+    expect(
+      searchMigrationsPaginated({ q: "413", page: 1, limit: 25 }).data.map((m) => m.id),
+    ).toEqual(["se-5"]);
+  });
+
+  test("returns no matches for an absent term", () => {
+    const result = searchMigrationsPaginated({ q: "zzz-nope", page: 1, limit: 25 });
+    expect(result.total).toBe(0);
+    expect(result.data).toHaveLength(0);
+  });
+
+  test("treats LIKE wildcards as literal characters", () => {
+    // '%' must not act as a wildcard — no repo literally contains it, so 0 hits.
+    expect(searchMigrationsPaginated({ q: "%", page: 1, limit: 25 }).total).toBe(0);
+  });
+
+  test("paginates results with correct totals", () => {
+    // se-1 and se-2 both match "acme" (org). limit 1 → 2 pages.
+    const result = searchMigrationsPaginated({ q: "acme", page: 1, limit: 1 });
+    expect(result.total).toBe(2);
+    expect(result.totalPages).toBe(2);
+    expect(result.data).toHaveLength(1);
+  });
+});
+
+describe("searchBatchItemsPaginated", () => {
+  beforeEach(() => {
+    // Batch X: contains a matching repo (payments-api) + an unrelated one.
+    insertMigration(
+      makeMigration({ id: "bx-1", batchId: "X", sourceRepo: "payments-api", state: "succeeded" }),
+    );
+    insertMigration(
+      makeMigration({ id: "bx-2", batchId: "X", sourceRepo: "logging", state: "failed" }),
+    );
+    // Batch Y: no matching repo.
+    insertMigration(makeMigration({ id: "by-1", batchId: "Y", sourceRepo: "frontend" }));
+  });
+
+  test("returns only batches containing at least one matching migration", () => {
+    const result = searchBatchItemsPaginated({ q: "payments", page: 1, limit: 10 });
+    expect(result.data.map((b) => b.id)).toEqual(["X"]);
+  });
+
+  test("aggregate counts reflect the whole batch, not just matches", () => {
+    const result = searchBatchItemsPaginated({ q: "payments", page: 1, limit: 10 });
+    const batch = result.data[0];
+    // Batch X has 2 repos total even though only 1 matched "payments".
+    expect(batch?.totalCount).toBe(2);
+    expect(batch?.succeededCount).toBe(1);
+    expect(batch?.failedCount).toBe(1);
+  });
+
+  test("returns nothing when no batch contains a match", () => {
+    expect(searchBatchItemsPaginated({ q: "nonexistent", page: 1, limit: 10 }).total).toBe(0);
   });
 });

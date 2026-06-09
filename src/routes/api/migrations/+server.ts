@@ -3,7 +3,7 @@
  */
 import { json } from "@sveltejs/kit";
 import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
-import { listPaginated, start } from "$lib/server/manager";
+import { listPaginated, searchPaginated, start } from "$lib/server/manager";
 import { narrowBody, parseJsonBody, validateCommonFields } from "$lib/server/validate";
 import type { CreateMigrationRequest } from "$lib/types";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
@@ -91,5 +91,9 @@ export const GET: RequestHandler = async ({ url }) => {
       parseInt(url.searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
     ),
   );
+  const q = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
+  if (q) {
+    return json(searchPaginated({ q, page, limit }));
+  }
   return json(listPaginated({ page, limit }));
 };

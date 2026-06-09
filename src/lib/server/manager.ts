@@ -45,6 +45,8 @@ import {
   listMigrations,
   listMigrationsPaginated,
   resetMigration,
+  searchBatchItemsPaginated,
+  searchMigrationsPaginated,
   updateMigrationState,
 } from "./store";
 import { extractOrg, extractRepo } from "./util";
@@ -806,6 +808,20 @@ export function list(): Migration[] {
 
 export function listPaginated(params: PaginationParams): PaginatedResult<Migration> {
   return listMigrationsPaginated(params);
+}
+
+/** Paginated free-text search over migrations (repo name, IDs, failure reason). */
+export function searchPaginated(
+  params: PaginationParams & { q: string },
+): PaginatedResult<Migration> {
+  return searchMigrationsPaginated(params);
+}
+
+/** Paginated batch search — batches containing ≥1 migration matching the query. */
+export function searchBatchesPaginated(
+  params: PaginationParams & { q: string },
+): PaginatedResult<BatchListItem> {
+  return searchBatchItemsPaginated(params);
 }
 
 export function stats(): MigrationStats {
