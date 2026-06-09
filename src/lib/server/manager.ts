@@ -52,6 +52,33 @@ import { ACTIVE_IMPORT_PHASES, isLargeRepo, loadWatchdogConfig, progressSignal }
 /** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
 
+// ── Pipeline runner seam (test injection point) ──────────────────────────────
+// The two functions that actually execute a migration perform real network and
+// disk I/O against GitHub. They are indirected through these bindings so unit
+// tests can substitute inert stubs and exercise the manager's orchestration
+// (concurrency cap, FIFO queue promotion, cancel, restart) without launching
+// real migrations.
+let runPipeline: typeof runMigrationPipeline = runMigrationPipeline;
+let resumePipeline: typeof resumeMigration = resumeMigration;
+
+/**
+ * Test-only: override the pipeline runner/resumer with stubs. Returns a
+ * function that restores the original implementations.
+ */
+export function __setPipelineRunnerForTests(overrides: {
+  run?: typeof runMigrationPipeline;
+  resume?: typeof resumeMigration;
+}): () => void {
+  const prevRun = runPipeline;
+  const prevResume = resumePipeline;
+  if (overrides.run) runPipeline = overrides.run;
+  if (overrides.resume) resumePipeline = overrides.resume;
+  return () => {
+    runPipeline = prevRun;
+    resumePipeline = prevResume;
+  };
+}
+
 /** Active migration abort controllers, keyed by migration ID. */
 const controllers = new Map<string, AbortController>();
 
@@ -207,7 +234,7 @@ function launchPipeline(id: string, req: CreateMigrationRequest): void {
   const ac = new AbortController();
   controllers.set(id, ac);
   activeRequests.set(id, req);
-  const p = runMigrationPipeline({
+  const p = runPipeline({
     ...req,
     id,
     signal: ac.signal,
@@ -867,7 +894,7 @@ export function recoverOrphans(): void {
       // so the stall watchdog can await an aborted resume before failing it.
       // (No retained request — recovered migrations can't be auto-restarted,
       // only failed for manual review if they stall.)
-      const p = resumeMigration(migration, createEmitHandler(id), ac.signal)
+      const p = resumePipeline(migration, createEmitHandler(id), ac.signal)
         .then((result) => {
           handlePipelineResult(id, result);
           console.log(`[manager] Recovered migration ${id}: ${result.state}`);
