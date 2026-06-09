@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.9-alpine AS build
+FROM oven/bun:1.3.14-alpine AS build
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -6,12 +6,12 @@ COPY . .
 RUN bun run build
 
 # Production dependencies only (excludes svelte, vite, tailwindcss, etc.)
-FROM oven/bun:1.3.9-alpine AS deps
+FROM oven/bun:1.3.14-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-FROM oven/bun:1.3.9-alpine
+FROM oven/bun:1.3.14-alpine
 WORKDIR /app
 RUN apk add --no-cache su-exec && \
     addgroup -S app && adduser -S app -G app && \
@@ -27,6 +27,6 @@ ENV ARCHIVE_DIR=/archives
 ENV PORT=3000
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://0.0.0.0:3000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "build/index.js"]
