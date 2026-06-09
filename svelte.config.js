@@ -1,6 +1,8 @@
 import adapter from "@sveltejs/adapter-node";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
+const dev = process.env.NODE_ENV !== "production";
+
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
@@ -22,7 +24,8 @@ const config = {
         "script-src": ["self"],
         "style-src": ["self", "unsafe-inline"],
         "img-src": ["self", "data:"],
-        "connect-src": ["self"],
+        // In dev, allow Vite's HMR websocket; production stays locked to 'self'.
+        "connect-src": dev ? ["self", "ws:", "wss:"] : ["self"],
         "font-src": ["self"],
       },
     },

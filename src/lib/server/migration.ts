@@ -34,6 +34,7 @@ import {
   getOrgId,
   getRepoCounts,
   getRepoNodeId,
+  getRepoSize,
   startMigration as ghecStartMigration,
   isGhecSource,
   sourceBaseUrl,
@@ -42,7 +43,7 @@ import {
   waitForArchive,
 } from "./github";
 import { type EventEmitter, runMonitor } from "./monitor";
-import { updateCheckpoint } from "./store";
+import { updateCheckpoint, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 import { extractOrg, extractRepo } from "./util";
 
@@ -76,6 +77,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     warningsCount: 0,
     sourceCounts: null,
     targetCounts: null,
+    sourceSizeKb: null,
     startedAt,
     completedAt: null,
     elapsedSeconds: null,
@@ -128,6 +130,18 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
         migration.sourceOrg,
         migration.sourceRepo,
       );
+    } catch {
+      // Non-fatal
+    }
+
+    // Fetch source repo disk size (KB) — used for display and the stall
+    // watchdog's "large repo" guard. Non-fatal if unavailable.
+    try {
+      const sizeKb = await getRepoSize(clients.source, migration.sourceOrg, migration.sourceRepo);
+      if (sizeKb != null) {
+        migration.sourceSizeKb = sizeKb;
+        updateMigrationSourceSize(migrationId, sizeKb);
+      }
     } catch {
       // Non-fatal
     }

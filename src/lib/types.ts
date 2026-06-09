@@ -186,6 +186,8 @@ export interface Migration {
   warningsCount: number;
   sourceCounts: Counts | null;
   targetCounts: Counts | null;
+  /** Source repository disk size in KB (from the GitHub API), or null if unknown. */
+  sourceSizeKb: number | null;
   startedAt: string;
   completedAt: string | null;
   elapsedSeconds: number | null;

@@ -32,6 +32,7 @@
 - **Concurrency queue** — up to 10 concurrent migrations (GitHub limit), excess auto-queued FIFO
 - **Real-time monitoring** — live phase timeline, progress bars, throughput rates via SSE
 - **Cancellation & restart** — abort at any pipeline stage; restart failed/cancelled migrations in place
+- **Stall watchdog** — auto-detects migrations that hang with zero progress and restarts them, while never touching large repos
 - **Crash recovery** — env-configured auth (`env-app`, `env-pat`) migrations auto-resume from checkpoint on restart
 - **Flexible auth** — PAT tokens (per-request or env), per-request GitHub App, or env-configured GitHub App with auto-refresh
 - **Preflight checks** — validates GHES version, target org, warns on existing target repos
@@ -197,6 +198,22 @@ Configure a GitHub App for auto-refreshing installation tokens. These migrations
 
 Per-request PATs or App credentials always take precedence over env-configured auth.
 
+### Stall Watchdog (optional)
+
+Guards against the bug where a migration occasionally hangs in an in-progress state for hours without ever failing, tying up one of the 10 concurrent slots. The watchdog only acts on migrations that have *started importing* (GHEC reports `IN_PROGRESS`) and have made **zero forward progress** for the stall window. It restarts them up to `WATCHDOG_MAX_RESTARTS` times, then marks them `failed` for manual review.
+
+**Large repos are never auto-restarted** — they legitimately take a long time. "Large" is a composite: a repo counts as large if **any** dimension (disk size, commits, issues, or PRs) meets or exceeds its cap. A 3 KB repo with 10k issues is still large.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WATCHDOG_ENABLED` | `true` | Master switch (`true`/`1` to enable) |
+| `WATCHDOG_STALL_MINUTES` | `30` | No-progress window before a migration is considered stalled |
+| `WATCHDOG_MAX_RESTARTS` | `1` | Auto-restarts before giving up and marking the migration `failed` |
+| `WATCHDOG_MAX_SIZE_MB` | `100` | Disk-size cap — at or above this, a repo is "large" |
+| `WATCHDOG_MAX_COMMITS` | `50000` | Commit-count cap — at or above this, a repo is "large" |
+| `WATCHDOG_MAX_ISSUES` | `5000` | Issue-count cap — at or above this, a repo is "large" |
+| `WATCHDOG_MAX_PRS` | `5000` | Pull-request-count cap — at or above this, a repo is "large" |
+
 A ready-to-edit [docker-compose.yml](docker-compose.yml) and [.env.example](.env.example) cover all of the above.
 
 ---
@@ -227,6 +244,10 @@ GitHub allows max 10 concurrent migrations per org. Excess migrations are automa
 ### Migration stuck in "running" after restart
 
 Only env-configured auth (`env-app` or `env-pat`) migrations with a GHEC migration ID are auto-recovered on restart. PAT or per-request app migrations can't be recovered because credentials are not persisted. These are marked as `failed` on startup with reason "Server restarted during migration." Re-run them manually.
+
+### A migration keeps getting auto-restarted (or won't restart when it should)
+
+The stall watchdog only acts on migrations that have started importing and show zero progress for `WATCHDOG_STALL_MINUTES`. Large repos (by size, commits, issues, or PRs — see [Stall Watchdog](#stall-watchdog-optional)) are never auto-restarted. If a legitimate small migration is being restarted too eagerly, raise `WATCHDOG_STALL_MINUTES` or lower the "large" caps so it's classified as large. To disable entirely, set `WATCHDOG_ENABLED=false`.
 
 ### SSE not reconnecting
 

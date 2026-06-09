@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
-	import { formatElapsed } from '$lib/format';
+	import { formatElapsed, formatDateTime } from '$lib/format';
 	import Pagination from '$lib/components/Pagination.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
@@ -122,8 +122,8 @@
 		const segs: Array<{ key: string; color: string; pct: number; topInset: string; bottomInset: string }> = [];
 		if (batch.succeededCount > 0) segs.push({ key: 'succeeded', color: '#22c55e', pct: (batch.succeededCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		if (batch.runningCount > 0)   segs.push({ key: 'running', color: '#22c55e', pct: (batch.runningCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
-		if (batch.pendingCount > 0)   segs.push({ key: 'pending', color: 'rgba(234,179,8,0.5)', pct: (batch.pendingCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
-		if (batch.queuedCount > 0)    segs.push({ key: 'queued', color: 'rgba(59,130,246,0.4)', pct: (batch.queuedCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.pendingCount > 0)   segs.push({ key: 'pending', color: '#facc15', pct: (batch.pendingCount / barTotal) * 100, topInset: '2px', bottomInset: '1px' });
+		if (batch.queuedCount > 0)    segs.push({ key: 'queued', color: '#3b82f6', pct: (batch.queuedCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		if (batch.failedCount > 0)    segs.push({ key: 'failed', color: '#ef4444', pct: (batch.failedCount / barTotal) * 100, topInset: '2px', bottomInset: '1px' });
 		if (batch.cancelledCount > 0) segs.push({ key: 'cancelled', color: '#4b5563', pct: (batch.cancelledCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		let left = 0;
@@ -229,6 +229,14 @@
 </script>
 
 <div class="space-y-6">
+	{#snippet platformPill(apiUrl: string)}
+		{@const isCloud = apiUrl?.includes('api.github.com')}
+		<span
+			class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium align-middle {isCloud ? 'bg-blue-500/15 text-blue-400' : 'bg-purple-500/15 text-purple-400'}"
+			title={isCloud ? 'GitHub Enterprise Cloud' : 'GitHub Enterprise Server'}>
+			<Octicon name={isCloud ? 'cloud' : 'server'} size={12} />{isCloud ? 'GHEC' : 'GHES'}
+		</span>
+	{/snippet}
 	<!-- Header -->
 	<div class="flex items-start justify-between">
 		<div>
@@ -251,30 +259,10 @@
 				{batch.totalCount} repositories · started {new Date(batch.startedAt).toLocaleString()}
 			</p>
 		</div>
-		<div class="flex flex-col items-end gap-2">
-			<div class="flex items-center gap-2">
-				<AuthPill label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
-				<AuthPill label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
-				<GitHubStatus status={ghStatusCtx.value} />
-			</div>
-			{#if restartableCount > 0 || isActive}
-				<div class="flex items-center gap-2">
-					{#if restartableCount > 0}
-						<button onclick={openRestartModal}
-							class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
-							<Octicon name="sync" size={16} />
-							{restartLabel}
-						</button>
-					{/if}
-					{#if isActive}
-						<button onclick={handleCancelAll}
-							class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
-							<Octicon name="x-circle" size={16} />
-							Cancel All
-						</button>
-					{/if}
-				</div>
-			{/if}
+		<div class="flex items-center gap-2">
+			<AuthPill label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
+			<AuthPill label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
+			<GitHubStatus status={ghStatusCtx.value} />
 		</div>
 	</div>
 
@@ -293,27 +281,48 @@
 		</div>
 
 		<!-- Stats row -->
-		<div class="mt-3 flex flex-wrap gap-4 text-sm">
-			{#if batch.succeededCount > 0}
-				<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="check-circle" size={12} />{batch.succeededCount} succeeded</span>
-			{/if}
-			{#if batch.runningCount > 0}
-				<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="sync" size={12} />{batch.runningCount} running</span>
-			{/if}
-			{#if batch.pendingCount > 0}
-				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount} pending</span>
-			{/if}
-			{#if batch.queuedCount > 0}
-				<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount} queued</span>
-			{/if}
-			{#if batch.failedCount > 0}
-				<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount} failed</span>
-			{/if}
-			{#if batch.cancelledCount > 0}
-				<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="skip" size={12} />{batch.cancelledCount} cancelled</span>
+		<div class="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+			<div class="flex flex-wrap gap-4 text-sm">
+				{#if batch.succeededCount > 0}
+					<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="check-circle" size={12} />{batch.succeededCount} succeeded</span>
+				{/if}
+				{#if batch.runningCount > 0}
+					<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="sync" size={12} />{batch.runningCount} running</span>
+				{/if}
+				{#if batch.pendingCount > 0}
+					<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount} pending</span>
+				{/if}
+				{#if batch.queuedCount > 0}
+					<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount} queued</span>
+				{/if}
+				{#if batch.failedCount > 0}
+					<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount} failed</span>
+				{/if}
+				{#if batch.cancelledCount > 0}
+					<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="skip" size={12} />{batch.cancelledCount} cancelled</span>
+				{/if}
+			</div>
+			{#if restartableCount > 0 || isActive}
+				<div class="flex items-center gap-2">
+					{#if restartableCount > 0}
+						<button onclick={openRestartModal}
+							class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
+							<Octicon name="sync" size={12} />
+							{restartLabel}
+						</button>
+					{/if}
+					{#if isActive}
+						<button onclick={handleCancelAll}
+							class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors">
+							<Octicon name="x-circle" size={12} />
+							Cancel All
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>
+
 
 	<!-- Migrations table -->
 	<div class="rounded-md border border-gray-700 bg-gray-900 overflow-hidden">
@@ -331,25 +340,36 @@
 				{#each sortedMigrations as migration (migration.id)}
 					<tr class="border-b border-gray-800/50 last:border-0 hover:bg-gray-800/30 transition-colors">
 						<td class="px-4 py-3">
-							<a href="/{migration.id}" class="text-gray-50 hover:text-blue-400 transition-colors">
-								{migration.sourceOrg}/{migration.sourceRepo}
-							</a>
+							<span class="inline-flex items-center gap-2">
+								{@render platformPill(migration.sourceApiUrl)}
+								<a href="/{migration.id}" class="text-gray-50 hover:text-blue-400 transition-colors">
+									{migration.sourceOrg}/{migration.sourceRepo}
+								</a>
+							</span>
 						</td>
 						<td class="px-4 py-3 text-gray-400">
-							{migration.targetOrg}/{migration.targetRepo}
+							<span class="inline-flex items-center gap-2">
+								{@render platformPill('https://api.github.com')}
+								<span>{migration.targetOrg}/{migration.targetRepo}</span>
+							</span>
 						</td>
 						<td class="px-4 py-3 text-center">
 							<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {stateStyles[migration.state]}">
-								<Octicon name={stateIcons[migration.state] || 'clock'} size={12} />
+								<Octicon name={stateIcons[migration.state] || 'clock'} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
 								{migration.state}
 							</span>
 						</td>
 						<td class="px-4 py-3 text-right text-gray-400">
-							{formatElapsed(migration.elapsedSeconds)}
+							<span class="inline-flex items-center gap-1.5" title={migration.completedAt
+								? `Started ${formatDateTime(migration.startedAt)}\nFinished ${formatDateTime(migration.completedAt)}`
+								: `Started ${formatDateTime(migration.startedAt)}`}>
+								<Octicon name="stopwatch" size={12} class="text-gray-600" />
+								{formatElapsed(migration.elapsedSeconds)}
+							</span>
 						</td>
 						<td class="px-4 py-3 text-right">
 							{#if migration.warningsCount > 0}
-								<span class="text-yellow-400">{migration.warningsCount}</span>
+								<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} />{migration.warningsCount}</span>
 							{:else}
 								<span class="text-gray-600">0</span>
 							{/if}
@@ -357,8 +377,8 @@
 					</tr>
 					{#if migration.failureReason}
 						<tr class="border-b border-gray-800/50">
-							<td colspan="5" class="px-4 py-2">
-								<span class="text-xs text-red-400/80">{migration.failureReason}</span>
+							<td colspan="5" class="px-4 py-2 pl-9">
+								<span class="inline-flex items-start gap-1.5 text-xs text-red-400/80"><Octicon name="x-circle-fill" size={12} class="mt-0.5 shrink-0" />{migration.failureReason}</span>
 							</td>
 						</tr>
 					{/if}
@@ -389,7 +409,7 @@
 	bind:this={restartDialog}
 	onclose={() => (showRestartModal = false)}
 	onclick={(e) => { if (e.target === restartDialog) restartDialog?.close(); }}
-	class="w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+	class="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
 >
 	<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
 		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">

@@ -1,6 +1,16 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { listBatchesPaginated, listPaginated } from "$lib/server/manager";
 import { DEFAULT_PAGE_SIZE } from "$lib/types";
 import type { PageServerLoad } from "./$types";
+
+// Pick whichever logo asset is present, in order of preference.
+function resolveLogoUrl(): string | null {
+  for (const name of ["logo.svg", "logo.webp", "logo.png"]) {
+    if (existsSync(join("static", "imgs", name))) return `/imgs/${name}`;
+  }
+  return null;
+}
 
 export const load: PageServerLoad = async ({ url }) => {
   const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
@@ -16,5 +26,6 @@ export const load: PageServerLoad = async ({ url }) => {
   return {
     migrations: listPaginated({ page, limit }),
     batches: listBatchesPaginated({ page: batchPage, limit: 10 }),
+    logoUrl: resolveLogoUrl(),
   };
 };

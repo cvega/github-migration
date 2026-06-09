@@ -443,6 +443,23 @@ export async function abortMigration(gql: typeof graphql, migrationId: string): 
 
 // ── Repo counts (for progress) ────────────────────────────────────────────
 
+/**
+ * Fetch a repository's disk size in kilobytes (GitHub's `size` field).
+ * Returns null if the repo can't be read — callers treat this as "unknown".
+ */
+export async function getRepoSize(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<number | null> {
+  try {
+    const { data } = await client.repos.get({ owner, repo });
+    return typeof data.size === "number" ? data.size : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getRepoCounts(
   client: InstanceType<typeof RetryOctokit>,
   gql: typeof graphql,

@@ -45,12 +45,45 @@ import {
   updateMigrationState,
 } from "./store";
 import { extractOrg, extractRepo } from "./util";
+import {
+  ACTIVE_IMPORT_PHASES,
+  isLargeRepo,
+  loadWatchdogConfig,
+  progressSignal,
+} from "./watchdog";
 
 /** GitHub-imposed concurrent migration limit per organization. */
 const MAX_CONCURRENT = 10;
 
 /** Active migration abort controllers, keyed by migration ID. */
 const controllers = new Map<string, AbortController>();
+
+/** Stall-watchdog thresholds, read once at module load. */
+const watchdogCfg = loadWatchdogConfig();
+
+/**
+ * Live credentials + pipeline handles for currently-running migrations,
+ * keyed by migration ID. These power the stall watchdog's auto-restart:
+ * `activeRequests` retains the original request (so it can be re-run) and
+ * `activePromises` lets the watchdog await an aborted pipeline before
+ * restarting it. Both are in-memory only — lost on server restart, like the
+ * existing per-request credential handling.
+ */
+const activeRequests = new Map<string, CreateMigrationRequest>();
+const activePromises = new Map<string, Promise<void>>();
+
+/** Per-migration watchdog bookkeeping. */
+interface WatchdogState {
+  /** Timestamp (ms) of the last observed forward progress. */
+  lastProgressAt: number;
+  /** Progress signal at the last poll. */
+  lastSignal: number;
+  /** Number of automatic restarts performed so far. */
+  restarts: number;
+  /** Guards against re-triggering while an abort→restart is in flight. */
+  restarting: boolean;
+}
+const watchdogStates = new Map<string, WatchdogState>();
 
 /**
  * Determine auth mode from a request without running the full pipeline.
@@ -162,7 +195,193 @@ function createEmitHandler(id: string): (event: MigrationEvent) => void {
 
     // 3. Broadcast to SSE subscribers (outside transaction — side-effect).
     broadcastEvent(id, event);
+
+    // 4. Feed the stall watchdog (snapshot events only — see evaluateWatchdog).
+    evaluateWatchdog(id, event);
   };
+}
+
+/**
+ * Launch a migration pipeline for `id`, registering its abort controller,
+ * credentials, and settle-promise so the stall watchdog can later abort and
+ * restart it. Centralises the wiring shared by start / drainQueue / restart.
+ */
+function launchPipeline(id: string, req: CreateMigrationRequest): void {
+  const ac = new AbortController();
+  controllers.set(id, ac);
+  activeRequests.set(id, req);
+  const p = runMigrationPipeline({
+    ...req,
+    id,
+    signal: ac.signal,
+    emit: createEmitHandler(id),
+  })
+    .then((result) => handlePipelineResult(id, result))
+    .catch((err) => handlePipelineError(id, err));
+  activePromises.set(id, p);
+}
+
+/** Forget all in-memory run state for a finished migration. */
+function cleanupRun(id: string): void {
+  controllers.delete(id);
+  activeRequests.delete(id);
+  activePromises.delete(id);
+  watchdogStates.delete(id);
+}
+
+// ── Stall watchdog ───────────────────────────────────────────────────────────
+
+/** Project the cred/option fields of a request onto a restart request. */
+function toRestartRequest(req: CreateMigrationRequest): RestartMigrationRequest {
+  return {
+    sourceToken: req.sourceToken,
+    targetToken: req.targetToken,
+    sourceApp: req.sourceApp,
+    targetApp: req.targetApp,
+    noSslVerify: req.noSslVerify,
+    skipReleases: req.skipReleases,
+    lockSource: req.lockSource,
+    archiveSource: req.archiveSource,
+    targetRepoVisibility: req.targetRepoVisibility,
+    directPassthrough: req.directPassthrough,
+  };
+}
+
+function stallMinutes(): number {
+  return Math.round(watchdogCfg.stallMs / 60_000);
+}
+
+/**
+ * Evaluate a snapshot event against the stall watchdog. When an actively-
+ * importing migration makes zero forward progress for the configured window,
+ * it is auto-restarted (small repos only) or, once the restart budget is
+ * exhausted, marked failed for manual review. Large repos are never touched.
+ */
+function evaluateWatchdog(id: string, event: MigrationEvent): void {
+  if (!watchdogCfg.enabled) return;
+  if (event.eventType !== "snapshot") return;
+
+  const snap = event.payload.progress?.current;
+  if (!snap || !ACTIVE_IMPORT_PHASES.has(snap.phase)) return;
+
+  const counts: Counts = {
+    commits: snap.commits,
+    branches: snap.branches,
+    tags: snap.tags,
+    issues: snap.issues,
+    pullRequests: snap.pullRequests,
+    releases: snap.releases,
+  };
+  const signal = progressSignal(snap.repoExists, counts);
+  const now = Date.now();
+
+  const st = watchdogStates.get(id);
+  if (!st) {
+    watchdogStates.set(id, {
+      lastProgressAt: now,
+      lastSignal: signal,
+      restarts: 0,
+      restarting: false,
+    });
+    return;
+  }
+  if (st.restarting) return;
+
+  // Forward progress resets the stall timer.
+  if (signal > st.lastSignal) {
+    st.lastSignal = signal;
+    st.lastProgressAt = now;
+    return;
+  }
+
+  // No progress yet — keep waiting until the window elapses.
+  if (now - st.lastProgressAt < watchdogCfg.stallMs) return;
+
+  // Stalled. Large repos legitimately take a long time — never auto-restart them.
+  const mig = getMigration(id);
+  if (!mig) return;
+  if (isLargeRepo(watchdogCfg, { sizeKb: mig.sourceSizeKb, counts: mig.sourceCounts })) {
+    // Re-arm so we don't spam this check every poll.
+    st.lastProgressAt = now;
+    return;
+  }
+
+  st.restarting = true;
+  if (st.restarts >= watchdogCfg.maxRestarts) {
+    giveUpStalled(id);
+  } else {
+    autoRestartStalled(id, st.restarts);
+  }
+}
+
+/** Abort a stalled migration and restart it once the pipeline has settled. */
+function autoRestartStalled(id: string, priorRestarts: number): void {
+  const req = activeRequests.get(id);
+  if (!req) {
+    // No retained credentials (e.g. a migration recovered after a server
+    // restart) — we can't safely re-run it, so fail it for manual review.
+    giveUpStalled(id);
+    return;
+  }
+  const creds = toRestartRequest(req);
+
+  emitManagerEvent(id, "banner", {
+    message: `Watchdog: no progress for ${stallMinutes()} min — auto-restarting stalled migration (attempt ${priorRestarts + 1}/${watchdogCfg.maxRestarts})`,
+  });
+
+  const settle = activePromises.get(id) ?? Promise.resolve();
+  controllers.get(id)?.abort();
+
+  settle
+    .then(() => {
+      const cur = getMigration(id);
+      if (!cur || (cur.state !== "cancelled" && cur.state !== "failed")) return;
+      restart(id, creds);
+      watchdogStates.set(id, {
+        lastProgressAt: Date.now(),
+        lastSignal: 0,
+        restarts: priorRestarts + 1,
+        restarting: false,
+      });
+    })
+    .catch((err) => console.error(`[watchdog] auto-restart failed for ${id}:`, err));
+}
+
+/** Abort a stalled migration that has exhausted its restart budget and fail it. */
+function giveUpStalled(id: string): void {
+  emitManagerEvent(id, "banner", {
+    message: `Watchdog: stalled with no progress for ${stallMinutes()} min after ${watchdogCfg.maxRestarts} auto-restart attempt(s) — marking failed for manual review`,
+  });
+
+  const settle = activePromises.get(id) ?? Promise.resolve();
+  controllers.get(id)?.abort();
+
+  settle
+    .then(() => {
+      updateMigrationState(id, "failed", {
+        failureReason: `Stalled migration: no progress for ${stallMinutes()} min after ${watchdogCfg.maxRestarts} auto-restart attempt(s). Manual review required.`,
+        completedAt: new Date().toISOString(),
+      });
+      watchdogStates.delete(id);
+    })
+    .catch((err) => console.error(`[watchdog] give-up handling failed for ${id}:`, err));
+}
+
+/** Persist + broadcast a manager-originated event (audit trail for watchdog actions). */
+function emitManagerEvent(
+  id: string,
+  eventType: "banner",
+  payload: { message: string },
+): void {
+  const event: MigrationEvent = {
+    migrationId: id,
+    eventType,
+    phase: null,
+    payload,
+    createdAt: new Date().toISOString(),
+  };
+  event.id = insertEvent(event);
+  broadcastEvent(id, event);
 }
 
 /** Shared `.then()` handler for the fire-and-forget pipeline / resume promise. */
@@ -172,7 +391,7 @@ function handlePipelineResult(id: string, result: Migration): void {
   // skip the redundant update to avoid overwriting it.
   const current = getMigration(id);
   if (current && ["succeeded", "failed", "cancelled"].includes(current.state)) {
-    controllers.delete(id);
+    cleanupRun(id);
     drainQueue();
     return;
   }
@@ -190,7 +409,7 @@ function handlePipelineResult(id: string, result: Migration): void {
     failureReason: result.failureReason ?? undefined,
     migrationLogUrl: result.migrationLogUrl ?? undefined,
   });
-  controllers.delete(id);
+  cleanupRun(id);
   drainQueue();
 }
 
@@ -201,7 +420,7 @@ function handlePipelineError(id: string, err: unknown): void {
     failureReason: err instanceof Error ? err.message : String(err),
     completedAt: new Date().toISOString(),
   });
-  controllers.delete(id);
+  cleanupRun(id);
   drainQueue();
 }
 
@@ -240,20 +459,10 @@ function drainQueue(): void {
     }
     queuedRequests.delete(next.id);
 
-    // Launch the pipeline.
-    const ac = new AbortController();
-    controllers.set(next.id, ac);
-
     console.log(`[manager] Dequeuing migration ${next.id} (${next.sourceOrg}/${next.sourceRepo})`);
 
-    runMigrationPipeline({
-      ...req,
-      id: next.id,
-      signal: ac.signal,
-      emit: createEmitHandler(next.id),
-    })
-      .then((result) => handlePipelineResult(next.id, result))
-      .catch((err) => handlePipelineError(next.id, err));
+    // Launch the pipeline.
+    launchPipeline(next.id, req);
   }
 }
 
@@ -288,6 +497,7 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     warningsCount: 0,
     sourceCounts: null,
     targetCounts: null,
+    sourceSizeKb: null,
     startedAt: now,
     completedAt: null,
     elapsedSeconds: null,
@@ -307,19 +517,8 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     insertMigration(migration);
   })();
 
-  // Create an AbortController for cancellation.
-  const ac = new AbortController();
-  controllers.set(id, ac);
-
   // Fire-and-forget: run the pipeline in the background.
-  runMigrationPipeline({
-    ...req,
-    id,
-    signal: ac.signal,
-    emit: createEmitHandler(id),
-  })
-    .then((result) => handlePipelineResult(id, result))
-    .catch((err) => handlePipelineError(id, err));
+  launchPipeline(id, req);
 
   return migration;
 }
@@ -389,6 +588,7 @@ function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
     warningsCount: 0,
     sourceCounts: null,
     targetCounts: null,
+    sourceSizeKb: null,
     startedAt: now,
     completedAt: null,
     elapsedSeconds: null,
@@ -527,16 +727,7 @@ export function restart(migrationId: string, creds: RestartMigrationRequest): Mi
   if (queued) {
     queuedRequests.set(migrationId, req);
   } else {
-    const ac = new AbortController();
-    controllers.set(migrationId, ac);
-    runMigrationPipeline({
-      ...req,
-      id: migrationId,
-      signal: ac.signal,
-      emit: createEmitHandler(migrationId),
-    })
-      .then((result) => handlePipelineResult(migrationId, result))
-      .catch((err) => handlePipelineError(migrationId, err));
+    launchPipeline(migrationId, req);
   }
 
   return getMigration(migrationId)!;
@@ -675,13 +866,17 @@ export function recoverOrphans(): void {
       const ac = new AbortController();
       controllers.set(id, ac);
 
-      // Fire-and-forget: resume in the background.
-      resumeMigration(migration, createEmitHandler(id), ac.signal)
+      // Fire-and-forget: resume in the background. Register the settle-promise
+      // so the stall watchdog can await an aborted resume before failing it.
+      // (No retained request — recovered migrations can't be auto-restarted,
+      // only failed for manual review if they stall.)
+      const p = resumeMigration(migration, createEmitHandler(id), ac.signal)
         .then((result) => {
           handlePipelineResult(id, result);
           console.log(`[manager] Recovered migration ${id}: ${result.state}`);
         })
         .catch((err) => handlePipelineError(id, err));
+      activePromises.set(id, p);
     }
   }
 

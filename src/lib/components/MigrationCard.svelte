@@ -1,12 +1,20 @@
 <!-- Migration card for the dashboard list -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import type { Migration } from '$lib/types';
-	import { formatElapsed } from '$lib/format';
+	import type { Migration, Snapshot, Counts, Phase } from '$lib/types';
+	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
 
-	let { migration }: { migration: Migration } = $props();
+	let {
+		migration,
+		live,
+		now,
+	}: {
+		migration: Migration;
+		live?: { snapshot: Snapshot; sourceCounts: Counts | null };
+		now?: number;
+	} = $props();
 
 	const stateStyles: Record<string, string> = {
 		queued: 'bg-blue-500/15 text-blue-400',
@@ -26,38 +34,69 @@
 		cancelled: 'skip'
 	};
 
-	function timeAgo(dateStr: string): string {
-		const diff = Date.now() - new Date(dateStr).getTime();
-		const mins = Math.floor(diff / 60_000);
-		if (mins < 1) return 'just now';
-		if (mins < 60) return `${mins}m ago`;
-		const hrs = Math.floor(mins / 60);
-		if (hrs < 24) return `${hrs}h ago`;
-		return `${Math.floor(hrs / 24)}d ago`;
-	}
+	const phaseMeta: Record<Phase, { label: string; icon: IconName }> = {
+		QUEUED: { label: 'Queued', icon: 'clock' },
+		PENDING_VALIDATION: { label: 'Validating', icon: 'shield-check' },
+		EXPORTING: { label: 'Exporting', icon: 'download' },
+		IMPORTING_GIT: { label: 'Git import', icon: 'repo-push' },
+		IMPORTING_METADATA: { label: 'Metadata', icon: 'note' },
+		SUCCEEDED: { label: 'Done', icon: 'check-circle' },
+		FAILED: { label: 'Failed', icon: 'x-circle' },
+		UNKNOWN: { label: 'Working', icon: 'sync' }
+	};
+
+	const isActive = $derived(
+		migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running'
+	);
+
+	// Source platform: GitHub Enterprise Server vs. GitHub.com. Target is always GHEC.
+	const sourcePlatform = $derived(
+		migration.sourceApiUrl && !migration.sourceApiUrl.includes('api.github.com') ? 'GHES' : 'GHEC'
+	);
+
+	// Live wall-clock elapsed for active migrations (ticks via `now`).
+	const liveElapsed = $derived(
+		isActive && now ? (now - new Date(migration.startedAt).getTime()) / 1000 : migration.elapsedSeconds
+	);
+
+	// Blended progress (commits + issues + PRs migrated vs. source) for the live bar.
+	const livePct = $derived.by(() => {
+		if (!live) return null;
+		const src = live.sourceCounts;
+		if (!src) return null;
+		const total = src.commits + src.issues + src.pullRequests;
+		if (total <= 0) return null;
+		const done = live.snapshot.commits + live.snapshot.issues + live.snapshot.pullRequests;
+		return Math.min(100, Math.round((done / total) * 100));
+	});
 </script>
 
 <a href="/{migration.id}"
 	class="block rounded-md border border-gray-700 bg-gray-900 p-4 hover:border-gray-600 hover:bg-gray-800 transition-all">
 	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<div>
-				<span class="text-sm font-medium text-gray-50">
-					{migration.sourceOrg}/{migration.sourceRepo}
-				</span>
-				<span class="mx-2 text-gray-500"><Octicon name="arrow-right" size={12} /></span>
-				<span class="text-sm text-gray-300">
-					{migration.targetOrg}/{migration.targetRepo}
-				</span>
-			</div>
+		<div class="flex items-center gap-2 min-w-0">
+			<span class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-50 min-w-0">
+				<Octicon name="repo" size={16} class="text-gray-500 shrink-0" />
+				<span class="truncate">{migration.sourceOrg}/{migration.sourceRepo}</span>
+			</span>
+			<span class="text-gray-500 shrink-0"><Octicon name="arrow-right" size={12} /></span>
+			<span class="inline-flex items-center gap-1.5 text-sm text-gray-300 min-w-0">
+				<Octicon name="repo" size={16} class="text-gray-600 shrink-0" />
+				<span class="truncate">{migration.targetOrg}/{migration.targetRepo}</span>
+			</span>
 		</div>
 
 		<div class="flex items-center gap-3">
-			{#if migration.elapsedSeconds}
-				<span class="text-xs text-gray-500">{formatElapsed(migration.elapsedSeconds, '')}</span>
+			{#if liveElapsed}
+				<span class="inline-flex items-center gap-1 text-xs {isActive ? 'text-green-400' : 'text-gray-500'}"
+					title={migration.completedAt
+						? `Started ${formatDateTime(migration.startedAt)}\nFinished ${formatDateTime(migration.completedAt)}`
+						: `Started ${formatDateTime(migration.startedAt)}`}>
+					<Octicon name="stopwatch" size={12} />{formatElapsed(liveElapsed, '')}
+				</span>
 			{/if}
 			<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {stateStyles[migration.state] || stateStyles.pending}">
-				<Octicon name={stateIcons[migration.state] || 'clock'} size={12} />
+				<Octicon name={stateIcons[migration.state] || 'clock'} size={12} class={migration.state === 'running' ? 'animate-spin' : ''} />
 				{migration.state}
 			</span>
 		</div>
@@ -67,17 +106,44 @@
 		<p class="mt-2 text-xs text-red-400/80 line-clamp-1">{migration.failureReason}</p>
 	{/if}
 
-	<div class="mt-2 flex items-center gap-3 text-xs text-gray-500">
-		<span>{timeAgo(migration.startedAt)}</span>
+	{#if isActive && live}
+		{@const snap = live.snapshot}
+		{@const meta = phaseMeta[snap.phase] ?? phaseMeta.UNKNOWN}
+		<div class="mt-2.5">
+			<div class="flex items-center justify-between text-xs">
+				<span class="inline-flex items-center gap-1 text-green-400"><Octicon name={meta.icon} size={12} />{meta.label}</span>
+				<span class="flex items-center gap-3 text-gray-500">
+					{#if snap.commits > 0}<span class="inline-flex items-center gap-1"><Octicon name="git-commit" size={12} />{snap.commits.toLocaleString()}</span>{/if}
+					{#if snap.issues > 0}<span class="inline-flex items-center gap-1"><Octicon name="issue-opened" size={12} />{snap.issues.toLocaleString()}</span>{/if}
+					{#if snap.pullRequests > 0}<span class="inline-flex items-center gap-1"><Octicon name="git-pull-request" size={12} />{snap.pullRequests.toLocaleString()}</span>{/if}
+					{#if livePct != null}<span class="tabular-nums text-gray-400">{livePct}%</span>{/if}
+				</span>
+			</div>
+			<div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-800">
+				{#if livePct != null}
+					<div class="h-full rounded-full bg-green-500 transition-all duration-500" style="width: {livePct}%"></div>
+				{:else}
+					<div class="h-full w-1/3 animate-pulse rounded-full bg-green-500/60"></div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
+	<div class="mt-2 flex items-center gap-x-3 gap-y-1 flex-wrap text-xs text-gray-500 [&>*:not(:first-child)]:before:content-['·'] [&>*:not(:first-child)]:before:mr-3 [&>*:not(:first-child)]:before:text-gray-600">
+		{#if migration.sourceSizeKb != null}
+			<span class="inline-flex items-center gap-1"><Octicon name="database" size={12} /> {formatRepoSize(migration.sourceSizeKb)}</span>
+		{/if}
 		{#if migration.batchId}
 			<!-- Use onclick to avoid nested <a> inside card link -->
-			<span>· <button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
+			<span><button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
 		{/if}
 		{#if migration.warningsCount > 0}
-			<span>· {migration.warningsCount} warnings</span>
+			<span class="inline-flex items-center gap-1 text-yellow-500/80"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>
 		{/if}
-		{#if migration.sourceApiUrl && !migration.sourceApiUrl.includes('api.github.com')}
-			<span class="inline-flex items-center gap-1">· <Octicon name="server" size={12} /> GHES</span>
-		{/if}
+		<span class="inline-flex items-center gap-1.5" title="{sourcePlatform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub.com'} to GitHub Enterprise Cloud">
+			<span class="inline-flex items-center gap-1"><Octicon name="server" size={12} />{sourcePlatform}</span>
+			<span class="text-gray-600">→</span>
+			<span class="inline-flex items-center gap-1"><Octicon name="cloud" size={12} />GHEC</span>
+		</span>
 	</div>
 </a>

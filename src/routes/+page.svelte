@@ -10,7 +10,7 @@
 	import Octicon from '$lib/components/Octicon.svelte';
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
-	import type { Migration, BatchListItem, PaginatedResult } from '$lib/types';
+	import type { Migration, BatchListItem, PaginatedResult, Snapshot, Counts } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
 	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);
@@ -25,14 +25,30 @@
 	let migrationsResult = $derived<PaginatedResult<Migration>>(data.migrations);
 	let batchesResult = $derived<PaginatedResult<BatchListItem>>(data.batches);
 
-	let globalSSE: ReturnType<typeof createGlobalEventSource> | null = null;
+	let globalSSE = $state<ReturnType<typeof createGlobalEventSource> | null>(null);
+
+	// Ticking clock so active cards show a live-updating elapsed timer.
+	let now = $state(Date.now());
 
 	onMount(() => {
 		globalSSE = createGlobalEventSource();
+		const tick = setInterval(() => { now = Date.now(); }, 1000);
+		return () => clearInterval(tick);
 	});
 
 	onDestroy(() => {
 		globalSSE?.destroy();
+	});
+
+	// Latest live snapshot per migration id, derived from the global SSE stream.
+	const liveById = $derived.by(() => {
+		const map = new Map<string, { snapshot: Snapshot; sourceCounts: Counts | null }>();
+		for (const ev of globalSSE?.events ?? []) {
+			if (ev.eventType === 'snapshot') {
+				map.set(ev.migrationId, { snapshot: ev.payload.progress.current, sourceCounts: ev.payload.sourceCounts });
+			}
+		}
+		return map;
 	});
 
 	const active = $derived(migrations.value.filter((m: Migration) => m.state === 'queued' || m.state === 'pending' || m.state === 'running'));
@@ -45,6 +61,18 @@
 		return { label: 'done', style: 'bg-green-600/15 text-green-400' };
 	}
 
+	function timeAgo(dateStr: string): string {
+		const diff = Date.now() - new Date(dateStr).getTime();
+		const mins = Math.floor(diff / 60_000);
+		if (mins < 1) return 'just now';
+		if (mins < 60) return `${mins}m ago`;
+		const hrs = Math.floor(mins / 60);
+		if (hrs < 24) return `${hrs}h ago`;
+		return `${Math.floor(hrs / 24)}d ago`;
+	}
+
+	const pctOf = (n: number, total: number) => (total > 0 ? (n / total) * 100 : 0);
+
 	function goMigrationsPage(p: number) {
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('page', String(p));
@@ -56,27 +84,19 @@
 		params.set('bp', String(p));
 		goto(`/?${params.toString()}`, { keepFocus: true, noScroll: false });
 	}
-	let logoEl: HTMLImageElement | undefined = $state();
-	let logoLoaded = $state(false);
-
-	$effect(() => {
-		if (logoEl?.complete && logoEl.naturalWidth > 0) logoLoaded = true;
-	});
-
 </script>
 
 <div class="space-y-8">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
-			<img
-				bind:this={logoEl}
-				src="/imgs/logo.png"
-				alt=""
-				class="{logoLoaded ? '' : 'hidden'} h-14 w-14 rounded-lg border border-gray-700"
-				onload={() => { logoLoaded = true; }}
-				onerror={() => { logoLoaded = false; }}
-			/>
+			{#if data.logoUrl}
+				<img
+					src={data.logoUrl}
+					alt=""
+					class="h-14 w-14 rounded-lg border border-gray-700"
+				/>
+			{/if}
 			<div>
 				<h1 class="text-2xl font-bold text-gray-50">Migrations</h1>
 				<p class="mt-1 text-sm text-gray-400">
@@ -101,19 +121,35 @@
 			<div class="space-y-2">
 				{#each batchesResult.data as batch (batch.id)}
 					{@const badge = batchStateBadge(batch)}
+					{@const donePct = Math.round(pctOf(batch.succeededCount, batch.totalCount))}
 					<a href="/batches/{batch.id}"
-					class="flex items-center justify-between rounded-md border border-gray-700 bg-gray-900 p-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
-						<div class="flex items-center gap-3">
-							<span class="text-sm font-medium text-gray-50">{batch.totalCount} repos</span>
-							<span class="rounded-full px-2 py-0.5 text-xs font-medium {badge.style}">{badge.label}</span>
+					class="block rounded-md border border-gray-700 bg-gray-900 p-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
+						<div class="flex items-center justify-between gap-3">
+							<div class="flex min-w-0 items-center gap-2.5">
+								<Octicon name="repo" size={16} class="text-gray-500" />
+								<span class="text-sm font-medium text-gray-50">{batch.totalCount} repos</span>
+								<span class="rounded-full px-2 py-0.5 text-xs font-medium {badge.style}">{badge.label}</span>
+							</div>
+							<div class="flex shrink-0 items-center gap-3 text-xs">
+								{#if batch.succeededCount > 0}<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="check-circle-fill" size={12} />{batch.succeededCount}</span>{/if}
+								{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="sync" size={12} />{batch.runningCount}</span>{/if}
+								{#if batch.pendingCount > 0}<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount}</span>{/if}
+								{#if batch.queuedCount > 0}<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount}</span>{/if}
+								{#if batch.failedCount > 0}<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount}</span>{/if}
+								{#if batch.cancelledCount > 0}<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="skip" size={12} />{batch.cancelledCount}</span>{/if}
+							</div>
 						</div>
-						<div class="flex items-center gap-4 text-xs text-gray-500">
-							{#if batch.succeededCount > 0}<span class="text-green-400">{batch.succeededCount} ok</span>{/if}
-							{#if batch.runningCount > 0}<span class="text-green-400">{batch.runningCount} running</span>{/if}
-							{#if batch.pendingCount > 0}<span class="text-yellow-400">{batch.pendingCount} pending</span>{/if}
-						{#if batch.queuedCount > 0}<span class="text-blue-400">{batch.queuedCount} queued</span>{/if}
-							{#if batch.failedCount > 0}<span class="text-red-400">{batch.failedCount} failed</span>{/if}
-							<span class="text-gray-600 font-mono text-[10px]">{batch.id.slice(0, 8)}</span>
+						<div class="mt-2.5 flex items-center gap-3">
+							<div class="flex h-1.5 flex-1 overflow-hidden rounded-full bg-gray-800">
+								<div class="h-full bg-green-500" style="width: {pctOf(batch.succeededCount, batch.totalCount)}%"></div>
+								<div class="h-full bg-red-500" style="width: {pctOf(batch.failedCount, batch.totalCount)}%"></div>
+								<div class="h-full bg-gray-500" style="width: {pctOf(batch.cancelledCount, batch.totalCount)}%"></div>
+							</div>
+							<span class="shrink-0 text-[11px] tabular-nums text-gray-500">{donePct}%</span>
+							<span class="inline-flex shrink-0 items-center gap-1 text-[11px] text-gray-500">
+								<Octicon name="clock" size={12} />{timeAgo(batch.startedAt)}
+							</span>
+							<span class="shrink-0 font-mono text-[10px] text-gray-600">{batch.id.slice(0, 8)}</span>
 						</div>
 					</a>
 				{/each}
@@ -137,7 +173,7 @@
 			</h2>
 			<div class="space-y-3">
 				{#each active as migration (migration.id)}
-					<MigrationCard {migration} />
+					<MigrationCard {migration} live={liveById.get(migration.id)} {now} />
 				{/each}
 			</div>
 		</section>

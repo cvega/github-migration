@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
-	import { formatElapsed } from '$lib/format';
+	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
 	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
 	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import StatsTable from '$lib/components/StatsTable.svelte';
@@ -226,7 +226,16 @@
 			<div class="mt-1 flex items-center gap-3 text-sm">
 				<span class={stateColor + ' font-medium uppercase'}>{migration.state}</span>
 				<span class="text-gray-600">·</span>
-				<span class="text-gray-400">{formatElapsed(migration.elapsedSeconds)}</span>
+				<span class="inline-flex items-center gap-1 text-gray-400"
+					title={migration.completedAt
+						? `Started ${formatDateTime(migration.startedAt)}\nFinished ${formatDateTime(migration.completedAt)}`
+						: `Started ${formatDateTime(migration.startedAt)}`}>
+					<Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}
+				</span>
+				{#if migration.sourceSizeKb != null}
+					<span class="text-gray-600">·</span>
+					<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="database" size={12} />{formatRepoSize(migration.sourceSizeKb)}</span>
+				{/if}
 				{#if migration.warningsCount > 0}
 					<span class="text-gray-600">·</span>
 					<span class="text-yellow-400">{migration.warningsCount} warnings</span>
@@ -383,6 +392,10 @@
 							</a>
 							<span class="text-gray-600">·</span>
 							<span class="inline-flex items-center gap-1"><Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}</span>
+							{#if migration.completedAt}
+								<span class="text-gray-600">·</span>
+								<span class="inline-flex items-center gap-1" title="Started {formatDateTime(migration.startedAt)}"><Octicon name="check" size={12} />{formatDateTime(migration.completedAt)}</span>
+							{/if}
 							{#if migration.warningsCount > 0}
 								<span class="text-gray-600">·</span>
 								<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} />{migration.warningsCount} warnings</span>

@@ -96,6 +96,7 @@ const MIGRATION_COLS = [
   "pipeline_step",
   "auth_mode",
   "request_options",
+  "source_size_kb",
 ].join(", ");
 
 /** Explicit column list for event queries. */
@@ -203,6 +204,11 @@ export function updateCheckpoint(
       WHERE id = ?`,
     )
     .run(step, extras?.authMode ?? null, extras?.githubMigrationId ?? null, id);
+}
+
+/** Record the source repository's disk size (KB) once it's known. */
+export function updateMigrationSourceSize(id: string, sizeKb: number): void {
+  getDb().prepare("UPDATE migrations SET source_size_kb = ? WHERE id = ?").run(sizeKb, id);
 }
 
 /**
@@ -360,6 +366,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
       typeof row.source_counts === "string" ? safeJsonParse<Counts>(row.source_counts) : null,
     targetCounts:
       typeof row.target_counts === "string" ? safeJsonParse<Counts>(row.target_counts) : null,
+    sourceSizeKb: typeof row.source_size_kb === "number" ? row.source_size_kb : null,
     startedAt,
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,
     elapsedSeconds: typeof row.elapsed_seconds === "number" ? row.elapsed_seconds : null,

@@ -103,7 +103,7 @@
 			<div class="flex items-center gap-4">
 				<a href="/new"
 					class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
-					<Octicon name="plus" size={16} />
+					<Octicon name="paper-airplane" size={16} />
 					New Migration
 				</a>
 				{#if data.authEnabled}

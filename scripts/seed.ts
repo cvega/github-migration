@@ -27,6 +27,19 @@ console.log("✓ Cleaned previous seed data\n");
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
 const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
+/**
+ * Repo size in KB, log-distributed across ~12 KB → ~4.5 GB so the dataset has
+ * realistic variety (plenty of small KB/MB repos, fewer huge ones) instead of
+ * clustering in the gigabytes like a uniform range would.
+ */
+function randomRepoSizeKb(): number {
+  const minKb = 12;
+  const maxKb = 4_500_000;
+  const t = Math.random();
+  const kb = minKb * (maxKb / minKb) ** t;
+  return Math.max(minKb, Math.round(kb));
+}
+
 function isoTs(base: Date, offsetSec: number): string {
   return new Date(base.getTime() + offsetSec * 1000).toISOString();
 }
@@ -219,8 +232,8 @@ const failureReasons = [
 const insertMigration = db.prepare(`
   INSERT INTO migrations (id, batch_id, github_migration_id, source_api_url, source_org, source_repo,
     target_org, target_repo, state, failure_reason, warnings_count, source_counts, target_counts,
-    started_at, completed_at, elapsed_seconds, migration_log_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    started_at, completed_at, elapsed_seconds, migration_log_url, source_size_kb)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEvent = db.prepare(`
@@ -279,6 +292,7 @@ function createMigration(opts: MigrationOpts) {
     completedAt,
     elapsed,
     logUrl,
+    randomRepoSizeKb(),
   );
 
   // ── Events ──────────────────────────────────────────────────────────────
@@ -299,7 +313,7 @@ function createMigration(opts: MigrationOpts) {
     JSON.stringify({
       message: isGhec
         ? "GHEC→GHEC migration — no archive export needed"
-        : `GHES version 3.${rand(8, 14)}.${rand(0, 9)} detected`,
+        : `GHES version 3.${rand(17, 20)}.${rand(0, 9)} detected`,
     }),
     isoTs(opts.startedAt, 2),
   );
