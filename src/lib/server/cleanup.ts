@@ -126,120 +126,182 @@ const WINDOW_TOLERANCE_MS = 10 * 60_000;
  * (re-fetched now), the resolved config, and the request. Returns the first
  * failing vector so the reason is specific and the order is deterministic.
  */
-export function evaluateCleanupEligibility(args: {
+export function evaluateCleanupEligibility(args: GateContext): CleanupEligibility {
+  for (const gate of GATES) {
+    const outcome = gate.check(args);
+    if (!outcome.passed) {
+      return { eligible: false, reason: gate.reason, detail: outcome.detail };
+    }
+  }
+  return { eligible: true };
+}
+
+/**
+ * Report the status of EVERY gate, in order — for a confirmation UI that shows
+ * the operator exactly which checks pass and which fail before they act. Built
+ * from the same `GATES` list as `evaluateCleanupEligibility`, so the displayed
+ * checklist can never drift from what is actually enforced.
+ */
+export function describeCleanupGates(args: GateContext): CleanupGateStatus[] {
+  return GATES.map((gate) => {
+    const outcome = gate.check(args);
+    return {
+      reason: gate.reason,
+      label: gate.label,
+      passed: outcome.passed,
+      detail: outcome.detail,
+    };
+  });
+}
+
+// ── Gate definitions ─────────────────────────────────────────────────────────
+// Single source of truth: ordered list of vectors. Each returns pass/fail with
+// a human-readable detail. `evaluateCleanupEligibility` short-circuits on the
+// first failure; `describeCleanupGates` reports them all.
+
+interface GateContext {
   migration: Migration;
   live: LiveRepoFacts;
   config: CleanupConfig;
   request: CleanupRequest;
-}): CleanupEligibility {
-  const { migration, live, config, request } = args;
-
-  // 1. Hard kill switch — checked first, overrides everything.
-  if (config.disabled) {
-    return {
-      eligible: false,
-      reason: "globally-disabled",
-      detail: "Target cleanup is disabled by policy (TARGET_CLEANUP_DISABLED).",
-    };
-  }
-
-  // 2. Mode must permit this specific action.
-  if (!modePermits(config.mode, request.action)) {
-    return {
-      eligible: false,
-      reason: "mode-disallows-action",
-      detail: `Cleanup mode "${config.mode}" does not permit action "${request.action}".`,
-    };
-  }
-
-  // 3. A dedicated admin credential must be configured for the privileged call.
-  if (!config.hasAdminCredential) {
-    return {
-      eligible: false,
-      reason: "no-admin-credential",
-      detail: "No admin credential configured (GH_TARGET_ADMIN_PAT).",
-    };
-  }
-
-  // 4. Only terminal, non-success migrations are eligible (never succeeded).
-  if (!TERMINAL_STATES.has(migration.state)) {
-    return {
-      eligible: false,
-      reason: "migration-not-terminal",
-      detail: `Migration state "${migration.state}" is not eligible; must be failed or cancelled.`,
-    };
-  }
-
-  // 5. The target must not have pre-existed — i.e. this tool created it.
-  if (migration.targetPreexisted !== false) {
-    return {
-      eligible: false,
-      reason: "target-preexisted",
-      detail:
-        migration.targetPreexisted === true
-          ? "Target repo existed before this migration; it is not ours to clean up."
-          : "Target provenance is unknown; refusing to act.",
-    };
-  }
-
-  // 6. We must have captured the node_id of the repo we created.
-  if (!migration.targetRepoNodeId) {
-    return {
-      eligible: false,
-      reason: "no-recorded-node-id",
-      detail: "No target repo node_id was recorded; cannot prove identity.",
-    };
-  }
-
-  // 7. Immutable identity: the live node_id must still match the captured one.
-  if (live.nodeId !== migration.targetRepoNodeId) {
-    return {
-      eligible: false,
-      reason: "node-id-mismatch",
-      detail:
-        "The repository at this path is not the one this tool created " +
-        "(node_id changed — likely deleted and recreated). Refusing to act.",
-    };
-  }
-
-  // 8. Owner/name must still match the migration record (defense in depth).
-  if (live.owner !== migration.targetOrg || live.name !== migration.targetRepo) {
-    return {
-      eligible: false,
-      reason: "owner-name-mismatch",
-      detail: `Live repo ${live.owner}/${live.name} no longer matches record ${migration.targetOrg}/${migration.targetRepo}.`,
-    };
-  }
-
-  // 9. Temporal corroboration: the repo must have been created during the run.
-  const createdMs = Date.parse(live.createdAt);
-  const startMs = Date.parse(migration.startedAt);
-  const endMs = migration.completedAt ? Date.parse(migration.completedAt) : Date.now();
-  if (!Number.isFinite(createdMs) || !Number.isFinite(startMs)) {
-    return {
-      eligible: false,
-      reason: "created-outside-window",
-      detail: "Could not parse repo creation or migration start time.",
-    };
-  }
-  if (createdMs < startMs - WINDOW_TOLERANCE_MS || createdMs > endMs + WINDOW_TOLERANCE_MS) {
-    return {
-      eligible: false,
-      reason: "created-outside-window",
-      detail:
-        "Target repo's creation time falls outside this migration's run window; " +
-        "it may be a different repository. Refusing to act.",
-    };
-  }
-
-  // 10. Explicit typed confirmation must match exactly.
-  if (request.confirmation !== `${migration.targetOrg}/${migration.targetRepo}`) {
-    return {
-      eligible: false,
-      reason: "confirmation-mismatch",
-      detail: "Confirmation text does not match the target repository.",
-    };
-  }
-
-  return { eligible: true };
 }
+
+interface GateOutcome {
+  passed: boolean;
+  detail: string;
+}
+
+/** Per-gate status for the confirmation UI. */
+export interface CleanupGateStatus {
+  reason: CleanupRefusalReason;
+  /** Short human label for the checklist row. */
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+const GATES: ReadonlyArray<{
+  reason: CleanupRefusalReason;
+  label: string;
+  check: (ctx: GateContext) => GateOutcome;
+}> = [
+  {
+    reason: "globally-disabled",
+    label: "Not disabled by policy",
+    check: ({ config }) =>
+      config.disabled
+        ? {
+            passed: false,
+            detail: "Target cleanup is disabled by policy (TARGET_CLEANUP_DISABLED).",
+          }
+        : { passed: true, detail: "Cleanup is not disabled by policy." },
+  },
+  {
+    reason: "mode-disallows-action",
+    label: "Action permitted by cleanup mode",
+    check: ({ config, request }) =>
+      modePermits(config.mode, request.action)
+        ? { passed: true, detail: `Mode "${config.mode}" permits "${request.action}".` }
+        : {
+            passed: false,
+            detail: `Cleanup mode "${config.mode}" does not permit action "${request.action}".`,
+          },
+  },
+  {
+    reason: "no-admin-credential",
+    label: "Admin credential configured",
+    check: ({ config }) =>
+      config.hasAdminCredential
+        ? { passed: true, detail: "Admin credential is configured." }
+        : { passed: false, detail: "No admin credential configured (GH_TARGET_ADMIN_PAT)." },
+  },
+  {
+    reason: "migration-not-terminal",
+    label: "Migration failed or cancelled",
+    check: ({ migration }) =>
+      TERMINAL_STATES.has(migration.state)
+        ? { passed: true, detail: `Migration is ${migration.state}.` }
+        : {
+            passed: false,
+            detail: `Migration state "${migration.state}" is not eligible; must be failed or cancelled.`,
+          },
+  },
+  {
+    reason: "target-preexisted",
+    label: "Target was created by this tool",
+    check: ({ migration }) =>
+      migration.targetPreexisted === false
+        ? { passed: true, detail: "Target did not pre-exist; this migration created it." }
+        : {
+            passed: false,
+            detail:
+              migration.targetPreexisted === true
+                ? "Target repo existed before this migration; it is not ours to clean up."
+                : "Target provenance is unknown; refusing to act.",
+          },
+  },
+  {
+    reason: "no-recorded-node-id",
+    label: "Repository identity was recorded",
+    check: ({ migration }) =>
+      migration.targetRepoNodeId
+        ? { passed: true, detail: "A node_id was recorded for the created repo." }
+        : { passed: false, detail: "No target repo node_id was recorded; cannot prove identity." },
+  },
+  {
+    reason: "node-id-mismatch",
+    label: "Live identity matches recorded identity",
+    check: ({ migration, live }) =>
+      live.nodeId === migration.targetRepoNodeId
+        ? { passed: true, detail: "Live node_id matches the recorded identity." }
+        : {
+            passed: false,
+            detail:
+              "The repository at this path is not the one this tool created " +
+              "(node_id changed — likely deleted and recreated). Refusing to act.",
+          },
+  },
+  {
+    reason: "owner-name-mismatch",
+    label: "Owner and name still match",
+    check: ({ migration, live }) =>
+      live.owner === migration.targetOrg && live.name === migration.targetRepo
+        ? { passed: true, detail: `Live repo is still ${live.owner}/${live.name}.` }
+        : {
+            passed: false,
+            detail: `Live repo ${live.owner}/${live.name} no longer matches record ${migration.targetOrg}/${migration.targetRepo}.`,
+          },
+  },
+  {
+    reason: "created-outside-window",
+    label: "Created during the migration window",
+    check: ({ migration, live }) => {
+      const createdMs = Date.parse(live.createdAt);
+      const startMs = Date.parse(migration.startedAt);
+      const endMs = migration.completedAt ? Date.parse(migration.completedAt) : Date.now();
+      if (!Number.isFinite(createdMs) || !Number.isFinite(startMs)) {
+        return { passed: false, detail: "Could not parse repo creation or migration start time." };
+      }
+      if (createdMs < startMs - WINDOW_TOLERANCE_MS || createdMs > endMs + WINDOW_TOLERANCE_MS) {
+        return {
+          passed: false,
+          detail:
+            "Target repo's creation time falls outside this migration's run window; " +
+            "it may be a different repository. Refusing to act.",
+        };
+      }
+      return { passed: true, detail: "Repo was created within the migration window." };
+    },
+  },
+  {
+    reason: "confirmation-mismatch",
+    label: "Typed confirmation matches",
+    check: ({ migration, request }) =>
+      request.confirmation === `${migration.targetOrg}/${migration.targetRepo}`
+        ? { passed: true, detail: "Confirmation matches the target repository." }
+        : {
+            passed: false,
+            detail: `Type "${migration.targetOrg}/${migration.targetRepo}" to confirm.`,
+          },
+  },
+];

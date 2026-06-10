@@ -8,8 +8,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration } from "../types";
 import {
   type CleanupConfig,
+  type CleanupGateStatus,
   type CleanupRequest,
   type LiveRepoFacts,
+  describeCleanupGates,
   evaluateCleanupEligibility,
   loadCleanupConfig,
   modePermits,
@@ -225,6 +227,63 @@ describe("evaluateCleanupEligibility — vector ordering", () => {
       request: request({ confirmation: "nope" }),
     });
     expect(r).toMatchObject({ eligible: false, reason: "globally-disabled" });
+  });
+});
+
+describe("describeCleanupGates", () => {
+  function describeWith(parts: {
+    migration?: Partial<Migration>;
+    live?: Partial<LiveRepoFacts>;
+    config?: Partial<CleanupConfig>;
+    request?: Partial<CleanupRequest>;
+  }): CleanupGateStatus[] {
+    return describeCleanupGates({
+      migration: migration(parts.migration),
+      live: live(parts.live),
+      config: config(parts.config),
+      request: request(parts.request),
+    });
+  }
+
+  test("reports all 10 gates", () => {
+    expect(describeWith({})).toHaveLength(10);
+  });
+
+  test("every gate passes on the happy path", () => {
+    const gates = describeWith({});
+    expect(gates.every((g) => g.passed)).toBe(true);
+  });
+
+  test("each gate has a non-empty label and detail", () => {
+    for (const g of describeWith({})) {
+      expect(g.label.length).toBeGreaterThan(0);
+      expect(g.detail.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("reports multiple simultaneous failures (not just the first)", () => {
+    const gates = describeWith({
+      config: { hasAdminCredential: false },
+      migration: { targetPreexisted: true },
+      request: { confirmation: "wrong" },
+    });
+    const failed = gates.filter((g) => !g.passed).map((g) => g.reason);
+    expect(failed).toContain("no-admin-credential");
+    expect(failed).toContain("target-preexisted");
+    expect(failed).toContain("confirmation-mismatch");
+  });
+
+  test("an empty confirmation surfaces the confirmation gate as failing with guidance", () => {
+    const gates = describeWith({ request: { confirmation: "" } });
+    const confirm = gates.find((g) => g.reason === "confirmation-mismatch");
+    expect(confirm?.passed).toBe(false);
+    expect(confirm?.detail).toContain("acme-cloud/widget");
+  });
+
+  test("gate order matches the enforcement order (kill switch first, confirmation last)", () => {
+    const reasons = describeWith({}).map((g) => g.reason);
+    expect(reasons[0]).toBe("globally-disabled");
+    expect(reasons[reasons.length - 1]).toBe("confirmation-mismatch");
   });
 });
 
