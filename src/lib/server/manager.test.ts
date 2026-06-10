@@ -236,7 +236,12 @@ describe("recoverOrphans", () => {
 
   test("does not resume PAT-auth migrations (credentials are lost on restart)", () => {
     insertMigration(
-      makeRow({ id: "orphan-pat", state: "running", authMode: "pat", githubMigrationId: "RM_x" }),
+      makeRow({
+        id: "orphan-pat",
+        state: "running",
+        authMode: "request-pat",
+        githubMigrationId: "RM_x",
+      }),
     );
     recoverOrphans();
     expect(resumed).not.toContain("orphan-pat");

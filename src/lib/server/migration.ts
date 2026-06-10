@@ -500,14 +500,14 @@ async function downloadToFile(
  */
 export function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
   // If explicit tokens were provided in the request, it's PAT auth.
-  if (opts.sourceToken || opts.targetToken) return "pat";
+  if (opts.sourceToken || opts.targetToken) return "request-pat";
   // If explicit app creds were provided per-request, those are lost on crash.
   if (opts.sourceApp || opts.targetApp) return "request-app";
   // Otherwise, both sides must be using env-configured GitHub App.
   if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
   // Env PATs are also resumable since they survive restarts.
   if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-pat";
-  return "pat";
+  return "request-pat";
 }
 
 /**

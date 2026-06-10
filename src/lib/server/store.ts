@@ -679,7 +679,7 @@ function rowToMigration(row: Record<string, unknown>): Migration {
   if (typeof state !== "string" || !validStates.includes(state as MigrationState)) {
     throw new Error(`Invalid migration row ${id}: invalid state "${state}"`);
   }
-  const validAuthModes: AuthMode[] = ["pat", "request-app", "env-app", "env-pat"];
+  const validAuthModes: AuthMode[] = ["request-pat", "request-app", "env-app", "env-pat"];
   const startedAt = row.started_at;
   if (typeof startedAt !== "string")
     throw new Error(`Invalid migration row ${id}: missing started_at`);

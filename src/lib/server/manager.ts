@@ -119,11 +119,11 @@ const watchdogStates = new Map<string, WatchdogState>();
  * Mirror of migration.ts's determineAuthMode but operates on CreateMigrationRequest.
  */
 function determineAuthModeFromRequest(req: CreateMigrationRequest): AuthMode {
-  if (req.sourceToken || req.targetToken) return "pat";
+  if (req.sourceToken || req.targetToken) return "request-pat";
   if (req.sourceApp || req.targetApp) return "request-app";
   if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
   if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-pat";
-  return "pat";
+  return "request-pat";
 }
 
 /** Parse JSON safely, returning null on failure. */

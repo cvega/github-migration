@@ -160,11 +160,11 @@ describe("resetMigration", () => {
 describe("updateCheckpoint / updateMigrationSourceSize", () => {
   test("records pipeline step, auth mode, and source size", () => {
     insertMigration(makeMigration({ id: "c-1" }));
-    updateCheckpoint("c-1", "archiving", { authMode: "pat", githubMigrationId: "RM_chk" });
+    updateCheckpoint("c-1", "archiving", { authMode: "request-pat", githubMigrationId: "RM_chk" });
     updateMigrationSourceSize("c-1", 2048);
 
     const got = getMigration("c-1");
-    expect(got?.authMode).toBe("pat");
+    expect(got?.authMode).toBe("request-pat");
     expect(got?.githubMigrationId).toBe("RM_chk");
     expect(got?.sourceSizeKb).toBe(2048);
   });
@@ -216,7 +216,7 @@ describe("recovery queries", () => {
       makeMigration({
         id: "rec-pat",
         state: "running",
-        authMode: "pat",
+        authMode: "request-pat",
         githubMigrationId: "RM_2",
       }),
     );
@@ -238,7 +238,7 @@ describe("recovery queries", () => {
 
   test("getQueuedEnvMigrations: queued env-auth rows excluding seeds", () => {
     insertMigration(makeMigration({ id: "qe-1", state: "queued", authMode: "env-pat" }));
-    insertMigration(makeMigration({ id: "qe-pat", state: "queued", authMode: "pat" }));
+    insertMigration(makeMigration({ id: "qe-pat", state: "queued", authMode: "request-pat" }));
     insertMigration(makeMigration({ id: "seed-q", state: "queued", authMode: "env-app" }));
 
     const ids = getQueuedEnvMigrations().map((m) => m.id);

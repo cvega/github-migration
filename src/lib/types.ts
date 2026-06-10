@@ -54,7 +54,7 @@ export type PipelineStep =
   | "monitoring"
   | "post_migration";
 
-export type AuthMode = "pat" | "request-app" | "env-app" | "env-pat";
+export type AuthMode = "request-pat" | "request-app" | "env-app" | "env-pat";
 
 /** Auth selection in the UI auth-mode toggle (PAT, request-time App, or server env). */
 export type AuthFieldMode = "pat" | "app" | "env-app" | "env-pat";

@@ -161,7 +161,7 @@ queued → pending → preflight → archiving → ghec_starting → monitoring 
 
 | Mode | Source | Credentials | Crash-Recoverable |
 |---|---|---|---|
-| `pat` | Per-request | User-provided PAT | No |
+| `request-pat` | Per-request | User-provided PAT | No |
 | `request-app` | Per-request | User-provided App ID/key/installation | No |
 | `env-app` | Environment | `GH_*_APP_*` env vars | Yes |
 | `env-pat` | Environment | `GH_*_PAT` env vars | Yes |
@@ -183,7 +183,7 @@ SQLite via `bun:sqlite` in WAL mode, with two tables.
 | `target_org` · `target_repo` | TEXT | Where the repo lands |
 | `state` | TEXT | Lifecycle state (see below) |
 | `pipeline_step` | TEXT | Current step within the pipeline |
-| `auth_mode` | TEXT | `pat` · `request-app` · `env-app` · `env-pat` |
+| `auth_mode` | TEXT | `request-pat` · `request-app` · `env-app` · `env-pat` |
 | `failure_reason` · `migration_log_url` | TEXT | Populated on failure / completion |
 | `warnings_count` | INTEGER | Non-fatal warnings surfaced during migration |
 | `source_counts` · `target_counts` | JSON | Commit/issue/PR counts, before and after |

@@ -260,9 +260,9 @@ describe("determineAuthMode", () => {
     process.env[`GH_${side}_APP_INSTALLATION_ID`] = "456";
   }
 
-  test("a request token means pat auth", () => {
-    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("pat");
-    expect(determineAuthMode(opts({ targetToken: "ghp_y" }))).toBe("pat");
+  test("a request token means request-pat auth", () => {
+    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("request-pat");
+    expect(determineAuthMode(opts({ targetToken: "ghp_y" }))).toBe("request-pat");
   });
 
   test("request app credentials (no tokens) mean request-app", () => {
@@ -279,8 +279,8 @@ describe("determineAuthMode", () => {
 
   test("a single-sided env app falls through (not env-app)", () => {
     setEnvApp("SOURCE");
-    // Target has no auth at all → no env-app, no env-pat → pat.
-    expect(determineAuthMode(opts())).toBe("pat");
+    // Target has no auth at all → no env-app, no env-pat → request-pat.
+    expect(determineAuthMode(opts())).toBe("request-pat");
   });
 
   test("env PATs on both sides mean env-pat", () => {
@@ -289,13 +289,13 @@ describe("determineAuthMode", () => {
     expect(determineAuthMode(opts())).toBe("env-pat");
   });
 
-  test("no credentials anywhere defaults to pat", () => {
-    expect(determineAuthMode(opts())).toBe("pat");
+  test("no credentials anywhere defaults to request-pat", () => {
+    expect(determineAuthMode(opts())).toBe("request-pat");
   });
 
   test("a request token takes precedence over configured env apps", () => {
     setEnvApp("SOURCE");
     setEnvApp("TARGET");
-    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("pat");
+    expect(determineAuthMode(opts({ sourceToken: "ghp_x" }))).toBe("request-pat");
   });
 });
