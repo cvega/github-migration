@@ -52,6 +52,21 @@
 	const confirmed = $derived(confirmText === phrase);
 	const canSubmit = $derived(!!preview?.ready && confirmed && !submitting);
 
+	// The 9 server-evaluated gates are a snapshot; the confirmation gate must
+	// track the live input box so it only turns green once the operator types
+	// the exact org/repo (never pre-satisfied).
+	const displayGates = $derived(
+		(preview?.gates ?? []).map((g) =>
+			g.reason === 'confirmation-mismatch'
+				? {
+						...g,
+						passed: confirmed,
+						detail: confirmed ? 'Confirmation matches.' : `Type ${phrase} to confirm.`
+					}
+				: g
+		)
+	);
+
 	async function loadPreview() {
 		loading = true;
 		errorMsg = '';
@@ -206,7 +221,7 @@
 					<div class="px-4 py-6 text-center text-sm text-gray-500">Checking gates…</div>
 				{:else if preview}
 					<ul class="divide-y divide-gray-800/60">
-						{#each preview.gates as gate (gate.reason)}
+						{#each displayGates as gate (gate.reason)}
 							<li class="flex items-start gap-2 px-4 py-2 text-sm">
 								<span class="mt-0.5 shrink-0">
 									{#if gate.passed}

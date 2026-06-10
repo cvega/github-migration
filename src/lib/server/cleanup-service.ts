@@ -73,11 +73,14 @@ export async function previewCleanup(
     : ABSENT_FACTS;
 
   const confirmationPhrase = `${migration.targetOrg}/${migration.targetRepo}`;
+  // Preview with an empty confirmation: the operator hasn't typed yet, so the
+  // confirmation gate must show as outstanding (not pre-satisfied). The modal
+  // re-evaluates that one gate live against the input box.
   const gates = describeCleanupGates({
     migration,
     live,
     config,
-    request: { action, confirmation: confirmationPhrase },
+    request: { action, confirmation: "" },
   });
   // `ready` = everything except the operator's typed confirmation is satisfied.
   const ready = gates.every((g) => g.passed || g.reason === "confirmation-mismatch");
