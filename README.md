@@ -22,18 +22,17 @@
 
 ---
 
-## Features
+## Capabilities
 
-- **GHES → GHEC & GHEC → GHEC** — archive-based or direct passthrough migrations
-- **Batch operations** — migrate up to 500 repos in a single request
-- **Concurrency queue** — up to 10 concurrent migrations (GitHub limit), excess auto-queued FIFO
-- **Real-time monitoring** — live phase timeline, progress bars, throughput rates via SSE
-- **Cancellation & restart** — abort at any pipeline stage; restart failed/cancelled migrations in place
-- **Stall watchdog** — auto-detects migrations that hang with zero progress and restarts them, while never touching large repos
-- **Crash recovery** — env-configured auth (`env-app`, `env-pat`) migrations auto-resume from checkpoint on restart
-- **Flexible auth** — PAT tokens (per-request or env), per-request GitHub App, or env-configured GitHub App with auto-refresh
-- **Preflight checks** — validates GHES version, target org, warns on existing target repos
-- **Security** — CSP headers, timing-safe auth, HMAC-signed sessions, rate limiting, non-root container
+- Migrates repositories GHES → GHEC and GHEC → GHEC, via archive upload or direct passthrough.
+- Accepts batch requests of up to 500 repositories; a FIFO queue caps execution at 10 concurrent migrations (GitHub's limit).
+- Reports progress over Server-Sent Events (SSE) — phase timeline, per-resource progress, and throughput.
+- Supports cancelling in-flight migrations and restarting failed or cancelled ones in place.
+- Includes an optional watchdog that restarts migrations showing no progress, with size-based exclusions.
+- Resumes env-authenticated migrations (`env-app`, `env-pat`) from checkpoint after a server restart.
+- Authenticates via PAT or GitHub App, supplied per request or from the environment; App tokens auto-refresh.
+- Runs preflight checks on GHES version and target org, and warns on pre-existing target repositories.
+- Applies standard hardening: CSP headers, timing-safe credential comparison, HMAC-signed sessions, login rate limiting, and a non-root container.
 
 ---
 
@@ -271,6 +270,16 @@ Guards against the bug where a migration occasionally hangs in an in-progress st
 | `WATCHDOG_MAX_PRS` | `5000` | Pull-request-count cap — at or above this, a repo is "large" |
 
 A ready-to-edit [docker-compose.yml](docker-compose.yml) and [.env.example](.env.example) cover all of the above.
+
+### Custom Logo (optional)
+
+Drop a logo file into `static/imgs/` and the dashboard header displays it automatically — no configuration needed. The first match wins, in this order:
+
+1. `logo.svg`
+2. `logo.webp`
+3. `logo.png`
+
+If none are present, no logo is shown. When running in Docker, mount your file to `/app/static/imgs/logo.svg` (or `.webp`/`.png`).
 
 ---
 
