@@ -32,6 +32,7 @@ import {
   searchBatchItemsPaginated,
   searchMigrationsPaginated,
   updateCheckpoint,
+  updateMigrationProvenance,
   updateMigrationSourceSize,
   updateMigrationState,
 } from "./store";
@@ -65,6 +66,8 @@ function makeMigration(over: Partial<Migration> = {}): Migration {
     elapsedSeconds: null,
     authMode: null,
     requestOptions: null,
+    targetPreexisted: null,
+    targetRepoNodeId: null,
     ...over,
   };
 }
@@ -167,6 +170,59 @@ describe("updateCheckpoint / updateMigrationSourceSize", () => {
     expect(got?.authMode).toBe("request-pat");
     expect(got?.githubMigrationId).toBe("RM_chk");
     expect(got?.sourceSizeKb).toBe(2048);
+  });
+});
+
+describe("updateMigrationProvenance", () => {
+  test("defaults are null for a freshly inserted migration", () => {
+    insertMigration(makeMigration({ id: "p-0" }));
+    const got = getMigration("p-0");
+    expect(got?.targetPreexisted).toBeNull();
+    expect(got?.targetRepoNodeId).toBeNull();
+  });
+
+  test("persists targetPreexisted=false as a distinct value (not treated as absent)", () => {
+    insertMigration(makeMigration({ id: "p-1" }));
+    updateMigrationProvenance("p-1", { targetPreexisted: false });
+    expect(getMigration("p-1")?.targetPreexisted).toBe(false);
+  });
+
+  test("persists targetPreexisted=true", () => {
+    insertMigration(makeMigration({ id: "p-2" }));
+    updateMigrationProvenance("p-2", { targetPreexisted: true });
+    expect(getMigration("p-2")?.targetPreexisted).toBe(true);
+  });
+
+  test("persists the immutable node_id", () => {
+    insertMigration(makeMigration({ id: "p-3" }));
+    updateMigrationProvenance("p-3", { targetRepoNodeId: "R_kgDOabc123" });
+    expect(getMigration("p-3")?.targetRepoNodeId).toBe("R_kgDOabc123");
+  });
+
+  test("COALESCE leaves an omitted field unchanged across calls", () => {
+    insertMigration(makeMigration({ id: "p-4" }));
+    updateMigrationProvenance("p-4", { targetPreexisted: false });
+    updateMigrationProvenance("p-4", { targetRepoNodeId: "R_kgDOxyz" });
+    const got = getMigration("p-4");
+    // The second call (node_id only) must not wipe the earlier preexisted=false.
+    expect(got?.targetPreexisted).toBe(false);
+    expect(got?.targetRepoNodeId).toBe("R_kgDOxyz");
+  });
+
+  test("is write-once: a recorded preexisted value cannot be flipped (restart safety)", () => {
+    insertMigration(makeMigration({ id: "p-5" }));
+    // A repo that genuinely pre-existed.
+    updateMigrationProvenance("p-5", { targetPreexisted: true });
+    // A later re-preflight (e.g. on restart, repo since deleted) must NOT flip it.
+    updateMigrationProvenance("p-5", { targetPreexisted: false });
+    expect(getMigration("p-5")?.targetPreexisted).toBe(true);
+  });
+
+  test("is write-once: the node_id cannot be rebound once set", () => {
+    insertMigration(makeMigration({ id: "p-6" }));
+    updateMigrationProvenance("p-6", { targetRepoNodeId: "R_original" });
+    updateMigrationProvenance("p-6", { targetRepoNodeId: "R_attacker" });
+    expect(getMigration("p-6")?.targetRepoNodeId).toBe("R_original");
   });
 });
 

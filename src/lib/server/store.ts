@@ -100,6 +100,8 @@ const MIGRATION_COLS = [
   "auth_mode",
   "request_options",
   "source_size_kb",
+  "target_preexisted",
+  "target_repo_node_id",
 ].join(", ");
 
 /** Explicit column list for event queries. */
@@ -272,6 +274,35 @@ export function updateCheckpoint(
 /** Record the source repository's disk size (KB) once it's known. */
 export function updateMigrationSourceSize(id: string, sizeKb: number): void {
   getDb().prepare("UPDATE migrations SET source_size_kb = ? WHERE id = ?").run(sizeKb, id);
+}
+
+/**
+ * Persist target-repo provenance for safe-cleanup eligibility. Set during the
+ * pipeline: `targetPreexisted` at preflight, `targetRepoNodeId` once the repo
+ * this tool created is confirmed.
+ *
+ * **Write-once:** each field uses `COALESCE(column, ?)`, so once a non-null
+ * value is recorded it can never be changed by this function. This is a safety
+ * property, not a convenience — a restart re-runs preflight, and without
+ * write-once a repo that genuinely pre-existed (`true`) could be flipped to
+ * `false` if it were deleted between runs, wrongly marking it as "ours".
+ */
+export function updateMigrationProvenance(
+  id: string,
+  data: { targetPreexisted?: boolean; targetRepoNodeId?: string },
+): void {
+  getDb()
+    .prepare(
+      `UPDATE migrations SET
+        target_preexisted = COALESCE(target_preexisted, ?),
+        target_repo_node_id = COALESCE(target_repo_node_id, ?)
+      WHERE id = ?`,
+    )
+    .run(
+      data.targetPreexisted === undefined ? null : data.targetPreexisted ? 1 : 0,
+      data.targetRepoNodeId ?? null,
+      id,
+    );
 }
 
 /**
@@ -710,6 +741,9 @@ function rowToMigration(row: Record<string, unknown>): Migration {
         ? (row.auth_mode as AuthMode)
         : null,
     requestOptions: typeof row.request_options === "string" ? row.request_options : null,
+    targetPreexisted:
+      row.target_preexisted === 1 ? true : row.target_preexisted === 0 ? false : null,
+    targetRepoNodeId: typeof row.target_repo_node_id === "string" ? row.target_repo_node_id : null,
   };
 }
 

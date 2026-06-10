@@ -27,7 +27,9 @@ const SCHEMA_DDL = `
     pipeline_step TEXT,
     auth_mode TEXT,
     request_options TEXT,
-    source_size_kb INTEGER
+    source_size_kb INTEGER,
+    target_preexisted INTEGER,
+    target_repo_node_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -54,6 +56,8 @@ export function applySchema(db: Database): void {
   db.run("PRAGMA foreign_keys = ON");
   db.run(SCHEMA_DDL);
   addColumnIfMissing(db, "migrations", "source_size_kb", "INTEGER");
+  addColumnIfMissing(db, "migrations", "target_preexisted", "INTEGER");
+  addColumnIfMissing(db, "migrations", "target_repo_node_id", "TEXT");
 }
 
 /**

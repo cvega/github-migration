@@ -85,6 +85,8 @@ function makeMigration(over: Partial<Migration> = {}): Migration {
     elapsedSeconds: null,
     authMode: "env-pat",
     requestOptions: null,
+    targetPreexisted: null,
+    targetRepoNodeId: null,
     ...over,
   };
 }

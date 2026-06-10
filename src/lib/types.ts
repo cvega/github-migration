@@ -233,6 +233,20 @@ export interface Migration {
   elapsedSeconds: number | null;
   authMode: AuthMode | null;
   requestOptions: string | null;
+  /**
+   * Whether the target repo already existed at preflight, before this tool
+   * touched it. `false` means this migration created it; `true` means it was
+   * someone else's; `null` means unknown (older rows). Provenance for safe
+   * target cleanup — a repo that pre-existed is never eligible.
+   */
+  targetPreexisted: boolean | null;
+  /**
+   * Immutable GraphQL node_id of the target repo, captured when this tool
+   * created it. `null` means unknown / not ours. Used as the tamper-proof
+   * identity anchor for cleanup eligibility (survives rename, dies on
+   * delete+recreate).
+   */
+  targetRepoNodeId: string | null;
 }
 
 /** Aggregate analytics across all migrations, for the /stats dashboard. */

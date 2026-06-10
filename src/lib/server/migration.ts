@@ -43,7 +43,7 @@ import {
   waitForArchive,
 } from "./github";
 import { type EventEmitter, runMonitor } from "./monitor";
-import { updateCheckpoint, updateMigrationSourceSize } from "./store";
+import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 import { extractOrg, extractRepo } from "./util";
 
@@ -83,6 +83,8 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     elapsedSeconds: null,
     authMode: null,
     requestOptions: null,
+    targetPreexisted: null,
+    targetRepoNodeId: null,
   };
 
   const emitStep = (message: string) => {
@@ -203,6 +205,9 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
 
     // If GHEC reported failure, don't mark as succeeded.
     if (terminalPhase === "FAILED") {
+      // The repo may have been created before the import failed — capture its
+      // identity so a guarded cleanup/restart can later prove provenance.
+      await captureTargetNodeId(clients, migration);
       migration.state = "failed";
       migration.failureReason = "Migration failed on GHEC";
       migration.completedAt = new Date().toISOString();
@@ -232,6 +237,9 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     } catch {
       // Non-fatal
     }
+
+    // Capture the created repo's immutable identity for provenance.
+    await captureTargetNodeId(clients, migration);
 
     migration.state = "succeeded";
     migration.completedAt = new Date().toISOString();
@@ -316,13 +324,39 @@ async function preflight(
 
   // Check target repo.
   const repoExists = await doesRepoExist(clients.target, migration.targetOrg, migration.targetRepo);
+  // Record provenance: whether the target pre-existed before we touched it.
+  // A repo that already existed is never eligible for automated cleanup.
+  migration.targetPreexisted = repoExists;
+  updateMigrationProvenance(migration.id, { targetPreexisted: repoExists });
   if (repoExists) {
     emitStep(
-      `Target repo ${migration.targetOrg}/${migration.targetRepo} already exists — migration will overwrite`,
+      `Target repo ${migration.targetOrg}/${migration.targetRepo} already exists — GitHub will reject the import if the name is taken. Delete or rename it on the target, then restart.`,
     );
   }
 
   emitStep("Pre-flight checks passed");
+}
+
+/**
+ * Capture the immutable node_id of a target repo this tool created, so a later
+ * cleanup can prove identity. Only runs when the repo did NOT pre-exist (i.e.
+ * we created it). Best-effort: on a failed migration the repo may not exist, in
+ * which case the node_id stays null and the migration is simply not eligible.
+ */
+async function captureTargetNodeId(clients: GitHubClients, migration: Migration): Promise<void> {
+  if (migration.targetPreexisted !== false) return; // never ours, or unknown
+  if (migration.targetRepoNodeId) return; // already captured
+  try {
+    const nodeId = await getRepoNodeId(
+      clients.targetGraphql,
+      migration.targetOrg,
+      migration.targetRepo,
+    );
+    migration.targetRepoNodeId = nodeId;
+    updateMigrationProvenance(migration.id, { targetRepoNodeId: nodeId });
+  } catch {
+    // Repo not present (e.g. migration failed before creation) — leave null.
+  }
 }
 
 // ── Archive resolution ──────────────────────────────────────────────────────

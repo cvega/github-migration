@@ -72,6 +72,8 @@ function makeRow(over: Partial<Migration>): Migration {
     elapsedSeconds: null,
     authMode: null,
     requestOptions: null,
+    targetPreexisted: null,
+    targetRepoNodeId: null,
     ...over,
   };
 }
