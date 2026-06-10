@@ -460,6 +460,63 @@ export async function getRepoSize(
   }
 }
 
+/** Immutable + current identity facts for a repository, read at cleanup time. */
+export interface RepoFacts {
+  nodeId: string;
+  owner: string;
+  name: string;
+  createdAt: string;
+}
+
+/**
+ * Fetch the live identity facts (node_id, owner, name, created_at) of a repo.
+ * Returns null if the repo doesn't exist or can't be read — callers treat that
+ * as "cannot prove identity" and refuse cleanup.
+ */
+export async function getRepoFacts(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<RepoFacts | null> {
+  try {
+    const { data } = await client.repos.get({ owner, repo });
+    return {
+      nodeId: data.node_id,
+      owner: data.owner.login,
+      name: data.name,
+      createdAt: typeof data.created_at === "string" ? data.created_at : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rename a repository. Privileged (Administration: write). Returns the repo's
+ * new full name. Reversible — the node_id is unchanged by a rename.
+ */
+export async function renameRepo(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+  newName: string,
+): Promise<string> {
+  const { data } = await client.repos.update({ owner, repo, name: newName });
+  return data.full_name;
+}
+
+/**
+ * Delete a repository. Privileged (Administration: write) and irreversible.
+ * Callers MUST have passed `evaluateCleanupEligibility` first.
+ */
+export async function deleteRepo(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<void> {
+  await client.repos.delete({ owner, repo });
+}
+
 export async function getRepoCounts(
   client: InstanceType<typeof RetryOctokit>,
   gql: typeof graphql,
