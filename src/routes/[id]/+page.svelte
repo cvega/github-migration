@@ -11,6 +11,7 @@
 	import FailureDetail from '$lib/components/FailureDetail.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
+	import CleanupModal from '$lib/components/CleanupModal.svelte';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
 	import type { Migration, MigrationEvent, Phase, Progress, Counts, FailureDetail as FailureDetailType } from '$lib/types';
 
@@ -197,6 +198,12 @@
 
 	const isRestartable = $derived(migration.state === 'failed' || migration.state === 'cancelled');
 
+	// Target cleanup (rename/delete) — only when the server says this migration
+	// is a candidate (failed/cancelled, we created the repo) and cleanup is on.
+	const cleanupMode = $derived(data.cleanup?.mode ?? 'off');
+	const showCleanup = $derived(cleanupMode !== 'off' && !!data.cleanup?.candidate);
+	let cleanupOpen = $state(false);
+
 	function repoUrl(apiUrl: string, org: string, repo: string): string {
 		const hostname = new URL(apiUrl).hostname;
 		const base = hostname === 'api.github.com' || hostname === 'github.com'
@@ -275,11 +282,20 @@
 				Cancel
 			</button>
 		{:else if isRestartable}
-			<button onclick={openRestartModal}
-				class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
-				<Octicon name="sync" size={16} />
-				Restart
-			</button>
+			<div class="flex items-center gap-2">
+				<button onclick={openRestartModal}
+					class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
+					<Octicon name="sync" size={16} />
+					Restart
+				</button>
+				{#if showCleanup}
+					<button onclick={() => (cleanupOpen = true)}
+						class="flex items-center gap-1.5 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-400 hover:bg-yellow-500/20 transition-colors">
+						<Octicon name="alert" size={16} />
+						Clean up target
+					</button>
+				{/if}
+			</div>
 		{/if}
 	</div>
 
@@ -721,6 +737,20 @@
 		</div>
 	</form>
 </dialog>
+
+{#if showCleanup}
+	<CleanupModal
+		migrationId={migration.id}
+		targetOrg={migration.targetOrg}
+		targetRepo={migration.targetRepo}
+		mode={cleanupMode === 'delete' ? 'delete' : 'rename'}
+		bind:open={cleanupOpen}
+		onDone={() => {
+			polledMigration = { ...migration };
+			refreshMigrations();
+		}}
+	/>
+{/if}
 
 <style>
 	.resource-grid {

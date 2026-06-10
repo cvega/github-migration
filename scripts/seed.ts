@@ -40,6 +40,15 @@ function fakeMigrationNodeId(): string {
   return `RM_${pick(["kgC", "kgD"])}${suffix}`;
 }
 
+/** A plausible repository GraphQL node_id (e.g. `R_kgDOabc123`). */
+function fakeRepoNodeId(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const len = rand(8, 12);
+  let suffix = "";
+  for (let i = 0; i < len; i++) suffix += alphabet[rand(0, alphabet.length - 1)];
+  return `R_kgDO${suffix}`;
+}
+
 /**
  * Repo size in KB, log-distributed across ~12 KB → ~4.5 GB so the dataset has
  * realistic variety (plenty of small KB/MB repos, fewer huge ones) instead of
@@ -245,8 +254,9 @@ const failureReasons = [
 const insertMigration = db.prepare(`
   INSERT INTO migrations (id, batch_id, github_migration_id, source_api_url, source_org, source_repo,
     target_org, target_repo, state, failure_reason, warnings_count, source_counts, target_counts,
-    started_at, completed_at, elapsed_seconds, migration_log_url, source_size_kb)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    started_at, completed_at, elapsed_seconds, migration_log_url, source_size_kb,
+    target_preexisted, target_repo_node_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEvent = db.prepare(`
@@ -287,6 +297,12 @@ function createMigration(opts: MigrationOpts) {
       ? `https://github.com/${targetOrg}/${repo}/settings/migrations/log`
       : null;
 
+  // Failed/cancelled migrations are cleanup candidates: this tool created the
+  // target (preexisted = 0) and recorded its immutable node_id.
+  const isCleanupCandidate = opts.state === "failed" || opts.state === "cancelled";
+  const targetPreexisted = isCleanupCandidate ? 0 : null;
+  const targetRepoNodeId = isCleanupCandidate ? fakeRepoNodeId() : null;
+
   insertMigration.run(
     opts.id,
     opts.batchId ?? null,
@@ -306,6 +322,8 @@ function createMigration(opts: MigrationOpts) {
     elapsed,
     logUrl,
     randomRepoSizeKb(),
+    targetPreexisted,
+    targetRepoNodeId,
   );
 
   // ── Events ──────────────────────────────────────────────────────────────

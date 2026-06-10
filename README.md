@@ -281,6 +281,20 @@ Drop a logo file into `static/imgs/` and the dashboard header displays it automa
 
 If none are present, no logo is shown. When running in Docker, mount your file to `/app/static/imgs/logo.svg` (or `.webp`/`.png`).
 
+### Target Cleanup (optional, off by default)
+
+When a migration fails *after* GitHub created the target repo, a restart hits a 422 (the name is taken). This lets an operator rename that repo aside (reversible) or delete it (irreversible) so the migration can be re-run — but only for a repo **this tool created**, proven by a multi-vector identity check, never one that pre-existed.
+
+Disabled unless explicitly enabled. A confirmation modal shows every gate's pass/fail before any action, and the operator must type `org/repo` to confirm. Every action and refusal is recorded in the migration's event log.
+
+| Variable | Default | Description |
+|---|---|---|
+| `TARGET_CLEANUP` | `off` | `off` · `rename` · `delete` (`delete` also permits rename) |
+| `GH_TARGET_ADMIN_PAT` | — | Dedicated PAT with `Administration: write` — **required** to enable; never the migration token |
+| `TARGET_CLEANUP_DISABLED` | `false` | Hard kill switch — `true` forces cleanup off regardless of the above (org-policy override) |
+
+A target is eligible only when **all** hold: cleanup enabled and not killed · the action is permitted by the mode · the migration is `failed`/`cancelled` · the target did **not** pre-exist · the live repo's immutable `node_id` still matches the one recorded at creation · owner/name still match · the repo was created within the migration's run window · the typed confirmation matches. Any mismatch refuses.
+
 ---
 
 ## API

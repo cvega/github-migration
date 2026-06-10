@@ -12,6 +12,7 @@ import {
   type CleanupRequest,
   type LiveRepoFacts,
   describeCleanupGates,
+  effectiveCleanupMode,
   evaluateCleanupEligibility,
   loadCleanupConfig,
   modePermits,
@@ -108,6 +109,21 @@ describe("evaluateCleanupEligibility — happy path", () => {
       request: { action: "rename" },
     });
     expect(r).toEqual({ eligible: true });
+  });
+});
+
+describe("effectiveCleanupMode", () => {
+  test("returns the configured mode when enabled with a credential", () => {
+    expect(effectiveCleanupMode(config({ mode: "rename" }))).toBe("rename");
+    expect(effectiveCleanupMode(config({ mode: "delete" }))).toBe("delete");
+  });
+
+  test("forces off when the kill switch is set", () => {
+    expect(effectiveCleanupMode(config({ mode: "delete", disabled: true }))).toBe("off");
+  });
+
+  test("forces off when no admin credential is configured", () => {
+    expect(effectiveCleanupMode(config({ mode: "delete", hasAdminCredential: false }))).toBe("off");
   });
 });
 

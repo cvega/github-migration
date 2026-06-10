@@ -77,6 +77,16 @@ export function modePermits(mode: CleanupMode, action: CleanupAction): boolean {
   return false;
 }
 
+/**
+ * The cleanup mode actually in effect for a server: `off` whenever the kill
+ * switch is set or no admin credential is configured, regardless of the opt-in
+ * mode. Used to decide whether to surface cleanup UI at all.
+ */
+export function effectiveCleanupMode(config: CleanupConfig): CleanupMode {
+  if (config.disabled || !config.hasAdminCredential) return "off";
+  return config.mode;
+}
+
 /** Live facts about the target repo, fetched at cleanup time (not trusted from the DB). */
 export interface LiveRepoFacts {
   nodeId: string;
