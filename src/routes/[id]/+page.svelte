@@ -595,7 +595,7 @@
 	bind:this={restartDialog}
 	onclose={() => (showRestartModal = false)}
 	onclick={(e) => { if (e.target === restartDialog) restartDialog?.close(); }}
-	class="w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+	class="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
 >
 	<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
 		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
