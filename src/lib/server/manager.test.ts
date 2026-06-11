@@ -127,9 +127,25 @@ describe("start + concurrency cap", () => {
     expect(launched).toHaveLength(MAX_CONCURRENT);
   });
 
-  test("rejects the migration that would exceed the cap", () => {
+  test("queues (does not reject) the migration that would exceed the cap", () => {
     for (let i = 0; i < MAX_CONCURRENT; i++) start(req(`acme/repo-${i}`));
-    expect(() => start(req("acme/one-too-many"))).toThrow(/Concurrency limit reached/);
+    const overflow = start(req("acme/one-too-many"));
+    // Over-cap requests are accepted and queued, not rejected.
+    expect(overflow.state).toBe("queued");
+    expect(get(overflow.id)?.state).toBe("queued");
+    expect(launched).toHaveLength(MAX_CONCURRENT); // not launched yet
+  });
+
+  test("a queued single migration is promoted when a slot frees up", () => {
+    const first = start(req("acme/first"));
+    for (let i = 1; i < MAX_CONCURRENT; i++) start(req(`acme/repo-${i}`));
+    const overflow = start(req("acme/overflow"));
+    expect(overflow.state).toBe("queued");
+
+    // Free a slot — the queued migration drains to pending and launches.
+    cancel(first.id);
+    expect(get(overflow.id)?.state).toBe("pending");
+    expect(launched).toContain(overflow.id);
   });
 });
 

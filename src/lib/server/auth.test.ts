@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   getAuthConfig,
+  getFormDefaults,
+  isCredentialOverrideAllowed,
   isSourceAppConfigured,
   isSourceAuthAvailable,
   isTargetAuthAvailable,
@@ -24,6 +26,10 @@ const AUTH_ENV_KEYS = [
   "GH_TARGET_APP_ID",
   "GH_TARGET_APP_PRIVATE_KEY",
   "GH_TARGET_APP_INSTALLATION_ID",
+  "GH_ALLOW_CREDENTIAL_OVERRIDE",
+  "GH_SOURCE_API_URL",
+  "GH_SOURCE_ORG",
+  "GH_TARGET_ORG",
 ];
 
 let saved: Record<string, string | undefined>;
@@ -137,5 +143,46 @@ describe("resolveTargetAuth", () => {
   test("uses the target env PAT", () => {
     process.env.GH_TARGET_PAT = "tgt-pat";
     expect(resolveTargetAuth()).toEqual({ token: "tgt-pat" });
+  });
+});
+
+describe("isCredentialOverrideAllowed", () => {
+  test("defaults to allowed when unset or empty", () => {
+    expect(isCredentialOverrideAllowed()).toBe(true);
+    process.env.GH_ALLOW_CREDENTIAL_OVERRIDE = "";
+    expect(isCredentialOverrideAllowed()).toBe(true);
+  });
+
+  test("treats false/0/no/off (any case, padded) as locked", () => {
+    for (const v of ["false", "0", "no", "off", "FALSE", " Off "]) {
+      process.env.GH_ALLOW_CREDENTIAL_OVERRIDE = v;
+      expect(isCredentialOverrideAllowed()).toBe(false);
+    }
+  });
+
+  test("keeps override allowed for true/1/other values", () => {
+    for (const v of ["true", "1", "yes", "anything"]) {
+      process.env.GH_ALLOW_CREDENTIAL_OVERRIDE = v;
+      expect(isCredentialOverrideAllowed()).toBe(true);
+    }
+  });
+});
+
+describe("getFormDefaults", () => {
+  test("returns empty defaults when nothing is configured", () => {
+    expect(getFormDefaults()).toEqual({ sourceApiUrl: "", sourceOrgs: [], targetOrgs: [] });
+  });
+
+  test("reads and trims the source API URL", () => {
+    process.env.GH_SOURCE_API_URL = "  https://ghes.example.com/api/v3  ";
+    expect(getFormDefaults().sourceApiUrl).toBe("https://ghes.example.com/api/v3");
+  });
+
+  test("parses one or many orgs split on commas/whitespace, de-duplicated", () => {
+    process.env.GH_SOURCE_ORG = "octo-org";
+    process.env.GH_TARGET_ORG = "acme, acme,  beta\ngamma";
+    const fd = getFormDefaults();
+    expect(fd.sourceOrgs).toEqual(["octo-org"]);
+    expect(fd.targetOrgs).toEqual(["acme", "beta", "gamma"]);
   });
 });

@@ -8,9 +8,9 @@ import type { MigrationState } from "$lib/types";
 
 /** Tailwind background+text classes for a migration state pill. */
 export const STATE_STYLES: Record<MigrationState, string> = {
-  queued: "bg-blue-500/15 text-blue-400",
+  queued: "bg-violet-500/15 text-violet-400",
   pending: "bg-yellow-500/15 text-yellow-400",
-  running: "bg-green-600/15 text-green-400",
+  running: "bg-blue-500/15 text-blue-400",
   succeeded: "bg-green-600/15 text-green-400",
   failed: "bg-red-500/15 text-red-400",
   cancelled: "bg-gray-500/15 text-gray-400",

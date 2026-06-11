@@ -38,12 +38,36 @@ export interface MonitorConfig {
   emit: EventEmitter;
 }
 
-export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
+/** Result of a monitor run: the terminal phase plus the counts captured in the
+ *  final snapshot. Preferring these over a post-success re-fetch avoids GHEC's
+ *  post-migration indexing lag (issue/PR `totalCount` can transiently read 0). */
+export interface MonitorResult {
+  phase: Phase;
+  /** Target-repo counts from the final snapshot, or null if never captured. */
+  finalCounts: Counts | null;
+}
+
+/** Project a snapshot's count fields into a Counts object. */
+function snapshotToCounts(s: Snapshot): Counts {
+  return {
+    commits: s.commits,
+    branches: s.branches,
+    tags: s.tags,
+    issues: s.issues,
+    pullRequests: s.pullRequests,
+    releases: s.releases,
+  };
+}
+
+export async function runMonitor(cfg: MonitorConfig): Promise<MonitorResult> {
   const interval = cfg.pollInterval ?? 60_000;
   const startTime = Date.now();
   let previous: Snapshot | null = null;
   let lastPhase: Phase | null = null;
   let terminalPhase: Phase = "UNKNOWN";
+  // Counts from the final SUCCEEDED snapshot — preferred over a post-success
+  // re-fetch, which can race GHEC's indexing lag and return transient zeros.
+  let finalCounts: Counts | null = null;
 
   // Use pre-fetched source counts if available, otherwise fetch once.
   let sourceCounts: Counts | null = cfg.sourceCounts ?? null;
@@ -99,6 +123,7 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
       });
       previous = snapshot;
       terminalPhase = "SUCCEEDED";
+      finalCounts = snapshotToCounts(snapshot);
       return true;
     }
 
@@ -131,7 +156,7 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
   };
 
   // Immediate first poll.
-  if (await poll()) return terminalPhase;
+  if (await poll()) return { phase: terminalPhase, finalCounts };
 
   // Tick loop.
   const MAX_CONSECUTIVE_ERRORS = 10;
@@ -140,7 +165,7 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
     await sleep(interval, cfg.signal);
     if (cfg.signal?.aborted) break;
     try {
-      if (await poll()) return terminalPhase;
+      if (await poll()) return { phase: terminalPhase, finalCounts };
       consecutiveErrors = 0;
     } catch (err) {
       consecutiveErrors++;
@@ -156,7 +181,7 @@ export async function runMonitor(cfg: MonitorConfig): Promise<Phase> {
     }
   }
 
-  return terminalPhase;
+  return { phase: terminalPhase, finalCounts };
 }
 
 // ── Snapshot ────────────────────────────────────────────────────────────────

@@ -190,7 +190,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     emitStep(`Migration started (${githubMigrationId})`);
 
     // ── Step 5: Monitor until terminal state ───────────────────────
-    const terminalPhase = await runMonitor({
+    const { phase: terminalPhase, finalCounts } = await runMonitor({
       clients,
       migrationId,
       githubMigrationId,
@@ -226,16 +226,23 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       );
     }
 
-    // Fetch final target counts.
-    try {
-      migration.targetCounts = await getRepoCounts(
-        clients.target,
-        clients.targetGraphql,
-        migration.targetOrg,
-        migration.targetRepo,
-      );
-    } catch {
-      // Non-fatal
+    // Final target counts: prefer the monitor's final snapshot (taken when
+    // GHEC reported SUCCEEDED). A fresh re-fetch here can race GHEC's
+    // post-migration indexing lag and report transient zeros for issues/PRs,
+    // so only re-fetch when the snapshot didn't capture counts.
+    if (finalCounts) {
+      migration.targetCounts = finalCounts;
+    } else {
+      try {
+        migration.targetCounts = await getRepoCounts(
+          clients.target,
+          clients.targetGraphql,
+          migration.targetOrg,
+          migration.targetRepo,
+        );
+      } catch {
+        // Non-fatal
+      }
     }
 
     // Capture the created repo's immutable identity for provenance.
@@ -584,7 +591,7 @@ export async function resumeMigration(
     });
 
     // Resume monitoring the existing GHEC migration.
-    const terminalPhase = await runMonitor({
+    const { phase: terminalPhase, finalCounts } = await runMonitor({
       clients,
       migrationId,
       githubMigrationId,
@@ -613,16 +620,21 @@ export async function resumeMigration(
       );
     }
 
-    // Fetch final target counts.
-    try {
-      migration.targetCounts = await getRepoCounts(
-        clients.target,
-        clients.targetGraphql,
-        migration.targetOrg,
-        migration.targetRepo,
-      );
-    } catch {
-      // Non-fatal
+    // Final target counts: prefer the monitor's final snapshot over a re-fetch
+    // to avoid GHEC's post-migration indexing lag (see runMigrationPipeline).
+    if (finalCounts) {
+      migration.targetCounts = finalCounts;
+    } else {
+      try {
+        migration.targetCounts = await getRepoCounts(
+          clients.target,
+          clients.targetGraphql,
+          migration.targetOrg,
+          migration.targetRepo,
+        );
+      } catch {
+        // Non-fatal
+      }
     }
 
     migration.state = "succeeded";

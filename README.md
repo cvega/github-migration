@@ -316,9 +316,9 @@ All endpoints return JSON. SSE streams emit migration/batch state changes.
 
 ## Troubleshooting
 
-### "Concurrency limit reached"
+### Migrations show "queued" instead of starting immediately
 
-GitHub allows **up to** 10 concurrent migrations per org — that's a ceiling, not a guarantee, and the effective limit can be lower depending on GitHub-side load and throttling. Excess migrations are automatically queued and promoted FIFO as slots open.
+GitHub allows **up to** 10 concurrent migrations per org — that's a ceiling, not a guarantee, and the effective limit can be lower depending on GitHub-side load and throttling. When all slots are busy, new migrations (single or batch) are accepted and automatically queued, then promoted FIFO as running migrations complete. Nothing is rejected; the new-migration page shows how many are in process.
 
 ### Migration stuck in "running" after restart
 

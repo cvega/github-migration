@@ -29,8 +29,10 @@ export const POST: RequestHandler = async ({ request }) => {
     const migration = start(body);
     return json(migration, { status: 201 });
   } catch (err) {
+    // Capacity is no longer an error — over-cap migrations queue automatically.
+    // A throw here is an unexpected internal failure.
     const message = err instanceof Error ? err.message : String(err);
-    return json({ error: message }, { status: 429 });
+    return json({ error: message }, { status: 500 });
   }
 };
 

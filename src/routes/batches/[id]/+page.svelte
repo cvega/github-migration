@@ -36,6 +36,18 @@
 	let restartResult = $state<{ restarted: number; errors: Array<{ id: string; error: string }> } | null>(null);
 	let restartDialog = $state<HTMLDialogElement>();
 
+	// ── Cancel-all modal state ─────────────────────────────────────────────
+	let showCancelModal = $state(false);
+	let cancelSubmitting = $state(false);
+	let cancelError = $state('');
+	let cancelConfirmText = $state('');
+	let cancelDialog = $state<HTMLDialogElement>();
+	const activeCount = $derived(batch.queuedCount + batch.pendingCount + batch.runningCount);
+	// Bulk cancel spans many repos (and the batch id is a UUID), so confirm with
+	// a fixed keyword rather than a repo name.
+	const cancelPhrase = 'cancel';
+	const cancelConfirmed = $derived(cancelConfirmText.trim().toLowerCase() === cancelPhrase);
+
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
 	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
@@ -52,6 +64,12 @@
 	$effect(() => {
 		if (showRestartModal) restartDialog?.showModal();
 		else restartDialog?.close();
+	});
+
+	// Drive the cancel-all confirmation <dialog>.
+	$effect(() => {
+		if (showCancelModal) cancelDialog?.showModal();
+		else cancelDialog?.close();
 	});
 
 	const restartableCount = $derived(batch.failedCount + batch.cancelledCount);
@@ -121,28 +139,44 @@
 	const barSegments = $derived.by(() => {
 		const segs: Array<{ key: string; color: string; pct: number; topInset: string; bottomInset: string }> = [];
 		if (batch.succeededCount > 0) segs.push({ key: 'succeeded', color: '#22c55e', pct: (batch.succeededCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
-		if (batch.runningCount > 0)   segs.push({ key: 'running', color: '#22c55e', pct: (batch.runningCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.runningCount > 0)   segs.push({ key: 'running', color: '#3b82f6', pct: (batch.runningCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		if (batch.pendingCount > 0)   segs.push({ key: 'pending', color: '#facc15', pct: (batch.pendingCount / barTotal) * 100, topInset: '2px', bottomInset: '1px' });
-		if (batch.queuedCount > 0)    segs.push({ key: 'queued', color: '#3b82f6', pct: (batch.queuedCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
+		if (batch.queuedCount > 0)    segs.push({ key: 'queued', color: '#8b5cf6', pct: (batch.queuedCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		if (batch.failedCount > 0)    segs.push({ key: 'failed', color: '#ef4444', pct: (batch.failedCount / barTotal) * 100, topInset: '2px', bottomInset: '1px' });
 		if (batch.cancelledCount > 0) segs.push({ key: 'cancelled', color: '#4b5563', pct: (batch.cancelledCount / barTotal) * 100, topInset: '1px', bottomInset: '1px' });
 		let left = 0;
 		return segs.map(s => { const seg = { ...s, left }; left += s.pct; return seg; });
 	});
 
-	async function handleCancelAll() {
-		if (!confirm(`Cancel all ${batch.queuedCount + batch.pendingCount + batch.runningCount} active migrations?`)) return;
-		const cancelRes = await fetch(`/api/batches/${batch.id}`, { method: 'DELETE' });
-		if (!cancelRes.ok) {
-			alert(`Failed to cancel batch: HTTP ${cancelRes.status}`);
-			return;
-		}
-		// Refresh
-		const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
-		if (res.ok) {
-			const result = await res.json();
-			polledBatch = result.summary;
-			polledMigrations = result.migrations;
+	function openCancelModal() {
+		cancelError = '';
+		cancelConfirmText = '';
+		cancelSubmitting = false;
+		showCancelModal = true;
+	}
+
+	async function confirmCancelAll() {
+		if (!cancelConfirmed) return;
+		cancelError = '';
+		cancelSubmitting = true;
+		try {
+			const cancelRes = await fetch(`/api/batches/${batch.id}`, { method: 'DELETE' });
+			if (!cancelRes.ok) {
+				cancelError = `Failed to cancel batch: HTTP ${cancelRes.status}`;
+				return;
+			}
+			// Refresh
+			const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+			if (res.ok) {
+				const result = await res.json();
+				polledBatch = result.summary;
+				polledMigrations = result.migrations;
+			}
+			showCancelModal = false;
+		} catch (err) {
+			cancelError = err instanceof Error ? err.message : 'Unknown error';
+		} finally {
+			cancelSubmitting = false;
 		}
 	}
 
@@ -226,7 +260,7 @@
 				<Octicon name="stack" size={16} class="text-gray-400" />
 				<h1 class="text-2xl font-bold text-gray-50">Batch Migration</h1>
 				{#if isActive}
-					<span class="inline-flex items-center gap-1 rounded-full bg-green-600/15 px-2.5 py-0.5 text-xs font-medium text-green-400 animate-pulse">
+					<span class="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-400 animate-pulse">
 						<Octicon name="sync" size={12} />
 						In Progress
 					</span>
@@ -269,13 +303,13 @@
 					<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="check-circle" size={12} />{batch.succeededCount} succeeded</span>
 				{/if}
 				{#if batch.runningCount > 0}
-					<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="sync" size={12} />{batch.runningCount} running</span>
+					<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="sync" size={12} />{batch.runningCount} running</span>
 				{/if}
 				{#if batch.pendingCount > 0}
 					<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount} pending</span>
 				{/if}
 				{#if batch.queuedCount > 0}
-					<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount} queued</span>
+					<span class="inline-flex items-center gap-1 text-violet-400"><Octicon name="hourglass" size={12} />{batch.queuedCount} queued</span>
 				{/if}
 				{#if batch.failedCount > 0}
 					<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount} failed</span>
@@ -294,7 +328,7 @@
 						</button>
 					{/if}
 					{#if isActive}
-						<button onclick={handleCancelAll}
+						<button onclick={openCancelModal}
 							class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors">
 							<Octicon name="x-circle" size={12} />
 							Cancel All
@@ -435,10 +469,9 @@
 		<AuthModeFields
 			title="Source Authentication"
 			icon="server"
-			envVar="GH_SOURCE_PAT"
 			envApp={sourceEnvApp}
 			envPat={sourceEnvPat}
-			envAppId={page.data.sourceAuth?.appId}
+			allowOverride={page.data.allowCredentialOverride ?? true}
 			bind:mode={restart.state.sourceAuthMode}
 			bind:token={restart.state.sourceToken}
 			bind:appId={restart.state.sourceAppId}
@@ -450,10 +483,9 @@
 		<AuthModeFields
 			title="Target Authentication"
 			icon="repo-push"
-			envVar="GH_TARGET_PAT"
 			envApp={targetEnvApp}
 			envPat={targetEnvPat}
-			envAppId={page.data.targetAuth?.appId}
+			allowOverride={page.data.allowCredentialOverride ?? true}
 			bind:mode={restart.state.targetAuthMode}
 			bind:token={restart.state.targetToken}
 			bind:appId={restart.state.targetAppId}
@@ -538,4 +570,65 @@
 			</button>
 		</div>
 	</form>
+</dialog>
+
+<!-- Cancel-all confirmation modal -->
+<dialog
+	bind:this={cancelDialog}
+	onclose={() => (showCancelModal = false)}
+	onclick={(e) => { if (e.target === cancelDialog) cancelDialog?.close(); }}
+	class="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+>
+	<div class="flex items-center justify-between border-b border-gray-700 px-5 py-4">
+		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
+			<Octicon name="alert" size={24} class="text-red-400" />
+			Cancel active migrations?
+		</h2>
+		<button type="button" onclick={() => cancelDialog?.close()} class="text-gray-400 hover:text-gray-50 transition-colors">
+			<Octicon name="x" size={24} />
+		</button>
+	</div>
+
+	<div class="space-y-4 p-5">
+		<p class="text-sm text-gray-300">
+			This will cancel <span class="font-medium text-gray-50">{activeCount}</span> active migration{activeCount === 1 ? '' : 's'}
+			(queued, pending, or running) in this batch. Already-completed migrations are not affected.
+		</p>
+
+		<div>
+			<label for="batch-cancel-confirm" class="block text-sm font-medium text-gray-400 mb-1">
+				Type <span class="font-mono text-gray-200">{cancelPhrase}</span> to confirm
+			</label>
+			<input
+				id="batch-cancel-confirm"
+				type="text"
+				autocomplete="off"
+				bind:value={cancelConfirmText}
+				placeholder={cancelPhrase}
+				class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+			/>
+		</div>
+
+		{#if cancelError}
+			<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+				{cancelError}
+			</div>
+		{/if}
+
+		<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
+			<button type="button" onclick={() => cancelDialog?.close()}
+				class="rounded-md bg-gray-700 px-5 py-2 text-sm font-medium text-gray-50 hover:bg-gray-600 transition-colors">
+				Keep running
+			</button>
+			<button type="button" disabled={cancelSubmitting || !cancelConfirmed} onclick={confirmCancelAll}
+				class="flex items-center gap-1.5 rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+				{#if cancelSubmitting}
+					Cancelling...
+				{:else}
+					<Octicon name="x-circle" size={16} />
+					Cancel {activeCount} Migration{activeCount === 1 ? '' : 's'}
+				{/if}
+			</button>
+		</div>
+	</div>
 </dialog>

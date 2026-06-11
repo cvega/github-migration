@@ -55,7 +55,7 @@ import { extractOrg, extractRepo } from "./util";
 import { ACTIVE_IMPORT_PHASES, isLargeRepo, loadWatchdogConfig, progressSignal } from "./watchdog";
 
 /** GitHub-imposed concurrent migration limit per organization. */
-const MAX_CONCURRENT = 10;
+export const MAX_CONCURRENT = 10;
 
 // ── Pipeline runner seam (test injection point) ──────────────────────────────
 // The two functions that actually execute a migration perform real network and
@@ -133,6 +133,27 @@ function safeParseJson(json: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Serialize the non-credential request options that a queued migration needs
+ * to be reconstructed after a server restart (see recoverOrphans). Credentials
+ * are never persisted — env-auth migrations re-derive them, request-cred ones
+ * cannot survive a restart.
+ */
+function serializeRequestOptions(req: CreateMigrationRequest): string {
+  return JSON.stringify({
+    sourceApiUrl: req.sourceApiUrl,
+    sourceRepo: req.sourceRepo,
+    targetOrg: req.targetOrg,
+    targetRepo: req.targetRepo,
+    noSslVerify: req.noSslVerify,
+    skipReleases: req.skipReleases,
+    lockSource: req.lockSource,
+    archiveSource: req.archiveSource,
+    targetRepoVisibility: req.targetRepoVisibility,
+    directPassthrough: req.directPassthrough,
+  });
 }
 
 /**
@@ -558,20 +579,30 @@ export function start(req: CreateMigrationRequest, batchId?: string): Migration 
     targetRepoNodeId: null,
   };
 
-  // Atomic check-and-insert: wrap concurrency check + insert in a
-  // transaction so no two callers can race past MAX_CONCURRENT.
+  // Atomic check-and-insert: claim a slot if one is free (state='pending'),
+  // otherwise enqueue (state='queued') so a request is never rejected. The
+  // capacity check + insert share one transaction so concurrent callers can't
+  // both claim the last slot. Queued rows persist auth mode + request options
+  // so they survive a server restart (see recoverOrphans / drainQueue).
+  let queued = false;
   getDb().transaction(() => {
     const active = getActiveMigrationCount();
     if (active >= MAX_CONCURRENT) {
-      throw new Error(
-        `Concurrency limit reached (${MAX_CONCURRENT}). Wait for a running migration to complete.`,
-      );
+      queued = true;
+      migration.state = "queued";
+      migration.authMode = determineAuthModeFromRequest(req);
+      migration.requestOptions = serializeRequestOptions(req);
     }
     insertMigration(migration);
   })();
 
-  // Fire-and-forget: run the pipeline in the background.
-  launchPipeline(id, req);
+  if (queued) {
+    // Hold the request in memory so drainQueue() can launch it when a slot opens.
+    queuedRequests.set(id, req);
+  } else {
+    // Fire-and-forget: run the pipeline in the background.
+    launchPipeline(id, req);
+  }
 
   return migration;
 }
@@ -599,63 +630,6 @@ export function cancel(migrationId: string): boolean {
 
 // ── Batch operations ────────────────────────────────────────────────────────
 
-/**
- * Enqueue a migration: insert a DB row with state='queued' and store the
- * request in memory so drainQueue() can launch it when a slot opens.
- */
-function enqueue(req: CreateMigrationRequest, batchId: string): Migration {
-  const id = Bun.randomUUIDv7();
-  const now = new Date().toISOString();
-  const sourceOrg = extractOrg(req.sourceRepo);
-  const sourceRepoName = extractRepo(req.sourceRepo);
-
-  // Determine auth mode early so queued env-auth migrations can survive restarts.
-  const authMode = determineAuthModeFromRequest(req);
-
-  // Persist non-credential request options so they can be reconstructed on recovery.
-  const requestOptions = JSON.stringify({
-    sourceApiUrl: req.sourceApiUrl,
-    sourceRepo: req.sourceRepo,
-    targetOrg: req.targetOrg,
-    targetRepo: req.targetRepo,
-    noSslVerify: req.noSslVerify,
-    skipReleases: req.skipReleases,
-    lockSource: req.lockSource,
-    archiveSource: req.archiveSource,
-    targetRepoVisibility: req.targetRepoVisibility,
-    directPassthrough: req.directPassthrough,
-  });
-
-  const migration: Migration = {
-    id,
-    batchId,
-    githubMigrationId: null,
-    sourceApiUrl: req.sourceApiUrl || "https://api.github.com",
-    sourceOrg,
-    sourceRepo: sourceRepoName,
-    targetOrg: req.targetOrg,
-    targetRepo: req.targetRepo || sourceRepoName,
-    state: "queued",
-    failureReason: null,
-    migrationLogUrl: null,
-    warningsCount: 0,
-    sourceCounts: null,
-    targetCounts: null,
-    sourceSizeKb: null,
-    startedAt: now,
-    completedAt: null,
-    elapsedSeconds: null,
-    authMode,
-    requestOptions,
-    targetPreexisted: null,
-    targetRepoNodeId: null,
-  };
-
-  insertMigration(migration);
-  queuedRequests.set(id, req);
-  return migration;
-}
-
 export function startBatch(req: BatchMigrationRequest): BatchSummary {
   const batchId = Bun.randomUUIDv7();
   const migrations: Migration[] = [];
@@ -681,19 +655,9 @@ export function startBatch(req: BatchMigrationRequest): BatchSummary {
       archiveSource: req.archiveSource,
     };
 
-    // Try to start immediately; if at capacity, queue for later.
-    try {
-      const migration = start(migReq, batchId);
-      migrations.push(migration);
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("Concurrency limit reached")) {
-        // Queue remaining repos — they'll auto-start as slots open.
-        const migration = enqueue(migReq, batchId);
-        migrations.push(migration);
-      } else {
-        throw err;
-      }
-    }
+    // start() claims a slot if one is free, else queues the request — it never
+    // rejects, so the whole batch is always accepted.
+    migrations.push(start(migReq, batchId));
   }
 
   const now = new Date().toISOString();

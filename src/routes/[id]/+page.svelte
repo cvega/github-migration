@@ -34,6 +34,15 @@
 	let restartError = $state('');
 	let restartDialog = $state<HTMLDialogElement>();
 
+	// ── Cancel confirmation modal state ────────────────────────────────────
+	let showCancelModal = $state(false);
+	let cancelSubmitting = $state(false);
+	let cancelError = $state('');
+	let cancelConfirmText = $state('');
+	let cancelDialog = $state<HTMLDialogElement>();
+	const cancelPhrase = $derived(`${migration.sourceOrg}/${migration.sourceRepo}`);
+	const cancelConfirmed = $derived(cancelConfirmText.trim() === cancelPhrase);
+
 	// Auth mode for restart
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
@@ -51,6 +60,12 @@
 	$effect(() => {
 		if (showRestartModal) restartDialog?.showModal();
 		else restartDialog?.close();
+	});
+
+	// Drive the cancel confirmation <dialog>.
+	$effect(() => {
+		if (showCancelModal) cancelDialog?.showModal();
+		else cancelDialog?.close();
 	});
 
 	onMount(() => {
@@ -133,12 +148,48 @@
 		'text-green-400'
 	);
 
+	// Target counts for display: prefer the latest/completion snapshot — the same
+	// data the "Migration succeeded — …" log line reports — over the persisted
+	// migration.targetCounts, which can capture GHEC's post-migration indexing
+	// lag (issue/PR totalCount transiently reads 0). Falls back to targetCounts
+	// only when no snapshot is available (e.g. older/recovered migrations).
+	const displayTargetCounts = $derived<Counts | null>(
+		latestProgress?.current
+			? {
+				commits: latestProgress.current.commits,
+				branches: latestProgress.current.branches,
+				tags: latestProgress.current.tags,
+				issues: latestProgress.current.issues,
+				pullRequests: latestProgress.current.pullRequests,
+				releases: latestProgress.current.releases,
+			}
+			: migration.targetCounts
+	);
+
 	async function handleCancel() {
-		if (!confirm('Cancel this migration?')) return;
-		const res = await fetch(`/api/migrations/${migration.id}`, { method: 'DELETE' });
-		if (res.ok) {
+		cancelError = '';
+		cancelConfirmText = '';
+		cancelSubmitting = false;
+		showCancelModal = true;
+	}
+
+	async function confirmCancel() {
+		if (!cancelConfirmed) return;
+		cancelError = '';
+		cancelSubmitting = true;
+		try {
+			const res = await fetch(`/api/migrations/${migration.id}`, { method: 'DELETE' });
+			if (!res.ok) {
+				cancelError = `Failed to cancel migration: HTTP ${res.status}`;
+				return;
+			}
 			polledMigration = { ...migration, state: 'cancelled' };
 			refreshMigrations();
+			showCancelModal = false;
+		} catch (err) {
+			cancelError = err instanceof Error ? err.message : 'Unknown error';
+		} finally {
+			cancelSubmitting = false;
 		}
 	}
 
@@ -401,14 +452,14 @@
 	{/if}
 
 	<!-- Stats comparison table -->
-	{#if migration.sourceCounts || migration.targetCounts}
-		<StatsTable source={migration.sourceCounts} target={migration.targetCounts} />
+	{#if migration.sourceCounts || displayTargetCounts}
+		<StatsTable source={migration.sourceCounts} target={displayTargetCounts} />
 	{/if}
 
 	<!-- Completion summary — Hero Banner + Icon Grid -->
 	{#if migration.state === 'succeeded'}
 		{@const src = migration.sourceCounts}
-		{@const tgt = migration.targetCounts}
+		{@const tgt = displayTargetCounts}
 		{@const resources = src && tgt ? [
 			{ label: 'Commits', icon: 'git-commit' as const, s: src.commits, t: tgt.commits },
 			{ label: 'Branches', icon: 'git-branch' as const, s: src.branches, t: tgt.branches },
@@ -633,10 +684,9 @@
 		<AuthModeFields
 			title="Source Authentication"
 			icon="server"
-			envVar="GH_SOURCE_PAT"
 			envApp={sourceEnvApp}
 			envPat={sourceEnvPat}
-			envAppId={page.data.sourceAuth?.appId}
+			allowOverride={page.data.allowCredentialOverride ?? true}
 			bind:mode={restart.state.sourceAuthMode}
 			bind:token={restart.state.sourceToken}
 			bind:appId={restart.state.sourceAppId}
@@ -648,10 +698,9 @@
 		<AuthModeFields
 			title="Target Authentication"
 			icon="repo-push"
-			envVar="GH_TARGET_PAT"
 			envApp={targetEnvApp}
 			envPat={targetEnvPat}
-			envAppId={page.data.targetAuth?.appId}
+			allowOverride={page.data.allowCredentialOverride ?? true}
 			bind:mode={restart.state.targetAuthMode}
 			bind:token={restart.state.targetToken}
 			bind:appId={restart.state.targetAppId}
@@ -736,6 +785,68 @@
 			</button>
 		</div>
 	</form>
+</dialog>
+
+<!-- Cancel confirmation modal -->
+<dialog
+	bind:this={cancelDialog}
+	onclose={() => (showCancelModal = false)}
+	onclick={(e) => { if (e.target === cancelDialog) cancelDialog?.close(); }}
+	class="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+>
+	<div class="flex items-center justify-between border-b border-gray-700 px-5 py-4">
+		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
+			<Octicon name="alert" size={24} class="text-red-400" />
+			Cancel this migration?
+		</h2>
+		<button type="button" onclick={() => cancelDialog?.close()} class="text-gray-400 hover:text-gray-50 transition-colors">
+			<Octicon name="x" size={24} />
+		</button>
+	</div>
+
+	<div class="space-y-4 p-5">
+		<p class="text-sm text-gray-300">
+			This stops the migration of
+			<span class="font-medium text-gray-50">{migration.sourceOrg}/{migration.sourceRepo}</span>.
+			You can restart it afterwards from this page.
+		</p>
+
+		<div>
+			<label for="cancel-confirm" class="block text-sm font-medium text-gray-400 mb-1">
+				Type <span class="font-mono text-gray-200">{cancelPhrase}</span> to confirm
+			</label>
+			<input
+				id="cancel-confirm"
+				type="text"
+				autocomplete="off"
+				bind:value={cancelConfirmText}
+				placeholder={cancelPhrase}
+				class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+			/>
+		</div>
+
+		{#if cancelError}
+			<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+				{cancelError}
+			</div>
+		{/if}
+
+		<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
+			<button type="button" onclick={() => cancelDialog?.close()}
+				class="rounded-md bg-gray-700 px-5 py-2 text-sm font-medium text-gray-50 hover:bg-gray-600 transition-colors">
+				Keep running
+			</button>
+			<button type="button" disabled={cancelSubmitting || !cancelConfirmed} onclick={confirmCancel}
+				class="flex items-center gap-1.5 rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+				{#if cancelSubmitting}
+					Cancelling...
+				{:else}
+					<Octicon name="x-circle" size={16} />
+					Cancel Migration
+				{/if}
+			</button>
+		</div>
+	</div>
 </dialog>
 
 {#if showCleanup}

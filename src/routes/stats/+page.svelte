@@ -12,9 +12,9 @@
 	// State badge styling, shared with the dashboard cards.
 	const stateMeta: Record<MigrationState, { label: string; icon: IconName; bar: string; text: string }> = {
 		succeeded: { label: 'Succeeded', icon: 'check-circle', bar: '#22c55e', text: 'text-green-400' },
-		running: { label: 'Running', icon: 'sync', bar: '#22c55e', text: 'text-green-400' },
+		running: { label: 'Running', icon: 'sync', bar: '#3b82f6', text: 'text-blue-400' },
 		pending: { label: 'Pending', icon: 'clock', bar: '#facc15', text: 'text-yellow-400' },
-		queued: { label: 'Queued', icon: 'hourglass', bar: '#3b82f6', text: 'text-blue-400' },
+		queued: { label: 'Queued', icon: 'hourglass', bar: '#8b5cf6', text: 'text-violet-400' },
 		failed: { label: 'Failed', icon: 'x-circle-fill', bar: '#ef4444', text: 'text-red-400' },
 		cancelled: { label: 'Cancelled', icon: 'skip', bar: '#4b5563', text: 'text-gray-400' }
 	};

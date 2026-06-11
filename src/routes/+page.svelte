@@ -107,7 +107,7 @@
 	const newestBatch = $derived(batchesResult.data[0] ?? null);
 
 	function batchStateBadge(b: BatchListItem): { label: string; style: string } {
-		if (b.runningCount > 0 || b.pendingCount > 0 || b.queuedCount > 0) return { label: 'active', style: 'bg-green-600/15 text-green-400' };
+		if (b.runningCount > 0 || b.pendingCount > 0 || b.queuedCount > 0) return { label: 'active', style: 'bg-blue-500/15 text-blue-400' };
 		if (b.failedCount > 0 && b.succeededCount > 0) return { label: 'partial', style: 'bg-yellow-600/15 text-yellow-400' };
 		if (b.failedCount > 0) return { label: 'failed', style: 'bg-red-500/15 text-red-400' };
 		return { label: 'done', style: 'bg-green-600/15 text-green-400' };
@@ -271,9 +271,9 @@
 				</div>
 				<div class="flex shrink-0 items-center gap-3 text-xs">
 					{#if batch.succeededCount > 0}<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="check-circle-fill" size={12} />{batch.succeededCount}</span>{/if}
-					{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1 text-green-400"><Octicon name="sync" size={12} />{batch.runningCount}</span>{/if}
+					{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="sync" size={12} />{batch.runningCount}</span>{/if}
 					{#if batch.pendingCount > 0}<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="clock" size={12} />{batch.pendingCount}</span>{/if}
-					{#if batch.queuedCount > 0}<span class="inline-flex items-center gap-1 text-blue-400"><Octicon name="hourglass" size={12} />{batch.queuedCount}</span>{/if}
+					{#if batch.queuedCount > 0}<span class="inline-flex items-center gap-1 text-violet-400"><Octicon name="hourglass" size={12} />{batch.queuedCount}</span>{/if}
 					{#if batch.failedCount > 0}<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="x-circle-fill" size={12} />{batch.failedCount}</span>{/if}
 					{#if batch.cancelledCount > 0}<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="skip" size={12} />{batch.cancelledCount}</span>{/if}
 				</div>
@@ -281,6 +281,9 @@
 			<div class="mt-2.5 flex items-center gap-3">
 				<div class="flex h-1.5 flex-1 overflow-hidden rounded-full bg-gray-800">
 					<div class="h-full bg-green-500" style="width: {pctOf(batch.succeededCount, batch.totalCount)}%"></div>
+					<div class="h-full bg-blue-500" style="width: {pctOf(batch.runningCount, batch.totalCount)}%"></div>
+					<div class="h-full bg-yellow-500" style="width: {pctOf(batch.pendingCount, batch.totalCount)}%"></div>
+					<div class="h-full bg-violet-500" style="width: {pctOf(batch.queuedCount, batch.totalCount)}%"></div>
 					<div class="h-full bg-red-500" style="width: {pctOf(batch.failedCount, batch.totalCount)}%"></div>
 					<div class="h-full bg-gray-500" style="width: {pctOf(batch.cancelledCount, batch.totalCount)}%"></div>
 				</div>

@@ -11,7 +11,7 @@
  * outcome and assert the resulting Migration record + emitted events.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Migration, MigrationEvent, Phase } from "../types";
+import type { Counts, Migration, MigrationEvent, Phase } from "../types";
 import type { MigrationPipelineOpts } from "./migration";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
@@ -19,7 +19,13 @@ import type { MigrationPipelineOpts } from "./migration";
 // sets it. abortMigration records whether GHEC abort was attempted.
 
 let monitorPhase: Phase = "SUCCEEDED";
-let monitorImpl: () => Promise<Phase> = async () => monitorPhase;
+// Counts the monitor captured in its final snapshot. When null, finalize falls
+// back to a getRepoCounts re-fetch (the default for most finalize tests).
+let monitorFinalCounts: Counts | null = null;
+let monitorImpl: () => Promise<{ phase: Phase; finalCounts: Counts | null }> = async () => ({
+  phase: monitorPhase,
+  finalCounts: monitorFinalCounts,
+});
 let abortCalls = 0;
 let repoCountsImpl: () => Promise<unknown> = async () => ({
   commits: 10,
@@ -100,7 +106,8 @@ beforeEach(() => {
   events = [];
   abortCalls = 0;
   monitorPhase = "SUCCEEDED";
-  monitorImpl = async () => monitorPhase;
+  monitorFinalCounts = null;
+  monitorImpl = async () => ({ phase: monitorPhase, finalCounts: monitorFinalCounts });
   repoCountsImpl = async () => ({
     commits: 10,
     branches: 1,
@@ -132,6 +139,32 @@ describe("resumeMigration finalize", () => {
       releases: 0,
     });
     expect(events.some((e) => e.eventType === "failure")).toBe(false);
+  });
+
+  test("prefers the monitor's final snapshot counts over a re-fetch (indexing-lag guard)", async () => {
+    monitorPhase = "SUCCEEDED";
+    // The monitor's final snapshot captured the true counts...
+    monitorFinalCounts = {
+      commits: 1,
+      branches: 3,
+      tags: 0,
+      issues: 4,
+      pullRequests: 2,
+      releases: 0,
+    };
+    // ...while a post-success re-fetch would return transient zeros (GHEC lag).
+    let refetched = false;
+    repoCountsImpl = async () => {
+      refetched = true;
+      return { commits: 1, branches: 3, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
+    };
+
+    const result = await resumeMigration(makeMigration(), emit);
+
+    expect(result.state).toBe("succeeded");
+    // Snapshot counts win; the laggy re-fetch is not consulted.
+    expect(result.targetCounts).toEqual(monitorFinalCounts);
+    expect(refetched).toBe(false);
   });
 
   test("FAILED → failed with a reason and timing", async () => {

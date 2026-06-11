@@ -119,6 +119,54 @@ export function isTargetAuthAvailable(): boolean {
   return getTargetAppConfig() !== null || !!env.GH_TARGET_PAT;
 }
 
+/**
+ * Whether the UI may let a user override the server's env-configured
+ * credentials with their own PAT or GitHub App. Defaults to allowed; set
+ * `GH_ALLOW_CREDENTIAL_OVERRIDE=false` (or `0`/`no`/`off`) to lock migrations
+ * to the server's configured credentials. Only affects sides that actually
+ * have env credentials — a side with none always requires user-supplied auth.
+ */
+export function isCredentialOverrideAllowed(): boolean {
+  const raw = env.GH_ALLOW_CREDENTIAL_OVERRIDE;
+  if (raw == null || raw === "") return true;
+  const v = raw.trim().toLowerCase();
+  return v !== "false" && v !== "0" && v !== "no" && v !== "off";
+}
+
+/** Pre-configured defaults that pre-fill (and optionally lock) the new-migration form. */
+export interface FormDefaults {
+  /** Default source API URL (GH_SOURCE_API_URL), or "" when unset. */
+  sourceApiUrl: string;
+  /** Pre-configured source orgs (GH_SOURCE_ORG, comma/space separated). */
+  sourceOrgs: string[];
+  /** Pre-configured target orgs (GH_TARGET_ORG, comma/space separated). */
+  targetOrgs: string[];
+}
+
+/** Split a comma/space/newline separated env list into a de-duplicated array. */
+function parseOrgList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[\s,]+/)) {
+    const v = part.trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+/** Read the env-provided form defaults (source URL + pre-configured orgs). */
+export function getFormDefaults(): FormDefaults {
+  return {
+    sourceApiUrl: env.GH_SOURCE_API_URL?.trim() || "",
+    sourceOrgs: parseOrgList(env.GH_SOURCE_ORG),
+    targetOrgs: parseOrgList(env.GH_TARGET_ORG),
+  };
+}
+
 // ── Auth input resolution (for auto-refreshing Octokit clients) ─────────
 
 /**

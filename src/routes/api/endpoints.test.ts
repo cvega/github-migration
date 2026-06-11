@@ -154,12 +154,12 @@ describe("POST /api/migrations", () => {
     expect(await errorOf(res)).toMatch(/auth/i);
   });
 
-  test("manager throwing (e.g. at capacity) → 429", async () => {
+  test("manager throwing (unexpected internal error) → 500", async () => {
     startImpl = () => {
-      throw new Error("Max concurrent migrations reached");
+      throw new Error("unexpected failure");
     };
     const res = await migrationsPost(postEvent(valid));
-    expect(res.status).toBe(429);
+    expect(res.status).toBe(500);
   });
 });
 
