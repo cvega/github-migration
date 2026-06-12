@@ -17,8 +17,8 @@
  * coverage/lcov.info instead.
  */
 
-const MIN_FUNC_PCT = 82;
-const MIN_LINE_PCT = 78;
+const MIN_FUNC_PCT = 85;
+const MIN_LINE_PCT = 82;
 
 const proc = Bun.spawnSync(["bun", "test", "--coverage"], {
   stdout: "pipe",
