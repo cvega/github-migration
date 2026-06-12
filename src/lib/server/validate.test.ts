@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { parseJsonBody, validateAuthAvailable } from "./validate";
 
 function jsonRequest(body: string): Request {
@@ -36,8 +36,36 @@ describe("parseJsonBody", () => {
 });
 
 describe("validateAuthAvailable", () => {
-  // In the test env no GH_*_PAT/APP vars are set, so env auth is unavailable;
-  // credentials must come from the request body.
+  // validateAuthAvailable consults env-level auth via isSource/TargetAuthAvailable,
+  // which read process.env live. `bun test` auto-loads .env, so to exercise the
+  // "auth missing" paths deterministically each test fully controls these keys
+  // (saved/cleared before, restored after) regardless of the ambient environment.
+  const ENV_AUTH_KEYS = [
+    "GH_SOURCE_PAT",
+    "GH_TARGET_PAT",
+    "GH_SOURCE_APP_ID",
+    "GH_SOURCE_APP_PRIVATE_KEY",
+    "GH_SOURCE_APP_INSTALLATION_ID",
+    "GH_TARGET_APP_ID",
+    "GH_TARGET_APP_PRIVATE_KEY",
+    "GH_TARGET_APP_INSTALLATION_ID",
+  ];
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    savedEnv = {};
+    for (const k of ENV_AUTH_KEYS) {
+      savedEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of ENV_AUTH_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  });
 
   test("accepts a per-request token on both sides", () => {
     expect(validateAuthAvailable({ sourceToken: "s", targetToken: "t" })).toBeNull();
