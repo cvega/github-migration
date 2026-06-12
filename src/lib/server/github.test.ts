@@ -9,7 +9,14 @@ import {
   waitForArchive,
 } from "./github";
 
-/** Minimal Octokit stand-in; cast to the client type the functions expect. */
+/**
+ * Minimal Octokit stand-in for the DI-style helpers under test. These take a
+ * full `InstanceType<typeof RetryOctokit>` (hundreds of methods, overloaded
+ * `request`), which is impractical to construct in a unit test, so the fakes
+ * implement only the methods each function calls and are cast at the test
+ * boundary. The cast is a third-party-type test double — it silences no
+ * production type error (the helpers' real signatures are unchanged).
+ */
 type FakeClient = Parameters<typeof waitForArchive>[0];
 
 /** Build an HTTP-style error carrying a numeric `status`, like Octokit throws. */
