@@ -20,6 +20,7 @@
 		envPat,
 		allowOverride = true,
 		required = false,
+		serverBadgeInHeader = false,
 		mode = $bindable(),
 		token = $bindable(),
 		appId = $bindable(),
@@ -38,6 +39,9 @@
 		allowOverride?: boolean;
 		/** Mark manual credential inputs as required (primary create form). */
 		required?: boolean;
+		/** When true, the parent renders the "Authenticated" badge in its section
+		 *  header, so this component omits the badge and shows only the override. */
+		serverBadgeInHeader?: boolean;
 		mode: AuthFieldMode;
 		token: string;
 		appId: string;
@@ -52,10 +56,11 @@
 	// Currently relying on the server's credentials (no user input needed).
 	const usingServer = $derived(mode === 'env-app' || mode === 'env-pat');
 
+	// Detail shown on hover over the compact "Authenticated" badge.
 	const serverSummary = $derived(
 		envApp
-			? "Authenticated using the server's configured GitHub App — no credentials needed."
-			: "Authenticated using the server's configured token — no credentials needed."
+			? "Using the server's configured GitHub App — no credentials needed."
+			: "Using the server's configured token — no credentials needed."
 	);
 
 	function useDifferentCredentials() {
@@ -66,39 +71,53 @@
 	}
 </script>
 
-<div class="space-y-3">
-	{#if variant === 'section'}
-		<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-			{#if icon}<Octicon name={icon} size={16} />{/if}{title}
-		</h3>
-	{:else}
-		<span class="block text-sm font-medium text-gray-400">Authentication</span>
+{#if hasEnv && usingServer && serverBadgeInHeader}
+	<!-- The "Authenticated" badge lives in the parent's section header; the body
+	     keeps only the override escape hatch (and nothing at all when locked). -->
+	{#if allowOverride}
+		<button type="button" onclick={useDifferentCredentials}
+			class="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+			Use different credentials
+		</button>
 	{/if}
+{:else}
+	<div class="space-y-3">
+		{#if variant === 'section'}
+			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
+				{#if icon}<Octicon name={icon} size={16} />{/if}{title}
+			</h3>
+		{:else if !(hasEnv && usingServer)}
+			<span class="block text-sm font-medium text-gray-400">Authentication</span>
+		{/if}
 
-	{#if hasEnv && usingServer}
-		<!-- Server-configured credentials: informative, no toggle required. -->
-		<div class="flex items-start gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2.5">
-			<Octicon name="shield-check" size={16} class="mt-0.5 shrink-0 text-blue-400" />
-			<div class="min-w-0 text-sm">
-				<p class="text-gray-300">{serverSummary}</p>
+		{#if hasEnv && usingServer}
+			<!-- Server-configured credentials: a compact badge says it all. -->
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+				<span
+					class="inline-flex items-center gap-1.5 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-400"
+					title={serverSummary}
+				>
+					<Octicon name="shield-check" size={12} />
+					Authenticated
+				</span>
 				{#if allowOverride}
 					<button type="button" onclick={useDifferentCredentials}
-						class="mt-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+						class="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
 						Use different credentials
 					</button>
 				{/if}
 			</div>
-		</div>
-	{:else}
-		{@render credentialEntry()}
-		{#if hasEnv}
-			<button type="button" onclick={useServerCredentials}
-				class="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
-				Use the server&rsquo;s credentials instead
-			</button>
+		{:else}
+			{@render credentialEntry()}
+			{#if hasEnv}
+				<button type="button" onclick={useServerCredentials}
+					class="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+					Use the server&rsquo;s credentials instead
+				</button>
+			{/if}
 		{/if}
-	{/if}
-</div>
+	</div>
+{/if}
 
 {#snippet credentialEntry()}
 	<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">

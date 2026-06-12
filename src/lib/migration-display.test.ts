@@ -42,9 +42,25 @@ describe("isGitHubCloud / sourcePlatform", () => {
     expect(sourcePlatform("https://api.github.com")).toBe("GHEC");
   });
 
+  test("github.com (non-api) is GHEC/cloud", () => {
+    expect(isGitHubCloud("https://github.com")).toBe(true);
+    expect(sourcePlatform("https://github.com")).toBe("GHEC");
+  });
+
+  test("a data-residency tenant on *.ghe.com is GHEC/cloud", () => {
+    expect(isGitHubCloud("https://api.acme.ghe.com/api/v3")).toBe(true);
+    expect(sourcePlatform("https://acme.ghe.com")).toBe("GHEC");
+  });
+
   test("a GHES host is not cloud", () => {
     expect(isGitHubCloud("https://ghes.example.com/api/v3")).toBe(false);
     expect(sourcePlatform("https://ghes.example.com/api/v3")).toBe("GHES");
+  });
+
+  test("a self-hosted host containing 'github' but not github.com is GHES", () => {
+    // e.g. GHES at github.mycompany.com — the substring 'github.com' is absent.
+    expect(isGitHubCloud("https://github.mycompany.com/api/v3")).toBe(false);
+    expect(sourcePlatform("https://github.mycompany.com/api/v3")).toBe("GHES");
   });
 
   test("null/undefined is treated as GHES", () => {

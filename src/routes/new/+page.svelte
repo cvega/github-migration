@@ -22,6 +22,11 @@
 	let sourceRepo = $state('');
 	let sourceRepoName = $state('');
 	let targetRepo = $state('');
+	// A single configured source org is shown as a name (not a dropdown); this
+	// reveals a free-text input when the operator chooses to override it.
+	const defaultSourceOrg = $derived(page.data.formDefaults?.sourceOrgs?.[0] ?? '');
+	const singleSourceOrg = $derived(sourceOrgs.length === 1);
+	let overrideSourceOrg = $state(false);
 
 	// ── Batch-mode fields ───────────────────────────────────────────────────
 	let repoInput = $state('');
@@ -49,6 +54,11 @@
 	// The source is always shown as a resolved name; this reveals the URL input.
 	let overrideSourceUrl = $state(false);
 	let targetOrg = $state(page.data.formDefaults?.targetOrgs?.[0] ?? '');
+	// A single configured target org is shown as a name (not a dropdown); this
+	// reveals a free-text input when the operator chooses to override it.
+	const defaultTargetOrg = $derived(page.data.formDefaults?.targetOrgs?.[0] ?? '');
+	const singleTargetOrg = $derived(targetOrgs.length === 1);
+	let overrideTargetOrg = $state(false);
 	let submitting = $state(false);
 	let error = $state('');
 
@@ -76,13 +86,27 @@
 	}));
 	form.initAuthModes();
 
+	// Whether each side is currently authenticated by the server's env creds —
+	// drives the "Authenticated" badge shown in the section header.
+	const sourceServerAuthed = $derived(
+		(sourceEnvApp || sourceEnvPat) &&
+			(form.state.sourceAuthMode === 'env-app' || form.state.sourceAuthMode === 'env-pat')
+	);
+	const targetServerAuthed = $derived(
+		(targetEnvApp || targetEnvPat) &&
+			(form.state.targetAuthMode === 'env-app' || form.state.targetAuthMode === 'env-pat')
+	);
+
 	// ── Derived ─────────────────────────────────────────────────────────────
-	// Live label for the effective source: blank → GitHub.com (cloud), else the
-	// host of the entered API URL. Lets users see where they're migrating from.
+	// The effective source platform: blank API URL → GitHub Enterprise Cloud,
+	// otherwise GitHub Enterprise Server (with the entered host shown alongside).
 	const sourceIsCloud = $derived(!sourceApiUrl.trim());
-	const effectiveSourceLabel = $derived.by(() => {
+	const sourcePlatformLabel = $derived(
+		sourceIsCloud ? 'GitHub Enterprise Cloud' : 'GitHub Enterprise Server'
+	);
+	const sourceHost = $derived.by(() => {
 		const raw = sourceApiUrl.trim();
-		if (!raw) return 'GitHub.com';
+		if (!raw) return '';
 		try {
 			return new URL(raw).host;
 		} catch {
@@ -220,6 +244,38 @@
 		</div>
 	{/if}
 
+	{#snippet authBadge(isApp: boolean)}
+		<span
+			class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-400"
+			title={isApp
+				? "Using the server's configured GitHub App — no credentials needed."
+				: "Using the server's configured token — no credentials needed."}
+		>
+			<Octicon name="shield-check" size={12} />
+			Authenticated
+		</span>
+	{/snippet}
+
+	{#snippet orgNamePanel(label: string, hint: string, org: string, onOverride: () => void)}
+		<div>
+			<span class="block text-sm font-medium text-gray-400">
+				{label}{#if hint}<span class="text-gray-600 ml-1">{hint}</span>{/if}
+			</span>
+			<div class="mt-1 flex items-center justify-between gap-3 rounded-md border border-blue-500/20 bg-blue-500/5 px-4 py-2.5">
+				<span class="inline-flex min-w-0 items-center gap-2 text-sm">
+					<Octicon name="organization" size={16} class="shrink-0 text-blue-400" />
+					<span class="truncate font-mono text-gray-100">{org}</span>
+				</span>
+				{#if allowOverride}
+					<button type="button" onclick={onOverride}
+						class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+						Change
+					</button>
+				{/if}
+			</div>
+		</div>
+	{/snippet}
+
 	<form class="mt-6 space-y-6" onsubmit={handleSubmit}>
 		<!-- Repositories -->
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
@@ -250,7 +306,36 @@
 			</div>
 
 			{#if mode === 'single'}
-				{#if hasSourceOrgs}
+				{#if hasSourceOrgs && singleSourceOrg}
+					<!-- Single configured source org: name (default) or input (override). -->
+					{#if overrideSourceOrg}
+						<div>
+							<div class="flex items-center justify-between gap-2">
+								<label for="sourceOrg" class="block text-sm font-medium text-gray-400">
+									Source Org <span class="text-red-400">*</span>
+								</label>
+								<button type="button" onclick={() => { sourceOrg = defaultSourceOrg; overrideSourceOrg = false; }}
+									class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+									Cancel
+								</button>
+							</div>
+							<input id="sourceOrg" type="text" required bind:value={sourceOrg}
+								placeholder="org"
+								class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						</div>
+					{:else}
+						{@render orgNamePanel('Source Org', '', sourceOrg, () => (overrideSourceOrg = true))}
+					{/if}
+					<div>
+						<label for="sourceRepoName" class="block text-sm font-medium text-gray-400">
+							Repository Name <span class="text-red-400">*</span>
+						</label>
+						<input id="sourceRepoName" type="text" required bind:value={sourceRepoName}
+							placeholder="repo"
+							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					</div>
+				{:else if hasSourceOrgs}
+					<!-- Multiple configured orgs: dropdown beside the repo name. -->
 					<div class="flex gap-2">
 						<div class="w-2/5">
 							<label for="sourceOrg" class="block text-sm font-medium text-gray-400">
@@ -279,14 +364,30 @@
 					</div>
 				{/if}
 			{:else}
-				{#if hasSourceOrgs}
+				{#if hasSourceOrgs && singleSourceOrg && !overrideSourceOrg}
+					{@render orgNamePanel('Source Org', 'applied to names without an org/', sourceOrg, () => (overrideSourceOrg = true))}
+				{:else if hasSourceOrgs}
 					<div>
-						<label for="batchSourceOrg" class="block text-sm font-medium text-gray-400">
-							Source Org <span class="text-red-400">*</span>
-							<span class="text-gray-600 ml-1">applied to names without an org/</span>
-						</label>
-						<OrgSelect id="batchSourceOrg" bind:value={sourceOrg} options={sourceOrgs}
-							locked={sourceOrgLocked} required placeholder="org" />
+						<div class="flex items-center justify-between gap-2">
+							<label for="batchSourceOrg" class="block text-sm font-medium text-gray-400">
+								Source Org <span class="text-red-400">*</span>
+								<span class="text-gray-600 ml-1">applied to names without an org/</span>
+							</label>
+							{#if singleSourceOrg && overrideSourceOrg}
+								<button type="button" onclick={() => { sourceOrg = defaultSourceOrg; overrideSourceOrg = false; }}
+									class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+									Cancel
+								</button>
+							{/if}
+						</div>
+						{#if singleSourceOrg && overrideSourceOrg}
+							<input id="batchSourceOrg" type="text" required bind:value={sourceOrg}
+								placeholder="org"
+								class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						{:else}
+							<OrgSelect id="batchSourceOrg" bind:value={sourceOrg} options={sourceOrgs}
+								locked={sourceOrgLocked} required placeholder="org" />
+						{/if}
 					</div>
 				{/if}
 				<div>
@@ -334,14 +435,17 @@
 
 		<!-- Source -->
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
-			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="server" size={16} />Source</h3>
+			<div class="flex items-center justify-between gap-2">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="server" size={16} />Source</h3>
+				{#if sourceServerAuthed}{@render authBadge(sourceEnvApp)}{/if}
+			</div>
 
 			{#if overrideSourceUrl}
 				<div>
 					<div class="flex items-center justify-between gap-2">
 						<label for="sourceApiUrl" class="block text-sm font-medium text-gray-400">
 							Source API URL
-							<span class="text-gray-600">(leave blank for github.com)</span>
+							<span class="text-gray-600">(blank = GitHub Enterprise Cloud)</span>
 						</label>
 						<button type="button" onclick={() => { sourceApiUrl = defaultSourceApiUrl; overrideSourceUrl = false; }}
 							class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
@@ -352,19 +456,18 @@
 						placeholder="https://ghes.example.com"
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 					<p class="mt-2 inline-flex items-center gap-1.5 text-xs text-gray-500">
-						<Octicon name={sourceIsCloud ? 'mark-github' : 'server'} size={12} />
-						Resolves to <span class="font-mono text-gray-400">{effectiveSourceLabel}</span>
-						{#if sourceIsCloud}<span class="text-gray-600">(GitHub.com cloud)</span>{/if}
+						<Octicon name={sourceIsCloud ? 'cloud' : 'server'} size={12} class="text-blue-400" />
+						{sourcePlatformLabel}
+						{#if !sourceIsCloud && sourceHost}<span class="font-mono text-gray-400">{sourceHost}</span>{/if}
 					</p>
 				</div>
 			{:else}
-				<!-- Resolved source: shown as a clean name (GitHub.com or the GHES host). -->
+				<!-- Resolved source: platform name + icon (host shown for GHES). -->
 				<div class="flex items-center justify-between gap-3 rounded-md border border-blue-500/20 bg-blue-500/5 px-4 py-3">
 					<span class="inline-flex min-w-0 items-center gap-2 text-sm">
-						<Octicon name={sourceIsCloud ? 'mark-github' : 'server'} size={16} class="shrink-0 text-blue-400" />
-						<span class="text-gray-400">Source</span>
-						<span class="truncate font-mono text-gray-100">{effectiveSourceLabel}</span>
-						{#if sourceIsCloud}<span class="shrink-0 text-xs text-gray-500">cloud</span>{/if}
+						<Octicon name={sourceIsCloud ? 'cloud' : 'server'} size={16} class="shrink-0 text-blue-400" />
+						<span class="truncate text-gray-100">{sourcePlatformLabel}</span>
+						{#if !sourceIsCloud && sourceHost}<span class="truncate font-mono text-xs text-gray-500">{sourceHost}</span>{/if}
 					</span>
 					{#if allowOverride}
 						<button type="button" onclick={() => (overrideSourceUrl = true)}
@@ -378,6 +481,7 @@
 			<AuthModeFields
 				variant="inline"
 				required
+				serverBadgeInHeader
 				envApp={sourceEnvApp}
 				envPat={sourceEnvPat}
 				allowOverride={allowOverride}
@@ -389,21 +493,37 @@
 			/>
 		</div>
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
-			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="repo-push" size={16} />Target</h3>
-
-			<div>
-				<label for="targetOrg" class="block text-sm font-medium text-gray-400">
-					Target Organization <span class="text-red-400">*</span>
-				</label>
-				{#if hasTargetOrgs}
-					<OrgSelect id="targetOrg" bind:value={targetOrg} options={targetOrgs}
-						locked={targetOrgLocked} required placeholder="my-ghec-org" />
-				{:else}
-					<input id="targetOrg" type="text" required bind:value={targetOrg}
-						placeholder="my-ghec-org"
-						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-				{/if}
+			<div class="flex items-center justify-between gap-2">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="repo-push" size={16} />Target</h3>
+				{#if targetServerAuthed}{@render authBadge(targetEnvApp)}{/if}
 			</div>
+
+			{#if hasTargetOrgs && singleTargetOrg && !overrideTargetOrg}
+				<!-- Single configured org: show the name, not a dropdown. -->
+				{@render orgNamePanel('Target Organization', '', targetOrg, () => (overrideTargetOrg = true))}
+			{:else}
+				<div>
+					<div class="flex items-center justify-between gap-2">
+						<label for="targetOrg" class="block text-sm font-medium text-gray-400">
+							Target Organization <span class="text-red-400">*</span>
+						</label>
+						{#if hasTargetOrgs && overrideTargetOrg}
+							<button type="button" onclick={() => { targetOrg = defaultTargetOrg; overrideTargetOrg = false; }}
+								class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+								Cancel
+							</button>
+						{/if}
+					</div>
+					{#if hasTargetOrgs && !overrideTargetOrg}
+						<OrgSelect id="targetOrg" bind:value={targetOrg} options={targetOrgs}
+							locked={targetOrgLocked} required placeholder="my-ghec-org" />
+					{:else}
+						<input id="targetOrg" type="text" required bind:value={targetOrg}
+							placeholder="my-ghec-org"
+							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					{/if}
+				</div>
+			{/if}
 
 			{#if mode === 'single'}
 				<div>
@@ -420,6 +540,7 @@
 			<AuthModeFields
 				variant="inline"
 				required
+				serverBadgeInHeader
 				envApp={targetEnvApp}
 				envPat={targetEnvPat}
 				allowOverride={allowOverride}

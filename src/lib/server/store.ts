@@ -521,8 +521,8 @@ export function getMigrationStats(): MigrationStats {
   const platformRows = db
     .prepare(
       `SELECT
-        SUM(CASE WHEN source_api_url LIKE '%api.github.com%' THEN 1 ELSE 0 END) AS ghec,
-        SUM(CASE WHEN source_api_url NOT LIKE '%api.github.com%' THEN 1 ELSE 0 END) AS ghes
+        SUM(CASE WHEN source_api_url LIKE '%github.com%' OR source_api_url LIKE '%ghe.com%' THEN 1 ELSE 0 END) AS ghec,
+        SUM(CASE WHEN source_api_url LIKE '%github.com%' OR source_api_url LIKE '%ghe.com%' THEN 0 ELSE 1 END) AS ghes
       FROM migrations`,
     )
     .get() as { ghec: number | null; ghes: number | null };
@@ -531,7 +531,7 @@ export function getMigrationStats(): MigrationStats {
   const platformSuccessRows = db
     .prepare(
       `SELECT
-        CASE WHEN source_api_url LIKE '%api.github.com%' THEN 'ghec' ELSE 'ghes' END AS platform,
+        CASE WHEN source_api_url LIKE '%github.com%' OR source_api_url LIKE '%ghe.com%' THEN 'ghec' ELSE 'ghes' END AS platform,
         SUM(CASE WHEN state IN ('succeeded', 'failed', 'cancelled') THEN 1 ELSE 0 END) AS finished,
         SUM(CASE WHEN state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded
       FROM migrations

@@ -34,9 +34,16 @@ export function isActiveState(state: MigrationState): boolean {
   return ACTIVE_STATES.has(state);
 }
 
-/** True when the source API URL points at GitHub.com / GHEC (vs a GHES host). */
+/**
+ * True when the source API URL points at GitHub Enterprise Cloud rather than a
+ * GHES instance. GHEC lives on github.com (incl. api.github.com) and on
+ * data-residency tenants under *.ghe.com; everything else is GHES. (GHEC can be
+ * a source or a target; GHES is only ever a source — the target is always GHEC.)
+ */
 export function isGitHubCloud(apiUrl: string | null | undefined): boolean {
-  return !!apiUrl && apiUrl.includes("api.github.com");
+  if (!apiUrl) return false;
+  const u = apiUrl.toLowerCase();
+  return u.includes("github.com") || u.includes("ghe.com");
 }
 
 /** Short platform label for a migration's source API URL. */

@@ -510,6 +510,7 @@
 					style="--cols-mobile: {Math.min(cols, 3)}; --cols-full: {cols};">
 					{#each resources as r (r.label)}
 						{@const match = r.t >= r.s}
+						{@const extra = r.t - r.s}
 						<div class="flex flex-col items-center gap-1 bg-gray-950 px-3 py-4">
 							<div class="flex items-center gap-1 {match ? 'text-green-400' : 'text-yellow-400'}">
 								<Octicon name={r.icon} size={16} />
@@ -517,8 +518,13 @@
 							</div>
 							<div class="text-xl font-bold text-gray-50">{r.t.toLocaleString()}</div>
 							<div class="text-xs text-gray-500">{r.label}</div>
-							{#if r.s !== r.t}
-								<div class="text-[10px] text-yellow-400">{r.t} of {r.s.toLocaleString()}</div>
+							{#if extra > 0}
+								<div class="text-[10px] text-gray-500"
+									title="{r.s.toLocaleString()} migrated from source + {extra.toLocaleString()} created by the migration">
+									+{extra.toLocaleString()} added
+								</div>
+							{:else if extra < 0}
+								<div class="text-[10px] text-yellow-400">{r.t.toLocaleString()} of {r.s.toLocaleString()}</div>
 							{/if}
 						</div>
 					{/each}

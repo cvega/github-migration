@@ -634,7 +634,7 @@ export async function archiveRepository(gql: typeof graphql, repoNodeId: string)
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Check if a URL points to the github.com API (not a GHES instance). */
+/** Check if a URL points to the standard github.com API (not GHES, not GHE.com). */
 function isGitHubDotCom(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
@@ -644,25 +644,50 @@ function isGitHubDotCom(url: string): boolean {
   }
 }
 
+/**
+ * True when the URL points at GitHub Enterprise Cloud rather than a GHES
+ * instance. GHEC covers standard github.com AND data-residency tenants under
+ * `*.ghe.com` (API host `api.<tenant>.ghe.com`). Everything else is GHES.
+ *
+ * This distinction drives migration behavior: cloud sources skip the GHES
+ * version check and archive export, and their API URL never takes a `/api/v3`
+ * path suffix.
+ */
+function isCloudApiUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    if (hostname === "github.com" || hostname === "api.github.com") return true;
+    return hostname === "ghe.com" || hostname.endsWith(".ghe.com");
+  } catch {
+    const u = url.toLowerCase();
+    return u.includes("github.com") || u.includes("ghe.com");
+  }
+}
+
 function normalizeApiUrl(url: string): string {
   url = url.replace(/\/+$/, "");
-  // GHES: https://ghes.example.com → https://ghes.example.com/api/v3
-  if (!isGitHubDotCom(url) && !url.endsWith("/api/v3")) {
+  // GHES: https://ghes.example.com → https://ghes.example.com/api/v3.
+  // Cloud (github.com / *.ghe.com) already uses an `api.` host and takes no path.
+  if (!isCloudApiUrl(url) && !url.endsWith("/api/v3")) {
     return `${url}/api/v3`;
   }
   return url;
 }
 
 export function sourceBaseUrl(apiUrl: string): string {
+  // Standard GHEC → canonical web host.
   if (isGitHubDotCom(apiUrl)) return "https://github.com";
   const u = apiUrl.replace(/\/+$/, "");
+  // GHES: drop the /api/v3 suffix to get the web host.
   if (u.endsWith("/api/v3")) return u.replace(/\/api\/v3$/, "");
+  // Data-residency (api.<tenant>.ghe.com) and other `api.`-prefixed API hosts:
+  // drop the `api.` prefix to get the web host (https://<tenant>.ghe.com).
   if (u.includes("://api.")) return u.replace("://api.", "://");
   return u;
 }
 
 export function isGhecSource(apiUrl: string): boolean {
-  return isGitHubDotCom(apiUrl);
+  return isCloudApiUrl(apiUrl);
 }
 
 export function isVersionAtLeast(version: string, min: string): boolean {

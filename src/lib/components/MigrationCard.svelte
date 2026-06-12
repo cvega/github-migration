@@ -135,8 +135,8 @@
 			{#if migration.warningsCount > 0}
 				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>
 			{/if}
-		<span class="inline-flex items-center gap-1.5" title="{platform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub.com'} to GitHub Enterprise Cloud">
-			<span class="inline-flex items-center gap-1"><Octicon name="server" size={12} />{platform}</span>
+		<span class="inline-flex items-center gap-1.5" title="{platform === 'GHES' ? 'GitHub Enterprise Server' : 'GitHub Enterprise Cloud'} → GitHub Enterprise Cloud">
+			<span class="inline-flex items-center gap-1"><Octicon name={platform === 'GHES' ? 'server' : 'cloud'} size={12} />{platform}</span>
 				<span class="text-gray-600">→</span>
 				<span class="inline-flex items-center gap-1"><Octicon name="cloud" size={12} />GHEC</span>
 			</span>

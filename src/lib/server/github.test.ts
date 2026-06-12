@@ -34,14 +34,27 @@ describe("isGhecSource", () => {
     expect(isGhecSource("https://api.github.com")).toBe(true);
   });
 
+  test("true for a GHE.com data-residency tenant", () => {
+    expect(isGhecSource("https://api.acme.ghe.com")).toBe(true);
+    expect(isGhecSource("https://acme.ghe.com")).toBe(true);
+  });
+
   test("false for a GHES host", () => {
     expect(isGhecSource("https://ghes.example.com/api/v3")).toBe(false);
+  });
+
+  test("false for a self-hosted host containing 'github' (e.g. github.mycompany.com)", () => {
+    expect(isGhecSource("https://github.mycompany.com/api/v3")).toBe(false);
   });
 });
 
 describe("sourceBaseUrl", () => {
   test("maps the github.com API to github.com", () => {
     expect(sourceBaseUrl("https://api.github.com")).toBe("https://github.com");
+  });
+
+  test("maps a GHE.com data-residency API host to its web host", () => {
+    expect(sourceBaseUrl("https://api.acme.ghe.com")).toBe("https://acme.ghe.com");
   });
 
   test("strips a trailing /api/v3 from a GHES URL", () => {

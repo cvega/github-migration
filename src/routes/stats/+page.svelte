@@ -45,6 +45,34 @@
 
 	const platformTotal = $derived(stats.platforms.ghes + stats.platforms.ghec);
 
+	// Migration directions, dynamic: only buckets with at least one migration are
+	// shown, so a single-direction history (e.g. all GHEC→GHEC) renders as one
+	// card rather than implying two distinct migration types.
+	const directions = $derived(
+		(
+			[
+				{
+					key: 'ghes',
+					label: 'GHES → GHEC',
+					icon: 'server' as IconName,
+					color: '#a855f7',
+					accent: 'border-purple-500/20 bg-purple-500/5 text-purple-400',
+					total: stats.platforms.ghes,
+					success: stats.platformSuccess.ghes
+				},
+				{
+					key: 'ghec',
+					label: 'GHEC → GHEC',
+					icon: 'cloud' as IconName,
+					color: '#3b82f6',
+					accent: 'border-blue-500/20 bg-blue-500/5 text-blue-400',
+					total: stats.platforms.ghec,
+					success: stats.platformSuccess.ghec
+				}
+			] as const
+		).filter((d) => d.total > 0)
+	);
+
 	// Throughput chart geometry.
 	const maxDay = $derived(Math.max(1, ...stats.throughput.map((d) => d.succeeded + d.failed)));
 
@@ -175,42 +203,31 @@
 			<!-- Platforms -->
 			<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
 				<h2 class="mb-3 flex items-center gap-2 text-sm font-medium text-gray-300">
-					<Octicon name="arrow-switch" size={16} class="text-gray-500" />Source Platform
+					<Octicon name="arrow-switch" size={16} class="text-gray-500" />Migration Direction
 				</h2>
 				{#if platformTotal > 0}
-					<SegmentBar
-						segments={[
-							{ value: stats.platforms.ghes, color: '#a855f7' },
-							{ value: stats.platforms.ghec, color: '#3b82f6' }
-						]}
-					/>
-					<div class="mt-1.5 flex items-center justify-between text-xs text-gray-500">
-						<span>{platformTotal > 0 ? Math.round((stats.platforms.ghes / platformTotal) * 100) : 0}% GHES</span>
-						<span>{platformTotal > 0 ? Math.round((stats.platforms.ghec / platformTotal) * 100) : 0}% GHEC</span>
-					</div>
-					<div class="mt-4 grid grid-cols-2 gap-3">
-						<div class="rounded-md border border-purple-500/20 bg-purple-500/5 p-3">
-							<div class="inline-flex items-center gap-1.5 text-sm font-medium text-purple-400">
-								<Octicon name="server" size={16} />GHES
-							</div>
-							<div class="mt-2 space-y-1 text-xs">
-								<div class="flex justify-between text-gray-400"><span>Total</span><span class="font-medium text-gray-200">{fmtNum(stats.platforms.ghes)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Finished</span><span class="font-medium text-gray-200">{fmtNum(stats.platformSuccess.ghes.finished)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Succeeded</span><span class="font-medium text-green-400">{fmtNum(stats.platformSuccess.ghes.succeeded)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Success rate</span><span class="font-medium text-gray-200">{stats.platformSuccess.ghes.rate}%</span></div>
-							</div>
+					{#if directions.length > 1}
+						<SegmentBar segments={directions.map((d) => ({ value: d.total, color: d.color }))} />
+						<div class="mt-1.5 flex items-center justify-between text-xs text-gray-500">
+							{#each directions as d (d.key)}
+								<span>{Math.round((d.total / platformTotal) * 100)}% {d.label}</span>
+							{/each}
 						</div>
-						<div class="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
-							<div class="inline-flex items-center gap-1.5 text-sm font-medium text-blue-400">
-								<Octicon name="cloud" size={16} />GHEC
+					{/if}
+					<div class="grid gap-3 {directions.length > 1 ? 'mt-4 grid-cols-2' : ''}">
+						{#each directions as d (d.key)}
+							<div class="rounded-md border p-3 {d.accent}">
+								<div class="inline-flex items-center gap-1.5 text-sm font-medium">
+									<Octicon name={d.icon} size={16} />{d.label}
+								</div>
+								<div class="mt-2 space-y-1 text-xs">
+									<div class="flex justify-between text-gray-400"><span>Total</span><span class="font-medium text-gray-200">{fmtNum(d.total)}</span></div>
+									<div class="flex justify-between text-gray-400"><span>Finished</span><span class="font-medium text-gray-200">{fmtNum(d.success.finished)}</span></div>
+									<div class="flex justify-between text-gray-400"><span>Succeeded</span><span class="font-medium text-green-400">{fmtNum(d.success.succeeded)}</span></div>
+									<div class="flex justify-between text-gray-400"><span>Success rate</span><span class="font-medium text-gray-200">{d.success.rate}%</span></div>
+								</div>
 							</div>
-							<div class="mt-2 space-y-1 text-xs">
-								<div class="flex justify-between text-gray-400"><span>Total</span><span class="font-medium text-gray-200">{fmtNum(stats.platforms.ghec)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Finished</span><span class="font-medium text-gray-200">{fmtNum(stats.platformSuccess.ghec.finished)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Succeeded</span><span class="font-medium text-green-400">{fmtNum(stats.platformSuccess.ghec.succeeded)}</span></div>
-								<div class="flex justify-between text-gray-400"><span>Success rate</span><span class="font-medium text-gray-200">{stats.platformSuccess.ghec.rate}%</span></div>
-							</div>
-						</div>
+						{/each}
 					</div>
 				{:else}
 					<p class="text-sm text-gray-500">No data.</p>
