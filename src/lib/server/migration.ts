@@ -368,6 +368,30 @@ async function captureTargetNodeId(clients: GitHubClients, migration: Migration)
 
 // ── Archive resolution ──────────────────────────────────────────────────────
 
+/**
+ * Kick off the git + metadata archive exports on the source and return their
+ * archive IDs. Shared by the direct-passthrough and download→upload branches.
+ */
+async function startArchiveExports(
+  clients: GitHubClients,
+  migration: Migration,
+  opts: MigrationPipelineOpts,
+): Promise<{ gitArchiveId: number; metaArchiveId: number }> {
+  const gitArchiveId = await startGitArchiveExport(
+    clients.source,
+    migration.sourceOrg,
+    migration.sourceRepo,
+  );
+  const metaArchiveId = await startMetadataArchiveExport(
+    clients.source,
+    migration.sourceOrg,
+    migration.sourceRepo,
+    opts.skipReleases ?? false,
+    opts.lockSource ?? false,
+  );
+  return { gitArchiveId, metaArchiveId };
+}
+
 async function resolveArchives(
   clients: GitHubClients,
   migration: Migration,
@@ -383,18 +407,7 @@ async function resolveArchives(
   // Direct passthrough: pass GHES URLs directly to GHEC.
   if (opts.directPassthrough) {
     emitStep("Exporting archives from source (direct passthrough)");
-    const gitArchiveId = await startGitArchiveExport(
-      clients.source,
-      migration.sourceOrg,
-      migration.sourceRepo,
-    );
-    const metaArchiveId = await startMetadataArchiveExport(
-      clients.source,
-      migration.sourceOrg,
-      migration.sourceRepo,
-      opts.skipReleases ?? false,
-      opts.lockSource ?? false,
-    );
+    const { gitArchiveId, metaArchiveId } = await startArchiveExports(clients, migration, opts);
     const gitUrl = await waitForArchive(
       clients.source,
       migration.sourceOrg,
@@ -414,18 +427,7 @@ async function resolveArchives(
   // Default: export → download → upload.
   emitStep("Exporting archives from source");
 
-  const gitArchiveId = await startGitArchiveExport(
-    clients.source,
-    migration.sourceOrg,
-    migration.sourceRepo,
-  );
-  const metaArchiveId = await startMetadataArchiveExport(
-    clients.source,
-    migration.sourceOrg,
-    migration.sourceRepo,
-    opts.skipReleases ?? false,
-    opts.lockSource ?? false,
-  );
+  const { gitArchiveId, metaArchiveId } = await startArchiveExports(clients, migration, opts);
 
   emitStep("Waiting for archive exports to complete");
 
