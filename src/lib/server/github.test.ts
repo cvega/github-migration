@@ -24,7 +24,10 @@ function httpError(status: number, message = `HTTP ${status}`): Error {
  * the `/archive` endpoint returns the download URL; every other call returns
  * the next status from `statuses` (the last entry repeats once exhausted).
  */
-function archiveClient(statuses: string[], archiveUrl = "https://archive.example/dl.tar"): {
+function archiveClient(
+  statuses: string[],
+  archiveUrl = "https://archive.example/dl.tar",
+): {
   client: FakeClient;
   statusCalls: () => number;
 } {
