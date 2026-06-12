@@ -147,7 +147,7 @@
 		const reader = new FileReader();
 		reader.onload = () => {
 			const text = reader.result as string;
-			repoInput = repoInput ? repoInput + '\n' + text : text;
+			repoInput = repoInput ? `${repoInput}\n${text}` : text;
 		};
 		reader.readAsText(file);
 	}

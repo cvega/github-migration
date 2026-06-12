@@ -321,14 +321,14 @@
 			{#if restartableCount > 0 || isActive}
 				<div class="flex items-center gap-2">
 					{#if restartableCount > 0}
-						<button onclick={openRestartModal}
+						<button type="button" onclick={openRestartModal}
 							class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-500/20 transition-colors">
 							<Octicon name="sync" size={12} />
 							{restartLabel}
 						</button>
 					{/if}
 					{#if isActive}
-						<button onclick={openCancelModal}
+						<button type="button" onclick={openCancelModal}
 							class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/20 transition-colors">
 							<Octicon name="x-circle" size={12} />
 							Cancel All

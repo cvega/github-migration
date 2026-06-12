@@ -79,7 +79,7 @@
 			<Octicon name="x-circle" size={16} />
 			Migration Failed
 		</h3>
-		<button onclick={copyReport}
+		<button type="button" onclick={copyReport}
 			title="Copy a full failure report (repo, IDs, timing, errors) to share with a services engineer"
 			class="flex shrink-0 items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/20 transition-colors">
 			<Octicon name={copied ? 'check' : 'copy'} size={12} />

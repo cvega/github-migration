@@ -19,6 +19,7 @@ import type {
 import {
   __setPipelineRunnerForTests,
   cancel,
+  cancelBatch,
   events,
   get,
   recoverOrphans,
@@ -166,6 +167,49 @@ describe("startBatch", () => {
       targetToken: "t",
     });
     expect(summary.totalCount).toBe(2);
+  });
+});
+
+describe("cancelBatch", () => {
+  test("cancels every active migration in the batch and returns the count", () => {
+    const summary = startBatch(batchReq(MAX_CONCURRENT + 2));
+    // 10 pending + 2 queued = 12 active migrations, all cancellable.
+    const cancelled = cancelBatch(summary.id);
+    expect(cancelled).toBe(MAX_CONCURRENT + 2);
+    for (const m of summary.migrations) {
+      expect(get(m.id)?.state).toBe("cancelled");
+    }
+  });
+
+  test("returns 0 for an unknown batch id", () => {
+    expect(cancelBatch("no-such-batch")).toBe(0);
+  });
+
+  test("ignores already-finished migrations when counting", () => {
+    const summary = startBatch(batchReq(2));
+    // Finish one out of band; cancelBatch should only cancel the still-active one.
+    cancel(defined(summary.migrations[0], "expected a migration").id);
+    expect(cancelBatch(summary.id)).toBe(1);
+  });
+});
+
+describe("queue drain accounting", () => {
+  test("promotes exactly as many queued migrations as slots freed", () => {
+    const summary = startBatch(batchReq(MAX_CONCURRENT + 3));
+    const queuedIds = summary.migrations.filter((m) => m.state === "queued").map((m) => m.id);
+    const pending = summary.migrations.filter((m) => m.state === "pending");
+    expect(queuedIds).toHaveLength(3);
+
+    // Free two slots — drainQueue should promote exactly two of the three queued.
+    cancel(defined(pending[0], "expected a pending migration").id);
+    cancel(defined(pending[1], "expected a second pending migration").id);
+
+    const promoted = queuedIds.filter((id) => get(id)?.state === "pending");
+    const stillQueued = queuedIds.filter((id) => get(id)?.state === "queued");
+    expect(promoted).toHaveLength(2);
+    expect(stillQueued).toHaveLength(1);
+    // Active count is back at the cap (8 survivors + 2 promoted).
+    expect(launched).toHaveLength(MAX_CONCURRENT + 2);
   });
 });
 

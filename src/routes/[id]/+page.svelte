@@ -301,7 +301,7 @@
 				</span>
 			</div>
 			<div class="mt-1 flex items-center gap-3 text-sm">
-				<span class={stateColor + ' font-medium uppercase'}>{migration.state}</span>
+				<span class={`${stateColor} font-medium uppercase`}>{migration.state}</span>
 				<span class="text-gray-600">·</span>
 				<span class="inline-flex items-center gap-1 text-gray-400"
 					title={migration.completedAt
@@ -327,20 +327,20 @@
 			</div>
 		</div>
 		{#if isActive}
-			<button onclick={handleCancel}
+			<button type="button" onclick={handleCancel}
 				class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
 				<Octicon name="x-circle" size={16} />
 				Cancel
 			</button>
 		{:else if isRestartable}
 			<div class="flex items-center gap-2">
-				<button onclick={openRestartModal}
+				<button type="button" onclick={openRestartModal}
 					class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
 					<Octicon name="sync" size={16} />
 					Restart
 				</button>
 				{#if showCleanup}
-					<button onclick={() => (cleanupOpen = true)}
+					<button type="button" onclick={() => (cleanupOpen = true)}
 						class="flex items-center gap-1.5 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-400 hover:bg-yellow-500/20 transition-colors">
 						<Octicon name="alert" size={16} />
 						Clean up target
@@ -356,7 +356,7 @@
 			<PhaseTimeline {currentPhase} failed={migration.state === 'failed'} />
 		</div>
 		{#if migration.githubMigrationId}
-			<button onclick={copyMigrationId}
+			<button type="button" onclick={copyMigrationId}
 				title="Copy migration ID: {migration.githubMigrationId}"
 				class="flex shrink-0 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors">
 				<Octicon name={copiedId ? 'check' : 'copy'} size={16} />

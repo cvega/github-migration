@@ -1,5 +1,44 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { isGhecSource, isVersionAtLeast, makeThrottleOptions, sourceBaseUrl } from "./github";
+import {
+  doesOrgExist,
+  doesRepoExist,
+  isGhecSource,
+  isVersionAtLeast,
+  makeThrottleOptions,
+  sourceBaseUrl,
+  waitForArchive,
+} from "./github";
+
+/** Minimal Octokit stand-in; cast to the client type the functions expect. */
+type FakeClient = Parameters<typeof waitForArchive>[0];
+
+/** Build an HTTP-style error carrying a numeric `status`, like Octokit throws. */
+function httpError(status: number, message = `HTTP ${status}`): Error {
+  const err = new Error(message);
+  (err as Error & { status: number }).status = status;
+  return err;
+}
+
+/**
+ * Fake client for the archive-polling helpers. `request()` routes by URL:
+ * the `/archive` endpoint returns the download URL; every other call returns
+ * the next status from `statuses` (the last entry repeats once exhausted).
+ */
+function archiveClient(statuses: string[], archiveUrl = "https://archive.example/dl.tar"): {
+  client: FakeClient;
+  statusCalls: () => number;
+} {
+  let i = 0;
+  const client = {
+    request: async (route: string) => {
+      if (route.includes("/archive")) return { data: archiveUrl };
+      const state = statuses[Math.min(i, statuses.length - 1)];
+      i++;
+      return { data: { state } };
+    },
+  } as unknown as FakeClient;
+  return { client, statusCalls: () => i };
+}
 
 describe("isVersionAtLeast", () => {
   test("treats an equal version as satisfying the minimum", () => {
@@ -108,5 +147,99 @@ describe("makeThrottleOptions", () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+describe("waitForArchive", () => {
+  test("returns the archive URL once the export is 'exported'", async () => {
+    const { client } = archiveClient(["exported"]);
+    const url = await waitForArchive(client, "acme", 42, undefined, 1);
+    expect(url).toBe("https://archive.example/dl.tar");
+  });
+
+  test("polls until the status flips to 'exported'", async () => {
+    const { client, statusCalls } = archiveClient(["pending", "exporting", "exported"]);
+    const url = await waitForArchive(client, "acme", 42, undefined, 1);
+    expect(url).toBe("https://archive.example/dl.tar");
+    // Three status polls (pending → exporting → exported) before the archive fetch.
+    expect(statusCalls()).toBe(3);
+  });
+
+  test("throws when the export reports 'failed'", async () => {
+    const { client } = archiveClient(["failed"]);
+    await expect(waitForArchive(client, "acme", 7, undefined, 1)).rejects.toThrow(
+      /Archive export 7 failed/,
+    );
+  });
+
+  test("throws immediately when the signal is already aborted", async () => {
+    const { client } = archiveClient(["pending"]);
+    const ac = new AbortController();
+    ac.abort();
+    await expect(waitForArchive(client, "acme", 1, ac.signal, 1)).rejects.toThrow(/aborted/i);
+  });
+
+  test("throws a timeout error once the deadline passes", async () => {
+    const { client } = archiveClient(["pending"]);
+    // maxWaitMs = 0 → the deadline is already in the past on the first check.
+    await expect(waitForArchive(client, "acme", 9, undefined, 1, 0)).rejects.toThrow(/timed out/);
+  });
+});
+
+describe("doesOrgExist", () => {
+  test("true when the org is fetched successfully", async () => {
+    const client = { orgs: { get: async () => ({ data: {} }) } } as unknown as FakeClient;
+    expect(await doesOrgExist(client, "acme")).toBe(true);
+  });
+
+  test("false when the org returns 404", async () => {
+    const client = {
+      orgs: {
+        get: async () => {
+          throw httpError(404);
+        },
+      },
+    } as unknown as FakeClient;
+    expect(await doesOrgExist(client, "ghost")).toBe(false);
+  });
+
+  test("rethrows non-404 errors (e.g. 500)", async () => {
+    const client = {
+      orgs: {
+        get: async () => {
+          throw httpError(500);
+        },
+      },
+    } as unknown as FakeClient;
+    await expect(doesOrgExist(client, "acme")).rejects.toThrow(/HTTP 500/);
+  });
+});
+
+describe("doesRepoExist", () => {
+  test("true when the repo is fetched successfully", async () => {
+    const client = { repos: { get: async () => ({ data: {} }) } } as unknown as FakeClient;
+    expect(await doesRepoExist(client, "acme", "widget")).toBe(true);
+  });
+
+  test("false when the repo returns 404", async () => {
+    const client = {
+      repos: {
+        get: async () => {
+          throw httpError(404);
+        },
+      },
+    } as unknown as FakeClient;
+    expect(await doesRepoExist(client, "acme", "ghost")).toBe(false);
+  });
+
+  test("rethrows non-404 errors (e.g. 403)", async () => {
+    const client = {
+      repos: {
+        get: async () => {
+          throw httpError(403);
+        },
+      },
+    } as unknown as FakeClient;
+    await expect(doesRepoExist(client, "acme", "widget")).rejects.toThrow(/HTTP 403/);
   });
 });
