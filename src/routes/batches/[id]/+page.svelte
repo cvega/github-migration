@@ -10,7 +10,7 @@
 	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
+	import RestartModal from '$lib/components/RestartModal.svelte';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
 	import type { BatchListItem, Migration, PaginatedResult } from '$lib/types';
 
@@ -34,7 +34,6 @@
 	let restartSubmitting = $state(false);
 	let restartError = $state('');
 	let restartResult = $state<{ restarted: number; errors: Array<{ id: string; error: string }> } | null>(null);
-	let restartDialog = $state<HTMLDialogElement>();
 
 	// ── Cancel-all modal state ─────────────────────────────────────────────
 	let showCancelModal = $state(false);
@@ -59,12 +58,6 @@
 		targetEnvApp,
 		targetEnvPat,
 	}));
-
-	// Drive the native <dialog> from showRestartModal.
-	$effect(() => {
-		if (showRestartModal) restartDialog?.showModal();
-		else restartDialog?.close();
-	});
 
 	// Drive the cancel-all confirmation <dialog>.
 	$effect(() => {
@@ -421,35 +414,31 @@
 </div>
 
 <!-- Restart modal -->
-<dialog
-	bind:this={restartDialog}
-	onclose={() => (showRestartModal = false)}
-	onclick={(e) => { if (e.target === restartDialog) restartDialog?.close(); }}
-	class="m-auto w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+<RestartModal
+	bind:open={showRestartModal}
+	form={restart}
+	submitting={restartSubmitting}
+	error={restartError}
+	title="Restart Failed Migrations"
+	submitLabel={`Restart ${restartableCount} Migration${restartableCount === 1 ? '' : 's'}`}
+	productionLockText="Source repositories will be locked during migration and archived after success."
+	directPassthroughLabel="Direct passthrough (skip download/upload)"
+	sslVerifyLabel="Skip SSL verification (self-signed certs)"
+	visibilityId="batch-restart-visibility"
+	{sourceEnvApp}
+	{sourceEnvPat}
+	{targetEnvApp}
+	{targetEnvPat}
+	allowOverride={page.data.allowCredentialOverride ?? true}
+	onsubmit={handleBatchRestart}
 >
-	<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
-		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
-			<Octicon name="sync" size={24} />
-			Restart Failed Migrations
-		</h2>
-		<button type="button" onclick={() => restartDialog?.close()} class="text-gray-400 hover:text-gray-50 transition-colors">
-			<Octicon name="x" size={24} />
-		</button>
-	</div>
-
-	<form class="space-y-5 p-5" onsubmit={handleBatchRestart}>
+	{#snippet info()}
 		<!-- Batch info (read-only) -->
 		<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3">
 			<p class="text-sm text-gray-300">
 				Restarting <span class="font-medium text-gray-50">{restartableCount}</span> failed/cancelled migration{restartableCount === 1 ? '' : 's'} in this batch.
 			</p>
 		</div>
-
-		{#if restartError}
-			<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-				{restartError}
-			</div>
-		{/if}
 
 		{#if restartResult}
 			<div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
@@ -464,113 +453,8 @@
 				{/if}
 			</div>
 		{/if}
-
-		<!-- Source Auth -->
-		<AuthModeFields
-			title="Source Authentication"
-			icon="server"
-			envApp={sourceEnvApp}
-			envPat={sourceEnvPat}
-			allowOverride={page.data.allowCredentialOverride ?? true}
-			bind:mode={restart.state.sourceAuthMode}
-			bind:token={restart.state.sourceToken}
-			bind:appId={restart.state.sourceAppId}
-			bind:installationId={restart.state.sourceAppInstallationId}
-			bind:appKey={restart.state.sourceAppKey}
-		/>
-
-		<!-- Target Auth -->
-		<AuthModeFields
-			title="Target Authentication"
-			icon="repo-push"
-			envApp={targetEnvApp}
-			envPat={targetEnvPat}
-			allowOverride={page.data.allowCredentialOverride ?? true}
-			bind:mode={restart.state.targetAuthMode}
-			bind:token={restart.state.targetToken}
-			bind:appId={restart.state.targetAppId}
-			bind:installationId={restart.state.targetAppInstallationId}
-			bind:appKey={restart.state.targetAppKey}
-		/>
-
-		<!-- Options -->
-		<div class="space-y-3">
-			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-				<Octicon name="gear" size={16} />Options
-			</h3>
-
-			<div>
-				<span class="block text-sm font-medium text-gray-400 mb-1.5">Migration Mode</span>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restart.state.migrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restart.state.migrationMode = 'dry-run'}>
-						Dry Run
-					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restart.state.migrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => restart.state.migrationMode = 'production'}>
-						Production
-					</button>
-				</div>
-				{#if restart.state.migrationMode === 'production'}
-					<div class="mt-2 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-						<Octicon name="alert" size={12} class="shrink-0" />
-						Source repositories will be locked during migration and archived after success.
-					</div>
-				{/if}
-			</div>
-
-			<div>
-				<label for="batch-restart-visibility" class="block text-sm font-medium text-gray-400 mb-1">
-					Repository Visibility <span class="text-gray-600">(optional)</span>
-				</label>
-				<select id="batch-restart-visibility" bind:value={restart.state.targetRepoVisibility}
-					class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
-					<option value="">Default</option>
-					<option value="private">Private</option>
-					<option value="public">Public</option>
-					<option value="internal">Internal</option>
-				</select>
-			</div>
-
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={restart.state.skipReleases}
-					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Skip releases</span>
-			</label>
-
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={restart.state.directPassthrough}
-					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Direct passthrough (skip download/upload)</span>
-			</label>
-
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={restart.state.noSslVerify}
-					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Skip SSL verification (self-signed certs)</span>
-			</label>
-		</div>
-
-		<!-- Actions -->
-		<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
-			<button type="button" onclick={() => restartDialog?.close()}
-				class="text-sm text-gray-400 hover:text-gray-50 transition-colors">
-				Cancel
-			</button>
-			<button type="submit" disabled={restartSubmitting}
-				class="flex items-center gap-1.5 rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-				{#if restartSubmitting}
-					Restarting...
-				{:else}
-					<Octicon name="sync" size={16} />
-					Restart {restartableCount} Migration{restartableCount === 1 ? '' : 's'}
-				{/if}
-			</button>
-		</div>
-	</form>
-</dialog>
+	{/snippet}
+</RestartModal>
 
 <!-- Cancel-all confirmation modal -->
 <dialog
