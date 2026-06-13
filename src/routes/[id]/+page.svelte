@@ -12,6 +12,7 @@
 	import Octicon from '$lib/components/Octicon.svelte';
 	import CleanupModal from '$lib/components/CleanupModal.svelte';
 	import RestartModal from '$lib/components/RestartModal.svelte';
+	import CancelConfirmModal from '$lib/components/CancelConfirmModal.svelte';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
 	import type { Migration, MigrationEvent, Phase, Progress, Counts, FailureDetail as FailureDetailType } from '$lib/types';
 
@@ -37,10 +38,7 @@
 	let showCancelModal = $state(false);
 	let cancelSubmitting = $state(false);
 	let cancelError = $state('');
-	let cancelConfirmText = $state('');
-	let cancelDialog = $state<HTMLDialogElement>();
 	const cancelPhrase = $derived(`${migration.sourceOrg}/${migration.sourceRepo}`);
-	const cancelConfirmed = $derived(cancelConfirmText.trim() === cancelPhrase);
 
 	// Auth mode for restart
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
@@ -54,12 +52,6 @@
 		targetEnvApp,
 		targetEnvPat,
 	}));
-
-	// Drive the cancel confirmation <dialog>.
-	$effect(() => {
-		if (showCancelModal) cancelDialog?.showModal();
-		else cancelDialog?.close();
-	});
 
 	onMount(() => {
 		// Seed from server-loaded data.
@@ -161,13 +153,11 @@
 
 	async function handleCancel() {
 		cancelError = '';
-		cancelConfirmText = '';
 		cancelSubmitting = false;
 		showCancelModal = true;
 	}
 
 	async function confirmCancel() {
-		if (!cancelConfirmed) return;
 		cancelError = '';
 		cancelSubmitting = true;
 		try {
@@ -675,66 +665,24 @@
 </RestartModal>
 
 <!-- Cancel confirmation modal -->
-<dialog
-	bind:this={cancelDialog}
-	onclose={() => (showCancelModal = false)}
-	onclick={(e) => { if (e.target === cancelDialog) cancelDialog?.close(); }}
-	class="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-gray-700 bg-gray-900 text-gray-50 shadow-xl backdrop:bg-black/60 backdrop:backdrop-blur-sm"
+<CancelConfirmModal
+	bind:open={showCancelModal}
+	title="Cancel this migration?"
+	confirmPhrase={cancelPhrase}
+	submitLabel="Cancel Migration"
+	submitting={cancelSubmitting}
+	error={cancelError}
+	inputId="cancel-confirm"
+	onConfirm={confirmCancel}
 >
-	<div class="flex items-center justify-between border-b border-gray-700 px-5 py-4">
-		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
-			<Octicon name="alert" size={24} class="text-red-400" />
-			Cancel this migration?
-		</h2>
-		<button type="button" onclick={() => cancelDialog?.close()} class="text-gray-400 hover:text-gray-50 transition-colors">
-			<Octicon name="x" size={24} />
-		</button>
-	</div>
-
-	<div class="space-y-4 p-5">
+	{#snippet body()}
 		<p class="text-sm text-gray-300">
 			This stops the migration of
 			<span class="font-medium text-gray-50">{migration.sourceOrg}/{migration.sourceRepo}</span>.
 			You can restart it afterwards from this page.
 		</p>
-
-		<div>
-			<label for="cancel-confirm" class="block text-sm font-medium text-gray-400 mb-1">
-				Type <span class="font-mono text-gray-200">{cancelPhrase}</span> to confirm
-			</label>
-			<input
-				id="cancel-confirm"
-				type="text"
-				autocomplete="off"
-				bind:value={cancelConfirmText}
-				placeholder={cancelPhrase}
-				class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-			/>
-		</div>
-
-		{#if cancelError}
-			<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-				{cancelError}
-			</div>
-		{/if}
-
-		<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
-			<button type="button" onclick={() => cancelDialog?.close()}
-				class="rounded-md bg-gray-700 px-5 py-2 text-sm font-medium text-gray-50 hover:bg-gray-600 transition-colors">
-				Keep running
-			</button>
-			<button type="button" disabled={cancelSubmitting || !cancelConfirmed} onclick={confirmCancel}
-				class="flex items-center gap-1.5 rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-				{#if cancelSubmitting}
-					Cancelling...
-				{:else}
-					<Octicon name="x-circle" size={16} />
-					Cancel Migration
-				{/if}
-			</button>
-		</div>
-	</div>
-</dialog>
+	{/snippet}
+</CancelConfirmModal>
 
 {#if showCleanup}
 	<CleanupModal
