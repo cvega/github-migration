@@ -2,6 +2,8 @@ services:
   gh-migrate:
     build: .
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     env_file: .env
     ports:
       - "3000:3000"

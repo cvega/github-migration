@@ -116,3 +116,11 @@
 ::selection {
   background: rgba(56, 139, 253, 0.25);
 }
+
+/* Smooth in-page anchor scrolling (e.g. dashboard section jump links),
+   disabled for users who prefer reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}

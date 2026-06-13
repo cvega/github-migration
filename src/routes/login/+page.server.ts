@@ -20,7 +20,7 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-  default: async ({ request, cookies, getClientAddress }) => {
+  default: async ({ request, cookies, getClientAddress, url }) => {
     const ip = getClientAddress();
 
     if (isRateLimited(ip)) {
@@ -40,7 +40,7 @@ export const actions: Actions = {
     cookies.set(SESSION_COOKIE, token, {
       path: "/",
       httpOnly: true,
-      secure: false, // running behind internal network; set true if HTTPS
+      secure: url.protocol === "https:", // only over HTTPS; allows plain-HTTP internal use
       sameSite: "lax",
       maxAge: SESSION_MAX_AGE,
     });

@@ -2,15 +2,31 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { untrack } from 'svelte';
+	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import type { AppAuth } from '$lib/types';
+	import OrgSelect from '$lib/components/OrgSelect.svelte';
+	import { createMigrationForm } from '$lib/migration-form.svelte';
 
 	let mode = $state<'single' | 'batch'>('single');
 
+	// ── Pre-configured defaults (env) ───────────────────────────────────────
+	const sourceOrgs = $derived(page.data.formDefaults?.sourceOrgs ?? []);
+	const targetOrgs = $derived(page.data.formDefaults?.targetOrgs ?? []);
+	const hasSourceOrgs = $derived(sourceOrgs.length > 0);
+	const hasTargetOrgs = $derived(targetOrgs.length > 0);
+
 	// ── Single-mode fields ──────────────────────────────────────────────────
+	// `sourceRepo` (org/repo) is used when no source org is pre-configured;
+	// otherwise the org comes from `sourceOrg` and the user types just the name.
+	let sourceOrg = $state(page.data.formDefaults?.sourceOrgs?.[0] ?? '');
 	let sourceRepo = $state('');
+	let sourceRepoName = $state('');
 	let targetRepo = $state('');
+	// A single configured source org is shown as a name (not a dropdown); this
+	// reveals a free-text input when the operator chooses to override it.
+	const defaultSourceOrg = $derived(page.data.formDefaults?.sourceOrgs?.[0] ?? '');
+	const singleSourceOrg = $derived(sourceOrgs.length === 1);
+	let overrideSourceOrg = $state(false);
 
 	// ── Batch-mode fields ───────────────────────────────────────────────────
 	let repoInput = $state('');
@@ -22,46 +38,96 @@
 			.map((r) => r.trim())
 			.filter((r) => r.length > 0)
 	);
-	const validRepos = $derived(parsedRepos.filter((r) => r.includes('/')));
-	const invalidRepos = $derived(parsedRepos.filter((r) => !r.includes('/')));
+	// When a source org is selected, bare names (no slash) belong to that org;
+	// lines already in org/repo form pass through unchanged.
+	const normalizedRepos = $derived(
+		hasSourceOrgs && sourceOrg
+			? parsedRepos.map((r) => (r.includes('/') ? r : `${sourceOrg}/${r}`))
+			: parsedRepos
+	);
+	const validRepos = $derived(normalizedRepos.filter((r) => r.includes('/')));
+	const invalidRepos = $derived(normalizedRepos.filter((r) => !r.includes('/')));
 
 	// ── Shared fields ───────────────────────────────────────────────────────
-	let sourceApiUrl = $state('');
-	let targetOrg = $state('');
-	let sourceToken = $state('');
-	let targetToken = $state('');
-	let skipReleases = $state(false);
-	let migrationMode = $state<'dry-run' | 'production'>('dry-run');
-	let directPassthrough = $state(false);
-	let targetRepoVisibility = $state('');
-	let noSslVerify = $state(false);
+	const defaultSourceApiUrl = $derived(page.data.formDefaults?.sourceApiUrl ?? '');
+	let sourceApiUrl = $state(page.data.formDefaults?.sourceApiUrl ?? '');
+	// The source is always shown as a resolved name; this reveals the URL input.
+	let overrideSourceUrl = $state(false);
+	let targetOrg = $state(page.data.formDefaults?.targetOrgs?.[0] ?? '');
+	// A single configured target org is shown as a name (not a dropdown); this
+	// reveals a free-text input when the operator chooses to override it.
+	const defaultTargetOrg = $derived(page.data.formDefaults?.targetOrgs?.[0] ?? '');
+	const singleTargetOrg = $derived(targetOrgs.length === 1);
+	let overrideTargetOrg = $state(false);
 	let submitting = $state(false);
 	let error = $state('');
 
-	// ── Auth mode ───────────────────────────────────────────────────────────
+	// ── Auth mode + options (shared with restart modals) ────────────────────
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
 	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
 	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
+	// Admin flag: may the user override server-configured credentials/fields?
+	const allowOverride = $derived(page.data.allowCredentialOverride ?? true);
+	// Lock pre-configured fields to their server values when override is off.
+	const sourceOrgLocked = $derived(!allowOverride && hasSourceOrgs);
+	const targetOrgLocked = $derived(!allowOverride && hasTargetOrgs);
 
-	let sourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
-		untrack(() => sourceEnvApp) ? 'env-app' : untrack(() => sourceEnvPat) ? 'env-pat' : 'pat'
-	);
-	let targetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>(
-		untrack(() => targetEnvApp) ? 'env-app' : untrack(() => targetEnvPat) ? 'env-pat' : 'pat'
-	);
+	// ── In-flight migration indicator ───────────────────────────────────────
+	const activeMigrations = $derived(page.data.activeMigrations ?? 0);
+	const maxConcurrent = $derived(page.data.maxConcurrent ?? 10);
+	const atCapacity = $derived(activeMigrations >= maxConcurrent);
 
-	let sourceAppId = $state('');
-	let sourceAppKey = $state('');
-	let sourceAppInstallationId = $state('');
-	let targetAppId = $state('');
-	let targetAppKey = $state('');
-	let targetAppInstallationId = $state('');
+	const form = createMigrationForm(() => ({
+		sourceEnvApp,
+		sourceEnvPat,
+		targetEnvApp,
+		targetEnvPat,
+	}));
+	form.initAuthModes();
+
+	// Whether each side is currently authenticated by the server's env creds —
+	// drives the "Authenticated" badge shown in the section header.
+	const sourceServerAuthed = $derived(
+		(sourceEnvApp || sourceEnvPat) &&
+			(form.state.sourceAuthMode === 'env-app' || form.state.sourceAuthMode === 'env-pat')
+	);
+	const targetServerAuthed = $derived(
+		(targetEnvApp || targetEnvPat) &&
+			(form.state.targetAuthMode === 'env-app' || form.state.targetAuthMode === 'env-pat')
+	);
 
 	// ── Derived ─────────────────────────────────────────────────────────────
-	const derivedTargetRepo = $derived(
-		targetRepo || (sourceRepo.includes('/') ? sourceRepo.split('/')[1] : sourceRepo)
+	// The effective source platform: blank API URL → GitHub Enterprise Cloud,
+	// otherwise GitHub Enterprise Server (with the entered host shown alongside).
+	const sourceIsCloud = $derived(!sourceApiUrl.trim());
+	const sourcePlatformLabel = $derived(
+		sourceIsCloud ? 'GitHub Enterprise Cloud' : 'GitHub Enterprise Server'
 	);
+	const sourceHost = $derived.by(() => {
+		const raw = sourceApiUrl.trim();
+		if (!raw) return '';
+		try {
+			return new URL(raw).host;
+		} catch {
+			return raw;
+		}
+	});
+
+	// The full source repo (org/repo), combining the org picker + name field
+	// when a source org is pre-configured, else the single org/repo input.
+	const effectiveSourceRepo = $derived(
+		hasSourceOrgs ? `${sourceOrg}/${sourceRepoName.trim()}` : sourceRepo
+	);
+	// Just the repo name, used to default the target repo name.
+	const sourceBareName = $derived(
+		hasSourceOrgs
+			? sourceRepoName.trim()
+			: sourceRepo.includes('/')
+				? (sourceRepo.split('/')[1] ?? '')
+				: sourceRepo
+	);
+	const derivedTargetRepo = $derived(targetRepo || sourceBareName);
 
 	// ── File drag/drop (batch) ──────────────────────────────────────────────
 	function handleDrop(e: DragEvent) {
@@ -81,7 +147,7 @@
 		const reader = new FileReader();
 		reader.onload = () => {
 			const text = reader.result as string;
-			repoInput = repoInput ? repoInput + '\n' + text : text;
+			repoInput = repoInput ? `${repoInput}\n${text}` : text;
 		};
 		reader.readAsText(file);
 	}
@@ -99,27 +165,9 @@
 		submitting = true;
 
 		try {
-			const sourceApp: AppAuth | undefined =
-				sourceAuthMode === 'app'
-					? { appId: sourceAppId, privateKey: sourceAppKey, installationId: sourceAppInstallationId }
-					: undefined;
-			const targetApp: AppAuth | undefined =
-				targetAuthMode === 'app'
-					? { appId: targetAppId, privateKey: targetAppKey, installationId: targetAppInstallationId }
-					: undefined;
-
 			const commonFields = {
+				...form.buildPayload(),
 				sourceApiUrl: sourceApiUrl || undefined,
-				sourceToken: sourceAuthMode === 'pat' ? sourceToken || undefined : undefined,
-				targetToken: targetAuthMode === 'pat' ? targetToken || undefined : undefined,
-				sourceApp,
-				targetApp,
-				skipReleases,
-				lockSource: migrationMode === 'production',
-				archiveSource: migrationMode === 'production',
-				directPassthrough,
-				targetRepoVisibility: targetRepoVisibility || undefined,
-				noSslVerify
 			};
 
 			if (mode === 'single') {
@@ -128,7 +176,7 @@
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
 						...commonFields,
-						sourceRepo,
+						sourceRepo: effectiveSourceRepo,
 						targetOrg,
 						targetRepo: derivedTargetRepo
 					})
@@ -177,11 +225,56 @@
 	</h1>
 	<p class="mt-1 text-sm text-gray-400">Migrate repositories from GHES or GHEC to GitHub Enterprise Cloud.</p>
 
+	{#if activeMigrations > 0}
+		<div class="mt-4 flex items-start gap-2 rounded-md border px-4 py-3 text-sm {atCapacity ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-blue-500/20 bg-blue-500/5 text-gray-300'}">
+			<Octicon name={atCapacity ? 'hourglass' : 'sync'} size={16} class="mt-0.5 shrink-0 {atCapacity ? 'text-amber-400' : 'text-blue-400'}" />
+			<div class="min-w-0">
+				{#if atCapacity}
+					<p>All {maxConcurrent} migration slots are in use ({activeMigrations} in process). New migrations are <span class="font-medium">queued automatically</span> and start as slots free up.</p>
+				{:else}
+					<p><span class="font-medium">{activeMigrations}</span> of {maxConcurrent} migration{activeMigrations === 1 ? '' : 's'} currently in process. Up to {maxConcurrent} run at once; anything beyond that queues automatically.</p>
+				{/if}
+			</div>
+		</div>
+	{/if}
+
 	{#if error}
 		<div class="mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
 			{error}
 		</div>
 	{/if}
+
+	{#snippet authBadge(isApp: boolean)}
+		<span
+			class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-400"
+			title={isApp
+				? "Using the server's configured GitHub App — no credentials needed."
+				: "Using the server's configured token — no credentials needed."}
+		>
+			<Octicon name="shield-check" size={12} />
+			Authenticated
+		</span>
+	{/snippet}
+
+	{#snippet orgNamePanel(label: string, hint: string, org: string, onOverride: () => void)}
+		<div>
+			<span class="block text-sm font-medium text-gray-400">
+				{label}{#if hint}<span class="text-gray-600 ml-1">{hint}</span>{/if}
+			</span>
+			<div class="mt-1 flex items-center justify-between gap-3 rounded-md border border-blue-500/20 bg-blue-500/5 px-4 py-2.5">
+				<span class="inline-flex min-w-0 items-center gap-2 text-sm">
+					<Octicon name="organization" size={16} class="shrink-0 text-blue-400" />
+					<span class="truncate font-mono text-gray-100">{org}</span>
+				</span>
+				{#if allowOverride}
+					<button type="button" onclick={onOverride}
+						class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+						Change
+					</button>
+				{/if}
+			</div>
+		</div>
+	{/snippet}
 
 	<form class="mt-6 space-y-6" onsubmit={handleSubmit}>
 		<!-- Repositories -->
@@ -191,36 +284,119 @@
 			</h3>
 
 			<!-- Mode toggle -->
-			<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-				<button type="button"
-					class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {mode === 'single' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+			<div class="grid grid-cols-2 gap-2">
+				<button type="button" aria-pressed={mode === 'single'}
+					class="flex items-start gap-2.5 rounded-md border p-3 text-left transition-colors {mode === 'single' ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700 bg-gray-800/40 hover:border-gray-600 hover:bg-gray-800'}"
 					onclick={() => mode = 'single'}>
-					Single Repo
+					<Octicon name="repo" size={16} class="mt-0.5 shrink-0 {mode === 'single' ? 'text-blue-400' : 'text-gray-500'}" />
+					<span class="min-w-0">
+						<span class="block text-sm font-medium {mode === 'single' ? 'text-gray-50' : 'text-gray-300'}">Single Repo</span>
+						<span class="block text-xs text-gray-500">Migrate one repository</span>
+					</span>
 				</button>
-				<button type="button"
-					class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {mode === 'batch' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
+				<button type="button" aria-pressed={mode === 'batch'}
+					class="flex items-start gap-2.5 rounded-md border p-3 text-left transition-colors {mode === 'batch' ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700 bg-gray-800/40 hover:border-gray-600 hover:bg-gray-800'}"
 					onclick={() => mode = 'batch'}>
-					Batch
+					<Octicon name="stack" size={16} class="mt-0.5 shrink-0 {mode === 'batch' ? 'text-blue-400' : 'text-gray-500'}" />
+					<span class="min-w-0">
+						<span class="block text-sm font-medium {mode === 'batch' ? 'text-gray-50' : 'text-gray-300'}">Batch</span>
+						<span class="block text-xs text-gray-500">Migrate many at once</span>
+					</span>
 				</button>
 			</div>
 
 			{#if mode === 'single'}
-				<div>
-					<label for="sourceRepo" class="block text-sm font-medium text-gray-400">
-						Source Repository <span class="text-red-400">*</span>
-					</label>
-					<input id="sourceRepo" type="text" required bind:value={sourceRepo}
-						placeholder="org/repo"
-						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-				</div>
+				{#if hasSourceOrgs && singleSourceOrg}
+					<!-- Single configured source org: name (default) or input (override). -->
+					{#if overrideSourceOrg}
+						<div>
+							<div class="flex items-center justify-between gap-2">
+								<label for="sourceOrg" class="block text-sm font-medium text-gray-400">
+									Source Org <span class="text-red-400">*</span>
+								</label>
+								<button type="button" onclick={() => { sourceOrg = defaultSourceOrg; overrideSourceOrg = false; }}
+									class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+									Cancel
+								</button>
+							</div>
+							<input id="sourceOrg" type="text" required bind:value={sourceOrg}
+								placeholder="org"
+								class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						</div>
+					{:else}
+						{@render orgNamePanel('Source Org', '', sourceOrg, () => (overrideSourceOrg = true))}
+					{/if}
+					<div>
+						<label for="sourceRepoName" class="block text-sm font-medium text-gray-400">
+							Repository Name <span class="text-red-400">*</span>
+						</label>
+						<input id="sourceRepoName" type="text" required bind:value={sourceRepoName}
+							placeholder="repo"
+							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					</div>
+				{:else if hasSourceOrgs}
+					<!-- Multiple configured orgs: dropdown beside the repo name. -->
+					<div class="flex gap-2">
+						<div class="w-2/5">
+							<label for="sourceOrg" class="block text-sm font-medium text-gray-400">
+								Source Org <span class="text-red-400">*</span>
+							</label>
+							<OrgSelect id="sourceOrg" bind:value={sourceOrg} options={sourceOrgs}
+								locked={sourceOrgLocked} required placeholder="org" />
+						</div>
+						<div class="flex-1">
+							<label for="sourceRepoName" class="block text-sm font-medium text-gray-400">
+								Repository Name <span class="text-red-400">*</span>
+							</label>
+							<input id="sourceRepoName" type="text" required bind:value={sourceRepoName}
+								placeholder="repo"
+								class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						</div>
+					</div>
+				{:else}
+					<div>
+						<label for="sourceRepo" class="block text-sm font-medium text-gray-400">
+							Source Repository <span class="text-red-400">*</span>
+						</label>
+						<input id="sourceRepo" type="text" required bind:value={sourceRepo}
+							placeholder="org/repo"
+							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					</div>
+				{/if}
 			{:else}
+				{#if hasSourceOrgs && singleSourceOrg && !overrideSourceOrg}
+					{@render orgNamePanel('Source Org', 'applied to names without an org/', sourceOrg, () => (overrideSourceOrg = true))}
+				{:else if hasSourceOrgs}
+					<div>
+						<div class="flex items-center justify-between gap-2">
+							<label for="batchSourceOrg" class="block text-sm font-medium text-gray-400">
+								Source Org <span class="text-red-400">*</span>
+								<span class="text-gray-600 ml-1">applied to names without an org/</span>
+							</label>
+							{#if singleSourceOrg && overrideSourceOrg}
+								<button type="button" onclick={() => { sourceOrg = defaultSourceOrg; overrideSourceOrg = false; }}
+									class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+									Cancel
+								</button>
+							{/if}
+						</div>
+						{#if singleSourceOrg && overrideSourceOrg}
+							<input id="batchSourceOrg" type="text" required bind:value={sourceOrg}
+								placeholder="org"
+								class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+						{:else}
+							<OrgSelect id="batchSourceOrg" bind:value={sourceOrg} options={sourceOrgs}
+								locked={sourceOrgLocked} required placeholder="org" />
+						{/if}
+					</div>
+				{/if}
 				<div>
 					<label for="repoInput" class="block text-sm font-medium text-gray-400">
 						Repository List <span class="text-red-400">*</span>
-						<span class="text-gray-600 ml-1">one per line, org/repo format</span>
+						<span class="text-gray-600 ml-1">{hasSourceOrgs ? 'one per line; bare name or org/repo' : 'one per line, org/repo format'}</span>
 					</label>
 					<textarea id="repoInput" required bind:value={repoInput} rows="6"
-						placeholder={"acme-corp/api-server\nacme-corp/web-frontend\nacme-corp/shared-libs"}
+						placeholder={hasSourceOrgs ? "api-server\nweb-frontend\nshared-libs" : "acme-corp/api-server\nacme-corp/web-frontend\nacme-corp/shared-libs"}
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"></textarea>
 				</div>
 
@@ -259,96 +435,95 @@
 
 		<!-- Source -->
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
-			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="server" size={16} />Source</h3>
-
-			<div>
-				<label for="sourceApiUrl" class="block text-sm font-medium text-gray-400">
-					Source API URL
-					<span class="text-gray-600">(leave blank for github.com)</span>
-				</label>
-				<input id="sourceApiUrl" type="url" bind:value={sourceApiUrl}
-					placeholder="https://ghes.example.com"
-					class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+			<div class="flex items-center justify-between gap-2">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="server" size={16} />Source</h3>
+				{#if sourceServerAuthed}{@render authBadge(sourceEnvApp)}{/if}
 			</div>
 
-			<!-- Auth mode toggle -->
-			<div>
-				<span class="block text-sm font-medium text-gray-400 mb-2">Authentication</span>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => sourceAuthMode = 'pat'}>
-						PAT
-					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => sourceAuthMode = 'app'}>
-						GitHub App
-					</button>
-					{#if sourceEnvApp}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => sourceAuthMode = 'env-app'}>
-							Env App
-						</button>
-					{/if}
-					{#if sourceEnvPat}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {sourceAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => sourceAuthMode = 'env-pat'}>
-							Env PAT
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			{#if sourceAuthMode === 'pat'}
+			{#if overrideSourceUrl}
 				<div>
-					<label for="sourceToken" class="block text-sm font-medium text-gray-400">
-						Source PAT <span class="text-red-400">*</span>
-					</label>
-					<input id="sourceToken" type="password" required bind:value={sourceToken}
-						placeholder="ghp_..."
+					<div class="flex items-center justify-between gap-2">
+						<label for="sourceApiUrl" class="block text-sm font-medium text-gray-400">
+							Source API URL
+							<span class="text-gray-600">(blank = GitHub Enterprise Cloud)</span>
+						</label>
+						<button type="button" onclick={() => { sourceApiUrl = defaultSourceApiUrl; overrideSourceUrl = false; }}
+							class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+							Cancel
+						</button>
+					</div>
+					<input id="sourceApiUrl" type="url" bind:value={sourceApiUrl}
+						placeholder="https://ghes.example.com"
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					<p class="mt-2 inline-flex items-center gap-1.5 text-xs text-gray-500">
+						<Octicon name={sourceIsCloud ? 'cloud' : 'server'} size={12} class="text-blue-400" />
+						{sourcePlatformLabel}
+						{#if !sourceIsCloud && sourceHost}<span class="font-mono text-gray-400">{sourceHost}</span>{/if}
+					</p>
 				</div>
-			{:else if sourceAuthMode === 'app'}
-				<div class="space-y-3 rounded-md border border-gray-700/50 bg-gray-800/50 p-4">
-					<div>
-						<label for="sourceAppId" class="block text-sm font-medium text-gray-400">App ID <span class="text-red-400">*</span></label>
-						<input id="sourceAppId" type="text" required bind:value={sourceAppId}
-							placeholder="123456"
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					</div>
-					<div>
-						<label for="sourceAppInstallationId" class="block text-sm font-medium text-gray-400">Installation ID <span class="text-red-400">*</span></label>
-						<input id="sourceAppInstallationId" type="text" required bind:value={sourceAppInstallationId}
-							placeholder="12345678"
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					</div>
-					<div>
-						<label for="sourceAppKey" class="block text-sm font-medium text-gray-400">Private Key (PEM) <span class="text-red-400">*</span></label>
-						<textarea id="sourceAppKey" required bind:value={sourceAppKey} rows="4"
-							placeholder={"-----BEGIN RSA PRIVATE KEY-----\n..."}
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-					</div>
-				</div>
-			{:else if sourceAuthMode === 'env-app'}
-				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
 			{:else}
-				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_SOURCE_PAT).</p>
+				<!-- Resolved source: platform name + icon (host shown for GHES). -->
+				<div class="flex items-center justify-between gap-3 rounded-md border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+					<span class="inline-flex min-w-0 items-center gap-2 text-sm">
+						<Octicon name={sourceIsCloud ? 'cloud' : 'server'} size={16} class="shrink-0 text-blue-400" />
+						<span class="truncate text-gray-100">{sourcePlatformLabel}</span>
+						{#if !sourceIsCloud && sourceHost}<span class="truncate font-mono text-xs text-gray-500">{sourceHost}</span>{/if}
+					</span>
+					{#if allowOverride}
+						<button type="button" onclick={() => (overrideSourceUrl = true)}
+							class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+							Change
+						</button>
+					{/if}
+				</div>
 			{/if}
+
+			<AuthModeFields
+				variant="inline"
+				required
+				serverBadgeInHeader
+				envApp={sourceEnvApp}
+				envPat={sourceEnvPat}
+				allowOverride={allowOverride}
+				bind:mode={form.state.sourceAuthMode}
+				bind:token={form.state.sourceToken}
+				bind:appId={form.state.sourceAppId}
+				bind:installationId={form.state.sourceAppInstallationId}
+				bind:appKey={form.state.sourceAppKey}
+			/>
 		</div>
 		<div class="space-y-4 rounded-md border border-gray-700 bg-gray-900 p-5">
-			<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="repo-push" size={16} />Target</h3>
-
-			<div>
-				<label for="targetOrg" class="block text-sm font-medium text-gray-400">
-					Target Organization <span class="text-red-400">*</span>
-				</label>
-				<input id="targetOrg" type="text" required bind:value={targetOrg}
-					placeholder="my-ghec-org"
-					class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+			<div class="flex items-center justify-between gap-2">
+				<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300"><Octicon name="repo-push" size={16} />Target</h3>
+				{#if targetServerAuthed}{@render authBadge(targetEnvApp)}{/if}
 			</div>
+
+			{#if hasTargetOrgs && singleTargetOrg && !overrideTargetOrg}
+				<!-- Single configured org: show the name, not a dropdown. -->
+				{@render orgNamePanel('Target Organization', '', targetOrg, () => (overrideTargetOrg = true))}
+			{:else}
+				<div>
+					<div class="flex items-center justify-between gap-2">
+						<label for="targetOrg" class="block text-sm font-medium text-gray-400">
+							Target Organization <span class="text-red-400">*</span>
+						</label>
+						{#if hasTargetOrgs && overrideTargetOrg}
+							<button type="button" onclick={() => { targetOrg = defaultTargetOrg; overrideTargetOrg = false; }}
+								class="shrink-0 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+								Cancel
+							</button>
+						{/if}
+					</div>
+					{#if hasTargetOrgs && !overrideTargetOrg}
+						<OrgSelect id="targetOrg" bind:value={targetOrg} options={targetOrgs}
+							locked={targetOrgLocked} required placeholder="my-ghec-org" />
+					{:else}
+						<input id="targetOrg" type="text" required bind:value={targetOrg}
+							placeholder="my-ghec-org"
+							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+					{/if}
+				</div>
+			{/if}
 
 			{#if mode === 'single'}
 				<div>
@@ -357,84 +532,31 @@
 						<span class="text-gray-600">(defaults to source repo name)</span>
 					</label>
 					<input id="targetRepo" type="text" bind:value={targetRepo}
-						placeholder={sourceRepo.includes('/') ? sourceRepo.split('/')[1] : sourceRepo || 'repo'}
+						placeholder={sourceBareName || 'repo'}
 						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
 				</div>
 			{/if}
 
-			<!-- Auth mode toggle -->
-			<div>
-				<span class="block text-sm font-medium text-gray-400 mb-2">Authentication</span>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => targetAuthMode = 'pat'}>
-						PAT
-					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => targetAuthMode = 'app'}>
-						GitHub App
-					</button>
-					{#if targetEnvApp}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => targetAuthMode = 'env-app'}>
-							Env App
-						</button>
-					{/if}
-					{#if targetEnvPat}
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {targetAuthMode === 'env-pat' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => targetAuthMode = 'env-pat'}>
-							Env PAT
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			{#if targetAuthMode === 'pat'}
-				<div>
-					<label for="targetToken" class="block text-sm font-medium text-gray-400">
-						Target PAT <span class="text-red-400">*</span>
-					</label>
-					<input id="targetToken" type="password" required bind:value={targetToken}
-						placeholder="ghp_..."
-						class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-				</div>
-			{:else if targetAuthMode === 'app'}
-				<div class="space-y-3 rounded-md border border-gray-700/50 bg-gray-800/50 p-4">
-					<div>
-						<label for="targetAppId" class="block text-sm font-medium text-gray-400">App ID <span class="text-red-400">*</span></label>
-						<input id="targetAppId" type="text" required bind:value={targetAppId}
-							placeholder="123456"
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					</div>
-					<div>
-						<label for="targetAppInstallationId" class="block text-sm font-medium text-gray-400">Installation ID <span class="text-red-400">*</span></label>
-						<input id="targetAppInstallationId" type="text" required bind:value={targetAppInstallationId}
-							placeholder="12345678"
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					</div>
-					<div>
-						<label for="targetAppKey" class="block text-sm font-medium text-gray-400">Private Key (PEM) <span class="text-red-400">*</span></label>
-						<textarea id="targetAppKey" required bind:value={targetAppKey} rows="4"
-							placeholder={"-----BEGIN RSA PRIVATE KEY-----\n..."}
-							class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-					</div>
-				</div>
-			{:else if targetAuthMode === 'env-app'}
-				<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
-			{:else}
-				<p class="text-xs text-blue-400/80">Using server-configured PAT (GH_TARGET_PAT).</p>
-			{/if}
+			<AuthModeFields
+				variant="inline"
+				required
+				serverBadgeInHeader
+				envApp={targetEnvApp}
+				envPat={targetEnvPat}
+				allowOverride={allowOverride}
+				bind:mode={form.state.targetAuthMode}
+				bind:token={form.state.targetToken}
+				bind:appId={form.state.targetAppId}
+				bind:installationId={form.state.targetAppInstallationId}
+				bind:appKey={form.state.targetAppKey}
+			/>
 
 			<div>
 				<label for="visibility" class="block text-sm font-medium text-gray-400">
 					Repository Visibility
 					<span class="text-gray-600">(optional{mode === 'batch' ? ', applies to all repos' : ''})</span>
 				</label>
-				<select id="visibility" bind:value={targetRepoVisibility}
+				<select id="visibility" bind:value={form.state.targetRepoVisibility}
 					class="mt-1 w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
 					<option value="">Default</option>
 					<option value="private">Private</option>
@@ -451,19 +573,27 @@
 			<!-- Migration Mode toggle -->
 			<div>
 				<span class="block text-sm font-medium text-gray-400 mb-1.5">Migration Mode</span>
-				<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {migrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => migrationMode = 'dry-run'}>
-						Dry Run
+				<div class="grid grid-cols-2 gap-2">
+					<button type="button" aria-pressed={form.state.migrationMode === 'dry-run'}
+						class="flex items-start gap-2.5 rounded-md border p-3 text-left transition-colors {form.state.migrationMode === 'dry-run' ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-700 bg-gray-800/40 hover:border-gray-600 hover:bg-gray-800'}"
+						onclick={() => form.state.migrationMode = 'dry-run'}>
+						<Octicon name="beaker" size={16} class="mt-0.5 shrink-0 {form.state.migrationMode === 'dry-run' ? 'text-blue-400' : 'text-gray-500'}" />
+						<span class="min-w-0">
+							<span class="block text-sm font-medium {form.state.migrationMode === 'dry-run' ? 'text-gray-50' : 'text-gray-300'}">Dry Run</span>
+							<span class="block text-xs text-gray-500">Test without locking the source</span>
+						</span>
 					</button>
-					<button type="button"
-						class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {migrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
-						onclick={() => migrationMode = 'production'}>
-						Production
+					<button type="button" aria-pressed={form.state.migrationMode === 'production'}
+						class="flex items-start gap-2.5 rounded-md border p-3 text-left transition-colors {form.state.migrationMode === 'production' ? 'border-amber-500/50 bg-amber-500/10' : 'border-gray-700 bg-gray-800/40 hover:border-gray-600 hover:bg-gray-800'}"
+						onclick={() => form.state.migrationMode = 'production'}>
+						<Octicon name="rocket" size={16} class="mt-0.5 shrink-0 {form.state.migrationMode === 'production' ? 'text-amber-400' : 'text-gray-500'}" />
+						<span class="min-w-0">
+							<span class="block text-sm font-medium {form.state.migrationMode === 'production' ? 'text-gray-50' : 'text-gray-300'}">Production</span>
+							<span class="block text-xs text-gray-500">Lock &amp; archive the source</span>
+						</span>
 					</button>
 				</div>
-				{#if migrationMode === 'production'}
+				{#if form.state.migrationMode === 'production'}
 					<div class="mt-2 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
 						<Octicon name="alert" size={12} class="shrink-0" />
 						Source {mode === 'batch' ? 'repositories' : 'repository'} will be locked during migration and archived (read-only) after success.
@@ -471,22 +601,34 @@
 				{/if}
 			</div>
 
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={skipReleases}
+			<label class="flex cursor-pointer items-center gap-3 rounded-md border border-gray-700 bg-gray-800/40 px-3 py-2.5 transition-colors hover:border-gray-600">
+				<Octicon name="tag" size={16} class="shrink-0 text-gray-500" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm text-gray-300">Skip releases</span>
+					<span class="block text-xs text-gray-500">Don&rsquo;t migrate GitHub releases</span>
+				</span>
+				<input type="checkbox" bind:checked={form.state.skipReleases}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Skip releases</span>
 			</label>
 
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={directPassthrough}
+			<label class="flex cursor-pointer items-center gap-3 rounded-md border border-gray-700 bg-gray-800/40 px-3 py-2.5 transition-colors hover:border-gray-600">
+				<Octicon name="arrow-switch" size={16} class="shrink-0 text-gray-500" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm text-gray-300">Direct passthrough</span>
+					<span class="block text-xs text-gray-500">Stream between hosts, skipping download/upload</span>
+				</span>
+				<input type="checkbox" bind:checked={form.state.directPassthrough}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Direct passthrough (skip download/upload)</span>
 			</label>
 
-			<label class="flex items-center gap-3">
-				<input type="checkbox" bind:checked={noSslVerify}
+			<label class="flex cursor-pointer items-center gap-3 rounded-md border border-gray-700 bg-gray-800/40 px-3 py-2.5 transition-colors hover:border-gray-600">
+				<Octicon name="shield-slash" size={16} class="shrink-0 text-gray-500" />
+				<span class="min-w-0 flex-1">
+					<span class="block text-sm text-gray-300">Skip SSL verification</span>
+					<span class="block text-xs text-gray-500">Allow self-signed certificates</span>
+				</span>
+				<input type="checkbox" bind:checked={form.state.noSslVerify}
 					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-				<span class="text-sm text-gray-400">Skip SSL verification (self-signed certs)</span>
 			</label>
 		</div>
 

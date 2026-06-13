@@ -1,0 +1,11 @@
+[test]
+preload = ["./src/test-setup.ts"]
+
+# Collect coverage on every `bun test` for visibility. NOTE: Bun 1.3.x does not
+# enforce coverageThreshold (it reports but does not fail), so the real gate is
+# `scripts/check-coverage.ts` (run via `bun run coverage:check`, in `verify` and
+# CI). The values below are kept in sync with that script as documentation.
+# Octokit/network I/O wrappers (github.ts) and deep pipeline orchestration
+# (migration.ts) are intentionally excluded as integration-tested concerns.
+coverage = true
+coverageThreshold = { line = 0.78, function = 0.82 }

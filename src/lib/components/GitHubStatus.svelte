@@ -1,7 +1,7 @@
 <!-- GitHub platform status indicator pill -->
 <script lang="ts">
-	import type { GitHubStatus } from '$lib/types';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import type { GitHubStatus } from '$lib/types';
 
 	let { status }: { status: GitHubStatus } = $props();
 

@@ -26,7 +26,10 @@ const SCHEMA_DDL = `
     elapsed_seconds REAL,
     pipeline_step TEXT,
     auth_mode TEXT,
-    request_options TEXT
+    request_options TEXT,
+    source_size_kb INTEGER,
+    target_preexisted INTEGER,
+    target_repo_node_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -52,4 +55,19 @@ export function applySchema(db: Database): void {
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA foreign_keys = ON");
   db.run(SCHEMA_DDL);
+  addColumnIfMissing(db, "migrations", "source_size_kb", "INTEGER");
+  addColumnIfMissing(db, "migrations", "target_preexisted", "INTEGER");
+  addColumnIfMissing(db, "migrations", "target_repo_node_id", "TEXT");
+}
+
+/**
+ * Add a column to an existing table only if it isn't already present.
+ * Keeps older databases (created before the column existed) up to date
+ * without a heavyweight migration framework.
+ */
+function addColumnIfMissing(db: Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }

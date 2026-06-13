@@ -48,6 +48,22 @@ interface ThrottleOptions {
   ) => boolean;
 }
 
+/** Default throttling behaviour: log and retry up to 3 times on rate limits. */
+export function makeThrottleOptions(): ThrottleOptions {
+  return {
+    onRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      console.warn(
+        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
+      );
+      return retryCount < 3;
+    },
+    onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
+      return retryCount < 3;
+    },
+  };
+}
+
 function buildSide(
   auth: AuthInput,
   baseUrl: string,
@@ -107,28 +123,7 @@ export function createClients(opts: {
   targetAuth: AuthInput;
   noSslVerify?: boolean;
 }): GitHubClients {
-  const throttleOpts = {
-    onRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(
-        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
-      );
-      return retryCount < 3;
-    },
-    onSecondaryRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
-      return retryCount < 3;
-    },
-  };
+  const throttleOpts = makeThrottleOptions();
 
   const srcBaseUrl = normalizeApiUrl(opts.sourceApiUrl);
 
@@ -168,29 +163,7 @@ export function createSingleClient(
   auth: AuthInput,
   baseUrl: string,
 ): InstanceType<typeof RetryOctokit> {
-  const throttleOpts = {
-    onRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(
-        `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
-      );
-      return retryCount < 3;
-    },
-    onSecondaryRateLimit: (
-      retryAfter: number,
-      options: Record<string, unknown>,
-      _octokit: unknown,
-      retryCount: number,
-    ) => {
-      console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
-      return retryCount < 3;
-    },
-  };
-  return buildSide(auth, normalizeApiUrl(baseUrl), throttleOpts).client;
+  return buildSide(auth, normalizeApiUrl(baseUrl), makeThrottleOptions()).client;
 }
 
 // ── GHES operations ────────────────────────────────────────────────────────
@@ -206,7 +179,7 @@ interface GhesMigrationResponse {
   state: string;
 }
 
-const MIN_GHES_VERSION = "3.8.0";
+const MIN_GHES_VERSION = "3.15.0";
 
 export async function checkGhesVersion(client: InstanceType<typeof RetryOctokit>): Promise<string> {
   const { data } = await client.request("GET /api/v3/meta");
@@ -249,7 +222,7 @@ export async function startMetadataArchiveExport(
   return (data as GhesMigrationResponse).id;
 }
 
-export async function getArchiveStatus(
+async function getArchiveStatus(
   client: InstanceType<typeof RetryOctokit>,
   org: string,
   archiveId: number,
@@ -261,7 +234,7 @@ export async function getArchiveStatus(
   return (data as GhesMigrationResponse).state;
 }
 
-export async function getArchiveUrl(
+async function getArchiveUrl(
   client: InstanceType<typeof RetryOctokit>,
   org: string,
   archiveId: number,
@@ -470,6 +443,80 @@ export async function abortMigration(gql: typeof graphql, migrationId: string): 
 
 // ── Repo counts (for progress) ────────────────────────────────────────────
 
+/**
+ * Fetch a repository's disk size in kilobytes (GitHub's `size` field).
+ * Returns null if the repo can't be read — callers treat this as "unknown".
+ */
+export async function getRepoSize(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<number | null> {
+  try {
+    const { data } = await client.repos.get({ owner, repo });
+    return typeof data.size === "number" ? data.size : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Immutable + current identity facts for a repository, read at cleanup time. */
+export interface RepoFacts {
+  nodeId: string;
+  owner: string;
+  name: string;
+  createdAt: string;
+}
+
+/**
+ * Fetch the live identity facts (node_id, owner, name, created_at) of a repo.
+ * Returns null if the repo doesn't exist or can't be read — callers treat that
+ * as "cannot prove identity" and refuse cleanup.
+ */
+export async function getRepoFacts(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<RepoFacts | null> {
+  try {
+    const { data } = await client.repos.get({ owner, repo });
+    return {
+      nodeId: data.node_id,
+      owner: data.owner.login,
+      name: data.name,
+      createdAt: typeof data.created_at === "string" ? data.created_at : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rename a repository. Privileged (Administration: write). Returns the repo's
+ * new full name. Reversible — the node_id is unchanged by a rename.
+ */
+export async function renameRepo(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+  newName: string,
+): Promise<string> {
+  const { data } = await client.repos.update({ owner, repo, name: newName });
+  return data.full_name;
+}
+
+/**
+ * Delete a repository. Privileged (Administration: write) and irreversible.
+ * Callers MUST have passed `evaluateCleanupEligibility` first.
+ */
+export async function deleteRepo(
+  client: InstanceType<typeof RetryOctokit>,
+  owner: string,
+  repo: string,
+): Promise<void> {
+  await client.repos.delete({ owner, repo });
+}
+
 export async function getRepoCounts(
   client: InstanceType<typeof RetryOctokit>,
   gql: typeof graphql,
@@ -522,13 +569,12 @@ async function getResourceCount(
 ): Promise<number> {
   try {
     const params: Record<string, unknown> = { owner, repo, per_page: 1 };
-    if (resource === "issues" || resource === "pulls") params.state = "all";
 
     const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
     const link = response.headers.link;
     if (link) {
-      const match = link.match(/page=(\d+)>;\s*rel="last"/);
-      if (match) return parseInt(match[1], 10);
+      const lastPage = link.match(/page=(\d+)>;\s*rel="last"/)?.[1];
+      if (lastPage) return parseInt(lastPage, 10);
     }
     return Array.isArray(response.data) ? response.data.length : 0;
   } catch {
@@ -588,7 +634,7 @@ export async function archiveRepository(gql: typeof graphql, repoNodeId: string)
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Check if a URL points to the github.com API (not a GHES instance). */
+/** Check if a URL points to the standard github.com API (not GHES, not GHE.com). */
 function isGitHubDotCom(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
@@ -598,36 +644,64 @@ function isGitHubDotCom(url: string): boolean {
   }
 }
 
+/**
+ * True when the URL points at GitHub Enterprise Cloud rather than a GHES
+ * instance. GHEC covers standard github.com AND data-residency tenants under
+ * `*.ghe.com` (API host `api.<tenant>.ghe.com`). Everything else is GHES.
+ *
+ * This distinction drives migration behavior: cloud sources skip the GHES
+ * version check and archive export, and their API URL never takes a `/api/v3`
+ * path suffix.
+ */
+function isCloudApiUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    if (hostname === "github.com" || hostname === "api.github.com") return true;
+    return hostname === "ghe.com" || hostname.endsWith(".ghe.com");
+  } catch {
+    const u = url.toLowerCase();
+    return u.includes("github.com") || u.includes("ghe.com");
+  }
+}
+
 function normalizeApiUrl(url: string): string {
   url = url.replace(/\/+$/, "");
-  // GHES: https://ghes.example.com → https://ghes.example.com/api/v3
-  if (!isGitHubDotCom(url) && !url.endsWith("/api/v3")) {
+  // GHES: https://ghes.example.com → https://ghes.example.com/api/v3.
+  // Cloud (github.com / *.ghe.com) already uses an `api.` host and takes no path.
+  if (!isCloudApiUrl(url) && !url.endsWith("/api/v3")) {
     return `${url}/api/v3`;
   }
   return url;
 }
 
 export function sourceBaseUrl(apiUrl: string): string {
+  // Standard GHEC → canonical web host.
   if (isGitHubDotCom(apiUrl)) return "https://github.com";
   const u = apiUrl.replace(/\/+$/, "");
+  // GHES: drop the /api/v3 suffix to get the web host.
   if (u.endsWith("/api/v3")) return u.replace(/\/api\/v3$/, "");
+  // Data-residency (api.<tenant>.ghe.com) and other `api.`-prefixed API hosts:
+  // drop the `api.` prefix to get the web host (https://<tenant>.ghe.com).
   if (u.includes("://api.")) return u.replace("://api.", "://");
   return u;
 }
 
 export function isGhecSource(apiUrl: string): boolean {
-  return isGitHubDotCom(apiUrl);
+  return isCloudApiUrl(apiUrl);
 }
 
-function isVersionAtLeast(version: string, min: string): boolean {
+export function isVersionAtLeast(version: string, min: string): boolean {
   const v = version.split(".").map(Number);
   const m = min.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
-    if ((v[i] ?? 0) > (m[i] ?? 0)) return true;
-    if ((v[i] ?? 0) < (m[i] ?? 0)) return false;
+    const vi = v[i] ?? 0;
+    const mi = m[i] ?? 0;
+    // A non-numeric version segment (NaN) means the version string is malformed
+    // and we can't confirm it meets the minimum — fail closed so the GHES gate
+    // rejects it rather than letting an unverifiable instance through.
+    if (Number.isNaN(vi)) return false;
+    if (vi > mi) return true;
+    if (vi < mi) return false;
   }
   return true;
 }
-
-// Re-export shared sleep utility.
-export { sleep } from "$lib/server/util";

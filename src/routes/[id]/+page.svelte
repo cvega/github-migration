@@ -1,15 +1,20 @@
 <!-- Live migration detail page -->
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
-	import { formatElapsed } from '$lib/format';
-	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
-	import ProgressBar from '$lib/components/ProgressBar.svelte';
-	import StatsTable from '$lib/components/StatsTable.svelte';
+	import CancelConfirmModal from '$lib/components/CancelConfirmModal.svelte';
+	import CleanupModal from '$lib/components/CleanupModal.svelte';
 	import FailureDetail from '$lib/components/FailureDetail.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import type { Migration, MigrationEvent, Phase, Progress, Counts, FailureDetail as FailureDetailType, AppAuth } from '$lib/types';
+	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
+	import RestartModal from '$lib/components/RestartModal.svelte';
+	import StatsTable from '$lib/components/StatsTable.svelte';
+	import { formatDateTime, formatElapsed, formatRepoSize } from '$lib/format';
+	import { isActiveState, isGitHubCloud } from '$lib/migration-display';
+	import { createMigrationForm } from '$lib/migration-form.svelte';
+	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
+	import type { Counts, FailureDetail as FailureDetailType, Migration, MigrationEvent, Phase, Progress } from '$lib/types';
 
 	let { data } = $props();
 	let polledMigration = $state<Migration | null>(null);
@@ -29,32 +34,24 @@
 	let restartSubmitting = $state(false);
 	let restartError = $state('');
 
+	// ── Cancel confirmation modal state ────────────────────────────────────
+	let showCancelModal = $state(false);
+	let cancelSubmitting = $state(false);
+	let cancelError = $state('');
+	const cancelPhrase = $derived(`${migration.sourceOrg}/${migration.sourceRepo}`);
+
 	// Auth mode for restart
 	const sourceEnvApp = $derived(page.data.sourceAuth?.mode === 'github-app');
 	const targetEnvApp = $derived(page.data.targetAuth?.mode === 'github-app');
 	const sourceEnvPat = $derived(!!page.data.sourceAuth?.hasEnvPat);
 	const targetEnvPat = $derived(!!page.data.targetAuth?.hasEnvPat);
-	let restartSourceAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
-	let restartTargetAuthMode = $state<'pat' | 'app' | 'env-app' | 'env-pat'>('pat');
 
-	// PAT fields
-	let restartSourceToken = $state('');
-	let restartTargetToken = $state('');
-
-	// App auth fields
-	let restartSourceAppId = $state('');
-	let restartSourceAppKey = $state('');
-	let restartSourceAppInstallationId = $state('');
-	let restartTargetAppId = $state('');
-	let restartTargetAppKey = $state('');
-	let restartTargetAppInstallationId = $state('');
-
-	// Options
-	let restartSkipReleases = $state(false);
-	let restartMigrationMode = $state<'dry-run' | 'production'>('dry-run');
-	let restartDirectPassthrough = $state(false);
-	let restartNoSslVerify = $state(false);
-	let restartTargetRepoVisibility = $state('');
+	const restart = createMigrationForm(() => ({
+		sourceEnvApp,
+		sourceEnvPat,
+		targetEnvApp,
+		targetEnvPat,
+	}));
 
 	onMount(() => {
 		// Seed from server-loaded data.
@@ -62,17 +59,14 @@
 		for (const ev of eventLog) processEvent(ev);
 
 		// Only subscribe to SSE if migration is still active.
-		if (migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running') {
+		if (isActiveState(migration.state)) {
 			sse = createMigrationEventSource(migration.id);
 		}
 
 		startPolling();
 
 		// Initialise restart auth modes based on env auth availability.
-		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
-		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
-		if (targetEnvApp) restartTargetAuthMode = 'env-app';
-		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
+		restart.initAuthModes();
 
 		return () => {
 			if (pollInterval) clearInterval(pollInterval);
@@ -91,20 +85,25 @@
 		const events = sse.events;
 		if (events.length === 0) return;
 
-		// Find events newer than what we already processed.
-		const startIdx = lastProcessedId === undefined
-			? 0
-			: events.findIndex(e => e.id !== undefined && e.id! > lastProcessedId!);
+		// Find events newer than what we already processed. Capture the id in a
+		// const so it narrows inside the closure without a non-null assertion.
+		const lastId = lastProcessedId;
+		const startIdx =
+			lastId === undefined
+				? 0
+				: events.findIndex(e => e.id !== undefined && e.id > lastId);
 
 		if (startIdx === -1) return; // no new events
 
 		for (let i = startIdx; i < events.length; i++) {
-			eventLog = [...eventLog.slice(-(1000 - 1)), events[i]];
-			processEvent(events[i]);
+			const ev = events[i];
+			if (!ev) continue;
+			eventLog = [...eventLog.slice(-(1000 - 1)), ev];
+			processEvent(ev);
 		}
 
 		const lastEvent = events[events.length - 1];
-		if (lastEvent.id !== undefined) lastProcessedId = lastEvent.id;
+		if (lastEvent && lastEvent.id !== undefined) lastProcessedId = lastEvent.id;
 	});
 
 	function processEvent(ev: MigrationEvent) {
@@ -126,7 +125,7 @@
 		}
 	}
 
-	const isActive = $derived(migration.state === 'queued' || migration.state === 'pending' || migration.state === 'running');
+	const isActive = $derived(isActiveState(migration.state));
 	const stateColor = $derived(
 		migration.state === 'succeeded' ? 'text-green-400' :
 		migration.state === 'failed' ? 'text-red-400' :
@@ -134,12 +133,46 @@
 		'text-green-400'
 	);
 
+	// Target counts for display: prefer the latest/completion snapshot — the same
+	// data the "Migration succeeded — …" log line reports — over the persisted
+	// migration.targetCounts, which can capture GHEC's post-migration indexing
+	// lag (issue/PR totalCount transiently reads 0). Falls back to targetCounts
+	// only when no snapshot is available (e.g. older/recovered migrations).
+	const displayTargetCounts = $derived<Counts | null>(
+		latestProgress?.current
+			? {
+				commits: latestProgress.current.commits,
+				branches: latestProgress.current.branches,
+				tags: latestProgress.current.tags,
+				issues: latestProgress.current.issues,
+				pullRequests: latestProgress.current.pullRequests,
+				releases: latestProgress.current.releases,
+			}
+			: migration.targetCounts
+	);
+
 	async function handleCancel() {
-		if (!confirm('Cancel this migration?')) return;
-		const res = await fetch(`/api/migrations/${migration.id}`, { method: 'DELETE' });
-		if (res.ok) {
+		cancelError = '';
+		cancelSubmitting = false;
+		showCancelModal = true;
+	}
+
+	async function confirmCancel() {
+		cancelError = '';
+		cancelSubmitting = true;
+		try {
+			const res = await fetch(`/api/migrations/${migration.id}`, { method: 'DELETE' });
+			if (!res.ok) {
+				cancelError = `Failed to cancel migration: HTTP ${res.status}`;
+				return;
+			}
 			polledMigration = { ...migration, state: 'cancelled' };
 			refreshMigrations();
+			showCancelModal = false;
+		} catch (err) {
+			cancelError = err instanceof Error ? err.message : 'Unknown error';
+		} finally {
+			cancelSubmitting = false;
 		}
 	}
 
@@ -148,7 +181,7 @@
 		pollInterval = setInterval(async () => {
 			const res = await fetch(`/api/migrations/${migration.id}`);
 			if (res.ok) polledMigration = await res.json();
-			if (migration.state !== 'queued' && migration.state !== 'pending' && migration.state !== 'running') {
+			if (!isActiveState(migration.state)) {
 				if (pollInterval) clearInterval(pollInterval);
 				pollInterval = null;
 			}
@@ -158,25 +191,7 @@
 	function openRestartModal() {
 		restartError = '';
 		restartSubmitting = false;
-		restartSourceToken = '';
-		restartTargetToken = '';
-		restartSourceAppId = '';
-		restartSourceAppKey = '';
-		restartSourceAppInstallationId = '';
-		restartTargetAppId = '';
-		restartTargetAppKey = '';
-		restartTargetAppInstallationId = '';
-		restartSkipReleases = false;
-		restartMigrationMode = 'dry-run';
-		restartDirectPassthrough = false;
-		restartNoSslVerify = false;
-		restartTargetRepoVisibility = '';
-		if (sourceEnvApp) restartSourceAuthMode = 'env-app';
-		else if (sourceEnvPat) restartSourceAuthMode = 'env-pat';
-		else restartSourceAuthMode = 'pat';
-		if (targetEnvApp) restartTargetAuthMode = 'env-app';
-		else if (targetEnvPat) restartTargetAuthMode = 'env-pat';
-		else restartTargetAuthMode = 'pat';
+		restart.reset();
 		showRestartModal = true;
 	}
 
@@ -186,32 +201,10 @@
 		restartSubmitting = true;
 
 		try {
-			const sourceApp: AppAuth | undefined =
-				restartSourceAuthMode === 'app'
-					? { appId: restartSourceAppId, privateKey: restartSourceAppKey, installationId: restartSourceAppInstallationId }
-					: undefined;
-			const targetApp: AppAuth | undefined =
-				restartTargetAuthMode === 'app'
-					? { appId: restartTargetAppId, privateKey: restartTargetAppKey, installationId: restartTargetAppInstallationId }
-					: undefined;
-
-			const body = {
-				sourceToken: restartSourceAuthMode === 'pat' ? restartSourceToken || undefined : undefined,
-				targetToken: restartTargetAuthMode === 'pat' ? restartTargetToken || undefined : undefined,
-				sourceApp,
-				targetApp,
-				skipReleases: restartSkipReleases,
-				lockSource: restartMigrationMode === 'production',
-				archiveSource: restartMigrationMode === 'production',
-				directPassthrough: restartDirectPassthrough,
-				noSslVerify: restartNoSslVerify,
-				targetRepoVisibility: restartTargetRepoVisibility || undefined,
-			};
-
 			const res = await fetch(`/api/migrations/${migration.id}/restart`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(body),
+				body: JSON.stringify(restart.buildPayload()),
 			});
 
 			if (!res.ok) {
@@ -239,6 +232,12 @@
 
 	const isRestartable = $derived(migration.state === 'failed' || migration.state === 'cancelled');
 
+	// Target cleanup (rename/delete) — only when the server says this migration
+	// is a candidate (failed/cancelled, we created the repo) and cleanup is on.
+	const cleanupMode = $derived(data.cleanup?.mode ?? 'off');
+	const showCleanup = $derived(cleanupMode !== 'off' && !!data.cleanup?.candidate);
+	let cleanupOpen = $state(false);
+
 	function repoUrl(apiUrl: string, org: string, repo: string): string {
 		const hostname = new URL(apiUrl).hostname;
 		const base = hostname === 'api.github.com' || hostname === 'github.com'
@@ -249,6 +248,19 @@
 
 	const sourceRepoUrl = $derived(repoUrl(migration.sourceApiUrl, migration.sourceOrg, migration.sourceRepo));
 	const targetRepoUrl = $derived(`https://github.com/${migration.targetOrg}/${migration.targetRepo}`);
+
+	// ── Copy migration node ID ─────────────────────────────────────────────
+	let copiedId = $state(false);
+	async function copyMigrationId() {
+		if (!migration.githubMigrationId) return;
+		try {
+			await navigator.clipboard.writeText(migration.githubMigrationId);
+			copiedId = true;
+			setTimeout(() => (copiedId = false), 1500);
+		} catch {
+			// Clipboard unavailable (e.g. insecure context); ignore.
+		}
+	}
 </script>
 
 <div class="space-y-6">
@@ -272,9 +284,18 @@
 				</span>
 			</div>
 			<div class="mt-1 flex items-center gap-3 text-sm">
-				<span class={stateColor + ' font-medium uppercase'}>{migration.state}</span>
+				<span class={`${stateColor} font-medium uppercase`}>{migration.state}</span>
 				<span class="text-gray-600">·</span>
-				<span class="text-gray-400">{formatElapsed(migration.elapsedSeconds)}</span>
+				<span class="inline-flex items-center gap-1 text-gray-400"
+					title={migration.completedAt
+						? `Started ${formatDateTime(migration.startedAt)}\nFinished ${formatDateTime(migration.completedAt)}`
+						: `Started ${formatDateTime(migration.startedAt)}`}>
+					<Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}
+				</span>
+				{#if migration.sourceSizeKb != null}
+					<span class="text-gray-600">·</span>
+					<span class="inline-flex items-center gap-1 text-gray-400"><Octicon name="database" size={12} />{formatRepoSize(migration.sourceSizeKb)}</span>
+				{/if}
 				{#if migration.warningsCount > 0}
 					<span class="text-gray-600">·</span>
 					<span class="text-yellow-400">{migration.warningsCount} warnings</span>
@@ -289,22 +310,43 @@
 			</div>
 		</div>
 		{#if isActive}
-			<button onclick={handleCancel}
+			<button type="button" onclick={handleCancel}
 				class="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors">
 				<Octicon name="x-circle" size={16} />
 				Cancel
 			</button>
 		{:else if isRestartable}
-			<button onclick={openRestartModal}
-				class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
-				<Octicon name="sync" size={16} />
-				Restart
-			</button>
+			<div class="flex items-center gap-2">
+				<button type="button" onclick={openRestartModal}
+					class="flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm text-blue-400 hover:bg-blue-500/20 transition-colors">
+					<Octicon name="sync" size={16} />
+					Restart
+				</button>
+				{#if showCleanup}
+					<button type="button" onclick={() => (cleanupOpen = true)}
+						class="flex items-center gap-1.5 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-400 hover:bg-yellow-500/20 transition-colors">
+						<Octicon name="alert" size={16} />
+						Clean up target
+					</button>
+				{/if}
+			</div>
 		{/if}
 	</div>
 
 	<!-- Phase timeline -->
-	<PhaseTimeline {currentPhase} failed={migration.state === 'failed'} />
+	<div class="flex items-stretch gap-3">
+		<div class="min-w-0 flex-1">
+			<PhaseTimeline {currentPhase} failed={migration.state === 'failed'} />
+		</div>
+		{#if migration.githubMigrationId}
+			<button type="button" onclick={copyMigrationId}
+				title="Copy migration ID: {migration.githubMigrationId}"
+				class="flex shrink-0 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors">
+				<Octicon name={copiedId ? 'check' : 'copy'} size={16} />
+				{copiedId ? 'Copied' : 'Copy ID'}
+			</button>
+		{/if}
+	</div>
 
 	<!-- Live stats overview (during active migration) -->
 	{#if isActive && latestProgress}
@@ -325,7 +367,7 @@
 					{ label: 'Issues', icon: 'issue-opened' as const, value: snap.issues, src: sourceCounts?.issues ?? 0 },
 					{ label: 'PRs', icon: 'git-pull-request' as const, value: snap.pullRequests, src: sourceCounts?.pullRequests ?? 0 },
 					{ label: 'Releases', icon: 'package' as const, value: snap.releases, src: sourceCounts?.releases ?? 0 },
-				] as s}
+				] as s (s.label)}
 					{@const pct = s.src > 0 ? Math.min(100, Math.round((s.value / s.src) * 100)) : 0}
 					<div class="text-center">
 						<div class="text-lg font-bold text-gray-50">{s.value.toLocaleString()}</div>
@@ -393,14 +435,14 @@
 	{/if}
 
 	<!-- Stats comparison table -->
-	{#if migration.sourceCounts || migration.targetCounts}
-		<StatsTable source={migration.sourceCounts} target={migration.targetCounts} />
+	{#if migration.sourceCounts || displayTargetCounts}
+		<StatsTable source={migration.sourceCounts} target={displayTargetCounts} />
 	{/if}
 
 	<!-- Completion summary — Hero Banner + Icon Grid -->
 	{#if migration.state === 'succeeded'}
 		{@const src = migration.sourceCounts}
-		{@const tgt = migration.targetCounts}
+		{@const tgt = displayTargetCounts}
 		{@const resources = src && tgt ? [
 			{ label: 'Commits', icon: 'git-commit' as const, s: src.commits, t: tgt.commits },
 			{ label: 'Branches', icon: 'git-branch' as const, s: src.branches, t: tgt.branches },
@@ -431,6 +473,10 @@
 							</a>
 							<span class="text-gray-600">·</span>
 							<span class="inline-flex items-center gap-1"><Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}</span>
+							{#if migration.completedAt}
+								<span class="text-gray-600">·</span>
+								<span class="inline-flex items-center gap-1" title="Started {formatDateTime(migration.startedAt)}"><Octicon name="check" size={12} />{formatDateTime(migration.completedAt)}</span>
+							{/if}
 							{#if migration.warningsCount > 0}
 								<span class="text-gray-600">·</span>
 								<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} />{migration.warningsCount} warnings</span>
@@ -445,8 +491,9 @@
 				{@const cols = resources.length}
 				<div class="resource-grid gap-px bg-gray-800"
 					style="--cols-mobile: {Math.min(cols, 3)}; --cols-full: {cols};">
-					{#each resources as r}
+					{#each resources as r (r.label)}
 						{@const match = r.t >= r.s}
+						{@const extra = r.t - r.s}
 						<div class="flex flex-col items-center gap-1 bg-gray-950 px-3 py-4">
 							<div class="flex items-center gap-1 {match ? 'text-green-400' : 'text-yellow-400'}">
 								<Octicon name={r.icon} size={16} />
@@ -454,8 +501,13 @@
 							</div>
 							<div class="text-xl font-bold text-gray-50">{r.t.toLocaleString()}</div>
 							<div class="text-xs text-gray-500">{r.label}</div>
-							{#if r.s !== r.t}
-								<div class="text-[10px] text-yellow-500">{r.t} of {r.s.toLocaleString()}</div>
+							{#if extra > 0}
+								<div class="text-[10px] text-gray-500"
+									title="{r.s.toLocaleString()} migrated from source + {extra.toLocaleString()} created by the migration">
+									+{extra.toLocaleString()} added
+								</div>
+							{:else if extra < 0}
+								<div class="text-[10px] text-yellow-400">{r.t.toLocaleString()} of {r.s.toLocaleString()}</div>
 							{/if}
 						</div>
 					{/each}
@@ -491,7 +543,7 @@
 
 	<!-- Failure details -->
 	{#if migration.state === 'failed' && failureDetail}
-		<FailureDetail detail={failureDetail} />
+		<FailureDetail detail={failureDetail} {migration} events={eventLog} />
 	{/if}
 
 	<!-- Event log -->
@@ -501,7 +553,7 @@
 			Event Log
 		</h2>
 		<div class="max-h-96 overflow-y-auto rounded-md border border-gray-700 bg-gray-900">
-			{#each eventLog as event, i}
+			{#each eventLog as event, i (event.id ?? i)}
 				<div class="flex items-start gap-3 border-b border-gray-800/50 px-4 py-2.5 last:border-0 {i % 2 === 0 ? 'bg-gray-900/30' : ''}">
 					<span class="mt-0.5 shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium
 				{event.eventType === 'step' ? 'bg-green-600/15 text-green-400' :
@@ -536,7 +588,7 @@
 								{ k: 'issues', v: snap.issues },
 								{ k: 'PRs', v: snap.pullRequests },
 								{ k: 'releases', v: snap.releases },
-							].filter(i => i.v > 0) as item, idx}
+							].filter(i => i.v > 0) as item, idx (item.k)}
 								{#if idx > 0}<span class="text-gray-600">, </span>{/if}
 								<span class="text-gray-400">{item.v.toLocaleString()}</span>
 								<span class="text-gray-500"> {item.k}</span>
@@ -579,206 +631,71 @@
 </div>
 
 <!-- Restart Modal -->
-{#if showRestartModal}
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-		onkeydown={(e) => { if (e.key === 'Escape') showRestartModal = false; }}>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<div class="absolute inset-0" onclick={() => showRestartModal = false}></div>
-		<div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
-			<div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-gray-900 px-5 py-4">
-				<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-50">
-					<Octicon name="sync" size={24} />
-					Restart Migration
-				</h2>
-				<button onclick={() => showRestartModal = false} class="text-gray-400 hover:text-gray-50 transition-colors">
-					<Octicon name="x" size={24} />
-				</button>
+<RestartModal
+	bind:open={showRestartModal}
+	form={restart}
+	submitting={restartSubmitting}
+	error={restartError}
+	title="Restart Migration"
+	submitLabel="Restart Migration"
+	productionLockText="Source repository will be locked during migration and archived after success."
+	{sourceEnvApp}
+	{sourceEnvPat}
+	{targetEnvApp}
+	{targetEnvPat}
+	allowOverride={page.data.allowCredentialOverride ?? true}
+	onsubmit={handleRestart}
+>
+	{#snippet info()}
+		<!-- Migration info (read-only) -->
+		<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3">
+			<div class="flex items-center gap-2 text-sm text-gray-300">
+				<span class="font-medium text-gray-50">{migration.sourceOrg}/{migration.sourceRepo}</span>
+				<Octicon name="arrow-right" size={12} class="text-gray-500" />
+				<span class="font-medium text-gray-50">{migration.targetOrg}/{migration.targetRepo}</span>
 			</div>
-
-			<form class="space-y-5 p-5" onsubmit={handleRestart}>
-				<!-- Migration info (read-only) -->
-				<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3">
-					<div class="flex items-center gap-2 text-sm text-gray-300">
-						<span class="font-medium text-gray-50">{migration.sourceOrg}/{migration.sourceRepo}</span>
-						<Octicon name="arrow-right" size={12} class="text-gray-500" />
-						<span class="font-medium text-gray-50">{migration.targetOrg}/{migration.targetRepo}</span>
-					</div>
-					{#if migration.sourceApiUrl && !migration.sourceApiUrl.includes('api.github.com')}
-						<p class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500">
-							<Octicon name="server" size={12} />
-							{migration.sourceApiUrl}
-						</p>
-					{/if}
-				</div>
-
-				{#if restartError}
-					<div class="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-						{restartError}
-					</div>
-				{/if}
-
-				<!-- Source Auth -->
-				<div class="space-y-3">
-					<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-						<Octicon name="server" size={16} />Source Authentication
-					</h3>
-					<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartSourceAuthMode = 'pat'}>
-							PAT
-						</button>
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartSourceAuthMode = 'app'}>
-							GitHub App
-						</button>
-						{#if sourceEnvApp}
-							<button type="button"
-								class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartSourceAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-								onclick={() => restartSourceAuthMode = 'env-app'}>
-								Env App
-							</button>
-						{/if}
-					</div>
-					{#if restartSourceAuthMode === 'pat'}
-						<input type="password" bind:value={restartSourceToken} placeholder="ghp_..."
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					{:else if restartSourceAuthMode === 'app'}
-						<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
-							<input type="text" bind:value={restartSourceAppId} placeholder="App ID"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-							<input type="text" bind:value={restartSourceAppInstallationId} placeholder="Installation ID"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-							<textarea bind:value={restartSourceAppKey} placeholder="Private Key (PEM)" rows="3"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-						</div>
-					{:else}
-						<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.sourceAuth?.appId ?? '—'}).</p>
-					{/if}
-				</div>
-
-				<!-- Target Auth -->
-				<div class="space-y-3">
-					<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-						<Octicon name="repo-push" size={16} />Target Authentication
-					</h3>
-					<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'pat' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartTargetAuthMode = 'pat'}>
-							PAT
-						</button>
-						<button type="button"
-							class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'app' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-							onclick={() => restartTargetAuthMode = 'app'}>
-							GitHub App
-						</button>
-						{#if targetEnvApp}
-							<button type="button"
-								class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartTargetAuthMode === 'env-app' ? 'bg-blue-600/30 text-blue-400' : 'text-gray-400 hover:text-gray-200'}"
-								onclick={() => restartTargetAuthMode = 'env-app'}>
-								Env App
-							</button>
-						{/if}
-					</div>
-					{#if restartTargetAuthMode === 'pat'}
-						<input type="password" bind:value={restartTargetToken} placeholder="ghp_..."
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-					{:else if restartTargetAuthMode === 'app'}
-						<div class="space-y-2 rounded-md border border-gray-700/50 bg-gray-800/50 p-3">
-							<input type="text" bind:value={restartTargetAppId} placeholder="App ID"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-							<input type="text" bind:value={restartTargetAppInstallationId} placeholder="Installation ID"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-							<textarea bind:value={restartTargetAppKey} placeholder="Private Key (PEM)" rows="3"
-								class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea>
-						</div>
-					{:else}
-						<p class="text-xs text-blue-400/80">Using server-configured GitHub App (App ID: {page.data.targetAuth?.appId ?? '—'}).</p>
-					{/if}
-				</div>
-
-				<!-- Options -->
-				<div class="space-y-3">
-					<h3 class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-300">
-						<Octicon name="gear" size={16} />Options
-					</h3>
-
-					<div>
-						<span class="block text-sm font-medium text-gray-400 mb-1.5">Migration Mode</span>
-						<div class="flex gap-1 rounded-md bg-gray-800 p-0.5">
-							<button type="button"
-								class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartMigrationMode === 'dry-run' ? 'bg-gray-700 text-gray-50' : 'text-gray-400 hover:text-gray-200'}"
-								onclick={() => restartMigrationMode = 'dry-run'}>
-								Dry Run
-							</button>
-							<button type="button"
-								class="flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors {restartMigrationMode === 'production' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
-								onclick={() => restartMigrationMode = 'production'}>
-								Production
-							</button>
-						</div>
-						{#if restartMigrationMode === 'production'}
-							<div class="mt-2 flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-								<Octicon name="alert" size={12} class="shrink-0" />
-								Source repository will be locked during migration and archived after success.
-							</div>
-						{/if}
-					</div>
-
-					<div>
-						<label for="restart-visibility" class="block text-sm font-medium text-gray-400 mb-1">
-							Repository Visibility <span class="text-gray-600">(optional)</span>
-						</label>
-						<select id="restart-visibility" bind:value={restartTargetRepoVisibility}
-							class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
-							<option value="">Default</option>
-							<option value="private">Private</option>
-							<option value="public">Public</option>
-							<option value="internal">Internal</option>
-						</select>
-					</div>
-
-					<label class="flex items-center gap-3">
-						<input type="checkbox" bind:checked={restartSkipReleases}
-							class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-						<span class="text-sm text-gray-400">Skip releases</span>
-					</label>
-
-					<label class="flex items-center gap-3">
-						<input type="checkbox" bind:checked={restartDirectPassthrough}
-							class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-						<span class="text-sm text-gray-400">Direct passthrough</span>
-					</label>
-
-					<label class="flex items-center gap-3">
-						<input type="checkbox" bind:checked={restartNoSslVerify}
-							class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-blue-500" />
-						<span class="text-sm text-gray-400">Skip SSL verification</span>
-					</label>
-				</div>
-
-				<!-- Actions -->
-				<div class="flex items-center justify-end gap-3 border-t border-gray-700 pt-4">
-					<button type="button" onclick={() => showRestartModal = false}
-						class="text-sm text-gray-400 hover:text-gray-50 transition-colors">
-						Cancel
-					</button>
-					<button type="submit" disabled={restartSubmitting}
-						class="flex items-center gap-1.5 rounded-md bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-						{#if restartSubmitting}
-							Restarting...
-						{:else}
-							<Octicon name="sync" size={16} />
-							Restart Migration
-						{/if}
-					</button>
-				</div>
-			</form>
+			{#if !isGitHubCloud(migration.sourceApiUrl)}
+				<p class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500">
+					<Octicon name="server" size={12} />
+					{migration.sourceApiUrl}
+				</p>
+			{/if}
 		</div>
-	</div>
+	{/snippet}
+</RestartModal>
+
+<!-- Cancel confirmation modal -->
+<CancelConfirmModal
+	bind:open={showCancelModal}
+	title="Cancel this migration?"
+	confirmPhrase={cancelPhrase}
+	submitLabel="Cancel Migration"
+	submitting={cancelSubmitting}
+	error={cancelError}
+	inputId="cancel-confirm"
+	onConfirm={confirmCancel}
+>
+	{#snippet body()}
+		<p class="text-sm text-gray-300">
+			This stops the migration of
+			<span class="font-medium text-gray-50">{migration.sourceOrg}/{migration.sourceRepo}</span>.
+			You can restart it afterwards from this page.
+		</p>
+	{/snippet}
+</CancelConfirmModal>
+
+{#if showCleanup}
+	<CleanupModal
+		migrationId={migration.id}
+		targetOrg={migration.targetOrg}
+		targetRepo={migration.targetRepo}
+		mode={cleanupMode === 'delete' ? 'delete' : 'rename'}
+		bind:open={cleanupOpen}
+		onDone={() => {
+			polledMigration = { ...migration };
+			refreshMigrations();
+		}}
+	/>
 {/if}
 
 <style>

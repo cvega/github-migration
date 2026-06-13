@@ -34,6 +34,7 @@ import {
   getOrgId,
   getRepoCounts,
   getRepoNodeId,
+  getRepoSize,
   startMigration as ghecStartMigration,
   isGhecSource,
   sourceBaseUrl,
@@ -42,7 +43,7 @@ import {
   waitForArchive,
 } from "./github";
 import { type EventEmitter, runMonitor } from "./monitor";
-import { updateCheckpoint } from "./store";
+import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 import { extractOrg, extractRepo } from "./util";
 
@@ -76,11 +77,14 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     warningsCount: 0,
     sourceCounts: null,
     targetCounts: null,
+    sourceSizeKb: null,
     startedAt,
     completedAt: null,
     elapsedSeconds: null,
     authMode: null,
     requestOptions: null,
+    targetPreexisted: null,
+    targetRepoNodeId: null,
   };
 
   const emitStep = (message: string) => {
@@ -132,6 +136,18 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       // Non-fatal
     }
 
+    // Fetch source repo disk size (KB) — used for display and the stall
+    // watchdog's "large repo" guard. Non-fatal if unavailable.
+    try {
+      const sizeKb = await getRepoSize(clients.source, migration.sourceOrg, migration.sourceRepo);
+      if (sizeKb != null) {
+        migration.sourceSizeKb = sizeKb;
+        updateMigrationSourceSize(migrationId, sizeKb);
+      }
+    } catch {
+      // Non-fatal
+    }
+
     // ── Step 2+3: Resolve archives ─────────────────────────────────
     updateCheckpoint(migrationId, "archiving");
     const { gitArchiveUrl, metadataArchiveUrl } = await resolveArchives(
@@ -174,7 +190,7 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     emitStep(`Migration started (${githubMigrationId})`);
 
     // ── Step 5: Monitor until terminal state ───────────────────────
-    const terminalPhase = await runMonitor({
+    const { phase: terminalPhase, finalCounts } = await runMonitor({
       clients,
       migrationId,
       githubMigrationId,
@@ -189,6 +205,9 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
 
     // If GHEC reported failure, don't mark as succeeded.
     if (terminalPhase === "FAILED") {
+      // The repo may have been created before the import failed — capture its
+      // identity so a guarded cleanup/restart can later prove provenance.
+      await captureTargetNodeId(clients, migration);
       migration.state = "failed";
       migration.failureReason = "Migration failed on GHEC";
       migration.completedAt = new Date().toISOString();
@@ -207,17 +226,27 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
       );
     }
 
-    // Fetch final target counts.
-    try {
-      migration.targetCounts = await getRepoCounts(
-        clients.target,
-        clients.targetGraphql,
-        migration.targetOrg,
-        migration.targetRepo,
-      );
-    } catch {
-      // Non-fatal
+    // Final target counts: prefer the monitor's final snapshot (taken when
+    // GHEC reported SUCCEEDED). A fresh re-fetch here can race GHEC's
+    // post-migration indexing lag and report transient zeros for issues/PRs,
+    // so only re-fetch when the snapshot didn't capture counts.
+    if (finalCounts) {
+      migration.targetCounts = finalCounts;
+    } else {
+      try {
+        migration.targetCounts = await getRepoCounts(
+          clients.target,
+          clients.targetGraphql,
+          migration.targetOrg,
+          migration.targetRepo,
+        );
+      } catch {
+        // Non-fatal
+      }
     }
+
+    // Capture the created repo's immutable identity for provenance.
+    await captureTargetNodeId(clients, migration);
 
     migration.state = "succeeded";
     migration.completedAt = new Date().toISOString();
@@ -302,16 +331,66 @@ async function preflight(
 
   // Check target repo.
   const repoExists = await doesRepoExist(clients.target, migration.targetOrg, migration.targetRepo);
+  // Record provenance: whether the target pre-existed before we touched it.
+  // A repo that already existed is never eligible for automated cleanup.
+  migration.targetPreexisted = repoExists;
+  updateMigrationProvenance(migration.id, { targetPreexisted: repoExists });
   if (repoExists) {
     emitStep(
-      `Target repo ${migration.targetOrg}/${migration.targetRepo} already exists — migration will overwrite`,
+      `Target repo ${migration.targetOrg}/${migration.targetRepo} already exists — GitHub will reject the import if the name is taken. Delete or rename it on the target, then restart.`,
     );
   }
 
   emitStep("Pre-flight checks passed");
 }
 
+/**
+ * Capture the immutable node_id of a target repo this tool created, so a later
+ * cleanup can prove identity. Only runs when the repo did NOT pre-exist (i.e.
+ * we created it). Best-effort: on a failed migration the repo may not exist, in
+ * which case the node_id stays null and the migration is simply not eligible.
+ */
+async function captureTargetNodeId(clients: GitHubClients, migration: Migration): Promise<void> {
+  if (migration.targetPreexisted !== false) return; // never ours, or unknown
+  if (migration.targetRepoNodeId) return; // already captured
+  try {
+    const nodeId = await getRepoNodeId(
+      clients.targetGraphql,
+      migration.targetOrg,
+      migration.targetRepo,
+    );
+    migration.targetRepoNodeId = nodeId;
+    updateMigrationProvenance(migration.id, { targetRepoNodeId: nodeId });
+  } catch {
+    // Repo not present (e.g. migration failed before creation) — leave null.
+  }
+}
+
 // ── Archive resolution ──────────────────────────────────────────────────────
+
+/**
+ * Kick off the git + metadata archive exports on the source and return their
+ * archive IDs. Shared by the direct-passthrough and download→upload branches.
+ */
+async function startArchiveExports(
+  clients: GitHubClients,
+  migration: Migration,
+  opts: MigrationPipelineOpts,
+): Promise<{ gitArchiveId: number; metaArchiveId: number }> {
+  const gitArchiveId = await startGitArchiveExport(
+    clients.source,
+    migration.sourceOrg,
+    migration.sourceRepo,
+  );
+  const metaArchiveId = await startMetadataArchiveExport(
+    clients.source,
+    migration.sourceOrg,
+    migration.sourceRepo,
+    opts.skipReleases ?? false,
+    opts.lockSource ?? false,
+  );
+  return { gitArchiveId, metaArchiveId };
+}
 
 async function resolveArchives(
   clients: GitHubClients,
@@ -328,18 +407,7 @@ async function resolveArchives(
   // Direct passthrough: pass GHES URLs directly to GHEC.
   if (opts.directPassthrough) {
     emitStep("Exporting archives from source (direct passthrough)");
-    const gitArchiveId = await startGitArchiveExport(
-      clients.source,
-      migration.sourceOrg,
-      migration.sourceRepo,
-    );
-    const metaArchiveId = await startMetadataArchiveExport(
-      clients.source,
-      migration.sourceOrg,
-      migration.sourceRepo,
-      opts.skipReleases ?? false,
-      opts.lockSource ?? false,
-    );
+    const { gitArchiveId, metaArchiveId } = await startArchiveExports(clients, migration, opts);
     const gitUrl = await waitForArchive(
       clients.source,
       migration.sourceOrg,
@@ -359,18 +427,7 @@ async function resolveArchives(
   // Default: export → download → upload.
   emitStep("Exporting archives from source");
 
-  const gitArchiveId = await startGitArchiveExport(
-    clients.source,
-    migration.sourceOrg,
-    migration.sourceRepo,
-  );
-  const metaArchiveId = await startMetadataArchiveExport(
-    clients.source,
-    migration.sourceOrg,
-    migration.sourceRepo,
-    opts.skipReleases ?? false,
-    opts.lockSource ?? false,
-  );
+  const { gitArchiveId, metaArchiveId } = await startArchiveExports(clients, migration, opts);
 
   emitStep("Waiting for archive exports to complete");
 
@@ -446,7 +503,7 @@ async function resolveArchives(
  * Validate that a download URL points to the same host as the source API.
  * Prevents SSRF / token leakage if GHES returns a crafted archive URL.
  */
-function assertTrustedHost(downloadUrl: string, sourceApiUrl: string): void {
+export function assertTrustedHost(downloadUrl: string, sourceApiUrl: string): void {
   const download = new URL(downloadUrl);
   const source = new URL(sourceApiUrl);
   if (download.hostname !== source.hostname) {
@@ -484,16 +541,16 @@ async function downloadToFile(
  * Only 'env-app' migrations can be reconnected — the credentials
  * live in env vars and are available after a restart.
  */
-function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
+export function determineAuthMode(opts: MigrationPipelineOpts): AuthMode {
   // If explicit tokens were provided in the request, it's PAT auth.
-  if (opts.sourceToken || opts.targetToken) return "pat";
+  if (opts.sourceToken || opts.targetToken) return "request-pat";
   // If explicit app creds were provided per-request, those are lost on crash.
   if (opts.sourceApp || opts.targetApp) return "request-app";
   // Otherwise, both sides must be using env-configured GitHub App.
   if (isSourceAppConfigured() && isTargetAppConfigured()) return "env-app";
   // Env PATs are also resumable since they survive restarts.
   if (isSourceAuthAvailable() && isTargetAuthAvailable()) return "env-pat";
-  return "pat";
+  return "request-pat";
 }
 
 /**
@@ -507,6 +564,10 @@ export async function resumeMigration(
   signal?: AbortSignal,
 ): Promise<Migration> {
   const migrationId = migration.id;
+  const githubMigrationId = migration.githubMigrationId;
+  if (!githubMigrationId) {
+    throw new Error(`Cannot resume migration ${migrationId}: missing githubMigrationId`);
+  }
 
   const emitStep = (message: string) => {
     emit({
@@ -532,10 +593,10 @@ export async function resumeMigration(
     });
 
     // Resume monitoring the existing GHEC migration.
-    const terminalPhase = await runMonitor({
+    const { phase: terminalPhase, finalCounts } = await runMonitor({
       clients,
       migrationId,
-      githubMigrationId: migration.githubMigrationId!,
+      githubMigrationId,
       targetOrg: migration.targetOrg,
       targetRepo: migration.targetRepo,
       sourceOrg: migration.sourceOrg,
@@ -561,16 +622,21 @@ export async function resumeMigration(
       );
     }
 
-    // Fetch final target counts.
-    try {
-      migration.targetCounts = await getRepoCounts(
-        clients.target,
-        clients.targetGraphql,
-        migration.targetOrg,
-        migration.targetRepo,
-      );
-    } catch {
-      // Non-fatal
+    // Final target counts: prefer the monitor's final snapshot over a re-fetch
+    // to avoid GHEC's post-migration indexing lag (see runMigrationPipeline).
+    if (finalCounts) {
+      migration.targetCounts = finalCounts;
+    } else {
+      try {
+        migration.targetCounts = await getRepoCounts(
+          clients.target,
+          clients.targetGraphql,
+          migration.targetOrg,
+          migration.targetRepo,
+        );
+      } catch {
+        // Non-fatal
+      }
     }
 
     migration.state = "succeeded";

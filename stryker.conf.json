@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation testing is a deeper, opt-in discovery pass (run `bun run mutation`) — NOT part of `verify`. It proves the tests actually assert behaviour rather than merely executing it. Bun has no native Stryker runner, so we use the command runner. The command is scoped to the module's own test file (not the whole suite) because several suite files mutate process.env GH_* live and rely on cross-file ordering that Stryker's sandbox copy doesn't preserve; --env-file=/dev/null keeps the baseline green (see the .env gotcha). Point `mutate` + the test file at the same module.",
+  "packageManager": "npm",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "bun test --env-file=/dev/null src/lib/server/session.test.ts src/lib/server/session-creds.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "mutate": ["src/lib/server/session.ts"],
+  "reporters": ["clear-text", "html"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/mutation.html"
+  },
+  "timeoutMS": 20000
+}

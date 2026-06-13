@@ -1,7 +1,13 @@
 /** Server-side layout data — exposes auth mode, live rate limits, and active migration count. */
 
-import { fetchLiveRateLimits, getAuthConfig } from "$lib/server/auth";
+import {
+  fetchLiveRateLimits,
+  getAuthConfig,
+  getFormDefaults,
+  isCredentialOverrideAllowed,
+} from "$lib/server/auth";
 import { fetchGitHubStatus } from "$lib/server/github-status";
+import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
 import { getActiveMigrationCount } from "$lib/server/store";
 import type { LayoutServerLoad } from "./$types";
 
@@ -18,8 +24,12 @@ export const load: LayoutServerLoad = async ({ locals }) => {
   return {
     sourceAuth: auth.source,
     targetAuth: auth.target,
+    allowCredentialOverride: isCredentialOverrideAllowed(),
+    formDefaults: getFormDefaults(),
     activeMigrations,
+    maxConcurrent: MAX_CONCURRENT,
     ghStatus,
+    recentActivity: recentActivity(20),
     authEnabled: locals.authEnabled ?? false,
   };
 };

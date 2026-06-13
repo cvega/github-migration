@@ -17,6 +17,26 @@ export interface PaginatedResult<T> {
 
 export const DEFAULT_PAGE_SIZE = 25;
 
+/** Hard cap on page size to bound query/response cost. */
+export const MAX_PAGE_SIZE = 100;
+
+/**
+ * Parse `?page=` and `?limit=` from a URLSearchParams into safe, clamped
+ * PaginationParams (page ≥ 1; 1 ≤ limit ≤ MAX_PAGE_SIZE). Invalid/missing
+ * values fall back to defaults. Shared by every paginated load/endpoint.
+ */
+export function parsePaginationParams(searchParams: URLSearchParams): PaginationParams {
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const limit = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(
+      1,
+      parseInt(searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
+    ),
+  );
+  return { page, limit };
+}
+
 // ── Migration types ────────────────────────────────────────────────────────
 
 export type MigrationState =
@@ -34,7 +54,10 @@ export type PipelineStep =
   | "monitoring"
   | "post_migration";
 
-export type AuthMode = "pat" | "request-app" | "env-app" | "env-pat";
+export type AuthMode = "request-pat" | "request-app" | "env-app" | "env-pat";
+
+/** Auth selection in the UI auth-mode toggle (PAT, request-time App, or server env). */
+export type AuthFieldMode = "pat" | "app" | "env-app" | "env-pat";
 
 export type Phase =
   | "QUEUED"
@@ -46,7 +69,7 @@ export type Phase =
   | "FAILED"
   | "UNKNOWN";
 
-export type EventType =
+type EventType =
   | "banner"
   | "step"
   | "phase_change"
@@ -114,35 +137,35 @@ export interface FailureDetail {
 
 // ── Event payload types ────────────────────────────────────────────────────
 
-export interface StepPayload {
+interface StepPayload {
   message: string;
   counts?: Counts;
 }
 
-export interface PhaseChangePayload {
+interface PhaseChangePayload {
   from: Phase;
   to: Phase;
 }
 
-export interface SnapshotPayload {
+interface SnapshotPayload {
   progress: Progress;
   sourceCounts: Counts | null;
 }
 
-export interface CompletePayload {
+interface CompletePayload {
   progress: Progress;
   sourceCounts: Counts | null;
   elapsed: number;
 }
 
-export interface FailurePayload {
+interface FailurePayload {
   error?: string;
   progress?: Progress;
   detail?: FailureDetail;
 }
 
 /** Maps each EventType to its typed payload. */
-export interface MigrationEventPayloadMap {
+interface MigrationEventPayloadMap {
   banner: { message: string };
   step: StepPayload;
   phase_change: PhaseChangePayload;
@@ -168,6 +191,26 @@ export type MigrationEvent = {
   [K in EventType]: MigrationEventBase<K>;
 }[EventType];
 
+/** Notification-feed kinds, derived from the underlying event type. */
+export type ActivityKind = "succeeded" | "failed" | "restarted" | "notice";
+
+/**
+ * A single entry in the recent-activity notification feed. Flattens a
+ * lifecycle event joined with its migration's repo identity, so the navbar
+ * bell can render "org/repo — <summary>" without extra lookups.
+ */
+export interface ActivityItem {
+  /** Underlying event row id (monotonic; used for unread tracking). */
+  id: number;
+  migrationId: string;
+  kind: ActivityKind;
+  /** "source_org/source_repo". */
+  repo: string;
+  /** Human-readable detail (failure reason, restart/watchdog message, or ""). */
+  summary: string;
+  createdAt: string;
+}
+
 export interface Migration {
   id: string;
   batchId: string | null;
@@ -183,11 +226,74 @@ export interface Migration {
   warningsCount: number;
   sourceCounts: Counts | null;
   targetCounts: Counts | null;
+  /** Source repository disk size in KB (from the GitHub API), or null if unknown. */
+  sourceSizeKb: number | null;
   startedAt: string;
   completedAt: string | null;
   elapsedSeconds: number | null;
   authMode: AuthMode | null;
   requestOptions: string | null;
+  /**
+   * Whether the target repo already existed at preflight, before this tool
+   * touched it. `false` means this migration created it; `true` means it was
+   * someone else's; `null` means unknown (older rows). Provenance for safe
+   * target cleanup — a repo that pre-existed is never eligible.
+   */
+  targetPreexisted: boolean | null;
+  /**
+   * Immutable GraphQL node_id of the target repo, captured when this tool
+   * created it. `null` means unknown / not ours. Used as the tamper-proof
+   * identity anchor for cleanup eligibility (survives rename, dies on
+   * delete+recreate).
+   */
+  targetRepoNodeId: string | null;
+}
+
+/** Aggregate analytics across all migrations, for the /stats dashboard. */
+export interface MigrationStats {
+  total: number;
+  byState: Record<MigrationState, number>;
+  /** Finished migrations (succeeded + failed + cancelled). */
+  finished: number;
+  /** Success rate over finished migrations, 0–100. */
+  successRate: number;
+  duration: {
+    avgSeconds: number | null;
+    totalSeconds: number;
+    minSeconds: number | null;
+    maxSeconds: number | null;
+  };
+  data: {
+    totalKb: number;
+    avgKb: number | null;
+    largestKb: number | null;
+    largestRepo: string | null;
+  };
+  resources: Counts;
+  platforms: {
+    ghes: number;
+    ghec: number;
+  };
+  /** Per-platform success rate (0–100) over finished migrations. */
+  platformSuccess: {
+    ghes: { finished: number; succeeded: number; rate: number };
+    ghec: { finished: number; succeeded: number; rate: number };
+  };
+  warnings: {
+    total: number;
+    withWarnings: number;
+  };
+  /** Fastest and slowest succeeded migrations. */
+  records: {
+    fastest: { repo: string; seconds: number } | null;
+    slowest: { repo: string; seconds: number } | null;
+  };
+  /** Top source organizations by migration count. */
+  topOrgs: Array<{ org: string; count: number }>;
+  failuresByReason: Array<{ reason: string; count: number }>;
+  /** Completions per calendar day (UTC), oldest first. */
+  throughput: Array<{ date: string; succeeded: number; failed: number }>;
+  batches: number;
 }
 
 export interface AppAuth {
@@ -209,11 +315,12 @@ export type AuthInput =
       installationId: number;
     };
 
-export interface CreateMigrationRequest {
-  sourceApiUrl?: string;
-  sourceRepo: string;
-  targetOrg: string;
-  targetRepo?: string;
+/**
+ * Credentials and per-migration option flags shared by every migration request
+ * (create, batch, and restart). The concrete request types extend this with
+ * the fields unique to each (e.g. `sourceRepo`, `repos`).
+ */
+export interface MigrationOptions {
   sourceToken?: string;
   targetToken?: string;
   sourceApp?: AppAuth;
@@ -224,41 +331,27 @@ export interface CreateMigrationRequest {
   archiveSource?: boolean;
   targetRepoVisibility?: "private" | "public" | "internal";
   directPassthrough?: boolean;
+}
+
+export interface CreateMigrationRequest extends MigrationOptions {
+  sourceApiUrl?: string;
+  sourceRepo: string;
+  targetOrg: string;
+  targetRepo?: string;
   gitArchivePath?: string;
   metadataArchivePath?: string;
 }
 
 /**
- * Restart request — repo info comes from the existing DB row,
- * user only provides credentials and options.
+ * Restart request — repo info comes from the existing DB row, so the user only
+ * provides credentials and options (exactly {@link MigrationOptions}).
  */
-export interface RestartMigrationRequest {
-  sourceToken?: string;
-  targetToken?: string;
-  sourceApp?: AppAuth;
-  targetApp?: AppAuth;
-  noSslVerify?: boolean;
-  skipReleases?: boolean;
-  lockSource?: boolean;
-  archiveSource?: boolean;
-  targetRepoVisibility?: "private" | "public" | "internal";
-  directPassthrough?: boolean;
-}
+export type RestartMigrationRequest = MigrationOptions;
 
-export interface BatchMigrationRequest {
+export interface BatchMigrationRequest extends MigrationOptions {
   sourceApiUrl?: string;
   repos: string[];
   targetOrg: string;
-  sourceToken?: string;
-  targetToken?: string;
-  sourceApp?: AppAuth;
-  targetApp?: AppAuth;
-  noSslVerify?: boolean;
-  skipReleases?: boolean;
-  lockSource?: boolean;
-  archiveSource?: boolean;
-  targetRepoVisibility?: "private" | "public" | "internal";
-  directPassthrough?: boolean;
 }
 
 export interface BatchSummary {

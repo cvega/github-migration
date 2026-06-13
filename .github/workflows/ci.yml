@@ -10,19 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Biome
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Biome check
-        uses: biomejs/setup-biome@v2
-
-      - run: biome ci .
-
-  check:
-    name: Type check & Build
+  verify:
+    name: Verify (quality gates)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,13 +23,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Type check & build
-        run: bun run ci
+      # Single source of truth: the same gate suite developers run locally
+      # (typecheck · svelte-check · lint · format · coverage · dup · deadcode ·
+      # cycles · build · audit). verify:json collects every failure (not
+      # fail-fast) and emits a compact JSON summary, so CI can't drift from
+      # `bun run verify`.
+      - name: Quality gates
+        run: bun run verify:json
 
   docker:
     name: Docker build (dev)
     runs-on: ubuntu-latest
-    needs: [lint, check]
+    needs: [verify]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

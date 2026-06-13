@@ -23,9 +23,9 @@ import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/types";
 import { createSingleClient, getRateLimit, type RateLimitInfo } from "./github";
 
-export type DisplayAuthMode = "pat" | "github-app";
+type DisplayAuthMode = "pat" | "github-app";
 
-export interface SideAuthConfig {
+interface SideAuthConfig {
   mode: DisplayAuthMode;
   appId?: string;
   installationId?: string;
@@ -119,14 +119,69 @@ export function isTargetAuthAvailable(): boolean {
   return getTargetAppConfig() !== null || !!env.GH_TARGET_PAT;
 }
 
+/**
+ * Whether the UI may let a user override the server's env-configured
+ * credentials with their own PAT or GitHub App. Defaults to allowed; set
+ * `GH_ALLOW_CREDENTIAL_OVERRIDE=false` (or `0`/`no`/`off`) to lock migrations
+ * to the server's configured credentials. Only affects sides that actually
+ * have env credentials — a side with none always requires user-supplied auth.
+ */
+export function isCredentialOverrideAllowed(): boolean {
+  const raw = env.GH_ALLOW_CREDENTIAL_OVERRIDE;
+  if (raw == null || raw === "") return true;
+  const v = raw.trim().toLowerCase();
+  return v !== "false" && v !== "0" && v !== "no" && v !== "off";
+}
+
+/** Pre-configured defaults that pre-fill (and optionally lock) the new-migration form. */
+export interface FormDefaults {
+  /** Default source API URL (GH_SOURCE_API_URL), or "" when unset. */
+  sourceApiUrl: string;
+  /** Pre-configured source orgs (GH_SOURCE_ORG, comma/space separated). */
+  sourceOrgs: string[];
+  /** Pre-configured target orgs (GH_TARGET_ORG, comma/space separated). */
+  targetOrgs: string[];
+}
+
+/** Split a comma/space/newline separated env list into a de-duplicated array. */
+function parseOrgList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[\s,]+/)) {
+    const v = part.trim();
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+/** Read the env-provided form defaults (source URL + pre-configured orgs). */
+export function getFormDefaults(): FormDefaults {
+  return {
+    sourceApiUrl: env.GH_SOURCE_API_URL?.trim() || "",
+    sourceOrgs: parseOrgList(env.GH_SOURCE_ORG),
+    targetOrgs: parseOrgList(env.GH_TARGET_ORG),
+  };
+}
+
 // ── Auth input resolution (for auto-refreshing Octokit clients) ─────────
 
 /**
- * Resolve source auth input — returns credentials (not a resolved token)
- * so that `createClients` can set up auto-refreshing auth.
- * Priority: request PAT → request App → env App → env PAT → error.
+ * Resolve auth input for one side. Priority: request PAT → request App →
+ * env App → env PAT → error. Returns credentials (not a resolved token) so
+ * that `createClients` can set up auto-refreshing auth. Shared by the source
+ * and target resolvers, which differ only in env source and error label.
  */
-export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
+function resolveAuth(
+  requestToken: string | undefined,
+  requestApp: AppAuth | undefined,
+  getEnvApp: () => AppCredentials | null,
+  envPat: string | undefined,
+  side: "source" | "target",
+): AuthInput {
   if (requestToken) return { token: requestToken };
   if (requestApp) {
     return {
@@ -135,7 +190,7 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(requestApp.installationId),
     };
   }
-  const envApp = getSourceAppConfig();
+  const envApp = getEnvApp();
   if (envApp) {
     return {
       appId: envApp.appId,
@@ -143,36 +198,24 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
       installationId: Number(envApp.installationId),
     };
   }
-  const envPat = env.GH_SOURCE_PAT;
   if (envPat) return { token: envPat };
-  throw new Error("No source token provided and no source GitHub App configured");
+  throw new Error(`No ${side} token provided and no ${side} GitHub App configured`);
 }
 
 /**
- * Resolve target auth input — returns credentials (not a resolved token)
- * so that `createClients` can set up auto-refreshing auth.
+ * Resolve source auth input.
+ * Priority: request PAT → request App → env App → env PAT → error.
+ */
+export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
+  return resolveAuth(requestToken, requestApp, getSourceAppConfig, env.GH_SOURCE_PAT, "source");
+}
+
+/**
+ * Resolve target auth input.
  * Priority: request PAT → request App → env App → env PAT → error.
  */
 export function resolveTargetAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
-  if (requestToken) return { token: requestToken };
-  if (requestApp) {
-    return {
-      appId: requestApp.appId,
-      privateKey: decodePrivateKey(requestApp.privateKey),
-      installationId: Number(requestApp.installationId),
-    };
-  }
-  const envApp = getTargetAppConfig();
-  if (envApp) {
-    return {
-      appId: envApp.appId,
-      privateKey: envApp.privateKey,
-      installationId: Number(envApp.installationId),
-    };
-  }
-  const envPat = env.GH_TARGET_PAT;
-  if (envPat) return { token: envPat };
-  throw new Error("No target token provided and no target GitHub App configured");
+  return resolveAuth(requestToken, requestApp, getTargetAppConfig, env.GH_TARGET_PAT, "target");
 }
 
 /**

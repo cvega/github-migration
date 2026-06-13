@@ -1,22 +1,91 @@
 <!-- Failure detail panel -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { formatElapsed } from '$lib/format';
-	import type { FailureDetail as FailureDetailType } from '$lib/types';
+	import { formatDateTime, formatElapsed } from '$lib/format';
+	import { buildMigrationReportLines } from '$lib/report';
+	import type { FailureDetail as FailureDetailType, Migration, MigrationEvent } from '$lib/types';
 
-	let { detail }: { detail: FailureDetailType } = $props();
+	let { detail, migration, events = [] }: { detail: FailureDetailType; migration: Migration; events?: MigrationEvent[] } = $props();
 
 	const logEntries = $derived(detail.logEntries || []);
 	const errors = $derived(logEntries.filter((e) => e.severity === 'ERROR'));
 	const warnings = $derived(logEntries.filter((e) => e.severity === 'WARNING'));
 
+	// ── Copy a support report for a services engineer ─────────────────────────
+	let copied = $state(false);
+
+	function summarizeEvent(e: MigrationEvent): string {
+		switch (e.eventType) {
+			case 'step':
+				return e.payload.message || '';
+			case 'phase_change':
+				return `${e.payload.from} → ${e.payload.to}`;
+			case 'milestone':
+				return e.payload.message || '';
+			case 'snapshot': {
+				const s = e.payload.progress?.current;
+				if (!s) return e.phase ?? '';
+				return `${e.phase ?? ''} — ${s.commits} commits, ${s.issues} issues, ${s.pullRequests} PRs`;
+			}
+			case 'complete':
+				return `Migration succeeded${e.payload.elapsed ? ` in ${formatElapsed(e.payload.elapsed)}` : ''}`;
+			case 'failure':
+				return e.payload.error || e.payload.detail?.failureReason || 'Migration failed';
+			case 'restart':
+				return e.payload.message || 'Migration restarted';
+			default:
+				return '';
+		}
+	}
+
+	function buildReport(): string {
+		const lines = buildMigrationReportLines(migration);
+
+		if (errors.length > 0) {
+			lines.push('', `Errors (${errors.length}):`);
+			for (const e of errors) lines.push(`  [${e.modelName}] ${e.message}`);
+		}
+		if (warnings.length > 0) {
+			lines.push('', `Warnings (${warnings.length}):`);
+			for (const w of warnings) lines.push(`  [${w.modelName}] ${w.message}`);
+		}
+
+		if (events.length > 0) {
+			lines.push('', `Event log (${events.length}):`);
+			for (const e of events) {
+				const ts = formatDateTime(e.createdAt);
+				const msg = summarizeEvent(e);
+				lines.push(`  ${ts}  ${e.eventType}${msg ? `: ${msg}` : ''}`);
+			}
+		}
+
+		return lines.join('\n');
+	}
+
+	async function copyReport() {
+		try {
+			await navigator.clipboard.writeText(buildReport());
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} catch {
+			// Clipboard unavailable (e.g. insecure context); ignore.
+		}
+	}
 </script>
 
 <div class="rounded-md border border-red-500/30 bg-red-500/5 p-5">
-	<h3 class="flex items-center gap-2 text-sm font-semibold text-red-400">
-		<Octicon name="x-circle" size={16} />
-		Migration Failed
-	</h3>
+	<div class="flex items-start justify-between gap-3">
+		<h3 class="flex items-center gap-2 text-sm font-semibold text-red-400">
+			<Octicon name="x-circle" size={16} />
+			Migration Failed
+		</h3>
+		<button type="button" onclick={copyReport}
+			title="Copy a full failure report (repo, IDs, timing, errors) to share with a services engineer"
+			class="flex shrink-0 items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/20 transition-colors">
+			<Octicon name={copied ? 'check' : 'copy'} size={12} />
+			{copied ? 'Copied' : 'Copy details'}
+		</button>
+	</div>
 
 	{#if detail.failureReason}
 		<p class="mt-2 text-sm text-red-300">{detail.failureReason}</p>

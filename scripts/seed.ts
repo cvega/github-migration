@@ -5,14 +5,14 @@
  *   • ~2,500 individual migrations
  *   • ~150 batches (5–40 repos each)
  *   • 10 currently running migrations (5 individual + 5 inside an active batch)
- *   • Realistic distribution: ~70% succeeded, ~15% failed, ~8% cancelled, ~7% running/pending
+ *   • Realistic distribution: ~92% succeeded, ~5% failed, ~3% cancelled, plus running/pending
  *
  * Run: bun seed.ts
  */
 /// <reference types="bun" />
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { applySchema } from "./src/lib/server/schema";
+import { applySchema } from "../src/lib/server/schema";
 
 mkdirSync("data", { recursive: true });
 const db = new Database("data/gh-migrate.db", { create: true });
@@ -25,7 +25,46 @@ console.log("✓ Cleaned previous seed data\n");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
-const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const pick = <T>(arr: readonly T[]): T => {
+  const v = arr[Math.floor(Math.random() * arr.length)];
+  if (v === undefined) throw new Error("pick() called on an empty array");
+  return v;
+};
+
+/**
+ * Mimic a GitHub GraphQL global node ID for a RepositoryMigration, e.g.
+ * `RM_kgDOABcdEfGhIjk`. Real IDs are `RM_` + base64url of an opaque payload;
+ * `kgC`/`kgD` is the common prefix seen in practice.
+ */
+function fakeMigrationNodeId(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const len = rand(14, 18);
+  let suffix = "";
+  for (let i = 0; i < len; i++) suffix += alphabet[rand(0, alphabet.length - 1)];
+  return `RM_${pick(["kgC", "kgD"])}${suffix}`;
+}
+
+/** A plausible repository GraphQL node_id (e.g. `R_kgDOabc123`). */
+function fakeRepoNodeId(): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const len = rand(8, 12);
+  let suffix = "";
+  for (let i = 0; i < len; i++) suffix += alphabet[rand(0, alphabet.length - 1)];
+  return `R_kgDO${suffix}`;
+}
+
+/**
+ * Repo size in KB, log-distributed across ~12 KB → ~4.5 GB so the dataset has
+ * realistic variety (plenty of small KB/MB repos, fewer huge ones) instead of
+ * clustering in the gigabytes like a uniform range would.
+ */
+function randomRepoSizeKb(): number {
+  const minKb = 12;
+  const maxKb = 4_500_000;
+  const t = Math.random();
+  const kb = minKb * (maxKb / minKb) ** t;
+  return Math.max(minKb, Math.round(kb));
+}
 
 function isoTs(base: Date, offsetSec: number): string {
   return new Date(base.getTime() + offsetSec * 1000).toISOString();
@@ -219,8 +258,9 @@ const failureReasons = [
 const insertMigration = db.prepare(`
   INSERT INTO migrations (id, batch_id, github_migration_id, source_api_url, source_org, source_repo,
     target_org, target_repo, state, failure_reason, warnings_count, source_counts, target_counts,
-    started_at, completed_at, elapsed_seconds, migration_log_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    started_at, completed_at, elapsed_seconds, migration_log_url, source_size_kb,
+    target_preexisted, target_repo_node_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertEvent = db.prepare(`
@@ -244,7 +284,9 @@ interface MigrationOpts {
 function createMigration(opts: MigrationOpts) {
   const sourceOrg = opts.sourceOrg ?? pick(sourceOrgs);
   const orgIdx = sourceOrgs.indexOf(sourceOrg);
-  const targetOrg = opts.targetOrg ?? (orgIdx >= 0 ? targetOrgs[orgIdx] : pick(targetOrgs));
+  // Pair the target org to the source by index; fall back to a random pick when
+  // the source isn't one of the known orgs (orgIdx < 0) or has no paired entry.
+  const targetOrg = opts.targetOrg ?? targetOrgs[orgIdx] ?? pick(targetOrgs);
   const repo = opts.repo ?? pick(repoNames);
   const sourceApiUrl = opts.sourceApiUrl ?? pick(sourceApiUrls);
   const isGhec = sourceApiUrl === "https://api.github.com";
@@ -261,10 +303,16 @@ function createMigration(opts: MigrationOpts) {
       ? `https://github.com/${targetOrg}/${repo}/settings/migrations/log`
       : null;
 
+  // Failed/cancelled migrations are cleanup candidates: this tool created the
+  // target (preexisted = 0) and recorded its immutable node_id.
+  const isCleanupCandidate = opts.state === "failed" || opts.state === "cancelled";
+  const targetPreexisted = isCleanupCandidate ? 0 : null;
+  const targetRepoNodeId = isCleanupCandidate ? fakeRepoNodeId() : null;
+
   insertMigration.run(
     opts.id,
     opts.batchId ?? null,
-    `RM_${opts.id.replace("seed-", "")}`,
+    fakeMigrationNodeId(),
     sourceApiUrl,
     sourceOrg,
     repo,
@@ -279,6 +327,9 @@ function createMigration(opts: MigrationOpts) {
     completedAt,
     elapsed,
     logUrl,
+    randomRepoSizeKb(),
+    targetPreexisted,
+    targetRepoNodeId,
   );
 
   // ── Events ──────────────────────────────────────────────────────────────
@@ -299,7 +350,7 @@ function createMigration(opts: MigrationOpts) {
     JSON.stringify({
       message: isGhec
         ? "GHEC→GHEC migration — no archive export needed"
-        : `GHES version 3.${rand(8, 14)}.${rand(0, 9)} detected`,
+        : `GHES version 3.${rand(17, 20)}.${rand(0, 9)} detected`,
     }),
     isoTs(opts.startedAt, 2),
   );
@@ -581,7 +632,7 @@ const transaction = db.transaction(() => {
     for (let i = 0; i < batchSize; i++) {
       const r = Math.random();
       const state: "succeeded" | "failed" | "cancelled" =
-        r < 0.7 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
+        r < 0.92 ? "succeeded" : r < 0.97 ? "failed" : "cancelled";
 
       createMigration({
         id: `seed-batch-${String(b).padStart(4, "0")}-m${String(i).padStart(3, "0")}`,
@@ -611,7 +662,7 @@ const transaction = db.transaction(() => {
   for (let i = 0; i < remaining; i++) {
     const r = Math.random();
     const state: "succeeded" | "failed" | "cancelled" =
-      r < 0.72 ? "succeeded" : r < 0.88 ? "failed" : "cancelled";
+      r < 0.93 ? "succeeded" : r < 0.975 ? "failed" : "cancelled";
 
     createMigration({
       id: `seed-ind-${String(i).padStart(4, "0")}`,

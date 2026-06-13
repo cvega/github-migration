@@ -1,8 +1,8 @@
 <!-- Source vs Target stats comparison table -->
 <script lang="ts">
-	import type { Counts } from '$lib/types';
-	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import type { Counts } from '$lib/types';
 
 	let { source, target }: { source: Counts | null; target: Counts | null } = $props();
 
@@ -37,7 +37,7 @@
 						{#if match}
 							<span class="text-green-400"><Octicon name="check-circle" size={16} /></span>
 						{:else}
-							<span class="text-yellow-400">{row.src > 0 ? Math.floor((row.tgt / row.src) * 10000) / 100 + '%' : '—'}</span>
+							<span class="text-yellow-400">{row.src > 0 ? `${Math.floor((row.tgt / row.src) * 10000) / 100}%` : '—'}</span>
 						{/if}
 					</td>
 				</tr>
