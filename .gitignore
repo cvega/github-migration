@@ -21,5 +21,9 @@ data-clean/
 # jscpd duplication report output
 .jscpd/
 
+# Stryker mutation testing (sandbox + report output)
+.stryker-tmp/
+reports/
+
 # Environment variables
 .env

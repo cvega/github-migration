@@ -17,9 +17,11 @@
     "audit": "bun audit",
     "dup": "jscpd",
     "deadcode": "knip",
+    "cycles": "madge --circular --extensions ts,svelte --ts-config tsconfig.json src",
+    "mutation": "stryker run",
     "ci": "bun run check && bun run build",
     "seed": "bun scripts/seed.ts",
-    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run build && bun run audit"
+    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run build && bun run audit"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0",
@@ -32,6 +34,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
+    "@stryker-mutator/core": "^9.6.1",
     "@sveltejs/adapter-node": "^5.5.4",
     "@sveltejs/kit": "^2.64.0",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
@@ -40,6 +43,7 @@
     "@types/primer__octicons": "^19.21.0",
     "jscpd": "^5.0.5",
     "knip": "^6.16.1",
+    "madge": "^8.0.0",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "tailwindcss": "^4.3.0",
@@ -48,6 +52,7 @@
   },
   "overrides": {
     "picomatch": "^4.0.4",
-    "cookie": "^0.7.2"
+    "cookie": "^0.7.2",
+    "qs": "^6.15.2"
   }
 }
