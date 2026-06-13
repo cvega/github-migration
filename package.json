@@ -21,7 +21,8 @@
     "mutation": "stryker run",
     "ci": "bun run check && bun run build",
     "seed": "bun scripts/seed.ts",
-    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run build && bun run audit"
+    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run build && bun run audit",
+    "verify:json": "bun scripts/verify-json.ts"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0",

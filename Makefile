@@ -1,6 +1,6 @@
 .PHONY: dev build preview clean docker docker-up docker-down install check typecheck \
 	test coverage lint lint-fix format format-check audit dup deadcode cycles mutation \
-	verify seed
+	verify verify-json seed
 
 install:
 	bun install
@@ -57,6 +57,11 @@ mutation:
 # Full gate suite: typecheck + check + lint + format + coverage + dup + deadcode + cycles + build + audit.
 verify:
 	bun run verify
+
+# Same gates as `verify`, but emits a compact JSON summary (per-gate ok + metrics,
+# excerpts only on failure). Built for AI/automated consumption; far fewer tokens.
+verify-json:
+	bun run verify:json
 
 clean:
 	rm -rf build/ node_modules/ .svelte-kit/ data/
