@@ -1,0 +1,31 @@
+# Reusable quality-gate workflow. Called by pr.yml, main.yml, and release.yml so
+# the gate definition lives in exactly one place and can never drift between
+# them — the CI counterpart to the local `bun run verify`.
+name: Verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # verify:json runs the exact 10-gate suite developers run locally
+      # (typecheck · check · lint · format · coverage · dup · deadcode · cycles
+      # · build · audit), collects every failure (not fail-fast), and exits
+      # non-zero if any gate is red.
+      - name: Run gate suite
+        run: bun run verify:json
