@@ -4,8 +4,8 @@
 <!-- wordings — all passed in as props so neither page's UI text changes. -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Octicon from '$lib/components/Octicon.svelte';
 	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
+	import Octicon from '$lib/components/Octicon.svelte';
 	import type { createMigrationForm } from '$lib/migration-form.svelte';
 
 	let {

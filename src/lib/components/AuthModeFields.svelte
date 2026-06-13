@@ -8,8 +8,8 @@
 
      A side with no env credentials always shows the manual PAT / App entry. -->
 <script lang="ts">
-	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
+	import Octicon from '$lib/components/Octicon.svelte';
 	import type { AuthFieldMode } from '$lib/types';
 
 	let {

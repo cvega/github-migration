@@ -1,8 +1,8 @@
 <!-- Source vs Target stats comparison table -->
 <script lang="ts">
-	import type { Counts } from '$lib/types';
-	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import type { Counts } from '$lib/types';
 
 	let { source, target }: { source: Counts | null; target: Counts | null } = $props();
 

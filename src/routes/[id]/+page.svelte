@@ -1,20 +1,20 @@
 <!-- Live migration detail page -->
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
-	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
-	import { isActiveState, isGitHubCloud } from '$lib/migration-display';
-	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
-	import ProgressBar from '$lib/components/ProgressBar.svelte';
-	import StatsTable from '$lib/components/StatsTable.svelte';
+	import CancelConfirmModal from '$lib/components/CancelConfirmModal.svelte';
+	import CleanupModal from '$lib/components/CleanupModal.svelte';
 	import FailureDetail from '$lib/components/FailureDetail.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import CleanupModal from '$lib/components/CleanupModal.svelte';
+	import PhaseTimeline from '$lib/components/PhaseTimeline.svelte';
+	import ProgressBar from '$lib/components/ProgressBar.svelte';
 	import RestartModal from '$lib/components/RestartModal.svelte';
-	import CancelConfirmModal from '$lib/components/CancelConfirmModal.svelte';
+	import StatsTable from '$lib/components/StatsTable.svelte';
+	import { formatDateTime, formatElapsed, formatRepoSize } from '$lib/format';
+	import { isActiveState, isGitHubCloud } from '$lib/migration-display';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
-	import type { Migration, MigrationEvent, Phase, Progress, Counts, FailureDetail as FailureDetailType } from '$lib/types';
+	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
+	import type { Counts, FailureDetail as FailureDetailType, Migration, MigrationEvent, Phase, Progress } from '$lib/types';
 
 	let { data } = $props();
 	let polledMigration = $state<Migration | null>(null);

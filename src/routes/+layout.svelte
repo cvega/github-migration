@@ -1,12 +1,11 @@
 <!-- Root layout -->
 <script lang="ts">
 	import '../app.css';
-	import { onMount, onDestroy, setContext } from 'svelte';
+	import { onDestroy, onMount, setContext, untrack } from 'svelte';
 	import { page } from '$app/state';
-	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
-	import { untrack } from 'svelte';
-	import Octicon from '$lib/components/Octicon.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext, GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import type { GitHubStatus } from '$lib/types';
 
 	let { data, children } = $props();

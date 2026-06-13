@@ -1,8 +1,8 @@
 <!-- Guarded target-repo cleanup modal: shows the safety-gate checklist and
      requires a typed confirmation before renaming or deleting. -->
 <script lang="ts">
-	import Octicon from '$lib/components/Octicon.svelte';
 	import { untrack } from 'svelte';
+	import Octicon from '$lib/components/Octicon.svelte';
 
 	type CleanupAction = 'rename' | 'delete';
 

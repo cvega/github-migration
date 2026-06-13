@@ -1,9 +1,9 @@
 <!-- Migration analytics dashboard -->
 <script lang="ts">
-	import { formatElapsed, formatRepoSize } from '$lib/format';
+	import type { IconName } from '@primer/octicons';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import SegmentBar from '$lib/components/SegmentBar.svelte';
-	import type { IconName } from '@primer/octicons';
+	import { formatElapsed, formatRepoSize } from '$lib/format';
 	import type { MigrationState } from '$lib/types';
 
 	let { data } = $props();

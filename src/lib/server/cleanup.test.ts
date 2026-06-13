@@ -10,10 +10,10 @@ import {
   type CleanupConfig,
   type CleanupGateStatus,
   type CleanupRequest,
-  type LiveRepoFacts,
   describeCleanupGates,
   effectiveCleanupMode,
   evaluateCleanupEligibility,
+  type LiveRepoFacts,
   loadCleanupConfig,
   modePermits,
 } from "./cleanup";

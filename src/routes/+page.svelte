@@ -1,18 +1,18 @@
 <!-- Dashboard page -->
 <script lang="ts">
-	import { onMount, onDestroy, getContext } from 'svelte';
-	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
+	import { getContext, onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { createGlobalEventSource, migrations } from '$lib/stores/migrations.svelte';
-	import MigrationCard from '$lib/components/MigrationCard.svelte';
-	import Pagination from '$lib/components/Pagination.svelte';
-	import Octicon from '$lib/components/Octicon.svelte';
-	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
+	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
+	import MigrationCard from '$lib/components/MigrationCard.svelte';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext, GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { timeAgo } from '$lib/format';
 	import { isActiveState } from '$lib/migration-display';
-	import type { Migration, BatchListItem, PaginatedResult, Snapshot, Counts } from '$lib/types';
+	import { createGlobalEventSource, migrations } from '$lib/stores/migrations.svelte';
+	import type { BatchListItem, Counts, Migration, PaginatedResult, Snapshot } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
 	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);

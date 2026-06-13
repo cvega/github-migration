@@ -1,7 +1,7 @@
 <!-- Failure detail panel -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { formatElapsed, formatDateTime } from '$lib/format';
+	import { formatDateTime, formatElapsed } from '$lib/format';
 	import { buildMigrationReportLines } from '$lib/report';
 	import type { FailureDetail as FailureDetailType, Migration, MigrationEvent } from '$lib/types';
 

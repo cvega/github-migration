@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { MigrationState } from "./types";
 import {
   ACTIVE_STATES,
   isActiveState,
   isGitHubCloud,
-  sourcePlatform,
   STATE_ICONS,
   STATE_STYLES,
+  sourcePlatform,
 } from "./migration-display";
+import type { MigrationState } from "./types";
 
 const ALL_STATES: MigrationState[] = [
   "queued",

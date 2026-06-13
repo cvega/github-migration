@@ -9,7 +9,7 @@
     "preview": "bunx --bun vite preview",
     "typecheck": "bunx --bun tsc --noEmit && bunx --bun tsc --noEmit -p scripts/tsconfig.json",
     "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
-    "lint": "bunx --bun biome lint --error-on-warnings .",
+    "lint": "bunx --bun biome check --error-on-warnings .",
     "format": "bunx --bun biome format --write .",
     "format:check": "bunx --bun biome format .",
     "test": "bun test",

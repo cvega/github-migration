@@ -1,9 +1,9 @@
 <!-- Navbar notification bell — recent migration activity feed -->
 <script lang="ts">
+	import type { IconName } from '@primer/octicons';
 	import { onMount, untrack } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { timeAgo } from '$lib/format';
-	import type { IconName } from '@primer/octicons';
 	import type { ActivityItem, ActivityKind } from '$lib/types';
 
 	let { initial }: { initial: ActivityItem[] } = $props();

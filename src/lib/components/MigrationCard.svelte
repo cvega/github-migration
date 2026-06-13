@@ -1,12 +1,12 @@
 <!-- Migration card for the dashboard list -->
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import type { Migration, Snapshot, Counts, Phase } from '$lib/types';
-	import { formatElapsed, formatRepoSize, formatDateTime } from '$lib/format';
-	import { STATE_STYLES, STATE_ICONS, isActiveState, sourcePlatform } from '$lib/migration-display';
-	import { buildMigrationReport } from '$lib/report';
-	import Octicon from '$lib/components/Octicon.svelte';
 	import type { IconName } from '@primer/octicons';
+	import { goto } from '$app/navigation';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import { formatDateTime, formatElapsed, formatRepoSize } from '$lib/format';
+	import { isActiveState, STATE_ICONS, STATE_STYLES, sourcePlatform } from '$lib/migration-display';
+	import { buildMigrationReport } from '$lib/report';
+	import type { Counts, Migration, Phase, Snapshot } from '$lib/types';
 
 	let {
 		migration,

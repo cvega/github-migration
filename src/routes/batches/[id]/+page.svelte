@@ -1,17 +1,17 @@
 <!-- Batch detail page -->
 <script lang="ts">
-	import { onMount, getContext } from 'svelte';
+	import { getContext, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { GH_STATUS_KEY, AUTH_PILL_KEY, type GhStatusContext, type AuthPillContext } from '$lib/context-keys';
-	import { formatElapsed, formatDateTime } from '$lib/format';
-	import { STATE_STYLES, STATE_ICONS, isGitHubCloud } from '$lib/migration-display';
-	import Pagination from '$lib/components/Pagination.svelte';
-	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
 	import AuthPill from '$lib/components/AuthPill.svelte';
-	import Octicon from '$lib/components/Octicon.svelte';
-	import RestartModal from '$lib/components/RestartModal.svelte';
 	import CancelConfirmModal from '$lib/components/CancelConfirmModal.svelte';
+	import GitHubStatus from '$lib/components/GitHubStatus.svelte';
+	import Octicon from '$lib/components/Octicon.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
+	import RestartModal from '$lib/components/RestartModal.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext, GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
+	import { formatDateTime, formatElapsed } from '$lib/format';
+	import { isGitHubCloud, STATE_ICONS, STATE_STYLES } from '$lib/migration-display';
 	import { createMigrationForm } from '$lib/migration-form.svelte';
 	import type { BatchListItem, Migration, PaginatedResult } from '$lib/types';
 

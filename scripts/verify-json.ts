@@ -72,6 +72,8 @@ const GATES: Gate[] = [
       return m ? { errors: Number(m[1]), warnings: Number(m[2]) } : {};
     },
   },
+  // `lint` runs `biome check` (lint + formatter + organize-imports/assist);
+  // `format` is the explicit formatter-only check.
   { name: "lint", cmd: ["bun", "run", "lint"] },
   { name: "format", cmd: ["bun", "run", "format:check"] },
   {

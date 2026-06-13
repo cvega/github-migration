@@ -1,8 +1,8 @@
 <!-- Phase timeline visualization -->
 <script lang="ts">
-  import type { Phase } from "$lib/types";
-  import Octicon from "$lib/components/Octicon.svelte";
   import type { IconName } from "@primer/octicons";
+  import Octicon from "$lib/components/Octicon.svelte";
+  import type { Phase } from "$lib/types";
 
   let {
     currentPhase,

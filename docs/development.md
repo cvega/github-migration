@@ -61,8 +61,8 @@ bun run verify
 |---|---|---|
 | `typecheck` | `tsc --noEmit` (app **and** `scripts/`) | Type errors the editor might miss |
 | `check` | `svelte-check --fail-on-warnings` | Svelte/TS diagnostics incl. a11y; must be **0/0** |
-| `lint` | `biome lint --error-on-warnings` | Lint issues across `.ts`/`.js`/`.svelte` |
-| `format:check` | `biome format` | Formatting drift |
+| `lint` | `biome check --error-on-warnings` | Lint + formatting + import-organization across `.ts`/`.js`/`.svelte` |
+| `format:check` | `biome format` | Formatting drift (explicit) |
 | `coverage:check` | `scripts/check-coverage.ts` | Test coverage below the floor (85% func / 82% line) |
 | `dup` | `jscpd` | Code duplication above 3% (lines) |
 | `deadcode` | `knip` | Unused files / exports / dependencies |
