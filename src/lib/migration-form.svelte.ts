@@ -102,5 +102,3 @@ export function createMigrationForm(getEnv: () => EnvAuthFlags) {
 
   return { state, initAuthModes, reset, buildPayload };
 }
-
-export type MigrationForm = ReturnType<typeof createMigrationForm>;

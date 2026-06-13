@@ -22,7 +22,7 @@ export function backoffDelay(attempt: number): number {
 }
 
 /** Controls handed to the message handler so it can tear down on terminal events. */
-export interface EventSourceControls {
+interface EventSourceControls {
   destroy: () => void;
 }
 

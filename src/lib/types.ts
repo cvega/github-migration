@@ -69,7 +69,7 @@ export type Phase =
   | "FAILED"
   | "UNKNOWN";
 
-export type EventType =
+type EventType =
   | "banner"
   | "step"
   | "phase_change"
@@ -137,35 +137,35 @@ export interface FailureDetail {
 
 // ── Event payload types ────────────────────────────────────────────────────
 
-export interface StepPayload {
+interface StepPayload {
   message: string;
   counts?: Counts;
 }
 
-export interface PhaseChangePayload {
+interface PhaseChangePayload {
   from: Phase;
   to: Phase;
 }
 
-export interface SnapshotPayload {
+interface SnapshotPayload {
   progress: Progress;
   sourceCounts: Counts | null;
 }
 
-export interface CompletePayload {
+interface CompletePayload {
   progress: Progress;
   sourceCounts: Counts | null;
   elapsed: number;
 }
 
-export interface FailurePayload {
+interface FailurePayload {
   error?: string;
   progress?: Progress;
   detail?: FailureDetail;
 }
 
 /** Maps each EventType to its typed payload. */
-export interface MigrationEventPayloadMap {
+interface MigrationEventPayloadMap {
   banner: { message: string };
   step: StepPayload;
   phase_change: PhaseChangePayload;

@@ -23,9 +23,9 @@ import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/types";
 import { createSingleClient, getRateLimit, type RateLimitInfo } from "./github";
 
-export type DisplayAuthMode = "pat" | "github-app";
+type DisplayAuthMode = "pat" | "github-app";
 
-export interface SideAuthConfig {
+interface SideAuthConfig {
   mode: DisplayAuthMode;
   appId?: string;
   installationId?: string;
