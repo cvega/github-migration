@@ -67,7 +67,7 @@ const GATES: Gate[] = [
   {
     name: "check",
     cmd: ["bun", "run", "check"],
-    parse: (o) => {
+    parse: (o): Metrics => {
       const m = o.match(/found (\d+) errors? and (\d+) warnings?/i);
       return m ? { errors: Number(m[1]), warnings: Number(m[2]) } : {};
     },
@@ -77,7 +77,7 @@ const GATES: Gate[] = [
   {
     name: "coverage",
     cmd: ["bun", "run", "coverage:check"],
-    parse: (o) => {
+    parse: (o): Metrics => {
       // Success line: "✓ Coverage gate passed — functions 88.38% (…), lines 85.66% (…)"
       const m = o.match(/functions ([\d.]+)%.*?lines ([\d.]+)%/s);
       return m ? { funcPct: Number(m[1]), linePct: Number(m[2]) } : {};
@@ -104,7 +104,7 @@ const GATES: Gate[] = [
   {
     name: "build",
     cmd: ["bun", "run", "build"],
-    parse: (o) => {
+    parse: (o): Metrics => {
       const m = o.match(/built in ([\d.]+)\s*s/);
       return m ? { builtInS: Number(m[1]) } : {};
     },

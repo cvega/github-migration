@@ -47,8 +47,9 @@ if (!row) {
 }
 
 const cells = row.split("|").map((cell) => cell.trim());
-const funcPct = Number.parseFloat(cells[1]);
-const linePct = Number.parseFloat(cells[2]);
+// Missing cells (a future output change) parse to NaN, caught by the guard below.
+const funcPct = Number.parseFloat(cells[1] ?? "");
+const linePct = Number.parseFloat(cells[2] ?? "");
 
 if (!Number.isFinite(funcPct) || !Number.isFinite(linePct)) {
   console.error(`✗ Coverage gate: could not parse percentages from row: ${row.trim()}`);

@@ -25,7 +25,11 @@ console.log("✓ Cleaned previous seed data\n");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
-const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const pick = <T>(arr: readonly T[]): T => {
+  const v = arr[Math.floor(Math.random() * arr.length)];
+  if (v === undefined) throw new Error("pick() called on an empty array");
+  return v;
+};
 
 /**
  * Mimic a GitHub GraphQL global node ID for a RepositoryMigration, e.g.
@@ -280,7 +284,9 @@ interface MigrationOpts {
 function createMigration(opts: MigrationOpts) {
   const sourceOrg = opts.sourceOrg ?? pick(sourceOrgs);
   const orgIdx = sourceOrgs.indexOf(sourceOrg);
-  const targetOrg = opts.targetOrg ?? (orgIdx >= 0 ? targetOrgs[orgIdx] : pick(targetOrgs));
+  // Pair the target org to the source by index; fall back to a random pick when
+  // the source isn't one of the known orgs (orgIdx < 0) or has no paired entry.
+  const targetOrg = opts.targetOrg ?? targetOrgs[orgIdx] ?? pick(targetOrgs);
   const repo = opts.repo ?? pick(repoNames);
   const sourceApiUrl = opts.sourceApiUrl ?? pick(sourceApiUrls);
   const isGhec = sourceApiUrl === "https://api.github.com";
