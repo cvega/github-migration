@@ -139,6 +139,24 @@ const t0 = Date.now();
 const gates: Record<string, GateResult> = {};
 const failures: string[] = [];
 
+// Prepare: generate SvelteKit's `.svelte-kit/` (the $types + $lib path aliases)
+// once, up front. On a fresh checkout it doesn't exist yet, and without it both
+// `tsc` (typecheck) and `bun test` ($lib import resolution) fail. Doing it here
+// — not relying on gate order — keeps subset runs (e.g. `verify:json coverage`)
+// correct too.
+const sync = run(["bunx", "--bun", "svelte-kit", "sync"]);
+if (sync.code !== 0) {
+  console.log(
+    JSON.stringify({
+      ok: false,
+      ms: Date.now() - t0,
+      failures: ["prepare"],
+      gates: { prepare: { ok: false, ms: sync.ms, error: tail(sync.out) } },
+    }),
+  );
+  process.exit(1);
+}
+
 for (const g of selected) {
   const { code, out, ms } = run(g.cmd);
   const ok = code === 0;
