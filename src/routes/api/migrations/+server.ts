@@ -30,9 +30,10 @@ export const POST: RequestHandler = async ({ request }) => {
     return json(migration, { status: 201 });
   } catch (err) {
     // Capacity is no longer an error — over-cap migrations queue automatically.
-    // A throw here is an unexpected internal failure.
-    const message = err instanceof Error ? err.message : String(err);
-    return json({ error: message }, { status: 500 });
+    // A throw here is an unexpected internal failure: log the detail server-side
+    // and return a generic message so internals (paths, driver errors) don't leak.
+    console.error("[api] POST /api/migrations failed:", err);
+    return json({ error: "Internal server error" }, { status: 500 });
   }
 };
 

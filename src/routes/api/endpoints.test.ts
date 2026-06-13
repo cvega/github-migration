@@ -161,6 +161,18 @@ describe("POST /api/migrations", () => {
     const res = await migrationsPost(postEvent(valid));
     expect(res.status).toBe(500);
   });
+
+  test("an unexpected internal error does not leak its message to the client", async () => {
+    startImpl = () => {
+      throw new Error("ENOENT: /srv/secret/path/gh-migrate.db is locked");
+    };
+    const res = await migrationsPost(postEvent(valid));
+    expect(res.status).toBe(500);
+    const msg = await errorOf(res);
+    // The raw internal detail (paths, driver errors) must not reach the client.
+    expect(msg).not.toMatch(/ENOENT|secret|gh-migrate\.db/);
+    expect(msg).toBe("Internal server error");
+  });
 });
 
 // ── POST /api/batches ────────────────────────────────────────────────────────
@@ -210,6 +222,19 @@ describe("POST /api/batches", () => {
     expect(res.status).toBe(400);
     expect(await errorOf(res)).toMatch(/auth/i);
   });
+
+  test("an unexpected internal error → 500 (not the stale 429) with a generic message", async () => {
+    startBatchImpl = () => {
+      throw new Error("TypeError: cannot read property 'id' of undefined at /srv/app/x");
+    };
+    const res = await batchesPost(postEvent(valid));
+    // Over-cap requests queue (never throw), so a throw is an unexpected internal
+    // failure → 500, not 429 (which would wrongly signal a retryable rate limit).
+    expect(res.status).toBe(500);
+    const msg = await errorOf(res);
+    expect(msg).not.toMatch(/TypeError|\/srv\/app/);
+    expect(msg).toBe("Internal server error");
+  });
 });
 
 // ── POST /api/migrations/[id]/restart ────────────────────────────────────────
@@ -239,6 +264,17 @@ describe("POST /api/migrations/[id]/restart", () => {
     };
     const res = await migrationRestartPost(postEvent(creds, { id: "m1" }));
     expect(res.status).toBe(409);
+  });
+
+  test("an unexpected internal error → 500 without leaking its message", async () => {
+    restartImpl = () => {
+      throw new Error("SQLITE_CORRUPT: database disk image is malformed at /data/x.db");
+    };
+    const res = await migrationRestartPost(postEvent(creds, { id: "m1" }));
+    expect(res.status).toBe(500);
+    const msg = await errorOf(res);
+    expect(msg).not.toMatch(/SQLITE_CORRUPT|\/data\/x\.db/);
+    expect(msg).toBe("Internal server error");
   });
 });
 

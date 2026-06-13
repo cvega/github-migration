@@ -29,8 +29,11 @@ export const POST: RequestHandler = async ({ request }) => {
     const batch = startBatch(body);
     return json(batch, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return json({ error: message }, { status: 429 });
+    // Over-cap requests queue (never throw), so a throw is an unexpected internal
+    // failure: log it and return a generic 500 (not a stale 429, which would
+    // wrongly signal a retryable rate limit).
+    console.error("[api] POST /api/batches failed:", err);
+    return json({ error: "Internal server error" }, { status: 500 });
   }
 };
 
