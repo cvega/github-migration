@@ -694,8 +694,14 @@ export function isVersionAtLeast(version: string, min: string): boolean {
   const v = version.split(".").map(Number);
   const m = min.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
-    if ((v[i] ?? 0) > (m[i] ?? 0)) return true;
-    if ((v[i] ?? 0) < (m[i] ?? 0)) return false;
+    const vi = v[i] ?? 0;
+    const mi = m[i] ?? 0;
+    // A non-numeric version segment (NaN) means the version string is malformed
+    // and we can't confirm it meets the minimum — fail closed so the GHES gate
+    // rejects it rather than letting an unverifiable instance through.
+    if (Number.isNaN(vi)) return false;
+    if (vi > mi) return true;
+    if (vi < mi) return false;
   }
   return true;
 }

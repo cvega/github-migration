@@ -76,6 +76,15 @@ describe("isVersionAtLeast", () => {
     expect(isVersionAtLeast("3.15", "3.15.0")).toBe(true);
     expect(isVersionAtLeast("3.15", "3.15.1")).toBe(false);
   });
+
+  test("rejects an unparseable version instead of failing open", () => {
+    // A non-numeric segment must NOT be treated as satisfying the minimum —
+    // the GHES version gate has to fail closed, or checkGhesVersion would let
+    // an unverifiable instance through.
+    expect(isVersionAtLeast("garbage", "3.15.0")).toBe(false);
+    expect(isVersionAtLeast("3.x.0", "3.15.0")).toBe(false);
+    expect(isVersionAtLeast("", "3.15.0")).toBe(false);
+  });
 });
 
 describe("isGhecSource", () => {
