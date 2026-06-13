@@ -75,26 +75,24 @@ const AUTH_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_TRACKED_IPS = 10_000;
 const failedAttempts = new Map<string, { count: number; firstAttempt: number }>();
 
-export function isRateLimited(ip: string): boolean {
-  const now = Date.now();
+export function isRateLimited(ip: string, nowMs: number = Date.now()): boolean {
   const entry = failedAttempts.get(ip);
   if (!entry) return false;
-  if (now - entry.firstAttempt > AUTH_WINDOW_MS) {
+  if (nowMs - entry.firstAttempt > AUTH_WINDOW_MS) {
     failedAttempts.delete(ip);
     return false;
   }
   return entry.count >= AUTH_MAX_ATTEMPTS;
 }
 
-export function recordFailedAttempt(ip: string): void {
-  const now = Date.now();
+export function recordFailedAttempt(ip: string, nowMs: number = Date.now()): void {
   const entry = failedAttempts.get(ip);
-  if (!entry || now - entry.firstAttempt > AUTH_WINDOW_MS) {
+  if (!entry || nowMs - entry.firstAttempt > AUTH_WINDOW_MS) {
     if (!entry && failedAttempts.size >= MAX_TRACKED_IPS) {
       const oldest = failedAttempts.keys().next().value;
       if (oldest) failedAttempts.delete(oldest);
     }
-    failedAttempts.set(ip, { count: 1, firstAttempt: now });
+    failedAttempts.set(ip, { count: 1, firstAttempt: nowMs });
   } else {
     entry.count++;
   }

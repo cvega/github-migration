@@ -79,4 +79,31 @@ describe("login rate limiting", () => {
     for (let i = 0; i < 8; i++) recordFailedAttempt(ip);
     expect(isRateLimited(ip)).toBe(true);
   });
+
+  // ── Window expiry (uses the injectable clock; AUTH_WINDOW_MS is 15 minutes) ──
+  const WINDOW_MS = 15 * 60 * 1000;
+  const t0 = 1_700_000_000_000;
+
+  test("a limited IP is no longer limited once the window has elapsed", () => {
+    const ip = freshIp();
+    for (let i = 0; i < 5; i++) recordFailedAttempt(ip, t0);
+    expect(isRateLimited(ip, t0)).toBe(true);
+    // Just past the window — the stale entry is cleared and the IP is freed.
+    expect(isRateLimited(ip, t0 + WINDOW_MS + 1)).toBe(false);
+  });
+
+  test("stays limited at the exact window boundary (expiry is strictly past it)", () => {
+    const ip = freshIp();
+    for (let i = 0; i < 5; i++) recordFailedAttempt(ip, t0);
+    // Exactly at the window edge the entry has not yet expired.
+    expect(isRateLimited(ip, t0 + WINDOW_MS)).toBe(true);
+  });
+
+  test("a failure after the window resets the counter (slow drip never trips)", () => {
+    const ip = freshIp();
+    for (let i = 0; i < 4; i++) recordFailedAttempt(ip, t0);
+    // This 5th attempt lands after the window, so it starts a fresh window at count 1.
+    recordFailedAttempt(ip, t0 + WINDOW_MS + 1);
+    expect(isRateLimited(ip, t0 + WINDOW_MS + 1)).toBe(false);
+  });
 });
