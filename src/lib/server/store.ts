@@ -376,13 +376,6 @@ export function getMigration(id: string): Migration | null {
   return rowToMigration(row);
 }
 
-export function listMigrations(): Migration[] {
-  const rows = getDb()
-    .prepare(`SELECT ${MIGRATION_COLS} FROM migrations ORDER BY started_at DESC`)
-    .all() as Record<string, unknown>[];
-  return rows.map(rowToMigration);
-}
-
 export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {
   const { page, limit } = params;
   const offset = (page - 1) * limit;

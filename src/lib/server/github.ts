@@ -222,7 +222,7 @@ export async function startMetadataArchiveExport(
   return (data as GhesMigrationResponse).id;
 }
 
-export async function getArchiveStatus(
+async function getArchiveStatus(
   client: InstanceType<typeof RetryOctokit>,
   org: string,
   archiveId: number,
@@ -234,7 +234,7 @@ export async function getArchiveStatus(
   return (data as GhesMigrationResponse).state;
 }
 
-export async function getArchiveUrl(
+async function getArchiveUrl(
   client: InstanceType<typeof RetryOctokit>,
   org: string,
   archiveId: number,
@@ -705,6 +705,3 @@ export function isVersionAtLeast(version: string, min: string): boolean {
   }
   return true;
 }
-
-// Re-export shared sleep utility.
-export { sleep } from "$lib/server/util";

@@ -11,7 +11,7 @@
 import { z } from "zod";
 
 /** Maximum accepted length for any single string field in a request body. */
-export const MAX_FIELD_LEN = 255;
+const MAX_FIELD_LEN = 255;
 
 const boundedString = () =>
   z.string().max(MAX_FIELD_LEN, `must be at most ${MAX_FIELD_LEN} characters`);
@@ -53,7 +53,7 @@ export const createMigrationSchema = z.object({
 });
 
 /** Maximum repositories accepted in a single batch. */
-export const MAX_BATCH_REPOS = 500;
+const MAX_BATCH_REPOS = 500;
 
 /** Batch migration request. */
 export const batchMigrationSchema = z.object({

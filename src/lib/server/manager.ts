@@ -44,7 +44,6 @@ import {
   insertEvent,
   insertMigration,
   listBatchItemsPaginated,
-  listMigrations,
   listMigrationsPaginated,
   resetMigration,
   searchBatchItemsPaginated,
@@ -798,10 +797,6 @@ export function listBatchesPaginated(params: PaginationParams): PaginatedResult<
 
 export function get(migrationId: string): Migration | null {
   return getMigration(migrationId);
-}
-
-export function list(): Migration[] {
-  return listMigrations();
 }
 
 export function listPaginated(params: PaginationParams): PaginatedResult<Migration> {
