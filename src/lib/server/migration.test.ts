@@ -36,6 +36,10 @@ let repoCountsImpl: () => Promise<unknown> = async () => ({
   releases: 0,
 });
 
+// monitor is only ever imported by migration.ts, which these tests drive with
+// this mock — no suite imports the real monitor — so a partial stub here can't
+// leak harmfully, and importing the real module just to spread it would pull
+// monitor.ts (untested on its own) into the coverage denominator. Keep it lean.
 mock.module("$lib/server/monitor", () => ({
   runMonitor: () => monitorImpl(),
 }));
@@ -58,8 +62,16 @@ mock.module("$lib/server/github", () => ({
   },
 }));
 
+// Spread the real store too. `mock.module` is global and persists for the whole
+// `bun test` run (mock.restore() does NOT undo it), so a partial stub would
+// leak into any suite that runs later and imports the real store — wiping
+// initStore/insertMigration/etc. Spreading keeps every non-overridden export
+// real; we only no-op the three DB writers the finalize tail calls.
+const realStore = await import("./store");
 mock.module("$lib/server/store", () => ({
+  ...realStore,
   updateCheckpoint: () => {},
+  updateMigrationProvenance: () => {},
   updateMigrationSourceSize: () => {},
 }));
 
