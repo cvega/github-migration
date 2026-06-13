@@ -34,6 +34,25 @@ const output = raw.replace(ansi, "");
 // Surface a failing test run first — coverage is meaningless if tests fail.
 if (proc.exitCode !== 0) {
   process.stdout.write(output);
+  // Re-print just the failing tests LAST so they survive log truncation (e.g.
+  // verify:json's tail()) — the coverage table otherwise buries the one detail
+  // that matters: which tests failed and why. `(fail)` lines name the test;
+  // the indented `error:`/assertion lines that follow give the reason.
+  const lines = output.split("\n");
+  const detail: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (/\(fail\)/.test(line)) {
+      detail.push(line.trimEnd());
+      for (let j = i + 1; j < lines.length && /^\s/.test(lines[j] ?? ""); j++) {
+        detail.push((lines[j] ?? "").trimEnd());
+      }
+    }
+  }
+  if (detail.length) {
+    console.error(`\n──── Failing tests (${proc.exitCode}) ────`);
+    console.error(detail.join("\n"));
+  }
   console.error(`\n✗ Coverage gate: test run failed (exit ${proc.exitCode}).`);
   process.exit(proc.exitCode || 1);
 }
