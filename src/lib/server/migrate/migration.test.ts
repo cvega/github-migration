@@ -58,6 +58,14 @@ mock.module("$lib/server/core/github", () => ({
     targetGraphql: {},
   }),
   getRepoCounts: () => repoCountsImpl(),
+}));
+
+// abortMigration lives in the migrate github-ops module now; spread the real
+// module and override only it (no other suite tests the real abortMigration, so
+// this can't leak harmfully).
+const realGithubOps = await import("./github-ops");
+mock.module("$lib/server/migrate/github-ops", () => ({
+  ...realGithubOps,
   abortMigration: async () => {
     abortCalls += 1;
     return true;

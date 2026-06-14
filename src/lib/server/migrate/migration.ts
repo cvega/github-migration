@@ -22,27 +22,29 @@ import {
   resolveTargetAuth,
 } from "../core/auth";
 import {
-  abortMigration,
-  archiveRepository,
-  checkGhesVersion,
   createClients,
-  createMigrationSource,
   doesOrgExist,
   doesRepoExist,
   type GitHubClients,
-  getOrgDatabaseId,
-  getOrgId,
   getRepoCounts,
-  getRepoNodeId,
   getRepoSize,
-  startMigration as ghecStartMigration,
   isGhecSource,
   sourceBaseUrl,
+} from "../core/github";
+import { extractOrg, extractRepo } from "../core/util";
+import {
+  abortMigration,
+  archiveRepository,
+  checkGhesVersion,
+  createMigrationSource,
+  getOrgDatabaseId,
+  getOrgId,
+  getRepoNodeId,
+  startMigration as ghecStartMigration,
   startGitArchiveExport,
   startMetadataArchiveExport,
   waitForArchive,
-} from "../core/github";
-import { extractOrg, extractRepo } from "../core/util";
+} from "./github-ops";
 import { type EventEmitter, runMonitor } from "./monitor";
 import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";

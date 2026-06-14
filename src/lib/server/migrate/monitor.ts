@@ -14,12 +14,8 @@ import type {
   Progress,
   Snapshot,
 } from "$lib/types";
-import {
-  doesRepoExist,
-  type GitHubClients,
-  getMigration as getGhecMigration,
-  getRepoCounts,
-} from "../core/github";
+import { doesRepoExist, type GitHubClients, getRepoCounts } from "../core/github";
+import { getMigration as getGhecMigration } from "./github-ops";
 
 export type EventEmitter = (event: MigrationEvent) => void;
 
