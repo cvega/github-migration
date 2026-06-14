@@ -4,8 +4,8 @@
  * (useful for reconnection).
  */
 
+import { sseResponse } from "$lib/server/core/sse";
 import { get, events as getEvents, subscribe } from "$lib/server/manager";
-import { sseResponse } from "$lib/server/sse";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url, request }) => {

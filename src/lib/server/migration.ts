@@ -21,6 +21,7 @@ import {
   resolveSourceAuth,
   resolveTargetAuth,
 } from "./auth";
+import { extractOrg, extractRepo } from "./core/util";
 import {
   abortMigration,
   archiveRepository,
@@ -45,7 +46,6 @@ import {
 import { type EventEmitter, runMonitor } from "./monitor";
 import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
-import { extractOrg, extractRepo } from "./util";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {
   id?: string;

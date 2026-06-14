@@ -6,7 +6,7 @@ import {
   getFormDefaults,
   isCredentialOverrideAllowed,
 } from "$lib/server/auth";
-import { fetchGitHubStatus } from "$lib/server/github-status";
+import { fetchGitHubStatus } from "$lib/server/core/github-status";
 import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
 import { getActiveMigrationCount } from "$lib/server/store";
 import type { LayoutServerLoad } from "./$types";

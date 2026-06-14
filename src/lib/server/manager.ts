@@ -25,6 +25,7 @@ import {
   isTargetAppConfigured,
   isTargetAuthAvailable,
 } from "./auth";
+import { extractOrg, extractRepo } from "./core/util";
 import { resumeMigration, runMigrationPipeline } from "./migration";
 import {
   getActiveMigrationCount,
@@ -50,7 +51,6 @@ import {
   searchMigrationsPaginated,
   updateMigrationState,
 } from "./store";
-import { extractOrg, extractRepo } from "./util";
 import { ACTIVE_IMPORT_PHASES, isLargeRepo, loadWatchdogConfig, progressSignal } from "./watchdog";
 
 /** GitHub-imposed concurrent migration limit per organization. */

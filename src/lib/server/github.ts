@@ -9,7 +9,7 @@ import type { graphql } from "@octokit/graphql";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import { Octokit } from "@octokit/rest";
-import { sleep } from "$lib/server/util";
+import { sleep } from "$lib/server/core/util";
 import type { AuthInput, Counts } from "$lib/types";
 
 const RetryOctokit = Octokit.plugin(retry, throttling);

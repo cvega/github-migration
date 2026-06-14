@@ -9,7 +9,7 @@
  */
 import { json } from "@sveltejs/kit";
 import { getAuthConfig } from "$lib/server/auth";
-import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/session";
+import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ cookies }) => {

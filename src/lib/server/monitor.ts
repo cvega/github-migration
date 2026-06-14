@@ -4,7 +4,7 @@
  * to SSE + SQLite.
  *
  */
-import { sleep } from "$lib/server/util";
+import { sleep } from "$lib/server/core/util";
 import type {
   Counts,
   FailureDetail,
