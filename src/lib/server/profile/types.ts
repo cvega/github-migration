@@ -138,3 +138,14 @@ export interface StoredRepoProfile {
   /** The gaps that apply to this repo, with their evidence. */
   applyingGaps: StoredFinding[];
 }
+
+/** Progress emitted by the runner after each repository is profiled. */
+export interface ProfileProgress {
+  runId: string;
+  /** Repos profiled so far. */
+  profiled: number;
+  /** Org repository total (known once discovery completes). */
+  total: number;
+  /** The repository just profiled (`owner/name`). */
+  repo: string;
+}
