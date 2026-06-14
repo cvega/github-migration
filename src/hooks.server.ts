@@ -44,8 +44,11 @@ const securityHeaders: Record<string, string> = {
   // (svelte.config.js) which auto-injects nonces for scripts.
 };
 
-// Routes that don't require authentication.
-const PUBLIC_PATHS = new Set(["/login", "/logout"]);
+// Routes that don't require authentication. `/api/health` is the container's
+// liveness probe — the Docker HEALTHCHECK hits it with no session cookie, so it
+// must stay reachable when auth is enabled. The endpoint itself self-limits what
+// it returns to unauthenticated callers (no auth-config disclosure).
+const PUBLIC_PATHS = new Set(["/login", "/logout", "/api/health"]);
 
 export const handle: Handle = async ({ event, resolve }) => {
   // Always set authEnabled so the layout can show/hide the logout button.

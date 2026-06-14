@@ -1,9 +1,11 @@
 # API Reference
 
 All endpoints return JSON. SSE streams emit migration/batch state changes as
-they happen. When basic auth is enabled, every route except `/login` and
-`/logout` requires a valid session cookie; unauthenticated `/api/*` requests get
-`401`.
+they happen. When basic auth is enabled, every route except `/login`, `/logout`,
+and the `/api/health` liveness probe requires a valid session cookie;
+unauthenticated `/api/*` requests get `401`. `/api/health` is always reachable
+(the container HEALTHCHECK calls it with no cookie) but only returns its
+auth-configuration details to authenticated callers.
 
 Migration endpoints are namespaced under `/api/migrate/*` (the Migrate
 workspace). `/api/health` and `/api/rate-limits` are workspace-agnostic and stay
