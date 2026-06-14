@@ -103,6 +103,7 @@ const GATES: Gate[] = [
   },
   { name: "deadcode", cmd: ["bun", "run", "deadcode"] },
   { name: "cycles", cmd: ["bun", "run", "cycles"] },
+  { name: "boundaries", cmd: ["bun", "run", "boundaries"] },
   {
     name: "build",
     cmd: ["bun", "run", "build"],

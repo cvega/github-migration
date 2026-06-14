@@ -224,15 +224,28 @@ server to run, network, or back up.
 src/
   hooks.server.ts       auth, security headers, compression, startup init
   lib/
-    server/             core logic: manager (queue/SSE), migration (pipeline),
-                        monitor, store (SQLite), github (Octokit), auth, upload,
-                        session, validate, schemas, watchdog, cleanup
+    server/             layered server code:
+      core/             shared primitives — db, github, auth, session, sse,
+                        validate, util, github-status
+      migrate/          the Migrate domain — manager (queue/SSE), migration
+                        (pipeline), monitor, store, schema, upload, schemas,
+                        watchdog, cleanup
+      profile/          the Profile domain — discover, augment, analyze, runner,
+                        store, schema, service
+      registry.ts       composition root — lists every domain's store
     components/         Svelte UI (cards, timeline, progress, stats, modals, …)
     stores/             client-side SSE transport + runes reactive state
   routes/
-    [id]/  new/  batches/  stats/  login/   pages
+    migrate/            the Migrate workspace pages
+    profile/            the Profile workspace pages
+    login/              auth pages
     api/                REST + SSE endpoints (see api.md)
-scripts/                seed, coverage gate, postbuild, verify:json
+scripts/                seed, coverage + boundary gates, postbuild, verify:json
 ```
+
+The `server/` layering is enforced by the `boundaries` gate: `core/` may not
+import a domain, and the domains (`migrate`, `profile`) may not import each
+other — they share only through `core/`. A new domain plugs in by adding its
+folder and registering its store in `registry.ts`.
 
 See [Development](development.md) for how the code is built, tested, and gated.

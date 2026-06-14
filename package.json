@@ -19,10 +19,11 @@
     "dup": "jscpd",
     "deadcode": "knip",
     "cycles": "madge --circular --extensions ts,svelte --ts-config tsconfig.json src",
+    "boundaries": "bun scripts/check-boundaries.ts",
     "mutation": "stryker run",
     "ci": "bun run check && bun run build",
     "seed": "bun scripts/seed.ts",
-    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run build && bun run audit",
+    "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run boundaries && bun run build && bun run audit",
     "verify:json": "bun scripts/verify-json.ts"
   },
   "dependencies": {
