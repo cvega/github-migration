@@ -7,7 +7,7 @@
     "dev": "bunx --bun vite dev",
     "build": "bunx --bun svelte-kit sync && bunx --bun vite build && bun scripts/postbuild.ts",
     "preview": "bunx --bun vite preview",
-    "prepare": "bunx --bun svelte-kit sync",
+    "prepare": "svelte-kit sync || true",
     "typecheck": "bunx --bun svelte-kit sync && bunx --bun tsc --noEmit && bunx --bun tsc --noEmit -p scripts/tsconfig.json",
     "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "bunx --bun biome check --error-on-warnings .",
