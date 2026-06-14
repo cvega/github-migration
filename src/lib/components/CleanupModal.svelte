@@ -72,7 +72,7 @@
 		errorMsg = '';
 		try {
 			const res = await fetch(
-				`/api/migrations/${migrationId}/cleanup?action=${action}`
+				`/api/migrate/migrations/${migrationId}/cleanup?action=${action}`
 			);
 			if (res.ok) {
 				preview = await res.json();
@@ -122,7 +122,7 @@
 		submitting = true;
 		errorMsg = '';
 		try {
-			const res = await fetch(`/api/migrations/${migrationId}/cleanup`, {
+			const res = await fetch(`/api/migrate/migrations/${migrationId}/cleanup`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ action, confirmation: confirmText })

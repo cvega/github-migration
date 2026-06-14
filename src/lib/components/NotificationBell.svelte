@@ -30,7 +30,7 @@
 
 	async function refresh() {
 		try {
-			const res = await fetch('/api/activity');
+			const res = await fetch('/api/migrate/activity');
 			if (res.ok) {
 				const body = await res.json();
 				if (Array.isArray(body.items)) items = body.items;
@@ -126,7 +126,7 @@
 					{#each items as item (item.id)}
 						{@const meta = kindMeta[item.kind]}
 						<li>
-							<a href="/{item.migrationId}"
+							<a href="/migrate/{item.migrationId}"
 								onclick={() => (open = false)}
 								class="flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-gray-800">
 								<span class="mt-0.5 shrink-0 {meta.color}"><Octicon name={meta.icon} size={16} /></span>

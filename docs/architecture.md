@@ -84,8 +84,8 @@ the right model.
 
 Progress reaches the browser over **Server-Sent Events**. There are two streams:
 
-- **Per-migration** — `/api/migrations/:id/events`, used by the detail page.
-- **Global** — `/api/events`, used by the dashboard to update all cards at once.
+- **Per-migration** — `/api/migrate/migrations/:id/events`, used by the detail page.
+- **Global** — `/api/migrate/events`, used by the dashboard to update all cards at once.
 
 The client transport (`$lib/stores/sse-client.ts`) is a framework-agnostic
 reconnecting `EventSource` wrapper with capped exponential backoff (1s → 30s,

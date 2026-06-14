@@ -11,6 +11,10 @@
 	let { data, children } = $props();
 
 	const isLoginPage = $derived(page.url.pathname === '/login');
+	// Migration-specific nav chrome (activity bell, Stats, New Migration) belongs
+	// to the Migrate workspace only — keep it off the landing page and any other
+	// workspace.
+	const inMigrate = $derived(page.url.pathname.startsWith('/migrate'));
 	const sourceApp = $derived(data.sourceAuth.mode === 'github-app');
 	const targetApp = $derived(data.targetAuth.mode === 'github-app');
 
@@ -101,17 +105,19 @@
 				GitHub Migration Dashboard
 			</a>
 			<div class="flex items-center gap-4">
-				<NotificationBell initial={data.recentActivity} />
-				<a href="/stats"
-					class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 hover:bg-gray-700 transition-colors">
-					<Octicon name="graph" size={16} />
-					Stats
-				</a>
-				<a href="/new"
-					class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
-					<Octicon name="paper-airplane" size={16} />
-					New Migration
-				</a>
+				{#if inMigrate}
+					<NotificationBell initial={data.recentActivity} />
+					<a href="/migrate/stats"
+						class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 hover:bg-gray-700 transition-colors">
+						<Octicon name="graph" size={16} />
+						Stats
+					</a>
+					<a href="/migrate/new"
+						class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
+						<Octicon name="paper-airplane" size={16} />
+						New Migration
+					</a>
+				{/if}
 				{#if data.authEnabled}
 					<form method="POST" action="/logout" class="m-0 flex self-stretch">
 						<button type="submit"
