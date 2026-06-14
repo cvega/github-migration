@@ -4,7 +4,7 @@
  * in schemas.ts (Zod).
  */
 
-import { isSourceAuthAvailable, isTargetAuthAvailable } from "$lib/server/auth";
+import { isSourceAuthAvailable, isTargetAuthAvailable } from "./auth";
 
 /**
  * Safely parse a JSON request body. Returns the parsed object or an error string.

@@ -1,5 +1,5 @@
 /** Profile workspace landing — start a run and list existing runs. */
-import { getFormDefaults, isSourceAuthAvailable } from "$lib/server/auth";
+import { getFormDefaults, isSourceAuthAvailable } from "$lib/server/core/auth";
 import { listProfileRuns } from "$lib/server/profile/store";
 import type { PageServerLoad } from "./$types";
 

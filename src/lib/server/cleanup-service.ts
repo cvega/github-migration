@@ -15,7 +15,7 @@ import {
   evaluateCleanupEligibility,
   loadCleanupConfig,
 } from "./cleanup";
-import { createSingleClient, deleteRepo, getRepoFacts, renameRepo } from "./github";
+import { createSingleClient, deleteRepo, getRepoFacts, renameRepo } from "./core/github";
 import { getMigration, insertEvent } from "./migrate/store";
 
 /** GHEC is always the target instance. */

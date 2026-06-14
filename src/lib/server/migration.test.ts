@@ -48,8 +48,8 @@ mock.module("$lib/server/monitor", () => ({
 
 // Spread the real github module so unrelated exports (used by auth.ts etc.)
 // keep working; override only the functions the finalize tail calls.
-const realGithub = await import("./github");
-mock.module("$lib/server/github", () => ({
+const realGithub = await import("./core/github");
+mock.module("$lib/server/core/github", () => ({
   ...realGithub,
   createClients: () => ({
     source: {},

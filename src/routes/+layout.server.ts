@@ -5,7 +5,7 @@ import {
   getAuthConfig,
   getFormDefaults,
   isCredentialOverrideAllowed,
-} from "$lib/server/auth";
+} from "$lib/server/core/auth";
 import { fetchGitHubStatus } from "$lib/server/core/github-status";
 import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
 import { getActiveMigrationCount } from "$lib/server/migrate/store";

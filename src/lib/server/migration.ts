@@ -20,8 +20,7 @@ import {
   isTargetAuthAvailable,
   resolveSourceAuth,
   resolveTargetAuth,
-} from "./auth";
-import { extractOrg, extractRepo } from "./core/util";
+} from "./core/auth";
 import {
   abortMigration,
   archiveRepository,
@@ -42,7 +41,8 @@ import {
   startGitArchiveExport,
   startMetadataArchiveExport,
   waitForArchive,
-} from "./github";
+} from "./core/github";
+import { extractOrg, extractRepo } from "./core/util";
 import {
   updateCheckpoint,
   updateMigrationProvenance,

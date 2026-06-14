@@ -2,9 +2,9 @@
  *  GET  /api/profile — list profiling runs (most recent first).
  */
 import { json } from "@sveltejs/kit";
+import { parseJsonBody } from "$lib/server/core/validate";
 import { startOrgProfile } from "$lib/server/profile/service";
 import { listProfileRuns } from "$lib/server/profile/store";
-import { parseJsonBody } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 /** GitHub org login: 1–39 chars, alphanumeric or hyphen, not hyphen-leading. */

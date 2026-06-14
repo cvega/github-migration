@@ -24,7 +24,7 @@ import {
   isSourceAuthAvailable,
   isTargetAppConfigured,
   isTargetAuthAvailable,
-} from "./auth";
+} from "./core/auth";
 import { getDb } from "./core/db";
 import { extractOrg, extractRepo } from "./core/util";
 import {

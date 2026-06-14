@@ -2,9 +2,9 @@
  *  GET  /api/migrate/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
+import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
 import { listPaginated, searchPaginated, start } from "$lib/server/manager";
 import { createMigrationSchema, validateBody } from "$lib/server/schemas";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 

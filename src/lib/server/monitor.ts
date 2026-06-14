@@ -19,7 +19,7 @@ import {
   type GitHubClients,
   getMigration as getGhecMigration,
   getRepoCounts,
-} from "./github";
+} from "./core/github";
 
 export type EventEmitter = (event: MigrationEvent) => void;
 

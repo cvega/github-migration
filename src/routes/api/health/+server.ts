@@ -8,7 +8,7 @@
  * already open.
  */
 import { json } from "@sveltejs/kit";
-import { getAuthConfig } from "$lib/server/auth";
+import { getAuthConfig } from "$lib/server/core/auth";
 import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
 import type { RequestHandler } from "./$types";
 

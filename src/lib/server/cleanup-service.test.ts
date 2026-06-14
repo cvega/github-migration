@@ -18,8 +18,8 @@ const START = "2026-06-01T00:00:00.000Z";
 
 // Spread real github; override only the identity read and the destructive
 // calls. Safe across files: no other suite calls these three.
-const realGithub = await import("./github");
-mock.module("$lib/server/github", () => ({
+const realGithub = await import("./core/github");
+mock.module("$lib/server/core/github", () => ({
   ...realGithub,
   createSingleClient: () => ({}),
   getRepoFacts: async () => liveFacts,
