@@ -11,7 +11,9 @@
  * mirroring how the app drives a migration through its lifecycle.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { Counts, Migration, MigrationEvent } from "../types";
+import { initStore } from "$lib/server/core/db";
+import { DOMAIN_STORES } from "$lib/server/registry";
+import type { Counts, Migration, MigrationEvent } from "../../types";
 import {
   getActiveMigrationCount,
   getBatchListItem,
@@ -24,7 +26,6 @@ import {
   getQueuedEnvMigrations,
   getRecentActivity,
   getRecoverableMigrations,
-  initStore,
   insertEvent,
   insertMigration,
   listMigrationsPaginated,
@@ -73,7 +74,7 @@ function makeMigration(over: Partial<Migration> = {}): Migration {
 }
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
 });
 
 describe("insertMigration / getMigration round-trip", () => {
@@ -736,7 +737,7 @@ describe("getRecentActivity", () => {
   });
 
   test("returns an empty array when there is no activity", () => {
-    initStore(":memory:");
+    initStore(":memory:", DOMAIN_STORES);
     insertMigration(makeMigration({ id: "lonely" }));
     expect(getRecentActivity()).toEqual([]);
   });

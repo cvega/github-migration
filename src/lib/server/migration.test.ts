@@ -12,8 +12,9 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Counts, Migration, MigrationEvent, Phase } from "../types";
+import { initStore } from "./core/db";
 import type { MigrationPipelineOpts } from "./migration";
-import { initStore } from "./store";
+import { DOMAIN_STORES } from "./registry";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // runMonitor's terminal phase is the key input that drives finalize; each test
@@ -112,7 +113,7 @@ const emit = (e: MigrationEvent) => {
 };
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
   events = [];
   abortCalls = 0;
   monitorPhase = "SUCCEEDED";

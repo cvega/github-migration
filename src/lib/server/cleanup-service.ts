@@ -16,7 +16,7 @@ import {
   loadCleanupConfig,
 } from "./cleanup";
 import { createSingleClient, deleteRepo, getRepoFacts, renameRepo } from "./github";
-import { getMigration, insertEvent } from "./store";
+import { getMigration, insertEvent } from "./migrate/store";
 
 /** GHEC is always the target instance. */
 const GHEC_API_URL = "https://api.github.com";

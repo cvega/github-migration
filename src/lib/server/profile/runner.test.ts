@@ -5,7 +5,8 @@
  * persistence, progress, and failure handling, with no network.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { initStore } from "$lib/server/store";
+import { initStore } from "$lib/server/core/db";
+import { DOMAIN_STORES } from "$lib/server/registry";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import type { DiscoveredRepo, OrgDiscovery, ProfileProgress, RepoSignals } from "./types";
@@ -59,7 +60,7 @@ function deps(
 }
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
 });
 
 describe("runProfile", () => {

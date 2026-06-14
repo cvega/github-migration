@@ -25,15 +25,14 @@ import {
   isTargetAppConfigured,
   isTargetAuthAvailable,
 } from "./auth";
+import { getDb } from "./core/db";
 import { extractOrg, extractRepo } from "./core/util";
-import { resumeMigration, runMigrationPipeline } from "./migration";
 import {
   getActiveMigrationCount,
   getBatchListItem,
   getBatchMigrations,
   getBatchMigrationsPaginated,
   getBatchSummary,
-  getDb,
   getEvents,
   getMigration,
   getMigrationStats,
@@ -50,7 +49,8 @@ import {
   searchBatchItemsPaginated,
   searchMigrationsPaginated,
   updateMigrationState,
-} from "./store";
+} from "./migrate/store";
+import { resumeMigration, runMigrationPipeline } from "./migration";
 import { ACTIVE_IMPORT_PHASES, isLargeRepo, loadWatchdogConfig, progressSignal } from "./watchdog";
 
 /** GitHub-imposed concurrent migration limit per organization. */

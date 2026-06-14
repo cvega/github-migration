@@ -6,6 +6,7 @@
  * against an in-memory DB so no partial-module mock can leak into other suites.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { DOMAIN_STORES } from "$lib/server/registry";
 import type { Migration } from "../types";
 
 let renameCalls: Array<{ owner: string; repo: string; newName: string }>;
@@ -31,9 +32,8 @@ mock.module("$lib/server/github", () => ({
   },
 }));
 
-const { initStore, insertMigration, updateMigrationProvenance, getEvents } = await import(
-  "./store"
-);
+const { initStore } = await import("$lib/server/core/db");
+const { insertMigration, updateMigrationProvenance, getEvents } = await import("./migrate/store");
 const { executeCleanup, previewCleanup } = await import("./cleanup-service");
 
 function migration(over: Partial<Migration> = {}): Migration {
@@ -83,7 +83,7 @@ const CLEANUP_ENV = ["TARGET_CLEANUP_DISABLED", "TARGET_CLEANUP", "GH_TARGET_ADM
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
   renameCalls = [];
   deleteCalls = [];
   liveFacts = {

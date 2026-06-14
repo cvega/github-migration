@@ -43,8 +43,12 @@ import {
   startMetadataArchiveExport,
   waitForArchive,
 } from "./github";
+import {
+  updateCheckpoint,
+  updateMigrationProvenance,
+  updateMigrationSourceSize,
+} from "./migrate/store";
 import { type EventEmitter, runMonitor } from "./monitor";
-import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {

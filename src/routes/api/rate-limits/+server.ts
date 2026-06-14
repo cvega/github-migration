@@ -2,7 +2,7 @@
 import { json } from "@sveltejs/kit";
 import { fetchLiveRateLimits } from "$lib/server/auth";
 import { fetchGitHubStatus } from "$lib/server/core/github-status";
-import { getActiveMigrationCount } from "$lib/server/store";
+import { getActiveMigrationCount } from "$lib/server/migrate/store";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {

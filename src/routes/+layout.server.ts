@@ -8,7 +8,7 @@ import {
 } from "$lib/server/auth";
 import { fetchGitHubStatus } from "$lib/server/core/github-status";
 import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
-import { getActiveMigrationCount } from "$lib/server/store";
+import { getActiveMigrationCount } from "$lib/server/migrate/store";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {
