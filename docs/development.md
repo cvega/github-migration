@@ -169,6 +169,41 @@ docker compose restart
 
 ---
 
+## Releasing
+
+Versions follow [Semantic Versioning](https://semver.org) and are derived from
+the Conventional Commit history — you don't hand-edit the number.
+
+```bash
+bun run release:prep
+```
+
+This runs git-cliff to compute the next version from the commits since the last
+tag (breaking → major, `feat` → minor, anything else → patch), writes it to
+`package.json`, and regenerates `CHANGELOG.md` with the unreleased section filed
+under the new version. It does **not** commit, tag, or push.
+
+Then cut the release:
+
+1. Review the diff `bun run release:prep` produced.
+2. Commit it as `chore(release): <version>` and open a PR (the title satisfies
+   the Conventional-Commit check; `chore(release)` is excluded from the
+   changelog itself).
+3. Merge the PR.
+4. Tag the merge commit and push the tag:
+
+   ```bash
+   git tag v<version> && git push origin v<version>
+   ```
+
+Pushing the `v*` tag triggers `release.yml`, which guards that the tag matches
+`package.json`, runs the gate suite, builds and Trivy-scans the image, pushes it
+to GHCR, drafts a GitHub Release with the git-cliff notes, and commits the
+regenerated `CHANGELOG.md` back to `main`. The release is created as a **draft**
+for review before publishing.
+
+---
+
 ## Conventions
 
 - **Fix root causes, not symptoms.** Don't silence a gate with `any`, a

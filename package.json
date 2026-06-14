@@ -23,6 +23,7 @@
     "mutation": "stryker run",
     "ci": "bun run check && bun run build",
     "seed": "bun scripts/seed.ts",
+    "release:prep": "bun scripts/release-prep.ts",
     "verify": "bun run typecheck && bun run check && bun run lint && bun run format:check && bun run coverage:check && bun run dup && bun run deadcode && bun run cycles && bun run boundaries && bun run build && bun run audit",
     "verify:json": "bun scripts/verify-json.ts"
   },
@@ -44,6 +45,7 @@
     "@tailwindcss/vite": "^4.3.1",
     "@types/bun": "^1.3.14",
     "@types/primer__octicons": "^19.21.0",
+    "git-cliff": "^2.13.1",
     "jscpd": "^5.0.9",
     "knip": "^6.16.1",
     "madge": "^8.0.0",
