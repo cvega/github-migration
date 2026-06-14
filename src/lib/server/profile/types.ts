@@ -60,3 +60,37 @@ export interface OrgDiscovery {
   total: number;
   repos: DiscoveredRepo[];
 }
+
+/**
+ * A repository enriched with the per-repo signals the gap analysis needs,
+ * beyond the bulk discovery spine. These are the cheap GraphQL count signals
+ * gathered in a single query per repo; deeper, paging-heavy signals (release
+ * asset sizes, git-sizer, ref-name scans) are augmented separately.
+ *
+ * Derived signals (e.g. `branchProtectionRulesUsingUnmigratedFeatures`) are
+ * computed in the augmentation layer so the gap detectors stay simple — they
+ * read a number and compare, rather than re-deriving GraphQL schema details.
+ */
+export interface RepoSignals extends DiscoveredRepo {
+  /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
+  discussionsCount: number;
+  /** Projects (new experience) (`projectsV2.totalCount`); not migrated. */
+  projectsV2Count: number;
+  /** Actions environments (`environments.totalCount`); not migrated. */
+  environmentsCount: number;
+  /** Releases (`releases.totalCount`); GHES releases don't migrate at all. */
+  releasesCount: number;
+  /** Stars (`stargazerCount`); not migrated. */
+  stargazerCount: number;
+  /** Watchers (`watchers.totalCount`); not migrated. */
+  watcherCount: number;
+  /** Branch protection rules (`branchProtectionRules.totalCount`). */
+  branchProtectionRuleCount: number;
+  /**
+   * How many branch protection rules use at least one feature GEI does not
+   * migrate (force-push allowance, required deployments, lock branch, block
+   * creations, require last-push approval, or bypass actors). `> 0` means the
+   * branch-protection-partial gap applies.
+   */
+  branchProtectionRulesUsingUnmigratedFeatures: number;
+}
