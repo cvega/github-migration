@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  Single &amp; batch migrations · Real-time SSE progress · Cancellation &amp; restart · Crash recovery · GitHub App &amp; PAT auth
+  Single &amp; batch migrations · Pre-migration profiling · Real-time SSE progress · Cancellation &amp; restart · Crash recovery · GitHub App &amp; PAT auth
 </p>
 
 ---
@@ -25,6 +25,7 @@
 ## Capabilities
 
 - Migrates repositories GHES → GHEC and GHEC → GHEC, via archive upload or direct passthrough.
+- Profiles an organization before migrating — crawls every repository and surfaces per-repo migration *considerations* (what GEI won't carry over) plus actionable insights, streamed live.
 - Accepts batch requests of up to 500 repositories; a FIFO queue caps execution at 10 concurrent migrations (GitHub's limit).
 - Reports progress over Server-Sent Events (SSE) — phase timeline, per-resource progress, and throughput.
 - Supports cancelling in-flight migrations and restarting failed or cancelled ones in place.
@@ -94,7 +95,7 @@ Then open the app, click **New Migration**, and go. Full walkthrough in
 
 - **Stack:** [Bun](https://bun.sh) · SvelteKit 2 + Svelte 5 (runes) · TypeScript · `bun:sqlite` · Tailwind v4 · [Biome](https://biomejs.dev)
 - **Requirements:** Bun ≥ 1.3.9, Docker/Podman for containerized deployment
-- **Quality gates:** `bun run verify` runs typecheck, svelte-check, lint, format, coverage, duplication, dead-code, circular-import, build, and audit — see [Development](docs/development.md)
+- **Quality gates:** `bun run verify` runs typecheck, svelte-check, lint, format, coverage, duplication, dead-code, circular-import, import-boundary, build, and audit — see [Development](docs/development.md)
 
 ```bash
 bun install                  # install deps
