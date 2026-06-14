@@ -1,7 +1,7 @@
 <!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { timeAgo } from '$lib/format';
+	import { formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
@@ -14,6 +14,19 @@
 	const fresh = $derived(polled && polled.run.id === data.run.id ? polled : null);
 	const run = $derived(fresh?.run ?? data.run);
 	const repos = $derived(fresh?.repos ?? data.repos);
+	const scale = $derived(fresh?.scale ?? data.scale);
+
+	// Org-wide content-volume tiles (migration scale). `formatRepoSize` handles
+	// the disk total; counts get thousands separators.
+	const scaleTiles = $derived([
+		{ label: 'Issues', value: scale.issues.toLocaleString() },
+		{ label: 'Pull requests', value: scale.pullRequests.toLocaleString() },
+		{ label: 'Commits', value: scale.commits.toLocaleString() },
+		{ label: 'Branches', value: scale.branches.toLocaleString() },
+		{ label: 'Tags', value: scale.tags.toLocaleString() },
+		{ label: 'Releases', value: scale.releases.toLocaleString() },
+		{ label: 'Total size', value: formatRepoSize(scale.diskUsageKb) }
+	]);
 
 	type RunState = 'running' | 'completed' | 'failed';
 
@@ -140,6 +153,22 @@
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
 			<div class="mt-1 text-xs text-gray-400">Repos with results</div>
+		</div>
+	</section>
+
+	<!-- Migration scale: org-wide content volume -->
+	<section>
+		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
+			<Octicon name="graph" size={16} />
+			Migration scale
+		</h2>
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+			{#each scaleTiles as tile (tile.label)}
+				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+					<div class="text-xl font-semibold tabular-nums text-gray-50">{tile.value}</div>
+					<div class="mt-1 text-xs text-gray-400">{tile.label}</div>
+				</div>
+			{/each}
 		</div>
 	</section>
 

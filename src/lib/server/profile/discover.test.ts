@@ -23,6 +23,10 @@ interface RepoNode {
   defaultBranchRef: { name: string } | null;
   pushedAt: string | null;
   updatedAt: string | null;
+  issues: { totalCount: number };
+  pullRequests: { totalCount: number };
+  branches: { totalCount: number };
+  tags: { totalCount: number };
 }
 
 /** Build a repo node, overriding only the fields a test cares about. */
@@ -42,6 +46,10 @@ function node(name: string, over: Partial<RepoNode> = {}): RepoNode {
     defaultBranchRef: { name: "main" },
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
+    issues: { totalCount: 0 },
+    pullRequests: { totalCount: 0 },
+    branches: { totalCount: 0 },
+    tags: { totalCount: 0 },
     ...over,
   };
 }
@@ -160,7 +168,34 @@ describe("discoverOrgRepos", () => {
       defaultBranch: null,
       pushedAt: null,
       updatedAt: "2026-01-02T00:00:00Z",
+      issuesCount: 0,
+      pullRequestsCount: 0,
+      branchesCount: 0,
+      tagsCount: 0,
     });
+  });
+
+  test("maps the content-volume counts from the discovery page", async () => {
+    const { fn } = mockGql([
+      page(
+        [
+          node("busy", {
+            issues: { totalCount: 42 },
+            pullRequests: { totalCount: 17 },
+            branches: { totalCount: 6 },
+            tags: { totalCount: 9 },
+          }),
+        ],
+        { total: 1 },
+      ),
+    ]);
+
+    const [repo] = (await discoverOrgRepos(fn, "acme")).repos;
+
+    expect(repo?.issuesCount).toBe(42);
+    expect(repo?.pullRequestsCount).toBe(17);
+    expect(repo?.branchesCount).toBe(6);
+    expect(repo?.tagsCount).toBe(9);
   });
 
   test("handles an organization with no repositories", async () => {

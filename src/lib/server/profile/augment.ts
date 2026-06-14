@@ -1,13 +1,20 @@
 /**
- * Per-repo signal augmentation — the second crawl pass.
+ * Per-repo signal augmentation — the second crawl pass, batched.
  *
- * Discovery (`discover.ts`) gives the cheap, breadth-first spine; this pass
- * enriches one repository with the GraphQL count signals the consideration
- * analysis needs (discussions, projects, environments, releases, stars/watchers,
- * branch
- * protection rules). It's a single bounded query per repo — no asset/ref paging
- * — so deeper size scans (release assets, git-sizer, ref-name length) stay in a
- * separate, heavier pass.
+ * Discovery (`discover.ts`) gives the cheap, breadth-first spine and the
+ * content-volume counts that ride along free in each 100-repo page. This pass
+ * gathers the signals that can't fold into a discovery node: the
+ * branch-protection rule *details* (node-level flags, not just a count) and the
+ * default-branch commit count (`history.totalCount`, the one count with timeout
+ * risk at 100-wide, so kept to a smaller fan-out here).
+ *
+ * It profiles a CHUNK of repos in one aliased GraphQL request
+ * (`r0: repository(...) {…} r1: repository(...) {…} …`), so an org of N repos
+ * costs ~N/chunk requests instead of one per repo. The request is
+ * partial-failure aware: if a repo in the chunk is inaccessible, GraphQL
+ * returns a null alias plus an `errors` entry (surfaced by the client as an
+ * error carrying partial `data`) — that repo degrades to zeroed signals rather
+ * than failing the whole chunk.
  *
  * The `gql` client is injected, so the query shaping, mapping, and the
  * branch-protection derivation are unit-testable without a network.
@@ -29,49 +36,72 @@ interface BranchProtectionRuleNode {
   bypassPullRequestAllowances: { totalCount: number };
 }
 
-/** Raw shape of the per-repo signals query response. */
-interface RepoSignalsResult {
-  repository: {
-    discussions: { totalCount: number };
-    projectsV2: { totalCount: number };
-    environments: { totalCount: number };
-    releases: { totalCount: number };
-    stargazerCount: number;
-    watchers: { totalCount: number };
-    branchProtectionRules: {
-      totalCount: number;
-      nodes: BranchProtectionRuleNode[];
-    };
-  } | null;
+/** Raw shape of one repository alias in the batched signals query. */
+interface RepoSignalsNode {
+  defaultBranchRef: { target: { history: { totalCount: number } } | null } | null;
+  discussions: { totalCount: number };
+  projectsV2: { totalCount: number };
+  environments: { totalCount: number };
+  releases: { totalCount: number };
+  stargazerCount: number;
+  watchers: { totalCount: number };
+  branchProtectionRules: {
+    totalCount: number;
+    nodes: BranchProtectionRuleNode[];
+  };
 }
 
-const REPO_SIGNALS_QUERY = `query repoSignals($owner: String!, $name: String!, $rules: Int!) {
-  repository(owner: $owner, name: $name) {
-    discussions { totalCount }
-    projectsV2 { totalCount }
-    environments { totalCount }
-    releases { totalCount }
-    stargazerCount
-    watchers { totalCount }
-    branchProtectionRules(first: $rules) {
-      totalCount
-      nodes {
-        allowsForcePushes
-        requiresDeployments
-        lockBranch
-        blocksCreations
-        requireLastPushApproval
-        bypassForcePushAllowances { totalCount }
-        bypassPullRequestAllowances { totalCount }
-      }
+/** The aliased query response: one (possibly null) node per requested repo. */
+type BatchSignalsResult = Record<string, RepoSignalsNode | null>;
+
+/**
+ * The per-repo selection. `history` sits behind a `... on Commit` inline
+ * fragment because `defaultBranchRef.target` is a `GitObject` (Commit | Tree |
+ * Blob | Tag); only a Commit has `history`.
+ */
+const SIGNALS_FRAGMENT = `fragment Sig on Repository {
+  defaultBranchRef { target { ... on Commit { history(first: 1) { totalCount } } } }
+  discussions { totalCount }
+  projectsV2 { totalCount }
+  environments { totalCount }
+  releases { totalCount }
+  stargazerCount
+  watchers { totalCount }
+  branchProtectionRules(first: $rules) {
+    totalCount
+    nodes {
+      allowsForcePushes
+      requiresDeployments
+      lockBranch
+      blocksCreations
+      requireLastPushApproval
+      bypassForcePushAllowances { totalCount }
+      bypassPullRequestAllowances { totalCount }
     }
   }
 }`;
 
+/** Build the aliased query for a chunk of `n` repos (aliases `r0…r{n-1}`). */
+function buildBatchQuery(n: number): string {
+  const varDefs = ["$rules: Int!"];
+  const fields: string[] = [];
+  for (let i = 0; i < n; i++) {
+    varDefs.push(`$o${i}: String!`, `$n${i}: String!`);
+    fields.push(`r${i}: repository(owner: $o${i}, name: $n${i}) { ...Sig }`);
+  }
+  return `query batchSignals(${varDefs.join(", ")}) {\n${fields.join("\n")}\n}\n${SIGNALS_FRAGMENT}`;
+}
+
+/** Split `owner/name` into its owner; falls back to the whole string. */
+function ownerOf(nameWithOwner: string): string {
+  const slash = nameWithOwner.indexOf("/");
+  return slash > 0 ? nameWithOwner.slice(0, slash) : nameWithOwner;
+}
+
 /**
- * Whether a branch protection rule uses any feature GEI does not migrate.
- * (Plain required-reviews/status-checks DO migrate, so a rule using only those
- * counts as zero here.)
+ * Whether a branch protection rule uses any feature GitHub's importer does not
+ * migrate. (Plain required-reviews/status-checks DO migrate, so a rule using
+ * only those counts as zero here.)
  */
 function usesUnmigratedFeature(rule: BranchProtectionRuleNode): boolean {
   return (
@@ -85,46 +115,77 @@ function usesUnmigratedFeature(rule: BranchProtectionRuleNode): boolean {
   );
 }
 
-/** Split `owner/name` into its owner; falls back to the whole string. */
-function ownerOf(nameWithOwner: string): string {
-  const slash = nameWithOwner.indexOf("/");
-  return slash > 0 ? nameWithOwner.slice(0, slash) : nameWithOwner;
+/** Map a repo + its (possibly null) augment node to full `RepoSignals`. */
+function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSignals {
+  // A null node means the repo was inaccessible on this pass (permissions edge,
+  // or deleted between passes). It was discoverable, so keep the discovery spine
+  // and degrade the augment counts to zero rather than failing the run.
+  if (!node) {
+    return {
+      ...repo,
+      commitsCount: 0,
+      discussionsCount: 0,
+      projectsV2Count: 0,
+      environmentsCount: 0,
+      releasesCount: 0,
+      stargazerCount: 0,
+      watcherCount: 0,
+      branchProtectionRuleCount: 0,
+      branchProtectionRulesUsingUnmigratedFeatures: 0,
+    };
+  }
+  return {
+    ...repo,
+    commitsCount: node.defaultBranchRef?.target?.history.totalCount ?? 0,
+    discussionsCount: node.discussions.totalCount,
+    projectsV2Count: node.projectsV2.totalCount,
+    environmentsCount: node.environments.totalCount,
+    releasesCount: node.releases.totalCount,
+    stargazerCount: node.stargazerCount,
+    watcherCount: node.watchers.totalCount,
+    branchProtectionRuleCount: node.branchProtectionRules.totalCount,
+    branchProtectionRulesUsingUnmigratedFeatures:
+      node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length,
+  };
+}
+
+/** Recover partial `data` from a GraphQL error that carries it, else rethrow. */
+function dataFromError(err: unknown): BatchSignalsResult {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object") return data as BatchSignalsResult;
+  }
+  throw err;
 }
 
 /**
- * Enrich a discovered repository with its per-repo GraphQL signals.
+ * Enrich a chunk of discovered repositories with their per-repo signals in a
+ * single aliased GraphQL request.
  *
  * @param gql   Injected GraphQL client (`createSingleClient(...).graphql`).
- * @param repo  The repository from the discovery pass to augment.
- * @returns     `repo` plus the gathered count signals (`RepoSignals`).
- * @throws      If the repository is missing or not accessible.
+ * @param repos The chunk of repositories (from discovery) to augment.
+ * @returns     One `RepoSignals` per input repo, in input order.
  */
 export async function augmentRepoSignals(
   gql: typeof graphql,
-  repo: DiscoveredRepo,
-): Promise<RepoSignals> {
-  const result: RepoSignalsResult = await gql<RepoSignalsResult>(REPO_SIGNALS_QUERY, {
-    owner: ownerOf(repo.nameWithOwner),
-    name: repo.name,
-    rules: MAX_RULES,
+  repos: DiscoveredRepo[],
+): Promise<RepoSignals[]> {
+  if (repos.length === 0) return [];
+
+  const variables: Record<string, string | number> = { rules: MAX_RULES };
+  repos.forEach((repo, i) => {
+    variables[`o${i}`] = ownerOf(repo.nameWithOwner);
+    variables[`n${i}`] = repo.name;
   });
 
-  const r = result.repository;
-  if (!r) {
-    throw new Error(`Repository '${repo.nameWithOwner}' not found or not accessible`);
+  let data: BatchSignalsResult;
+  try {
+    data = await gql<BatchSignalsResult>(buildBatchQuery(repos.length), variables);
+  } catch (err) {
+    // A chunk with one inaccessible repo errors but still carries partial data;
+    // recover it so the accessible repos in the chunk still get profiled.
+    data = dataFromError(err);
   }
 
-  const rulesUsingUnmigrated = r.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length;
-
-  return {
-    ...repo,
-    discussionsCount: r.discussions.totalCount,
-    projectsV2Count: r.projectsV2.totalCount,
-    environmentsCount: r.environments.totalCount,
-    releasesCount: r.releases.totalCount,
-    stargazerCount: r.stargazerCount,
-    watcherCount: r.watchers.totalCount,
-    branchProtectionRuleCount: r.branchProtectionRules.totalCount,
-    branchProtectionRulesUsingUnmigratedFeatures: rulesUsingUnmigrated,
-  };
+  return repos.map((repo, i) => toSignals(repo, data[`r${i}`] ?? null));
 }

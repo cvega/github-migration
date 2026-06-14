@@ -32,10 +32,52 @@ interface RepoProfileView extends StoredRepoProfile {
   insights: Insight[];
 }
 
-/** A run plus its per-repo results (each enriched with insights). */
+/**
+ * Org-wide content-volume totals across a run's repos — the migration's scale.
+ * Derived on read by summing the persisted per-repo signals (no schema change),
+ * so it stays correct however many times a repo was re-recorded.
+ */
+interface MigrationScale {
+  repos: number;
+  issues: number;
+  pullRequests: number;
+  commits: number;
+  branches: number;
+  tags: number;
+  releases: number;
+  /** Sum of repo disk usage in KiB (null entries count as 0). */
+  diskUsageKb: number;
+}
+
+/** A run plus its per-repo results (each enriched with insights) and scale. */
 export interface ProfileDetail {
   run: ProfileRun;
   repos: RepoProfileView[];
+  scale: MigrationScale;
+}
+
+/** Sum the per-repo signals into the org-wide migration-scale rollup. */
+function computeScale(repos: RepoProfileView[]): MigrationScale {
+  const scale: MigrationScale = {
+    repos: repos.length,
+    issues: 0,
+    pullRequests: 0,
+    commits: 0,
+    branches: 0,
+    tags: 0,
+    releases: 0,
+    diskUsageKb: 0,
+  };
+  for (const { signals } of repos) {
+    scale.issues += signals.issuesCount;
+    scale.pullRequests += signals.pullRequestsCount;
+    scale.commits += signals.commitsCount;
+    scale.branches += signals.branchesCount;
+    scale.tags += signals.tagsCount;
+    scale.releases += signals.releasesCount;
+    scale.diskUsageKb += signals.diskUsageKb ?? 0;
+  }
+  return scale;
 }
 
 /**
@@ -85,5 +127,5 @@ export function getProfileDetail(id: string): ProfileDetail | null {
     ...repo,
     insights: deriveInsights(repo.signals),
   }));
-  return { run, repos };
+  return { run, repos, scale: computeScale(repos) };
 }

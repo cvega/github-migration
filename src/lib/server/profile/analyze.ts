@@ -64,6 +64,15 @@ function count(n: number, noun: string): string {
 }
 
 /**
+ * Smallest GHES Git-archive size limit (2 GiB, in KiB). `diskUsage` is the
+ * uncompressed working size and only a proxy for the compressed archive — a repo
+ * already over this uncompressed is a genuine candidate to exceed the limit, so
+ * it's flagged (as an estimate) for git-sizer confirmation. Repos under it are
+ * cleared rather than nagged.
+ */
+const GIT_ARCHIVE_PROXY_KB = 2 * 1024 * 1024;
+
+/**
  * Detectors for the considerations the crawl can currently evaluate, keyed by
  * consideration id. Add an entry here as each new signal is gathered.
  */
@@ -82,6 +91,11 @@ const DETECTORS: Record<string, Detector> = {
       : null,
   "fork-relationships": (s) => (s.isFork ? "repository is a fork" : null),
   "wiki-attachments": (s) => (s.hasWiki ? "wiki enabled (attachments not migrated)" : null),
+  "git-archive-size-limit": (s) => {
+    if (s.diskUsageKb == null || s.diskUsageKb < GIT_ARCHIVE_PROXY_KB) return null;
+    const gib = (s.diskUsageKb / (1024 * 1024)).toFixed(1);
+    return `repository size ~${gib} GiB (estimate — confirm with git-sizer)`;
+  },
 };
 
 /** Consideration ids the engine can evaluate (the rest report indeterminate). */
