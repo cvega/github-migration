@@ -13,7 +13,11 @@ RUN bun install --frozen-lockfile --production
 
 FROM oven/bun:1.3.14-alpine
 WORKDIR /app
-RUN apk add --no-cache su-exec && \
+# Patch OS packages (e.g. the base image's openssl) before installing su-exec,
+# so the shipped runtime image carries Alpine's latest security fixes and clears
+# the Trivy CRITICAL/HIGH gate in the release pipeline.
+RUN apk upgrade --no-cache && \
+    apk add --no-cache su-exec && \
     addgroup -S app && adduser -S app -G app && \
     mkdir -p /data /archives
 COPY --from=build --chown=app:app /app/build ./build
