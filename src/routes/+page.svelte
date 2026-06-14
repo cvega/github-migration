@@ -45,22 +45,25 @@
 			</div>
 		</a>
 
-		<!-- Profile (in development) -->
-		<div class="relative flex flex-col rounded-lg border border-dashed border-gray-700 bg-gray-900/50 p-6">
+		<!-- Profile -->
+		<a
+			href="/profile"
+			class="group relative flex flex-col rounded-lg border border-gray-700 bg-gray-900 p-6 transition-all hover:border-violet-600/60 hover:bg-gray-800"
+		>
 			<div class="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-violet-600/15 text-violet-400">
 				<Octicon name="telescope" size={24} />
 			</div>
-			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
-				Profile
-				<span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-300">
-					Coming soon
-				</span>
-			</h2>
-			<p class="mt-1.5 flex-1 text-sm text-gray-500">
+			<h2 class="text-lg font-semibold text-gray-50">Profile</h2>
+			<p class="mt-1.5 flex-1 text-sm text-gray-400">
 				Analyze a source organization for migration readiness — surface what GEI
 				won't carry cleanly and route each gap to its remediation.
 			</p>
-			<div class="mt-4 text-sm text-gray-600">In development</div>
-		</div>
+			<div class="mt-4 flex items-center justify-end text-sm">
+				<span class="inline-flex items-center gap-1 font-medium text-violet-400">
+					Open
+					<Octicon name="arrow-right" size={16} class="transition-transform group-hover:translate-x-0.5" />
+				</span>
+			</div>
+		</a>
 	</div>
 </div>

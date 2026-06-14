@@ -19,6 +19,8 @@
  * PAT fields remain available as overrides — if a PAT is provided in the
  * request it takes precedence over the GitHub App token.
  */
+
+import type { graphql } from "@octokit/graphql";
 import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/types";
 import { createSingleClient, getRateLimit, type RateLimitInfo } from "./github";
@@ -208,6 +210,19 @@ function resolveAuth(
  */
 export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): AuthInput {
   return resolveAuth(requestToken, requestApp, getSourceAppConfig, env.GH_SOURCE_PAT, "source");
+}
+
+/**
+ * Build a GraphQL client for the source instance from env-configured
+ * credentials, plus the resolved source API URL. Used by the Profiler to crawl
+ * a source organization. Throws when no source auth is configured (callers map
+ * that to a 400).
+ */
+export function getSourceGraphql(): { gql: typeof graphql; sourceApiUrl: string } {
+  const sourceAuth = resolveSourceAuth();
+  const sourceApiUrl = env.GH_SOURCE_API_URL || "https://api.github.com";
+  const client = createSingleClient(sourceAuth, sourceApiUrl);
+  return { gql: client.graphql as typeof graphql, sourceApiUrl };
 }
 
 /**
