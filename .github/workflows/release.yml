@@ -142,10 +142,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- CHANGELOG.md; then
+          # Stage first, then check the staged diff: `git diff` alone ignores
+          # untracked files, so on the first release (CHANGELOG.md not yet
+          # tracked) it reported "no change" and silently skipped the commit.
+          git add CHANGELOG.md
+          if git diff --cached --quiet -- CHANGELOG.md; then
             echo "CHANGELOG.md unchanged — nothing to commit."
           else
-            git add CHANGELOG.md
             git commit -m "docs(changelog): update for ${{ github.ref_name }} [skip ci]"
             git push origin main
           fi
