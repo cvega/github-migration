@@ -9,6 +9,7 @@
  */
 import { getSourceGraphql } from "$lib/server/core/auth";
 import { publishProfileEvent } from "./events";
+import { deriveInsights, type Insight } from "./insights";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import type { ProfileRun, StoredRepoProfile } from "./types";
@@ -26,10 +27,15 @@ const DEFAULT_DEPS: ProfileServiceDeps = {
   newId: () => Bun.randomUUIDv7(),
 };
 
-/** A run plus its per-repo results, for the detail view. */
+/** A persisted repo profile plus its derived, on-read insights. */
+interface RepoProfileView extends StoredRepoProfile {
+  insights: Insight[];
+}
+
+/** A run plus its per-repo results (each enriched with insights). */
 export interface ProfileDetail {
   run: ProfileRun;
-  repos: StoredRepoProfile[];
+  repos: RepoProfileView[];
 }
 
 /**
@@ -75,5 +81,9 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
 export function getProfileDetail(id: string): ProfileDetail | null {
   const run = getProfileRun(id);
   if (!run) return null;
-  return { run, repos: getRunRepoProfiles(id) };
+  const repos = getRunRepoProfiles(id).map((repo) => ({
+    ...repo,
+    insights: deriveInsights(repo.signals),
+  }));
+  return { run, repos };
 }

@@ -179,6 +179,20 @@ describe("getProfileDetail", () => {
     expect(detail?.repos[0]?.nameWithOwner).toBe("acme/widget");
   });
 
+  test("attaches derived insights to each repo", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    const archived = signalsFor(discovered("old"), { isArchived: true });
+    const profile: RepoProfile = {
+      nameWithOwner: "acme/old",
+      findings: [],
+      summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+    };
+    recordRepoProfile("r", archived, profile);
+
+    const detail = getProfileDetail("r");
+    expect(detail?.repos[0]?.insights.map((i) => i.id)).toContain("archived-move-now");
+  });
+
   test("returns null for an unknown run", () => {
     expect(getProfileDetail("nope")).toBeNull();
   });

@@ -1,8 +1,11 @@
 /**
- * The Profile domain's persistence contribution: its table DDL. Registered via
- * `$lib/server/registry` so {@link initStore} applies it at startup. The query
- * functions live in `./store`.
+ * The Profile domain's persistence contribution: its table DDL and the startup
+ * recovery that fails any profiling run interrupted by a restart.
+ *
+ * Registered via `$lib/server/registry` so {@link initStore} applies it at
+ * startup. The query functions live in `./store`.
  */
+import type { Database } from "bun:sqlite";
 import type { DomainStore } from "$lib/server/core/db";
 
 const PROFILE_DDL = `
@@ -43,9 +46,32 @@ const PROFILE_DDL = `
   CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state);
 `;
 
+/**
+ * On startup, fail any profiling run still marked `running` — its process was
+ * killed by the restart. A profile crawl runs entirely in-process (there's no
+ * external job to reconnect to, unlike a migration handed off to GitHub), so a
+ * `running` run whose process is gone can never make progress. Marking it
+ * failed frees the run-detail page from polling a run that will never settle.
+ */
+export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.now()): void {
+  const orphaned = db
+    .prepare(
+      `UPDATE profile_runs
+       SET state = 'failed',
+           failure_reason = 'Server restarted during profiling',
+           completed_at = ?
+       WHERE state = 'running'`,
+    )
+    .run(new Date(nowMs).toISOString());
+  if (orphaned.changes > 0) {
+    console.log(`[profile] Marked ${orphaned.changes} interrupted profiling run(s) as failed`);
+  }
+}
+
 /** Profile domain store descriptor — see `$lib/server/registry`. */
 export const profileStore: DomainStore = {
   applySchema(db) {
     db.run(PROFILE_DDL);
   },
+  onInit: recoverInterruptedProfiles,
 };

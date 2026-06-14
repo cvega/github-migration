@@ -27,6 +27,31 @@
 		info: 'bg-gray-700/50 text-gray-300 border-gray-600'
 	};
 
+	// Insight tone → styling + icon (client-safe literal maps).
+	const toneClass: Record<string, string> = {
+		opportunity: 'bg-green-500/15 text-green-300 border-green-500/30',
+		caution: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+		note: 'bg-gray-700/50 text-gray-300 border-gray-600'
+	};
+	const toneIcon: Record<string, 'rocket' | 'alert' | 'info'> = {
+		opportunity: 'rocket',
+		caution: 'alert',
+		note: 'info'
+	};
+
+	// Run-level insight rollup: count each insight kind across all repos.
+	const insightRollup = $derived.by(() => {
+		const m = new Map<string, { id: string; tone: string; label: string; count: number }>();
+		for (const repo of repos) {
+			for (const ins of repo.insights ?? []) {
+				const cur = m.get(ins.id);
+				if (cur) cur.count += 1;
+				else m.set(ins.id, { id: ins.id, tone: ins.tone, label: ins.label, count: 1 });
+			}
+		}
+		return [...m.values()];
+	});
+
 	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
 		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
 		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
@@ -118,6 +143,25 @@
 		</div>
 	</section>
 
+	<!-- Insights rollup -->
+	{#if insightRollup.length > 0}
+		<section>
+			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
+				<Octicon name="light-bulb" size={16} />
+				Insights
+			</h2>
+			<div class="flex flex-wrap gap-2">
+				{#each insightRollup as item (item.id)}
+					<span class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm {toneClass[item.tone]}">
+						<Octicon name={toneIcon[item.tone] ?? 'info'} size={12} />
+						<span class="font-semibold tabular-nums">{item.count}</span>
+						{item.label}
+					</span>
+				{/each}
+			</div>
+		</section>
+	{/if}
+
 	<!-- Per-repo readiness -->
 	<section>
 		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
@@ -138,6 +182,7 @@
 							<th class="px-4 py-2 font-medium">Repository</th>
 							<th class="px-4 py-2 text-center font-medium">Severity</th>
 							<th class="px-4 py-2 font-medium">Considerations</th>
+							<th class="px-4 py-2 font-medium">Insights</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-800">
@@ -164,6 +209,23 @@
 													title={item.evidence}
 												>
 													{meta?.label ?? item.considerationId}
+												</span>
+											{/each}
+										</div>
+									{/if}
+								</td>
+								<td class="px-4 py-3">
+									{#if (repo.insights ?? []).length === 0}
+										<span class="text-gray-600">—</span>
+									{:else}
+										<div class="flex flex-wrap gap-1.5">
+											{#each repo.insights as insight (insight.id)}
+												<span
+													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {toneClass[insight.tone]}"
+													title={insight.detail}
+												>
+													<Octicon name={toneIcon[insight.tone] ?? 'info'} size={12} />
+													{insight.label}
 												</span>
 											{/each}
 										</div>
