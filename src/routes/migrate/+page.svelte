@@ -10,7 +10,7 @@
 	import Pagination from '$lib/components/Pagination.svelte';
 	import { AUTH_PILL_KEY, type AuthPillContext, GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { timeAgo } from '$lib/format';
-	import { isActiveState } from '$lib/migration-display';
+	import { isActiveState } from '$lib/migrate/migration-display';
 	import { createGlobalEventSource, migrations } from '$lib/stores/migrations.svelte';
 	import type { BatchListItem, Counts, Migration, PaginatedResult, Snapshot } from '$lib/types';
 

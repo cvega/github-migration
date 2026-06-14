@@ -5,7 +5,7 @@
 	import AuthModeFields from '$lib/components/AuthModeFields.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import OrgSelect from '$lib/components/OrgSelect.svelte';
-	import { createMigrationForm } from '$lib/migration-form.svelte';
+	import { createMigrationForm } from '$lib/migrate/migration-form.svelte';
 
 	let mode = $state<'single' | 'batch'>('single');
 

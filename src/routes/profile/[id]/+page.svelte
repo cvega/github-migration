@@ -2,8 +2,8 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { MIGRATION_CONSIDERATIONS } from '$lib/consideration-registry';
 	import { timeAgo } from '$lib/format';
+	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 
 	let { data } = $props();
 

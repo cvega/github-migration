@@ -11,8 +11,8 @@
 	import RestartModal from '$lib/components/RestartModal.svelte';
 	import StatsTable from '$lib/components/StatsTable.svelte';
 	import { formatDateTime, formatElapsed, formatRepoSize } from '$lib/format';
-	import { isActiveState, isGitHubCloud } from '$lib/migration-display';
-	import { createMigrationForm } from '$lib/migration-form.svelte';
+	import { isActiveState, isGitHubCloud } from '$lib/migrate/migration-display';
+	import { createMigrationForm } from '$lib/migrate/migration-form.svelte';
 	import { createMigrationEventSource, refreshMigrations } from '$lib/stores/migrations.svelte';
 	import type { Counts, FailureDetail as FailureDetailType, Migration, MigrationEvent, Phase, Progress } from '$lib/types';
 

@@ -11,8 +11,8 @@
 	import RestartModal from '$lib/components/RestartModal.svelte';
 	import { AUTH_PILL_KEY, type AuthPillContext, GH_STATUS_KEY, type GhStatusContext } from '$lib/context-keys';
 	import { formatDateTime, formatElapsed } from '$lib/format';
-	import { isGitHubCloud, STATE_ICONS, STATE_STYLES } from '$lib/migration-display';
-	import { createMigrationForm } from '$lib/migration-form.svelte';
+	import { isGitHubCloud, STATE_ICONS, STATE_STYLES } from '$lib/migrate/migration-display';
+	import { createMigrationForm } from '$lib/migrate/migration-form.svelte';
 	import type { BatchListItem, Migration, PaginatedResult } from '$lib/types';
 
 	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
