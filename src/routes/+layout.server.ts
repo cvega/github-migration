@@ -7,7 +7,7 @@ import {
   isCredentialOverrideAllowed,
 } from "$lib/server/core/auth";
 import { fetchGitHubStatus } from "$lib/server/core/github-status";
-import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
+import { MAX_CONCURRENT, recentActivity } from "$lib/server/migrate/manager";
 import { getActiveMigrationCount } from "$lib/server/migrate/store";
 import type { LayoutServerLoad } from "./$types";
 

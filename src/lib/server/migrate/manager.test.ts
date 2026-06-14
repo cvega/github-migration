@@ -15,8 +15,9 @@ import type {
   CreateMigrationRequest,
   Migration,
   MigrationEvent,
-} from "../types";
-import { initStore } from "./core/db";
+} from "$lib/types";
+import { initStore } from "../core/db";
+import { DOMAIN_STORES } from "../registry";
 import {
   __setPipelineRunnerForTests,
   cancel,
@@ -28,8 +29,7 @@ import {
   start,
   startBatch,
 } from "./manager";
-import { insertMigration } from "./migrate/store";
-import { DOMAIN_STORES } from "./registry";
+import { insertMigration } from "./store";
 
 const MAX_CONCURRENT = 10;
 

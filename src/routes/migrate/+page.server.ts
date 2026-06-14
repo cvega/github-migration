@@ -6,7 +6,7 @@ import {
   searchBatchesPaginated,
   searchPaginated,
   stateCounts,
-} from "$lib/server/manager";
+} from "$lib/server/migrate/manager";
 import { parsePaginationParams } from "$lib/types";
 import type { PageServerLoad } from "./$types";
 

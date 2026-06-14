@@ -2,7 +2,7 @@
  *  DELETE /api/migrate/batches/[id] — cancel all active migrations in the batch.
  */
 import { json } from "@sveltejs/kit";
-import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/manager";
+import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/migrate/manager";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 

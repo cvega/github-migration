@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { DOMAIN_STORES } from "$lib/server/registry";
-import type { Migration } from "../types";
+import type { Migration } from "$lib/types";
 
 let renameCalls: Array<{ owner: string; repo: string; newName: string }>;
 let deleteCalls: Array<{ owner: string; repo: string }>;
@@ -18,7 +18,7 @@ const START = "2026-06-01T00:00:00.000Z";
 
 // Spread real github; override only the identity read and the destructive
 // calls. Safe across files: no other suite calls these three.
-const realGithub = await import("./core/github");
+const realGithub = await import("../core/github");
 mock.module("$lib/server/core/github", () => ({
   ...realGithub,
   createSingleClient: () => ({}),
@@ -33,7 +33,7 @@ mock.module("$lib/server/core/github", () => ({
 }));
 
 const { initStore } = await import("$lib/server/core/db");
-const { insertMigration, updateMigrationProvenance, getEvents } = await import("./migrate/store");
+const { insertMigration, updateMigrationProvenance, getEvents } = await import("./store");
 const { executeCleanup, previewCleanup } = await import("./cleanup-service");
 
 function migration(over: Partial<Migration> = {}): Migration {

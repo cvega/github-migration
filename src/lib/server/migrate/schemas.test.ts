@@ -5,7 +5,7 @@
  * matches the hand-written request type in types.ts.
  */
 import { describe, expect, test } from "bun:test";
-import type { BatchMigrationRequest, CreateMigrationRequest, MigrationOptions } from "../types";
+import type { BatchMigrationRequest, CreateMigrationRequest, MigrationOptions } from "$lib/types";
 import {
   batchMigrationSchema,
   createMigrationSchema,

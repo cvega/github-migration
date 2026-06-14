@@ -7,6 +7,7 @@
  * action) is written to the migration's event trail as an audit record.
  */
 import { env } from "$env/dynamic/private";
+import { createSingleClient, deleteRepo, getRepoFacts, renameRepo } from "../core/github";
 import {
   type CleanupAction,
   type CleanupGateStatus,
@@ -15,8 +16,7 @@ import {
   evaluateCleanupEligibility,
   loadCleanupConfig,
 } from "./cleanup";
-import { createSingleClient, deleteRepo, getRepoFacts, renameRepo } from "./core/github";
-import { getMigration, insertEvent } from "./migrate/store";
+import { getMigration, insertEvent } from "./store";
 
 /** GHEC is always the target instance. */
 const GHEC_API_URL = "https://api.github.com";

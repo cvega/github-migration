@@ -11,10 +11,10 @@
  * outcome and assert the resulting Migration record + emitted events.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Counts, Migration, MigrationEvent, Phase } from "../types";
-import { initStore } from "./core/db";
+import type { Counts, Migration, MigrationEvent, Phase } from "$lib/types";
+import { initStore } from "../core/db";
+import { DOMAIN_STORES } from "../registry";
 import type { MigrationPipelineOpts } from "./migration";
-import { DOMAIN_STORES } from "./registry";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // runMonitor's terminal phase is the key input that drives finalize; each test
@@ -42,13 +42,13 @@ let repoCountsImpl: () => Promise<unknown> = async () => ({
 // this mock — no suite imports the real monitor — so a partial stub here can't
 // leak harmfully, and importing the real module just to spread it would pull
 // monitor.ts (untested on its own) into the coverage denominator. Keep it lean.
-mock.module("$lib/server/monitor", () => ({
+mock.module("$lib/server/migrate/monitor", () => ({
   runMonitor: () => monitorImpl(),
 }));
 
 // Spread the real github module so unrelated exports (used by auth.ts etc.)
 // keep working; override only the functions the finalize tail calls.
-const realGithub = await import("./core/github");
+const realGithub = await import("../core/github");
 mock.module("$lib/server/core/github", () => ({
   ...realGithub,
   createClients: () => ({

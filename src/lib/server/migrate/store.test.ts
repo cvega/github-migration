@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
-import type { Counts, Migration, MigrationEvent } from "../../types";
+import type { Counts, Migration, MigrationEvent } from "$lib/types";
 import {
   getActiveMigrationCount,
   getBatchListItem,

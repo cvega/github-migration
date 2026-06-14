@@ -1,4 +1,4 @@
-import { stats } from "$lib/server/manager";
+import { stats } from "$lib/server/migrate/manager";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async () => {

@@ -3,8 +3,8 @@
  */
 import { json } from "@sveltejs/kit";
 import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
-import { listBatchesPaginated, startBatch } from "$lib/server/manager";
-import { batchMigrationSchema, validateBody } from "$lib/server/schemas";
+import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
+import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 

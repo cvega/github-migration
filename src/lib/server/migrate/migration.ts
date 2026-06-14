@@ -20,7 +20,7 @@ import {
   isTargetAuthAvailable,
   resolveSourceAuth,
   resolveTargetAuth,
-} from "./core/auth";
+} from "../core/auth";
 import {
   abortMigration,
   archiveRepository,
@@ -41,14 +41,10 @@ import {
   startGitArchiveExport,
   startMetadataArchiveExport,
   waitForArchive,
-} from "./core/github";
-import { extractOrg, extractRepo } from "./core/util";
-import {
-  updateCheckpoint,
-  updateMigrationProvenance,
-  updateMigrationSourceSize,
-} from "./migrate/store";
+} from "../core/github";
+import { extractOrg, extractRepo } from "../core/util";
 import { type EventEmitter, runMonitor } from "./monitor";
+import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {

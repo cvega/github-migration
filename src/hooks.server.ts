@@ -7,7 +7,7 @@ import { type Handle, type HandleServerError, redirect } from "@sveltejs/kit";
 import { env } from "$env/dynamic/private";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
-import { recoverOrphans } from "$lib/server/manager";
+import { recoverOrphans } from "$lib/server/migrate/manager";
 import { DOMAIN_STORES } from "$lib/server/registry";
 
 // Initialize SQLite on server startup.
