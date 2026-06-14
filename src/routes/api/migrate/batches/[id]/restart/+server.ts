@@ -1,4 +1,4 @@
-/** POST /api/batches/[id]/restart — restart all failed/cancelled migrations in a batch. */
+/** POST /api/migrate/batches/[id]/restart — restart all failed/cancelled migrations in a batch. */
 import { json } from "@sveltejs/kit";
 import { getBatch, restartBatch } from "$lib/server/manager";
 import { restartSchema, validateBody } from "$lib/server/schemas";

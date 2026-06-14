@@ -5,6 +5,10 @@ they happen. When basic auth is enabled, every route except `/login` and
 `/logout` requires a valid session cookie; unauthenticated `/api/*` requests get
 `401`.
 
+Migration endpoints are namespaced under `/api/migrate/*` (the Migrate
+workspace). `/api/health` and `/api/rate-limits` are workspace-agnostic and stay
+at the root.
+
 - [Migrations](#migrations)
 - [Batches](#batches)
 - [System & streams](#system--streams)
@@ -17,13 +21,13 @@ they happen. When basic auth is enabled, every route except `/login` and
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/migrations` | List migrations (paginated via `?page=&limit=`) |
-| `POST` | `/api/migrations` | Start a single migration |
-| `GET` | `/api/migrations/:id` | Migration details |
-| `DELETE` | `/api/migrations/:id` | Cancel an in-flight migration |
-| `POST` | `/api/migrations/:id/restart` | Restart a failed/cancelled migration |
-| `GET` | `/api/migrations/:id/events` | Per-migration SSE stream |
-| `GET` `POST` | `/api/migrations/:id/cleanup` | Preview / execute guarded target cleanup |
+| `GET` | `/api/migrate/migrations` | List migrations (paginated via `?page=&limit=`) |
+| `POST` | `/api/migrate/migrations` | Start a single migration |
+| `GET` | `/api/migrate/migrations/:id` | Migration details |
+| `DELETE` | `/api/migrate/migrations/:id` | Cancel an in-flight migration |
+| `POST` | `/api/migrate/migrations/:id/restart` | Restart a failed/cancelled migration |
+| `GET` | `/api/migrate/migrations/:id/events` | Per-migration SSE stream |
+| `GET` `POST` | `/api/migrate/migrations/:id/cleanup` | Preview / execute guarded target cleanup |
 
 A single migration request body (all credential/option fields optional):
 
@@ -49,11 +53,11 @@ A single migration request body (all credential/option fields optional):
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/batches` | List batches (paginated) |
-| `POST` | `/api/batches` | Start a batch (≤ 500 repos) |
-| `GET` | `/api/batches/:id` | Summary + member migrations |
-| `DELETE` | `/api/batches/:id` | Cancel all active migrations in the batch |
-| `POST` | `/api/batches/:id/restart` | Restart all failed/cancelled in the batch |
+| `GET` | `/api/migrate/batches` | List batches (paginated) |
+| `POST` | `/api/migrate/batches` | Start a batch (≤ 500 repos) |
+| `GET` | `/api/migrate/batches/:id` | Summary + member migrations |
+| `DELETE` | `/api/migrate/batches/:id` | Cancel all active migrations in the batch |
+| `POST` | `/api/migrate/batches/:id/restart` | Restart all failed/cancelled in the batch |
 
 A batch request takes the same option/credential fields plus a `repos` array
 (`["org/repo", …]`, or bare `repo` names when `GH_SOURCE_ORG` is configured) and
@@ -66,9 +70,9 @@ a `targetOrg`.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/health` | Liveness/health check |
-| `GET` | `/api/events` | Global SSE stream (all migrations) |
+| `GET` | `/api/migrate/events` | Global SSE stream (all migrations) |
 | `GET` | `/api/rate-limits` | Live source/target rate-limit info |
-| `GET` | `/api/activity` | Recent-activity feed (notification bell) |
+| `GET` | `/api/migrate/activity` | Recent-activity feed (notification bell) |
 
 ---
 
@@ -84,7 +88,7 @@ generic message (details are logged server-side, never returned to the client).
 
 ## SSE streams
 
-The `/api/migrations/:id/events` and `/api/events` endpoints stream
+The `/api/migrate/migrations/:id/events` and `/api/migrate/events` endpoints stream
 `text/event-stream`. Each event is JSON with an `eventType` discriminator
 (`step`, `phase_change`, `snapshot`, `complete`, `failure`, `milestone`,
 `banner`, `restart`) and a typed `payload`. Clients reconnect automatically with

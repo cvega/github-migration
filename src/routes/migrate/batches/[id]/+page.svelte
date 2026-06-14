@@ -91,7 +91,7 @@
 	}
 
 	async function refreshBatch() {
-		const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+		const res = await fetch(`/api/migrate/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
 		if (res.ok) {
 			const result = await res.json();
 			polledBatch = result.summary;
@@ -102,7 +102,7 @@
 	function startPolling() {
 		if (interval) clearInterval(interval);
 		interval = setInterval(async () => {
-			const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+			const res = await fetch(`/api/migrate/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
 			if (res.ok) {
 				const result = await res.json();
 				polledBatch = result.summary;
@@ -143,13 +143,13 @@
 		cancelError = '';
 		cancelSubmitting = true;
 		try {
-			const cancelRes = await fetch(`/api/batches/${batch.id}`, { method: 'DELETE' });
+			const cancelRes = await fetch(`/api/migrate/batches/${batch.id}`, { method: 'DELETE' });
 			if (!cancelRes.ok) {
 				cancelError = `Failed to cancel batch: HTTP ${cancelRes.status}`;
 				return;
 			}
 			// Refresh
-			const res = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+			const res = await fetch(`/api/migrate/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
 			if (res.ok) {
 				const result = await res.json();
 				polledBatch = result.summary;
@@ -178,7 +178,7 @@
 		restartSubmitting = true;
 
 		try {
-			const res = await fetch(`/api/batches/${batch.id}/restart`, {
+			const res = await fetch(`/api/migrate/batches/${batch.id}/restart`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(restart.buildPayload()),
@@ -193,7 +193,7 @@
 			restartResult = await res.json();
 
 			// Refresh batch data and restart polling.
-			const refreshRes = await fetch(`/api/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
+			const refreshRes = await fetch(`/api/migrate/batches/${batch.id}?page=${currentPage}&limit=${migrationsResult.limit}`);
 			if (refreshRes.ok) {
 				const result = await refreshRes.json();
 				polledBatch = result.summary;

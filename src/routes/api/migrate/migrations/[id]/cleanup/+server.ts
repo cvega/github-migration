@@ -1,5 +1,5 @@
-/** POST /api/migrations/[id]/cleanup — guarded rename/delete of a target repo.
- *  GET  /api/migrations/[id]/cleanup?action=rename|delete — preview the gate
+/** POST /api/migrate/migrations/[id]/cleanup — guarded rename/delete of a target repo.
+ *  GET  /api/migrate/migrations/[id]/cleanup?action=rename|delete — preview the gate
  *       checklist for the confirmation modal (read-only, never acts).
  */
 import { json } from "@sveltejs/kit";

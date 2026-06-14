@@ -161,7 +161,7 @@
 		cancelError = '';
 		cancelSubmitting = true;
 		try {
-			const res = await fetch(`/api/migrations/${migration.id}`, { method: 'DELETE' });
+			const res = await fetch(`/api/migrate/migrations/${migration.id}`, { method: 'DELETE' });
 			if (!res.ok) {
 				cancelError = `Failed to cancel migration: HTTP ${res.status}`;
 				return;
@@ -179,7 +179,7 @@
 	function startPolling() {
 		if (pollInterval) clearInterval(pollInterval);
 		pollInterval = setInterval(async () => {
-			const res = await fetch(`/api/migrations/${migration.id}`);
+			const res = await fetch(`/api/migrate/migrations/${migration.id}`);
 			if (res.ok) polledMigration = await res.json();
 			if (!isActiveState(migration.state)) {
 				if (pollInterval) clearInterval(pollInterval);
@@ -201,7 +201,7 @@
 		restartSubmitting = true;
 
 		try {
-			const res = await fetch(`/api/migrations/${migration.id}/restart`, {
+			const res = await fetch(`/api/migrate/migrations/${migration.id}/restart`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(restart.buildPayload()),

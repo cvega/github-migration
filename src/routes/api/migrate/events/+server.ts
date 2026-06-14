@@ -1,4 +1,4 @@
-/** GET /api/events — global SSE stream for ALL migration events (dashboard). */
+/** GET /api/migrate/events — global SSE stream for ALL migration events (dashboard). */
 
 import { subscribeGlobal } from "$lib/server/manager";
 import { sseResponse } from "$lib/server/sse";

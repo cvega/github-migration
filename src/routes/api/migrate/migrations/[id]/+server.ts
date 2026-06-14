@@ -1,5 +1,5 @@
-/** GET    /api/migrations/[id] — get migration details.
- *  DELETE /api/migrations/[id] — cancel a running migration.
+/** GET    /api/migrate/migrations/[id] — get migration details.
+ *  DELETE /api/migrate/migrations/[id] — cancel a running migration.
  */
 import { json } from "@sveltejs/kit";
 import { cancel, get } from "$lib/server/manager";

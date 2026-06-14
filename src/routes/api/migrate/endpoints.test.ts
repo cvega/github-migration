@@ -105,8 +105,8 @@ afterEach(() => {
   }
 });
 
-// ── POST /api/migrations ─────────────────────────────────────────────────────
-describe("POST /api/migrations", () => {
+// ── POST /api/migrate/migrations ─────────────────────────────────────────────────────
+describe("POST /api/migrate/migrations", () => {
   const valid = { sourceRepo: "octo/widget", targetOrg: "acme", ...creds };
 
   test("valid request → 201", async () => {
@@ -182,8 +182,8 @@ describe("POST /api/migrations", () => {
   });
 });
 
-// ── POST /api/batches ────────────────────────────────────────────────────────
-describe("POST /api/batches", () => {
+// ── POST /api/migrate/batches ────────────────────────────────────────────────────────
+describe("POST /api/migrate/batches", () => {
   const valid = { repos: ["octo/a", "octo/b"], targetOrg: "acme", ...creds };
 
   test("valid request → 201", async () => {
@@ -244,8 +244,8 @@ describe("POST /api/batches", () => {
   });
 });
 
-// ── POST /api/migrations/[id]/restart ────────────────────────────────────────
-describe("POST /api/migrations/[id]/restart", () => {
+// ── POST /api/migrate/migrations/[id]/restart ────────────────────────────────────────
+describe("POST /api/migrate/migrations/[id]/restart", () => {
   test("valid request → 200", async () => {
     const res = await migrationRestartPost(postEvent(creds, { id: "m1" }));
     expect(res.status).toBe(200);
@@ -285,8 +285,8 @@ describe("POST /api/migrations/[id]/restart", () => {
   });
 });
 
-// ── POST /api/batches/[id]/restart ───────────────────────────────────────────
-describe("POST /api/batches/[id]/restart", () => {
+// ── POST /api/migrate/batches/[id]/restart ───────────────────────────────────────────
+describe("POST /api/migrate/batches/[id]/restart", () => {
   test("valid request → 200", async () => {
     const res = await batchRestartPost(postEvent(creds, { id: "b1" }));
     expect(res.status).toBe(200);

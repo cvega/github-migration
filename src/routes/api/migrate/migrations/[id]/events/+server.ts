@@ -1,4 +1,4 @@
-/** GET /api/migrations/[id]/events — SSE stream of migration events.
+/** GET /api/migrate/migrations/[id]/events — SSE stream of migration events.
  *
  * Supports ?after=<eventId> to replay events since a given ID
  * (useful for reconnection).

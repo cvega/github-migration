@@ -171,7 +171,7 @@
 			};
 
 			if (mode === 'single') {
-				const res = await fetch('/api/migrations', {
+				const res = await fetch('/api/migrate/migrations', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({
@@ -191,7 +191,7 @@
 				const migration = await res.json();
 				goto(`/migrate/${migration.id}`);
 			} else {
-				const res = await fetch('/api/batches', {
+				const res = await fetch('/api/migrate/batches', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({

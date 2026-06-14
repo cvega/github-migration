@@ -1,4 +1,4 @@
-/** GET /api/activity — recent lifecycle events across all migrations (notification feed). */
+/** GET /api/migrate/activity — recent lifecycle events across all migrations (notification feed). */
 
 import { json } from "@sveltejs/kit";
 import { recentActivity } from "$lib/server/manager";

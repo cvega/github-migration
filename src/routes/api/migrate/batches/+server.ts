@@ -1,5 +1,5 @@
-/** POST /api/batches — start a batch migration.
- *  GET  /api/batches — list batches (paginated via ?page=&limit=).
+/** POST /api/migrate/batches — start a batch migration.
+ *  GET  /api/migrate/batches — list batches (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
 import { listBatchesPaginated, startBatch } from "$lib/server/manager";
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request }) => {
     // Over-cap requests queue (never throw), so a throw is an unexpected internal
     // failure: log it and return a generic 500 (not a stale 429, which would
     // wrongly signal a retryable rate limit).
-    console.error("[api] POST /api/batches failed:", err);
+    console.error("[api] POST /api/migrate/batches failed:", err);
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

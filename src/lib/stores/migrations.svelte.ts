@@ -18,7 +18,7 @@ export const migrations = {
 };
 
 export async function refreshMigrations(): Promise<void> {
-  const res = await fetch("/api/migrations");
+  const res = await fetch("/api/migrate/migrations");
   if (res.ok) {
     const result = await res.json();
     // API now returns PaginatedResult, extract data array.
@@ -36,8 +36,8 @@ export function createMigrationEventSource(migrationId: string) {
   const conn = createReconnectingEventSource({
     url: () =>
       lastEventId
-        ? `/api/migrations/${migrationId}/events?after=${lastEventId}`
-        : `/api/migrations/${migrationId}/events`,
+        ? `/api/migrate/migrations/${migrationId}/events?after=${lastEventId}`
+        : `/api/migrate/migrations/${migrationId}/events`,
     onConnectionChange: (connected) => {
       _connected = connected;
     },
@@ -79,7 +79,7 @@ export function createGlobalEventSource() {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const conn = createReconnectingEventSource({
-    url: () => "/api/events",
+    url: () => "/api/migrate/events",
     onConnectionChange: (connected) => {
       _connected = connected;
     },

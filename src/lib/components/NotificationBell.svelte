@@ -30,7 +30,7 @@
 
 	async function refresh() {
 		try {
-			const res = await fetch('/api/activity');
+			const res = await fetch('/api/migrate/activity');
 			if (res.ok) {
 				const body = await res.json();
 				if (Array.isArray(body.items)) items = body.items;

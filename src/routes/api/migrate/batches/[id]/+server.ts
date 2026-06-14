@@ -1,5 +1,5 @@
-/** GET    /api/batches/[id] — get batch detail (paginated migrations via ?page=&limit=).
- *  DELETE /api/batches/[id] — cancel all active migrations in the batch.
+/** GET    /api/migrate/batches/[id] — get batch detail (paginated migrations via ?page=&limit=).
+ *  DELETE /api/migrate/batches/[id] — cancel all active migrations in the batch.
  */
 import { json } from "@sveltejs/kit";
 import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/manager";

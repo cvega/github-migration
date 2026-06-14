@@ -1,5 +1,5 @@
-/** POST /api/migrations — start a new migration.
- *  GET  /api/migrations — list migrations (paginated via ?page=&limit=).
+/** POST /api/migrate/migrations — start a new migration.
+ *  GET  /api/migrate/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
 import { listPaginated, searchPaginated, start } from "$lib/server/manager";
@@ -32,7 +32,7 @@ export const POST: RequestHandler = async ({ request }) => {
     // Capacity is no longer an error — over-cap migrations queue automatically.
     // A throw here is an unexpected internal failure: log the detail server-side
     // and return a generic message so internals (paths, driver errors) don't leak.
-    console.error("[api] POST /api/migrations failed:", err);
+    console.error("[api] POST /api/migrate/migrations failed:", err);
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

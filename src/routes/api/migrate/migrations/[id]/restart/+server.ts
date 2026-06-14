@@ -1,4 +1,4 @@
-/** POST /api/migrations/[id]/restart — restart a failed or cancelled migration. */
+/** POST /api/migrate/migrations/[id]/restart — restart a failed or cancelled migration. */
 import { json } from "@sveltejs/kit";
 import { restart } from "$lib/server/manager";
 import { restartSchema, validateBody } from "$lib/server/schemas";
@@ -36,7 +36,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
       return json({ error: message }, { status: 409 });
     }
     // Anything else is unexpected: log server-side, return a generic message.
-    console.error("[api] POST /api/migrations/[id]/restart failed:", err);
+    console.error("[api] POST /api/migrate/migrations/[id]/restart failed:", err);
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };
