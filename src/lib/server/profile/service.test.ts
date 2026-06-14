@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
+import { type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
 import { getProfileDetail, type ProfileServiceDeps, startOrgProfile } from "./service";
 import { createProfileRun, recordRepoProfile } from "./store";
@@ -63,9 +64,9 @@ function serviceDeps(
       state.gqlBuilt += 1;
       return { gql: {} as never, sourceApiUrl: "https://ghes.example.com/api/v3" };
     },
-    run: (gql, input) => {
+    run: (gql, input, onProgress) => {
       state.lastInput = input;
-      state.runPromise = runProfile(gql, input, undefined, {
+      state.runPromise = runProfile(gql, input, onProgress, {
         discover: async (): Promise<OrgDiscovery> => ({
           org: input.org,
           total: repos.length,
@@ -131,6 +132,33 @@ describe("startOrgProfile", () => {
 
     expect(() => startOrgProfile("acme", deps)).toThrow(/no source token/i);
     expect(getProfileDetail("x")).toBeNull();
+  });
+
+  test("streams per-repo progress and a terminal done event to subscribers", async () => {
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")]);
+    const frames: string[] = [];
+    const controller = {
+      enqueue: (chunk: string) => {
+        frames.push(chunk);
+      },
+    } as unknown as ReadableStreamDefaultController<string>;
+
+    startOrgProfile("acme", deps);
+    // Subscribe synchronously: the background crawl is suspended at its first
+    // await, so no events have fired yet.
+    const unsubscribe = subscribeProfile("fixed-run-id", controller);
+    await state.runPromise; // the done publish is chained before this resolves
+    unsubscribe();
+
+    const events = frames.map(
+      (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as ProfileSseEvent,
+    );
+    const progress = events.filter((e) => e.type === "progress");
+    expect(progress).toEqual([
+      { type: "progress", profiled: 1, total: 2, repo: "acme/a" },
+      { type: "progress", profiled: 2, total: 2, repo: "acme/b" },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
   });
 });
 

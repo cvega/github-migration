@@ -1,9 +1,9 @@
-<!-- One profiling run: readiness summary + per-repo consideration matrix. Polls while running. -->
+<!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
+	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
 
@@ -36,9 +36,7 @@
 	const badge = $derived(stateBadge[run.state]);
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
-	let interval: ReturnType<typeof setInterval> | null = null;
-	async function poll() {
-		if (run.state !== 'running') return;
+	async function refresh() {
 		try {
 			const res = await fetch(`/api/profile/${data.run.id}`);
 			if (res.ok) polled = await res.json();
@@ -46,11 +44,28 @@
 			// Non-fatal — keep the last good snapshot.
 		}
 	}
-	onMount(() => {
-		interval = setInterval(poll, 3000);
-		return () => { if (interval) clearInterval(interval); };
+
+	// Live updates over SSE while the run is in progress. Keyed on the loaded run
+	// id so navigating between runs tears down the old stream and re-subscribes;
+	// reads only the loader prop (never `polled`) so a refresh can't re-subscribe.
+	$effect(() => {
+		const id = data.run.id;
+		if (data.run.state !== 'running') return;
+		const conn = createReconnectingEventSource({
+			url: () => `/api/profile/${id}/events`,
+			onMessage: (e, controls) => {
+				let msg: { type?: string };
+				try {
+					msg = JSON.parse(e.data);
+				} catch {
+					return;
+				}
+				refresh();
+				if (msg.type === 'done') controls.destroy();
+			}
+		});
+		return () => conn.destroy();
 	});
-	onDestroy(() => { if (interval) clearInterval(interval); });
 </script>
 
 <svelte:head><title>{run.org} — Profile</title></svelte:head>

@@ -8,6 +8,7 @@
  * with no network.
  */
 import { getSourceGraphql } from "$lib/server/core/auth";
+import { publishProfileEvent } from "./events";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import type { ProfileRun, StoredRepoProfile } from "./types";
@@ -37,8 +38,9 @@ export interface ProfileDetail {
  * The run record is created synchronously (the runner creates it before its
  * first `await`), so the returned run is immediately queryable; the crawl then
  * proceeds without blocking the request. The persisted run is the source of
- * truth — failures are recorded on it (state=failed), and slice 4b adds
- * restart-recovery + live progress on top of this.
+ * truth — failures are recorded on it (state=failed). As the crawl advances it
+ * publishes live progress to the SSE bus, and a terminal `done` once it settles,
+ * so a watching detail page updates without polling.
  *
  * @throws when no source credentials are configured (the route maps this to a
  *         400 before the crawl starts).
@@ -47,11 +49,22 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
   const { gql, sourceApiUrl } = deps.buildSourceGql();
   const id = deps.newId();
 
-  deps.run(gql, { id, org, sourceApiUrl }).catch((err) => {
-    // The runner already persists failures on the run; this guards against an
-    // unexpected throw escaping the background promise.
-    console.error(`[profile] run ${id} crashed:`, err);
-  });
+  deps
+    .run(gql, { id, org, sourceApiUrl }, (p) =>
+      publishProfileEvent(id, {
+        type: "progress",
+        profiled: p.profiled,
+        total: p.total,
+        repo: p.repo,
+      }),
+    )
+    .then((run) => publishProfileEvent(id, { type: "done", state: run.state }))
+    .catch((err) => {
+      // The runner already persists failures on the run; this guards against an
+      // unexpected throw escaping the background promise.
+      console.error(`[profile] run ${id} crashed:`, err);
+      publishProfileEvent(id, { type: "done", state: "failed" });
+    });
 
   const run = getProfileRun(id);
   if (!run) throw new Error("profile run was not created");
