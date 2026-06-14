@@ -1,0 +1,50 @@
+# Dependabot keeps dependencies and CI actions current.
+#
+# Update PRs are titled as Conventional Commits (build/ci + a deps scope) so they
+# pass the PR-title gate in pr.yml and land in the right cliff.toml changelog
+# section. Minor and patch updates are grouped per ecosystem to cut PR noise;
+# major updates open as individual PRs for deliberate review.
+#
+# Bun reads package.json + the text-based bun.lock (the binary bun.lockb is not
+# supported by Dependabot).
+version: 2
+updates:
+  # JavaScript / TypeScript dependencies.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      js-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions referenced by the workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # The Dockerfile base image (oven/bun).
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
