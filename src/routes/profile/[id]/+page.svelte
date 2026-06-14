@@ -1,5 +1,6 @@
 <!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
+	import type { IconName } from '@primer/octicons';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
@@ -17,16 +18,18 @@
 	const scale = $derived(fresh?.scale ?? data.scale);
 
 	// Org-wide content-volume tiles (migration scale). `formatRepoSize` handles
-	// the disk total; counts get thousands separators.
-	const scaleTiles = $derived([
-		{ label: 'Issues', value: scale.issues.toLocaleString() },
-		{ label: 'Pull requests', value: scale.pullRequests.toLocaleString() },
-		{ label: 'Commits', value: scale.commits.toLocaleString() },
-		{ label: 'Branches', value: scale.branches.toLocaleString() },
-		{ label: 'Tags', value: scale.tags.toLocaleString() },
-		{ label: 'Releases', value: scale.releases.toLocaleString() },
-		{ label: 'Total size', value: formatRepoSize(scale.diskUsageKb) }
-	]);
+	// the disk total; counts get thousands separators. Each gets a matching icon.
+	const scaleTiles = $derived(
+		[
+			{ label: 'Issues', value: scale.issues.toLocaleString(), icon: 'issue-opened' },
+			{ label: 'Pull requests', value: scale.pullRequests.toLocaleString(), icon: 'git-pull-request' },
+			{ label: 'Commits', value: scale.commits.toLocaleString(), icon: 'git-commit' },
+			{ label: 'Branches', value: scale.branches.toLocaleString(), icon: 'git-branch' },
+			{ label: 'Tags', value: scale.tags.toLocaleString(), icon: 'tag' },
+			{ label: 'Releases', value: scale.releases.toLocaleString(), icon: 'rocket' },
+			{ label: 'Total size', value: formatRepoSize(scale.diskUsageKb), icon: 'database' }
+		] satisfies Array<{ label: string; value: string; icon: IconName }>
+	);
 
 	type RunState = 'running' | 'completed' | 'failed';
 
@@ -135,7 +138,10 @@
 	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span></div>
-			<div class="mt-1 text-xs text-gray-400">Repositories profiled</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="repo" size={12} class="text-gray-500" />
+				Repositories profiled
+			</div>
 			{#if run.state === 'running'}
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
 					<div class="h-full bg-violet-500 transition-all" style="width: {pct}%"></div>
@@ -152,7 +158,10 @@
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
-			<div class="mt-1 text-xs text-gray-400">Repos with results</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="checklist" size={12} class="text-gray-500" />
+				Repos with results
+			</div>
 		</div>
 	</section>
 
@@ -166,7 +175,10 @@
 			{#each scaleTiles as tile (tile.label)}
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 					<div class="text-xl font-semibold tabular-nums text-gray-50">{tile.value}</div>
-					<div class="mt-1 text-xs text-gray-400">{tile.label}</div>
+					<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+						<Octicon name={tile.icon} size={12} class="text-gray-500" />
+						{tile.label}
+					</div>
 				</div>
 			{/each}
 		</div>
