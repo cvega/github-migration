@@ -94,3 +94,47 @@ export interface RepoSignals extends DiscoveredRepo {
    */
   branchProtectionRulesUsingUnmigratedFeatures: number;
 }
+
+// ── Persistence ──────────────────────────────────────────────────────────────
+
+/** Lifecycle state of a profiling run. */
+export type ProfileRunState = "running" | "completed" | "failed";
+
+/**
+ * An organization-scoped profiling run. Aggregate counters (`profiledRepos`,
+ * `blockers`, `warnings`) are recomputed from the run's repos at completion.
+ */
+export interface ProfileRun {
+  id: string;
+  sourceApiUrl: string;
+  org: string;
+  state: ProfileRunState;
+  /** Org repository total, set once discovery reports it. */
+  totalRepos: number;
+  /** Repos profiled so far (authoritative after completion). */
+  profiledRepos: number;
+  /** Total applying blocker-severity gaps across the run's repos. */
+  blockers: number;
+  /** Total applying warn-severity gaps across the run's repos. */
+  warnings: number;
+  startedAt: string;
+  completedAt: string | null;
+  failureReason: string | null;
+}
+
+/** A persisted finding — applying gaps only, keyed by registry gap id. */
+export interface StoredFinding {
+  gapId: string;
+  evidence: string;
+}
+
+/** One repository's persisted profile within a run. */
+export interface StoredRepoProfile {
+  nameWithOwner: string;
+  signals: RepoSignals;
+  blockers: number;
+  warnings: number;
+  infos: number;
+  /** The gaps that apply to this repo, with their evidence. */
+  applyingGaps: StoredFinding[];
+}
