@@ -189,7 +189,7 @@
 				}
 
 				const migration = await res.json();
-				goto(`/${migration.id}`);
+				goto(`/migrate/${migration.id}`);
 			} else {
 				const res = await fetch('/api/batches', {
 					method: 'POST',
@@ -208,7 +208,7 @@
 				}
 
 				const batch = await res.json();
-				goto(`/batches/${batch.id}`);
+				goto(`/migrate/batches/${batch.id}`);
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Unknown error';
@@ -642,7 +642,7 @@
 				<span></span>
 			{/if}
 			<div class="flex items-center gap-3">
-				<a href="/" class="text-sm text-gray-400 hover:text-gray-50 transition-colors">Cancel</a>
+				<a href="/migrate" class="text-sm text-gray-400 hover:text-gray-50 transition-colors">Cancel</a>
 				<button type="submit" disabled={submitting || (mode === 'batch' && validRepos.length === 0)}
 					class="flex items-center gap-1.5 rounded-md bg-green-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
 					{#if submitting}

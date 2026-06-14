@@ -69,7 +69,7 @@
 	}
 </script>
 
-<a href="/{migration.id}"
+<a href="/migrate/{migration.id}"
 	class="block rounded-md border border-gray-700 bg-gray-900 p-4 hover:border-gray-600 hover:bg-gray-800 transition-all">
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-2 min-w-0">
@@ -130,7 +130,7 @@
 			{/if}
 			{#if migration.batchId}
 				<!-- Use onclick to avoid nested <a> inside card link -->
-				<span><button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
+				<span><button type="button" onclick={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); goto(`/migrate/batches/${migration.batchId}`); }} class="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 underline cursor-pointer bg-transparent border-none p-0"><Octicon name="stack" size={12} />batch</button></span>
 			{/if}
 			{#if migration.warningsCount > 0}
 				<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} /> {migration.warningsCount} warnings</span>

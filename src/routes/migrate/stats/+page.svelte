@@ -344,7 +344,7 @@
 		{/if}
 
 		<div class="flex justify-center">
-			<a href="/" class="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-50 transition-colors">
+			<a href="/migrate" class="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-50 transition-colors">
 				<Octicon name="arrow-left" size={16} />
 				Back to Dashboard
 			</a>

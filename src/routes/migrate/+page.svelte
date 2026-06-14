@@ -118,13 +118,13 @@
 	function goMigrationsPage(p: number) {
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('page', String(p));
-		goto(`/?${params.toString()}`, { keepFocus: true, noScroll: false });
+		goto(`/migrate?${params.toString()}`, { keepFocus: true, noScroll: false });
 	}
 
 	function goBatchesPage(p: number) {
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('bp', String(p));
-		goto(`/?${params.toString()}`, { keepFocus: true, noScroll: false });
+		goto(`/migrate?${params.toString()}`, { keepFocus: true, noScroll: false });
 	}
 </script>
 
@@ -261,7 +261,7 @@
 	{#snippet batchCard(batch: BatchListItem)}
 		{@const badge = batchStateBadge(batch)}
 		{@const donePct = Math.round(pctOf(batch.succeededCount, batch.totalCount))}
-		<a href="/batches/{batch.id}"
+		<a href="/migrate/batches/{batch.id}"
 			class="block rounded-md border border-gray-700 bg-gray-900 p-3 hover:border-gray-600 hover:bg-gray-800 transition-all">
 			<div class="flex items-center justify-between gap-3">
 				<div class="flex min-w-0 items-center gap-2.5">
@@ -420,7 +420,7 @@
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-16">
 				<Octicon name="arrow-switch" size={24} class="text-gray-500 h-12 w-12" />
 				<p class="mt-4 text-gray-400">No migrations yet</p>
-				<a href="/new"
+				<a href="/migrate/new"
 					class="mt-4 flex items-center gap-1.5 rounded-md bg-green-600 px-5 py-2 text-sm font-medium text-white hover:bg-green-500 transition-colors">
 					<Octicon name="rocket" size={16} />
 					Start your first migration

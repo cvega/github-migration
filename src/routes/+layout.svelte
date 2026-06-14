@@ -102,12 +102,12 @@
 			</a>
 			<div class="flex items-center gap-4">
 				<NotificationBell initial={data.recentActivity} />
-				<a href="/stats"
+				<a href="/migrate/stats"
 					class="flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 hover:bg-gray-700 transition-colors">
 					<Octicon name="graph" size={16} />
 					Stats
 				</a>
-				<a href="/new"
+				<a href="/migrate/new"
 					class="flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-500 transition-colors">
 					<Octicon name="paper-airplane" size={16} />
 					New Migration

@@ -126,7 +126,7 @@
 					{#each items as item (item.id)}
 						{@const meta = kindMeta[item.kind]}
 						<li>
-							<a href="/{item.migrationId}"
+							<a href="/migrate/{item.migrationId}"
 								onclick={() => (open = false)}
 								class="flex items-start gap-2.5 px-4 py-2.5 transition-colors hover:bg-gray-800">
 								<span class="mt-0.5 shrink-0 {meta.color}"><Octicon name={meta.icon} size={16} /></span>

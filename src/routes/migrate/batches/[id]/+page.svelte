@@ -341,7 +341,7 @@
 						<td class="px-4 py-3">
 							<span class="inline-flex items-center gap-2">
 								{@render platformPill(migration.sourceApiUrl)}
-								<a href="/{migration.id}" class="text-gray-50 hover:text-blue-400 transition-colors">
+								<a href="/migrate/{migration.id}" class="text-gray-50 hover:text-blue-400 transition-colors">
 									{migration.sourceOrg}/{migration.sourceRepo}
 								</a>
 							</span>
@@ -396,7 +396,7 @@
 	/>
 
 	<div class="flex justify-center">
-		<a href="/" class="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-50 transition-colors">
+		<a href="/migrate" class="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-50 transition-colors">
 			<Octicon name="arrow-left" size={16} />
 			Back to Dashboard
 		</a>
