@@ -5,7 +5,8 @@
  * creation, background completion, source-auth failure, and detail assembly.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { initStore } from "$lib/server/store";
+import { initStore } from "$lib/server/core/db";
+import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import { runProfile } from "./runner";
 import { getProfileDetail, type ProfileServiceDeps, startOrgProfile } from "./service";
@@ -80,7 +81,7 @@ function serviceDeps(
 }
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
 });
 
 describe("startOrgProfile", () => {

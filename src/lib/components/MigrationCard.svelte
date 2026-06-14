@@ -4,8 +4,8 @@
 	import { goto } from '$app/navigation';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { formatDateTime, formatElapsed, formatRepoSize } from '$lib/format';
-	import { isActiveState, STATE_ICONS, STATE_STYLES, sourcePlatform } from '$lib/migration-display';
-	import { buildMigrationReport } from '$lib/report';
+	import { isActiveState, STATE_ICONS, STATE_STYLES, sourcePlatform } from '$lib/migrate/migration-display';
+	import { buildMigrationReport } from '$lib/migrate/report';
 	import type { Counts, Migration, Phase, Snapshot } from '$lib/types';
 
 	let {

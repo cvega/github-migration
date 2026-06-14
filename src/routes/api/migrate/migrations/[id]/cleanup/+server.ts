@@ -3,7 +3,7 @@
  *       checklist for the confirmation modal (read-only, never acts).
  */
 import { json } from "@sveltejs/kit";
-import { executeCleanup, previewCleanup } from "$lib/server/cleanup-service";
+import { executeCleanup, previewCleanup } from "$lib/server/migrate/cleanup-service";
 import type { RequestHandler } from "./$types";
 
 function parseAction(value: string | null | undefined): "rename" | "delete" | null {

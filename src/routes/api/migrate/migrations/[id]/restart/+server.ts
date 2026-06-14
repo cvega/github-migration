@@ -1,8 +1,8 @@
 /** POST /api/migrate/migrations/[id]/restart — restart a failed or cancelled migration. */
 import { json } from "@sveltejs/kit";
-import { restart } from "$lib/server/manager";
-import { restartSchema, validateBody } from "$lib/server/schemas";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
+import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
+import { restart } from "$lib/server/migrate/manager";
+import { restartSchema, validateBody } from "$lib/server/migrate/schemas";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ params, request }) => {

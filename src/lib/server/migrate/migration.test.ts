@@ -11,9 +11,10 @@
  * outcome and assert the resulting Migration record + emitted events.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { Counts, Migration, MigrationEvent, Phase } from "../types";
+import type { Counts, Migration, MigrationEvent, Phase } from "$lib/types";
+import { initStore } from "../core/db";
+import { DOMAIN_STORES } from "../registry";
 import type { MigrationPipelineOpts } from "./migration";
-import { initStore } from "./store";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // runMonitor's terminal phase is the key input that drives finalize; each test
@@ -41,14 +42,14 @@ let repoCountsImpl: () => Promise<unknown> = async () => ({
 // this mock — no suite imports the real monitor — so a partial stub here can't
 // leak harmfully, and importing the real module just to spread it would pull
 // monitor.ts (untested on its own) into the coverage denominator. Keep it lean.
-mock.module("$lib/server/monitor", () => ({
+mock.module("$lib/server/migrate/monitor", () => ({
   runMonitor: () => monitorImpl(),
 }));
 
 // Spread the real github module so unrelated exports (used by auth.ts etc.)
 // keep working; override only the functions the finalize tail calls.
-const realGithub = await import("./github");
-mock.module("$lib/server/github", () => ({
+const realGithub = await import("../core/github");
+mock.module("$lib/server/core/github", () => ({
   ...realGithub,
   createClients: () => ({
     source: {},
@@ -57,6 +58,14 @@ mock.module("$lib/server/github", () => ({
     targetGraphql: {},
   }),
   getRepoCounts: () => repoCountsImpl(),
+}));
+
+// abortMigration lives in the migrate github-ops module now; spread the real
+// module and override only it (no other suite tests the real abortMigration, so
+// this can't leak harmfully).
+const realGithubOps = await import("./github-ops");
+mock.module("$lib/server/migrate/github-ops", () => ({
+  ...realGithubOps,
   abortMigration: async () => {
     abortCalls += 1;
     return true;
@@ -112,7 +121,7 @@ const emit = (e: MigrationEvent) => {
 };
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
   events = [];
   abortCalls = 0;
   monitorPhase = "SUCCEEDED";

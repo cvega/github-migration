@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { MigrationState } from "$lib/types";
 import {
   ACTIVE_STATES,
   isActiveState,
@@ -7,7 +8,6 @@ import {
   STATE_STYLES,
   sourcePlatform,
 } from "./migration-display";
-import type { MigrationState } from "./types";
 
 const ALL_STATES: MigrationState[] = [
   "queued",

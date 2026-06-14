@@ -6,7 +6,6 @@ import {
   isVersionAtLeast,
   makeThrottleOptions,
   sourceBaseUrl,
-  waitForArchive,
 } from "./github";
 
 /**
@@ -17,37 +16,13 @@ import {
  * boundary. The cast is a third-party-type test double — it silences no
  * production type error (the helpers' real signatures are unchanged).
  */
-type FakeClient = Parameters<typeof waitForArchive>[0];
+type FakeClient = Parameters<typeof doesOrgExist>[0];
 
 /** Build an HTTP-style error carrying a numeric `status`, like Octokit throws. */
 function httpError(status: number, message = `HTTP ${status}`): Error {
   const err = new Error(message);
   (err as Error & { status: number }).status = status;
   return err;
-}
-
-/**
- * Fake client for the archive-polling helpers. `request()` routes by URL:
- * the `/archive` endpoint returns the download URL; every other call returns
- * the next status from `statuses` (the last entry repeats once exhausted).
- */
-function archiveClient(
-  statuses: string[],
-  archiveUrl = "https://archive.example/dl.tar",
-): {
-  client: FakeClient;
-  statusCalls: () => number;
-} {
-  let i = 0;
-  const client = {
-    request: async (route: string) => {
-      if (route.includes("/archive")) return { data: archiveUrl };
-      const state = statuses[Math.min(i, statuses.length - 1)];
-      i++;
-      return { data: { state } };
-    },
-  } as unknown as FakeClient;
-  return { client, statusCalls: () => i };
 }
 
 describe("isVersionAtLeast", () => {
@@ -166,42 +141,6 @@ describe("makeThrottleOptions", () => {
 
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
-  });
-});
-
-describe("waitForArchive", () => {
-  test("returns the archive URL once the export is 'exported'", async () => {
-    const { client } = archiveClient(["exported"]);
-    const url = await waitForArchive(client, "acme", 42, undefined, 1);
-    expect(url).toBe("https://archive.example/dl.tar");
-  });
-
-  test("polls until the status flips to 'exported'", async () => {
-    const { client, statusCalls } = archiveClient(["pending", "exporting", "exported"]);
-    const url = await waitForArchive(client, "acme", 42, undefined, 1);
-    expect(url).toBe("https://archive.example/dl.tar");
-    // Three status polls (pending → exporting → exported) before the archive fetch.
-    expect(statusCalls()).toBe(3);
-  });
-
-  test("throws when the export reports 'failed'", async () => {
-    const { client } = archiveClient(["failed"]);
-    await expect(waitForArchive(client, "acme", 7, undefined, 1)).rejects.toThrow(
-      /Archive export 7 failed/,
-    );
-  });
-
-  test("throws immediately when the signal is already aborted", async () => {
-    const { client } = archiveClient(["pending"]);
-    const ac = new AbortController();
-    ac.abort();
-    await expect(waitForArchive(client, "acme", 1, ac.signal, 1)).rejects.toThrow(/aborted/i);
-  });
-
-  test("throws a timeout error once the deadline passes", async () => {
-    const { client } = archiveClient(["pending"]);
-    // maxWaitMs = 0 → the deadline is already in the past on the first check.
-    await expect(waitForArchive(client, "acme", 9, undefined, 1, 0)).rejects.toThrow(/timed out/);
   });
 });
 

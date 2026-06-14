@@ -8,7 +8,7 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE,
   validateCredentials,
-} from "$lib/server/session";
+} from "$lib/server/core/session";
 import type { Actions, PageServerLoad } from "./$types";
 
 /** If auth isn't enabled, skip the login page entirely. */

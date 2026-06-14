@@ -1,11 +1,10 @@
 /**
- * SQLite persistence layer for migrations and events.
+ * SQLite persistence layer for migrations and events. The connection lifecycle
+ * and schema application live in `$lib/server/core/db` and `./schema`; this
+ * module is the migration/batch/event query layer over `getDb()`.
  */
 
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import { applySchema } from "$lib/server/schema";
+import { getDb } from "$lib/server/core/db";
 import type {
   ActivityItem,
   ActivityKind,
@@ -22,56 +21,12 @@ import type {
   PipelineStep,
 } from "$lib/types";
 
-let db: Database;
-
 /** Parse JSON from a DB column, returning null on malformed data. */
 function safeJsonParse<T>(json: string): T | null {
   try {
     return JSON.parse(json) as T;
   } catch {
     return null;
-  }
-}
-
-export function initStore(dbPath: string): void {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  db = new Database(dbPath, { create: true });
-  applySchema(db);
-
-  // Non-recoverable orphans: mark as failed.
-  // Recoverable running/pending ones (env auth with a github_migration_id) are left
-  // so that recoverOrphans() in the manager can reconnect them.
-  // Recoverable queued ones (env auth, no github_migration_id needed) are also left
-  // so that recoverOrphans() can re-enqueue them.
-  const orphaned = db
-    .prepare(
-      `UPDATE migrations
-       SET state = 'failed',
-           failure_reason = 'Server restarted during migration',
-           completed_at = ?
-       WHERE state IN ('queued', 'pending', 'running')
-         AND id NOT LIKE 'seed-%'
-         AND NOT (auth_mode IN ('env-app', 'env-pat') AND github_migration_id IS NOT NULL)
-         AND NOT (auth_mode IN ('env-app', 'env-pat') AND state = 'queued')`,
-    )
-    .run(new Date().toISOString());
-  if (orphaned.changes > 0) {
-    console.log(
-      `[store] Marked ${orphaned.changes} non-recoverable orphaned migration(s) as failed`,
-    );
-  }
-}
-
-export function getDb(): Database {
-  if (!db) throw new Error("Store not initialized — call initStore() first");
-  return db;
-}
-
-/** Close the database connection (for graceful shutdown). */
-export function closeStore(): void {
-  if (db) {
-    db.close();
-    console.log("[store] Database closed");
   }
 }
 

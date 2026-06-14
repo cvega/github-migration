@@ -6,8 +6,9 @@
  * currently detect.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
-import { initStore } from "$lib/server/store";
+import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/profile/consideration-registry";
+import { initStore } from "$lib/server/core/db";
+import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import {
   completeProfileRun,
@@ -85,7 +86,7 @@ function profile(
 }
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
 });
 
 describe("createProfileRun / getProfileRun", () => {

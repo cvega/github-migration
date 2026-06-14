@@ -7,7 +7,7 @@
  * injectable so the orchestration is testable against a real in-memory store
  * with no network.
  */
-import { getSourceGraphql } from "$lib/server/auth";
+import { getSourceGraphql } from "$lib/server/core/auth";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import type { ProfileRun, StoredRepoProfile } from "./types";

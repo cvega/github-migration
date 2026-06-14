@@ -15,7 +15,9 @@ import type {
   CreateMigrationRequest,
   Migration,
   MigrationEvent,
-} from "../types";
+} from "$lib/types";
+import { initStore } from "../core/db";
+import { DOMAIN_STORES } from "../registry";
 import {
   __setPipelineRunnerForTests,
   cancel,
@@ -27,7 +29,7 @@ import {
   start,
   startBatch,
 } from "./manager";
-import { initStore, insertMigration } from "./store";
+import { insertMigration } from "./store";
 
 const MAX_CONCURRENT = 10;
 
@@ -92,7 +94,7 @@ function requireEmit(): (e: MigrationEvent) => void {
 }
 
 beforeEach(() => {
-  initStore(":memory:");
+  initStore(":memory:", DOMAIN_STORES);
   launched = [];
   resumed = [];
   restorePipeline = __setPipelineRunnerForTests({

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Counts } from "../types";
+import type { Counts } from "$lib/types";
 import { isLargeRepo, loadWatchdogConfig, progressSignal, type WatchdogConfig } from "./watchdog";
 
 function counts(over: Partial<Counts> = {}): Counts {

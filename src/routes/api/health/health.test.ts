@@ -5,7 +5,7 @@
  * here — letting us exercise both the authenticated and anonymous branches.
  */
 import { describe, expect, test } from "bun:test";
-import { createSessionToken, SESSION_COOKIE } from "$lib/server/session";
+import { createSessionToken, SESSION_COOKIE } from "$lib/server/core/session";
 import { GET } from "./+server";
 
 // The handler reads only `cookies.get` off its event; this minimal shape drives

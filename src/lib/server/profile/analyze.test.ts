@@ -5,7 +5,7 @@
  * registry consideration — so the engine can't drift from the registry.
  */
 import { describe, expect, test } from "bun:test";
-import { MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
+import { MIGRATION_CONSIDERATIONS } from "$lib/profile/consideration-registry";
 import { analyzeRepo, DETECTED_CONSIDERATION_IDS, type RepoProfile } from "./analyze";
 import type { RepoSignals } from "./types";
 

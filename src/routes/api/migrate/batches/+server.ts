@@ -2,9 +2,9 @@
  *  GET  /api/migrate/batches — list batches (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { listBatchesPaginated, startBatch } from "$lib/server/manager";
-import { batchMigrationSchema, validateBody } from "$lib/server/schemas";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
+import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
+import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
+import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 

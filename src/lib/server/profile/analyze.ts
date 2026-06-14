@@ -2,7 +2,7 @@
  * Consideration-analysis engine — runs a repository's signals against the GEI
  * consideration registry and produces a per-repo readiness profile.
  *
- * The registry (`$lib/consideration-registry`) is the canonical checklist of
+ * The registry (`$lib/profile/consideration-registry`) is the canonical checklist of
  * what GEI does not migrate cleanly. This engine evaluates each entry against
  * the gathered `RepoSignals` and classifies it:
  *
@@ -17,7 +17,7 @@
  * everything else is honestly reported as indeterminate until a later crawl
  * pass supplies its signal.
  */
-import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
+import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/profile/consideration-registry";
 import type { RepoSignals } from "./types";
 
 /** Whether a registry consideration applies to a repo, or couldn't be evaluated. */

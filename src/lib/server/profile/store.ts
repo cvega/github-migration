@@ -9,7 +9,7 @@
  * correct even when a resumed run re-records a repository (the per-repo write is
  * an idempotent upsert keyed on `UNIQUE(run_id, name_with_owner)`).
  */
-import { getDb } from "$lib/server/store";
+import { getDb } from "$lib/server/core/db";
 import type { RepoProfile } from "./analyze";
 import type {
   ProfileRun,

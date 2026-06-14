@@ -20,32 +20,34 @@ import {
   isTargetAuthAvailable,
   resolveSourceAuth,
   resolveTargetAuth,
-} from "./auth";
+} from "../core/auth";
+import {
+  createClients,
+  doesOrgExist,
+  doesRepoExist,
+  type GitHubClients,
+  getRepoCounts,
+  getRepoSize,
+  isGhecSource,
+  sourceBaseUrl,
+} from "../core/github";
+import { extractOrg, extractRepo } from "../core/util";
 import {
   abortMigration,
   archiveRepository,
   checkGhesVersion,
-  createClients,
   createMigrationSource,
-  doesOrgExist,
-  doesRepoExist,
-  type GitHubClients,
   getOrgDatabaseId,
   getOrgId,
-  getRepoCounts,
   getRepoNodeId,
-  getRepoSize,
   startMigration as ghecStartMigration,
-  isGhecSource,
-  sourceBaseUrl,
   startGitArchiveExport,
   startMetadataArchiveExport,
   waitForArchive,
-} from "./github";
+} from "./github-ops";
 import { type EventEmitter, runMonitor } from "./monitor";
 import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
-import { extractOrg, extractRepo } from "./util";
 
 export interface MigrationPipelineOpts extends CreateMigrationRequest {
   id?: string;

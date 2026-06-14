@@ -2,7 +2,7 @@
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { formatDateTime, formatElapsed } from '$lib/format';
-	import { buildMigrationReportLines } from '$lib/report';
+	import { buildMigrationReportLines } from '$lib/migrate/report';
 	import type { FailureDetail as FailureDetailType, Migration, MigrationEvent } from '$lib/types';
 
 	let { detail, migration, events = [] }: { detail: FailureDetailType; migration: Migration; events?: MigrationEvent[] } = $props();

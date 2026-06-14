@@ -5,10 +5,10 @@ import {
   getAuthConfig,
   getFormDefaults,
   isCredentialOverrideAllowed,
-} from "$lib/server/auth";
-import { fetchGitHubStatus } from "$lib/server/github-status";
-import { MAX_CONCURRENT, recentActivity } from "$lib/server/manager";
-import { getActiveMigrationCount } from "$lib/server/store";
+} from "$lib/server/core/auth";
+import { fetchGitHubStatus } from "$lib/server/core/github-status";
+import { MAX_CONCURRENT, recentActivity } from "$lib/server/migrate/manager";
+import { getActiveMigrationCount } from "$lib/server/migrate/store";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = async ({ locals }) => {

@@ -1,6 +1,6 @@
 import { error } from "@sveltejs/kit";
-import { effectiveCleanupMode, loadCleanupConfig } from "$lib/server/cleanup";
-import { events, get } from "$lib/server/manager";
+import { effectiveCleanupMode, loadCleanupConfig } from "$lib/server/migrate/cleanup";
+import { events, get } from "$lib/server/migrate/manager";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params }) => {

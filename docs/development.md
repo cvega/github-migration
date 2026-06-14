@@ -67,6 +67,7 @@ bun run verify
 | `dup` | `jscpd` | Code duplication above 3% (lines) |
 | `deadcode` | `knip` | Unused files / exports / dependencies |
 | `cycles` | `madge --circular` | Circular imports |
+| `boundaries` | `scripts/check-boundaries.ts` | Server layering: `core/` stays primitive, domains stay decoupled |
 | `build` | `vite build` + postbuild | The production build actually compiles |
 | `audit` | `bun audit` | Dependency advisories |
 
@@ -138,6 +139,7 @@ Beyond the hard gates, these surface issues the gates can't:
 |---|---|---|
 | `bun run deadcode` | knip | Unused files/exports/deps (a hard gate) |
 | `bun run cycles` | madge | Circular imports (a hard gate) |
+| `bun run boundaries` | `check-boundaries.ts` | Server layering: `core/` imports no domain; domains stay decoupled (a hard gate) |
 | `bun run dup` | jscpd | Duplication (a hard gate) |
 | `bun run mutation` | Stryker | **Opt-in.** Mutates code to prove tests actually assert, not just execute |
 

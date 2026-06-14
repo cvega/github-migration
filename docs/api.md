@@ -81,7 +81,7 @@ a `targetOrg`.
 ## Request validation
 
 Every request body is validated at the boundary with a [Zod](https://zod.dev)
-schema (`$lib/server/schemas.ts`) before use. Invalid shape → `400` naming the
+schema (`$lib/server/migrate/schemas.ts`) before use. Invalid shape → `400` naming the
 offending field. Missing credentials (no per-request token/App and no env auth
 for a side) → `400` mentioning auth. Unexpected internal failures → `500` with a
 generic message (details are logged server-side, never returned to the client).

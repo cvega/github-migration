@@ -5,7 +5,7 @@
  * matrix, confirmation). No GitHub or DB — `evaluateCleanupEligibility` is pure.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Migration } from "../types";
+import type { Migration } from "$lib/types";
 import {
   type CleanupConfig,
   type CleanupGateStatus,

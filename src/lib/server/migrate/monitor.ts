@@ -4,7 +4,7 @@
  * to SSE + SQLite.
  *
  */
-import { sleep } from "$lib/server/util";
+import { sleep } from "$lib/server/core/util";
 import type {
   Counts,
   FailureDetail,
@@ -14,12 +14,8 @@ import type {
   Progress,
   Snapshot,
 } from "$lib/types";
-import {
-  doesRepoExist,
-  type GitHubClients,
-  getMigration as getGhecMigration,
-  getRepoCounts,
-} from "./github";
+import { doesRepoExist, type GitHubClients, getRepoCounts } from "../core/github";
+import { getMigration as getGhecMigration } from "./github-ops";
 
 export type EventEmitter = (event: MigrationEvent) => void;
 

@@ -26,8 +26,8 @@ const emptyPage = { data: [], total: 0, page: 1, limit: 20, totalPages: 0 };
 // and permanent (mock.restore() does not undo it), and Bun's file order isn't
 // stable across machines — so a partial stub here would otherwise poison any
 // later suite importing the real manager. We override only what these tests use.
-const realManager = await import("$lib/server/manager");
-mock.module("$lib/server/manager", () => ({
+const realManager = await import("$lib/server/migrate/manager");
+mock.module("$lib/server/migrate/manager", () => ({
   ...realManager,
   start: (req: unknown, batchId?: unknown) => startImpl(req, batchId),
   startBatch: (req: unknown) => startBatchImpl(req),

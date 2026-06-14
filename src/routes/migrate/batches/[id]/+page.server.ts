@@ -1,5 +1,5 @@
 import { error } from "@sveltejs/kit";
-import { getBatchPaginated } from "$lib/server/manager";
+import { getBatchPaginated } from "$lib/server/migrate/manager";
 import { parsePaginationParams } from "$lib/types";
 import type { PageServerLoad } from "./$types";
 
