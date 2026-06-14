@@ -113,8 +113,8 @@ describe("startOrgProfile", () => {
     expect(detail?.run.state).toBe("completed");
     expect(detail?.run.profiledRepos).toBe(2);
     expect(detail?.repos.map((r) => r.nameWithOwner)).toEqual(["acme/a", "acme/b"]);
-    expect(detail?.repos[0]?.applyingGaps).toContainEqual({
-      gapId: "discussions",
+    expect(detail?.repos[0]?.applyingConsiderations).toContainEqual({
+      considerationId: "discussions",
       evidence: "2 discussions",
     });
   });

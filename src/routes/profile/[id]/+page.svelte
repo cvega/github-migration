@@ -1,27 +1,26 @@
-<!-- One profiling run: readiness summary + per-repo gap matrix. Polls while running. -->
+<!-- One profiling run: readiness summary + per-repo consideration matrix. Polls while running. -->
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import { MIGRATION_CONSIDERATIONS } from '$lib/consideration-registry';
 	import { timeAgo } from '$lib/format';
-	import { GAP_REGISTRY } from '$lib/gap-registry';
 
 	let { data } = $props();
 
-	// Prefer freshly-polled data; fall back to the server-loaded snapshot. Drop
-	// stale polled data when navigating to a different run.
+	// Prefer freshly-polled data, but only when it's for the run currently shown
+	// (on navigation `data.run.id` changes and we fall back to the new snapshot
+	// until the next poll). Avoids resetting state from an effect.
 	let polled = $state<typeof data | null>(null);
-	$effect(() => {
-		if (polled && polled.run.id !== data.run.id) {
-			polled = null;
-		}
-	});
-	const run = $derived(polled?.run ?? data.run);
-	const repos = $derived(polled?.repos ?? data.repos);
+	const fresh = $derived(polled && polled.run.id === data.run.id ? polled : null);
+	const run = $derived(fresh?.run ?? data.run);
+	const repos = $derived(fresh?.repos ?? data.repos);
 
 	type RunState = 'running' | 'completed' | 'failed';
 
-	// Registry lookup for gap labels + severity (client-safe, pure data).
-	const gapMeta = new Map(GAP_REGISTRY.map((g) => [g.id, { label: g.label, severity: g.severity }]));
+	// Registry lookup for consideration labels + severity (client-safe, pure data).
+	const considerationMeta = new Map(
+		MIGRATION_CONSIDERATIONS.map((c) => [c.id, { label: c.label, severity: c.severity }])
+	);
 	const sevClass: Record<string, string> = {
 		blocker: 'bg-red-500/15 text-red-300 border-red-500/30',
 		warn: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30',
@@ -92,11 +91,11 @@
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="flex items-center gap-1.5 text-2xl font-semibold text-red-400"><Octicon name="stop" size={16} />{run.blockers}</div>
-			<div class="mt-1 text-xs text-gray-400">Blocker gaps</div>
+			<div class="mt-1 text-xs text-gray-400">Blockers</div>
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="flex items-center gap-1.5 text-2xl font-semibold text-yellow-400"><Octicon name="alert" size={16} />{run.warnings}</div>
-			<div class="mt-1 text-xs text-gray-400">Warning gaps</div>
+			<div class="mt-1 text-xs text-gray-400">Warnings</div>
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
@@ -123,7 +122,7 @@
 						<tr>
 							<th class="px-4 py-2 font-medium">Repository</th>
 							<th class="px-4 py-2 text-center font-medium">Severity</th>
-							<th class="px-4 py-2 font-medium">Applying gaps</th>
+							<th class="px-4 py-2 font-medium">Considerations</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-800">
@@ -139,17 +138,17 @@
 									</span>
 								</td>
 								<td class="px-4 py-3">
-									{#if repo.applyingGaps.length === 0}
+									{#if repo.applyingConsiderations.length === 0}
 										<span class="text-gray-600">—</span>
 									{:else}
 										<div class="flex flex-wrap gap-1.5">
-											{#each repo.applyingGaps as gap (gap.gapId)}
-												{@const meta = gapMeta.get(gap.gapId)}
+											{#each repo.applyingConsiderations as item (item.considerationId)}
+												{@const meta = considerationMeta.get(item.considerationId)}
 												<span
 													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {sevClass[meta?.severity ?? 'info']}"
-													title={gap.evidence}
+													title={item.evidence}
 												>
-													{meta?.label ?? gap.gapId}
+													{meta?.label ?? item.considerationId}
 												</span>
 											{/each}
 										</div>

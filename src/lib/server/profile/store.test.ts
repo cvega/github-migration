@@ -2,11 +2,11 @@
  * Tests for the Profile persistence layer. Each runs against a fresh in-memory
  * database (initStore(":memory:")), mirroring store.test.ts. Profiles are
  * hand-built so the run-aggregate recomputation (blockers/warnings) can be
- * exercised independently of which gaps the analysis engine can currently
- * detect.
+ * exercised independently of which considerations the analysis engine can
+ * currently detect.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { GAP_REGISTRY, type GapEntry } from "$lib/gap-registry";
+import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
 import { initStore } from "$lib/server/store";
 import type { RepoProfile } from "./analyze";
 import {
@@ -21,10 +21,10 @@ import {
 } from "./store";
 import type { RepoSignals } from "./types";
 
-const gapById = (id: string): GapEntry => {
-  const gap = GAP_REGISTRY.find((g) => g.id === id);
-  if (!gap) throw new Error(`test gap id not in registry: ${id}`);
-  return gap;
+const considerationById = (id: string): Consideration => {
+  const consideration = MIGRATION_CONSIDERATIONS.find((g) => g.id === id);
+  if (!consideration) throw new Error(`test consideration id not in registry: ${id}`);
+  return consideration;
 };
 
 function signals(over: Partial<RepoSignals> = {}): RepoSignals {
@@ -55,21 +55,21 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
   };
 }
 
-/** Hand-build a RepoProfile with explicit severity counts and applying gaps. */
+/** Hand-build a RepoProfile with explicit severity counts and applying considerations. */
 function profile(
   nameWithOwner: string,
   opts: {
     blockers?: number;
     warnings?: number;
     infos?: number;
-    applying?: Array<{ gapId: string; evidence: string }>;
+    applying?: Array<{ considerationId: string; evidence: string }>;
   } = {},
 ): RepoProfile {
   const applying = opts.applying ?? [];
   return {
     nameWithOwner,
     findings: applying.map((a) => ({
-      gap: gapById(a.gapId),
+      consideration: considerationById(a.considerationId),
       status: "applies" as const,
       evidence: a.evidence,
     })),
@@ -127,7 +127,7 @@ describe("setProfileRunTotal", () => {
 });
 
 describe("recordRepoProfile / getRunRepoProfiles", () => {
-  test("round-trips signals, severity counts, and applying gaps", () => {
+  test("round-trips signals, severity counts, and applying considerations", () => {
     createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
     recordRepoProfile(
       "r",
@@ -136,8 +136,8 @@ describe("recordRepoProfile / getRunRepoProfiles", () => {
         warnings: 1,
         infos: 1,
         applying: [
-          { gapId: "discussions", evidence: "3 discussions" },
-          { gapId: "fork-relationships", evidence: "repository is a fork" },
+          { considerationId: "discussions", evidence: "3 discussions" },
+          { considerationId: "fork-relationships", evidence: "repository is a fork" },
         ],
       }),
     );
@@ -148,9 +148,9 @@ describe("recordRepoProfile / getRunRepoProfiles", () => {
       nameWithOwner: "acme/widget",
       warnings: 1,
       infos: 1,
-      applyingGaps: [
-        { gapId: "discussions", evidence: "3 discussions" },
-        { gapId: "fork-relationships", evidence: "repository is a fork" },
+      applyingConsiderations: [
+        { considerationId: "discussions", evidence: "3 discussions" },
+        { considerationId: "fork-relationships", evidence: "repository is a fork" },
       ],
     });
     expect(repos[0]?.signals.discussionsCount).toBe(3);

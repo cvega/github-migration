@@ -1,12 +1,14 @@
 /**
- * Gap registry — the canonical list of source data that GitHub Enterprise
- * Importer (GEI) does not migrate cleanly. The Profile workspace reads this to
- * detect each gap, classify it, and route it to its remediation (supplemental
- * tooling, a reconfigure step, or a "heads up, this is lost" note).
+ * Consideration registry — the canonical list of source data that GitHub
+ * Enterprise Importer (GEI) does not migrate cleanly. The Profile workspace
+ * reads this to detect each consideration, classify it, and route it to its
+ * remediation (supplemental tooling, a reconfigure step, or a "heads up, this
+ * is lost" note).
  *
  * It is plain reference data — edit it whenever GEI changes. The accompanying
- * test (gap-registry.test.ts) guards its integrity (unique ids, well-formed
- * entries, kind/severity consistency) so edits can't silently corrupt it.
+ * test (consideration-registry.test.ts) guards its integrity (unique ids,
+ * well-formed entries, kind/severity consistency) so edits can't silently
+ * corrupt it.
  *
  * Verified against GitHub's "About migrations between GitHub products" and its
  * "Limitations on migrated data" section. Several entries are in public preview
@@ -21,40 +23,45 @@ export const GEI_DOC_URL =
 export const GEI_DOCS_VERIFIED = "2026-06-13";
 
 /**
- * What kind of remediation a gap needs:
+ * What kind of remediation a consideration needs:
  * - `routable`       — not migrated, but a supplemental tool can move it.
  * - `recreate`       — not migrated and must be re-established by hand (secrets…).
  * - `reconfigure`    — migrates, but arrives disabled/partial; needs a target pass.
  * - `blocker`        — a size/policy limit that can fail the migration outright.
  * - `accepted-loss`  — not migrated and not practically recoverable (informational).
  */
-export type GapKind = "routable" | "recreate" | "reconfigure" | "blocker" | "accepted-loss";
+export type ConsiderationKind =
+  | "routable"
+  | "recreate"
+  | "reconfigure"
+  | "blocker"
+  | "accepted-loss";
 
-/** How loudly to surface a gap. */
-export type GapSeverity = "info" | "warn" | "blocker";
+/** How loudly to surface a consideration. */
+export type ConsiderationSeverity = "info" | "warn" | "blocker";
 
 /** How confident detection is: an exact API signal, or an estimate/proxy. */
-type GapConfidence = "exact" | "estimated";
+type ConsiderationConfidence = "exact" | "estimated";
 
-export interface GapEntry {
+export interface Consideration {
   /** Stable kebab-case identifier (also the matrix column key). */
   id: string;
   /** Human-readable label for the UI. */
   label: string;
-  kind: GapKind;
-  severity: GapSeverity;
+  kind: ConsiderationKind;
+  severity: ConsiderationSeverity;
   /**
-   * Identifier of the profiler check that detects this gap. The detection
-   * function itself lives server-side and keys off this string.
+   * Identifier of the profiler check that detects this consideration. The
+   * detection function itself lives server-side and keys off this string.
    */
   detector: string;
-  confidence: GapConfidence;
+  confidence: ConsiderationConfidence;
   /**
-   * The supplemental tool / remediation a detected gap routes to, or null when
-   * the gap is an accepted loss with no practical remediation.
+   * The supplemental tool / remediation a detected consideration routes to, or
+   * null when it is an accepted loss with no practical remediation.
    */
   routesTo: string | null;
-  /** One-line, doc-grounded explanation of the gap. */
+  /** One-line, doc-grounded explanation of the consideration. */
   summary: string;
   /** Anchor into GEI_DOC_URL backing this entry. */
   docAnchor: string;
@@ -65,10 +72,10 @@ const LIMITS = "#limitations-on-migrated-data";
 const BRANCH_PROTECTIONS = "#branch-protections";
 
 /**
- * The registry. Ordered roughly by how actionable each gap is (routable and
- * recreate first, accepted-loss last), not by severity.
+ * The registry. Ordered roughly by how actionable each consideration is
+ * (routable and recreate first, accepted-loss last), not by severity.
  */
-export const GAP_REGISTRY: readonly GapEntry[] = [
+export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
   // ── Routable: a supplemental tool can carry these over ──────────────────────
   {
     id: "git-lfs",

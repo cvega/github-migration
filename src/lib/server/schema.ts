@@ -64,8 +64,9 @@ const SCHEMA_DDL = `
     failure_reason TEXT
   );
 
-  -- One repository's gap analysis within a run. UNIQUE(run_id, name_with_owner)
-  -- makes re-recording idempotent (upsert), which a resumed crawl relies on.
+  -- One repository's consideration analysis within a run.
+  -- UNIQUE(run_id, name_with_owner) makes re-recording idempotent (upsert),
+  -- which a resumed crawl relies on.
   CREATE TABLE IF NOT EXISTS profile_repos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES profile_runs(id),
@@ -74,7 +75,7 @@ const SCHEMA_DDL = `
     blockers INTEGER NOT NULL DEFAULT 0,
     warnings INTEGER NOT NULL DEFAULT 0,
     infos INTEGER NOT NULL DEFAULT 0,
-    applying_gaps TEXT NOT NULL DEFAULT '[]',
+    applying_considerations TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     UNIQUE(run_id, name_with_owner)
   );

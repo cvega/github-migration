@@ -56,7 +56,7 @@
 			<h2 class="text-lg font-semibold text-gray-50">Profile</h2>
 			<p class="mt-1.5 flex-1 text-sm text-gray-400">
 				Analyze a source organization for migration readiness — surface what GEI
-				won't carry cleanly and route each gap to its remediation.
+				won't carry cleanly and route each consideration to its remediation.
 			</p>
 			<div class="mt-4 flex items-center justify-end text-sm">
 				<span class="inline-flex items-center gap-1 font-medium text-violet-400">

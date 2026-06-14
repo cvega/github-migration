@@ -122,9 +122,9 @@ export interface ProfileRun {
   failureReason: string | null;
 }
 
-/** A persisted finding — applying gaps only, keyed by registry gap id. */
+/** A persisted finding — applying considerations only, keyed by registry id. */
 export interface StoredFinding {
-  gapId: string;
+  considerationId: string;
   evidence: string;
 }
 
@@ -135,8 +135,8 @@ export interface StoredRepoProfile {
   blockers: number;
   warnings: number;
   infos: number;
-  /** The gaps that apply to this repo, with their evidence. */
-  applyingGaps: StoredFinding[];
+  /** The considerations that apply to this repo, with their evidence. */
+  applyingConsiderations: StoredFinding[];
 }
 
 /** Progress emitted by the runner after each repository is profiled. */

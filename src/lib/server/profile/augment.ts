@@ -2,8 +2,9 @@
  * Per-repo signal augmentation — the second crawl pass.
  *
  * Discovery (`discover.ts`) gives the cheap, breadth-first spine; this pass
- * enriches one repository with the GraphQL count signals the gap analysis needs
- * (discussions, projects, environments, releases, stars/watchers, branch
+ * enriches one repository with the GraphQL count signals the consideration
+ * analysis needs (discussions, projects, environments, releases, stars/watchers,
+ * branch
  * protection rules). It's a single bounded query per repo — no asset/ref paging
  * — so deeper size scans (release assets, git-sizer, ref-name length) stay in a
  * separate, heavier pass.

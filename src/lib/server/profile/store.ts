@@ -41,7 +41,7 @@ interface ProfileRepoRow {
   blockers: number;
   warnings: number;
   infos: number;
-  applying_gaps: string;
+  applying_considerations: string;
 }
 
 const RUN_COLS =
@@ -79,7 +79,7 @@ function rowToRepoProfile(row: ProfileRepoRow): StoredRepoProfile {
     blockers: row.blockers,
     warnings: row.warnings,
     infos: row.infos,
-    applyingGaps: safeParse<StoredFinding[]>(row.applying_gaps, []),
+    applyingConsiderations: safeParse<StoredFinding[]>(row.applying_considerations, []),
   };
 }
 
@@ -119,21 +119,21 @@ export function recordRepoProfile(
   profile: RepoProfile,
   nowMs?: number,
 ): void {
-  const applyingGaps: StoredFinding[] = profile.findings
+  const applyingConsiderations: StoredFinding[] = profile.findings
     .filter((f) => f.status === "applies")
-    .map((f) => ({ gapId: f.gap.id, evidence: f.evidence ?? "" }));
+    .map((f) => ({ considerationId: f.consideration.id, evidence: f.evidence ?? "" }));
 
   getDb()
     .prepare(
       `INSERT INTO profile_repos
-         (run_id, name_with_owner, signals, blockers, warnings, infos, applying_gaps, created_at)
+         (run_id, name_with_owner, signals, blockers, warnings, infos, applying_considerations, created_at)
        VALUES ($run_id, $name, $signals, $blockers, $warnings, $infos, $applying, $created_at)
        ON CONFLICT(run_id, name_with_owner) DO UPDATE SET
          signals = excluded.signals,
          blockers = excluded.blockers,
          warnings = excluded.warnings,
          infos = excluded.infos,
-         applying_gaps = excluded.applying_gaps,
+         applying_considerations = excluded.applying_considerations,
          created_at = excluded.created_at`,
     )
     .run({
@@ -143,7 +143,7 @@ export function recordRepoProfile(
       $blockers: profile.summary.blockers,
       $warnings: profile.summary.warnings,
       $infos: profile.summary.infos,
-      $applying: JSON.stringify(applyingGaps),
+      $applying: JSON.stringify(applyingConsiderations),
       $created_at: new Date(nowMs ?? Date.now()).toISOString(),
     });
 }
@@ -200,7 +200,7 @@ export function listProfileRuns(limit = 50): ProfileRun[] {
 export function getRunRepoProfiles(runId: string): StoredRepoProfile[] {
   const rows = getDb()
     .prepare(
-      `SELECT name_with_owner, signals, blockers, warnings, infos, applying_gaps
+      `SELECT name_with_owner, signals, blockers, warnings, infos, applying_considerations
        FROM profile_repos WHERE run_id = $id ORDER BY name_with_owner ASC`,
     )
     .all({ $id: runId }) as ProfileRepoRow[];

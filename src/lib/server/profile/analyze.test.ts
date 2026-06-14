@@ -1,12 +1,12 @@
 /**
- * Tests for the gap-analysis engine. These pin the three-way classification
- * (applies / clear / indeterminate), the evidence strings, the severity
- * roll-up, and an integrity check that every detector targets a real registry
- * gap — so the engine can't drift from the registry.
+ * Tests for the consideration-analysis engine. These pin the three-way
+ * classification (applies / clear / indeterminate), the evidence strings, the
+ * severity roll-up, and an integrity check that every detector targets a real
+ * registry consideration — so the engine can't drift from the registry.
  */
 import { describe, expect, test } from "bun:test";
-import { GAP_REGISTRY } from "$lib/gap-registry";
-import { analyzeRepo, DETECTED_GAP_IDS, type RepoProfile } from "./analyze";
+import { MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
+import { analyzeRepo, DETECTED_CONSIDERATION_IDS, type RepoProfile } from "./analyze";
 import type { RepoSignals } from "./types";
 
 /** A repo with every gathered signal at its "clean" value. */
@@ -38,33 +38,37 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
   };
 }
 
-/** Look up a finding by gap id. */
+/** Look up a finding by consideration id. */
 function finding(profile: RepoProfile, id: string) {
-  return profile.findings.find((f) => f.gap.id === id);
+  return profile.findings.find((f) => f.consideration.id === id);
 }
 
 describe("analyzeRepo", () => {
-  test("produces one finding per registry gap, in registry order", () => {
+  test("produces one finding per registry consideration, in registry order", () => {
     const profile = analyzeRepo(cleanSignals());
-    expect(profile.findings).toHaveLength(GAP_REGISTRY.length);
-    expect(profile.findings.map((f) => f.gap.id)).toEqual(GAP_REGISTRY.map((g) => g.id));
+    expect(profile.findings).toHaveLength(MIGRATION_CONSIDERATIONS.length);
+    expect(profile.findings.map((f) => f.consideration.id)).toEqual(
+      MIGRATION_CONSIDERATIONS.map((g) => g.id),
+    );
   });
 
-  test("a clean repo: every detectable gap is clear, nothing applies", () => {
+  test("a clean repo: every detectable consideration is clear, nothing applies", () => {
     const profile = analyzeRepo(cleanSignals());
     expect(profile.summary.applies).toBe(0);
-    expect(profile.summary.clear).toBe(DETECTED_GAP_IDS.length);
-    expect(profile.summary.indeterminate).toBe(GAP_REGISTRY.length - DETECTED_GAP_IDS.length);
+    expect(profile.summary.clear).toBe(DETECTED_CONSIDERATION_IDS.length);
+    expect(profile.summary.indeterminate).toBe(
+      MIGRATION_CONSIDERATIONS.length - DETECTED_CONSIDERATION_IDS.length,
+    );
   });
 
-  test("gaps without a detector are reported as indeterminate, not clear", () => {
+  test("considerations without a detector are reported as indeterminate, not clear", () => {
     const profile = analyzeRepo(cleanSignals());
     // `packages` has no signal gathered yet.
     expect(finding(profile, "packages")?.status).toBe("indeterminate");
     expect(finding(profile, "discussions")?.status).toBe("clear");
   });
 
-  test("detects every currently-supported gap with evidence", () => {
+  test("detects every currently-supported consideration with evidence", () => {
     const profile = analyzeRepo(
       cleanSignals({
         discussionsCount: 3,
@@ -95,7 +99,7 @@ describe("analyzeRepo", () => {
     );
   });
 
-  test("rolls up applying gaps by severity", () => {
+  test("rolls up applying considerations by severity", () => {
     const profile = analyzeRepo(
       cleanSignals({
         discussionsCount: 1, // warn
@@ -113,7 +117,7 @@ describe("analyzeRepo", () => {
     expect(profile.summary.blockers).toBe(0);
   });
 
-  test("branch-protection gap ignores rules that use only migratable features", () => {
+  test("branch-protection consideration ignores rules that use only migratable features", () => {
     // Rules exist, but none use an unmigrated feature.
     const profile = analyzeRepo(
       cleanSignals({
@@ -135,15 +139,15 @@ describe("analyzeRepo", () => {
   });
 });
 
-describe("DETECTED_GAP_IDS integrity", () => {
-  test("every detector targets a real registry gap id", () => {
-    const ids = new Set(GAP_REGISTRY.map((g) => g.id));
-    for (const id of DETECTED_GAP_IDS) {
+describe("DETECTED_CONSIDERATION_IDS integrity", () => {
+  test("every detector targets a real registry consideration id", () => {
+    const ids = new Set(MIGRATION_CONSIDERATIONS.map((g) => g.id));
+    for (const id of DETECTED_CONSIDERATION_IDS) {
       expect(ids.has(id)).toBe(true);
     }
   });
 
   test("is non-empty (the engine actually evaluates something)", () => {
-    expect(DETECTED_GAP_IDS.length).toBeGreaterThan(0);
+    expect(DETECTED_CONSIDERATION_IDS.length).toBeGreaterThan(0);
   });
 });

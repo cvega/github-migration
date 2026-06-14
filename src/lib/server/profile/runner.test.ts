@@ -81,8 +81,8 @@ describe("runProfile", () => {
 
     const profiles = getRunRepoProfiles("run-1");
     expect(profiles.map((p) => p.nameWithOwner)).toEqual(["acme/alpha", "acme/beta"]);
-    expect(profiles[0]?.applyingGaps).toContainEqual({
-      gapId: "discussions",
+    expect(profiles[0]?.applyingConsiderations).toContainEqual({
+      considerationId: "discussions",
       evidence: "2 discussions",
     });
   });

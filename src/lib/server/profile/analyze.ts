@@ -1,60 +1,61 @@
 /**
- * Gap-analysis engine — runs a repository's signals against the GEI gap
- * registry and produces a per-repo readiness profile.
+ * Consideration-analysis engine — runs a repository's signals against the GEI
+ * consideration registry and produces a per-repo readiness profile.
  *
- * The registry (`$lib/gap-registry`) is the canonical checklist of what GEI does
- * not migrate cleanly. This engine evaluates each entry against the gathered
- * `RepoSignals` and classifies it:
+ * The registry (`$lib/consideration-registry`) is the canonical checklist of
+ * what GEI does not migrate cleanly. This engine evaluates each entry against
+ * the gathered `RepoSignals` and classifies it:
  *
- *   - applies        — the gap is present (with human-readable evidence)
- *   - clear          — evaluated and the gap does not apply
- *   - indeterminate  — the signal this gap needs hasn't been gathered yet
+ *   - applies        — the consideration is present (with human-readable evidence)
+ *   - clear          — evaluated and the consideration does not apply
+ *   - indeterminate  — the signal this consideration needs hasn't been gathered yet
  *
- * Detectors are keyed by gap **id** (not the registry's `detector` string),
- * because one detector source can back several gaps — e.g. `git-sizer` underpins
- * both the commit-size and file-size limits. Only gaps whose signals the crawl
- * currently gathers have a detector; everything else is honestly reported as
- * indeterminate until a later crawl pass supplies its signal.
+ * Detectors are keyed by consideration **id** (not the registry's `detector`
+ * string), because one detector source can back several considerations — e.g.
+ * `git-sizer` underpins both the commit-size and file-size limits. Only
+ * considerations whose signals the crawl currently gathers have a detector;
+ * everything else is honestly reported as indeterminate until a later crawl
+ * pass supplies its signal.
  */
-import { GAP_REGISTRY, type GapEntry } from "$lib/gap-registry";
+import { type Consideration, MIGRATION_CONSIDERATIONS } from "$lib/consideration-registry";
 import type { RepoSignals } from "./types";
 
-/** Whether a registry gap applies to a repo, or couldn't be evaluated. */
-type GapStatus = "applies" | "clear" | "indeterminate";
+/** Whether a registry consideration applies to a repo, or couldn't be evaluated. */
+type ConsiderationStatus = "applies" | "clear" | "indeterminate";
 
-/** One registry gap evaluated against a repo's signals. */
-interface GapFinding {
-  gap: GapEntry;
-  status: GapStatus;
+/** One registry consideration evaluated against a repo's signals. */
+interface ConsiderationFinding {
+  consideration: Consideration;
+  status: ConsiderationStatus;
   /** Human-readable evidence, present only when `status === "applies"`. */
   evidence?: string;
 }
 
 /** Rolled-up counts for a repo profile. */
 interface ProfileSummary {
-  /** Gaps that apply (any severity). */
+  /** Considerations that apply (any severity). */
   applies: number;
-  /** Applying gaps with `severity === "blocker"`. */
+  /** Applying considerations with `severity === "blocker"`. */
   blockers: number;
-  /** Applying gaps with `severity === "warn"`. */
+  /** Applying considerations with `severity === "warn"`. */
   warnings: number;
-  /** Applying gaps with `severity === "info"`. */
+  /** Applying considerations with `severity === "info"`. */
   infos: number;
-  /** Gaps evaluated as not applying. */
+  /** Considerations evaluated as not applying. */
   clear: number;
-  /** Gaps whose signal isn't gathered yet. */
+  /** Considerations whose signal isn't gathered yet. */
   indeterminate: number;
 }
 
 /** A repository's full readiness profile. */
 export interface RepoProfile {
   nameWithOwner: string;
-  /** One finding per registry gap, in registry order. */
-  findings: GapFinding[];
+  /** One finding per registry consideration, in registry order. */
+  findings: ConsiderationFinding[];
   summary: ProfileSummary;
 }
 
-/** A detector returns evidence when the gap applies, or null when it's clear. */
+/** A detector returns evidence when the consideration applies, or null otherwise. */
 type Detector = (signals: RepoSignals) => string | null;
 
 /** `n thing` / `n things` — small pluralization helper for evidence strings. */
@@ -63,8 +64,8 @@ function count(n: number, noun: string): string {
 }
 
 /**
- * Detectors for the gaps the crawl can currently evaluate, keyed by gap id.
- * Add an entry here as each new signal is gathered by the crawl passes.
+ * Detectors for the considerations the crawl can currently evaluate, keyed by
+ * consideration id. Add an entry here as each new signal is gathered.
  */
 const DETECTORS: Record<string, Detector> = {
   discussions: (s) => (s.discussionsCount > 0 ? count(s.discussionsCount, "discussion") : null),
@@ -83,10 +84,10 @@ const DETECTORS: Record<string, Detector> = {
   "wiki-attachments": (s) => (s.hasWiki ? "wiki enabled (attachments not migrated)" : null),
 };
 
-/** Gap ids the engine can currently evaluate (the rest report indeterminate). */
-export const DETECTED_GAP_IDS: readonly string[] = Object.keys(DETECTORS);
+/** Consideration ids the engine can evaluate (the rest report indeterminate). */
+export const DETECTED_CONSIDERATION_IDS: readonly string[] = Object.keys(DETECTORS);
 
-function summarize(findings: GapFinding[]): ProfileSummary {
+function summarize(findings: ConsiderationFinding[]): ProfileSummary {
   const summary: ProfileSummary = {
     applies: 0,
     blockers: 0,
@@ -95,15 +96,15 @@ function summarize(findings: GapFinding[]): ProfileSummary {
     clear: 0,
     indeterminate: 0,
   };
-  for (const { gap, status } of findings) {
+  for (const { consideration, status } of findings) {
     if (status === "clear") {
       summary.clear += 1;
     } else if (status === "indeterminate") {
       summary.indeterminate += 1;
     } else {
       summary.applies += 1;
-      if (gap.severity === "blocker") summary.blockers += 1;
-      else if (gap.severity === "warn") summary.warnings += 1;
+      if (consideration.severity === "blocker") summary.blockers += 1;
+      else if (consideration.severity === "warn") summary.warnings += 1;
       else summary.infos += 1;
     }
   }
@@ -111,19 +112,19 @@ function summarize(findings: GapFinding[]): ProfileSummary {
 }
 
 /**
- * Analyze one repository's signals against the gap registry.
+ * Analyze one repository's signals against the consideration registry.
  *
- * @returns A `RepoProfile` with one finding per registry gap (in registry
- *          order) and a rolled-up severity summary.
+ * @returns A `RepoProfile` with one finding per registry consideration (in
+ *          registry order) and a rolled-up severity summary.
  */
 export function analyzeRepo(signals: RepoSignals): RepoProfile {
-  const findings: GapFinding[] = GAP_REGISTRY.map((gap) => {
-    const detector = DETECTORS[gap.id];
-    if (!detector) return { gap, status: "indeterminate" };
+  const findings: ConsiderationFinding[] = MIGRATION_CONSIDERATIONS.map((consideration) => {
+    const detector = DETECTORS[consideration.id];
+    if (!detector) return { consideration, status: "indeterminate" };
     const evidence = detector(signals);
     return evidence != null
-      ? { gap, status: "applies" as const, evidence }
-      : { gap, status: "clear" as const };
+      ? { consideration, status: "applies" as const, evidence }
+      : { consideration, status: "clear" as const };
   });
 
   return {
