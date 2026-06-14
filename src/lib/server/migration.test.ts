@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Counts, Migration, MigrationEvent, Phase } from "../types";
 import type { MigrationPipelineOpts } from "./migration";
+import { initStore } from "./store";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 // runMonitor's terminal phase is the key input that drives finalize; each test
@@ -62,18 +63,14 @@ mock.module("$lib/server/github", () => ({
   },
 }));
 
-// Spread the real store too. `mock.module` is global and persists for the whole
-// `bun test` run (mock.restore() does NOT undo it), so a partial stub would
-// leak into any suite that runs later and imports the real store — wiping
-// initStore/insertMigration/etc. Spreading keeps every non-overridden export
-// real; we only no-op the three DB writers the finalize tail calls.
-const realStore = await import("./store");
-mock.module("$lib/server/store", () => ({
-  ...realStore,
-  updateCheckpoint: () => {},
-  updateMigrationProvenance: () => {},
-  updateMigrationSourceSize: () => {},
-}));
+// The store is REAL against an in-memory DB (initialized per-test in
+// beforeEach), NOT mocked. `mock.module` is global and permanent for the whole
+// `bun test` run — mock.restore() does not undo it — so stubbing the store here
+// would leak no-op writers into store.test.ts, which exercises those same
+// functions for real. Using a real in-memory store keeps this suite hermetic
+// without poisoning any other: migration.ts only ever *writes* to the store
+// (updateCheckpoint/updateMigrationProvenance/updateMigrationSourceSize), never
+// reads, so the writes simply land in the throwaway in-memory DB.
 
 // Env auth so resolveSourceAuth()/resolveTargetAuth() (no-arg, env path) succeed.
 process.env.GH_SOURCE_PAT = "ghp_source_test";
@@ -115,6 +112,7 @@ const emit = (e: MigrationEvent) => {
 };
 
 beforeEach(() => {
+  initStore(":memory:");
   events = [];
   abortCalls = 0;
   monitorPhase = "SUCCEEDED";
