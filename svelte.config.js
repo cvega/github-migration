@@ -1,7 +1,11 @@
 import adapter from "@sveltejs/adapter-node";
 import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
-const dev = process.env.NODE_ENV !== "production";
+// `vite dev` puts "dev" in argv; `vite build` / `vite preview` do not. This is
+// deterministic, unlike `process.env.NODE_ENV`, which can be "production" in a
+// developer's shell (e.g. left over from a build/deploy) and would then lock
+// connect-src to 'self' — silently blocking Vite's HMR websocket in dev.
+const dev = process.argv.includes("dev");
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
