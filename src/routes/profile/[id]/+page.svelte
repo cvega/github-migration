@@ -3,6 +3,7 @@
 	import type { IconName } from '@primer/octicons';
 	import { SvelteSet } from 'svelte/reactivity';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
@@ -160,16 +161,12 @@
 		return q ? repos.filter((r) => r.nameWithOwner.toLowerCase().includes(q)) : repos;
 	});
 	// Clamp the shown page when the filtered set shrinks (no effect needed): the
-	// prev/next buttons set `repoPage`, and `repoPageSafe` keeps it in range.
+	// Pagination control sets `repoPage`, and `repoPageSafe` keeps it in range.
 	const repoTotalPages = $derived(Math.max(1, Math.ceil(filteredRepos.length / REPOS_PER_PAGE)));
 	const repoPageSafe = $derived(Math.min(repoPage, repoTotalPages));
 	const pagedRepos = $derived(
 		filteredRepos.slice((repoPageSafe - 1) * REPOS_PER_PAGE, repoPageSafe * REPOS_PER_PAGE)
 	);
-	const repoRangeStart = $derived(
-		filteredRepos.length === 0 ? 0 : (repoPageSafe - 1) * REPOS_PER_PAGE + 1
-	);
-	const repoRangeEnd = $derived(Math.min(repoPageSafe * REPOS_PER_PAGE, filteredRepos.length));
 
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
@@ -453,6 +450,7 @@
 			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
 				<Octicon name="repo" size={16} />
 				Repositories
+				{#if repos.length > 0}<span class="text-sm font-normal text-gray-500">({filteredRepos.length.toLocaleString()})</span>{/if}
 			</h2>
 			{#if repos.length > 0}
 				<div class="relative">
@@ -588,33 +586,13 @@
 					</tbody>
 				</table>
 			</div>
-			<div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-gray-400">
-				<span>
-					Showing {repoRangeStart.toLocaleString()}–{repoRangeEnd.toLocaleString()} of {filteredRepos.length.toLocaleString()}
-					{#if filteredRepos.length !== repos.length}<span class="text-gray-500">(filtered from {repos.length.toLocaleString()})</span>{/if}
-				</span>
-				{#if repoTotalPages > 1}
-					<div class="flex items-center gap-1">
-						<button
-							type="button"
-							disabled={repoPageSafe <= 1}
-							onclick={() => (repoPage = repoPageSafe - 1)}
-							class="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							<Octicon name="chevron-left" size={12} /> Prev
-						</button>
-						<span class="px-2 tabular-nums text-gray-400">Page {repoPageSafe} / {repoTotalPages}</span>
-						<button
-							type="button"
-							disabled={repoPageSafe >= repoTotalPages}
-							onclick={() => (repoPage = repoPageSafe + 1)}
-							class="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							Next <Octicon name="chevron-right" size={12} />
-						</button>
-					</div>
-				{/if}
-			</div>
+			<Pagination
+				page={repoPageSafe}
+				totalPages={repoTotalPages}
+				total={filteredRepos.length}
+				limit={REPOS_PER_PAGE}
+				onPageChange={(p) => (repoPage = p)}
+			/>
 		{/if}
 	</section>
 </div>
