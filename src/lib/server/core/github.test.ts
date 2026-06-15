@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
+  countByPagination,
   doesOrgExist,
   doesRepoExist,
   isGhecSource,
@@ -199,5 +200,59 @@ describe("doesRepoExist", () => {
       },
     } as unknown as FakeClient;
     await expect(doesRepoExist(client, "acme", "widget")).rejects.toThrow(/HTTP 403/);
+  });
+});
+
+describe("countByPagination", () => {
+  /** A client whose `request` returns the given headers/data and records args. */
+  function client(response: { headers?: Record<string, string>; data?: unknown }) {
+    const calls: Array<{ route: string; params: Record<string, unknown> }> = [];
+    const c = {
+      request: async (route: string, params: Record<string, unknown>) => {
+        calls.push({ route, params });
+        return { headers: response.headers ?? {}, data: response.data ?? [] };
+      },
+    } as unknown as Parameters<typeof countByPagination>[0];
+    return { c, calls };
+  }
+
+  test("reads the rel=last page number as the count", async () => {
+    const { c } = client({
+      headers: {
+        link: '<https://api.github.com/x?per_page=1&page=2>; rel="next", <https://api.github.com/x?per_page=1&page=987>; rel="last"',
+      },
+    });
+    expect(await countByPagination(c, "GET /x", {})).toBe(987);
+  });
+
+  test("forces per_page=1 regardless of caller params", async () => {
+    const { c, calls } = client({ data: [{}] });
+    await countByPagination(c, "GET /repos/{owner}/{repo}/commits", {
+      owner: "acme",
+      repo: "widget",
+      per_page: 100,
+    });
+    expect(calls[0]?.params).toMatchObject({ owner: "acme", repo: "widget", per_page: 1 });
+  });
+
+  test("finds page= regardless of its position in the rel=last URL", async () => {
+    const { c } = client({
+      headers: { link: '<https://api.github.com/x?page=55&per_page=1>; rel="last"' },
+    });
+    expect(await countByPagination(c, "GET /x", {})).toBe(55);
+  });
+
+  test("falls back to the returned item count when there is no rel=last link", async () => {
+    // Only a `next` link (no `last`) → single page in hand; count what we got.
+    const { c } = client({
+      headers: { link: '<https://api.github.com/x?per_page=1&page=2>; rel="next"' },
+      data: [{ id: 1 }],
+    });
+    expect(await countByPagination(c, "GET /x", {})).toBe(1);
+  });
+
+  test("returns 0 when there is no link header and no items", async () => {
+    const { c } = client({ headers: {}, data: [] });
+    expect(await countByPagination(c, "GET /x", {})).toBe(0);
   });
 });

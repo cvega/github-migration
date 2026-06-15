@@ -84,7 +84,6 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   const s = signalsFor(repo, over);
   return {
     nameWithOwner: repo.nameWithOwner,
-    commitsCount: s.commitsCount,
     branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
     usesLfs: s.usesLfs,
     workflowFileCount: s.workflowFileCount,
@@ -103,6 +102,7 @@ function deps(
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
     augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r, augmentOver[r.name] ?? {})),
     augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
+    countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
   };
@@ -348,6 +348,60 @@ describe("runProfile", () => {
     const full = calls.find((c) => c.scanReleases === true);
     expect(lite?.size).toBe(2); // release-free repos, batched together
     expect(full?.size).toBe(3); // release-bearing repos, batched together
+  });
+
+  test("merges per-repo commit counts (REST pass) onto the recorded signals", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    const commitCalls: string[] = [];
+    const commitDeps: Partial<ProfileRunnerDeps> = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: async (_rest, r) => {
+        commitCalls.push(r.nameWithOwner);
+        return r.name === "a" ? 1200 : 42;
+      },
+    };
+
+    const run = await runProfile(
+      clients,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      commitDeps,
+    );
+
+    expect(run.state).toBe("completed");
+    expect(commitCalls.sort()).toEqual(["acme/a", "acme/b"]); // one call per repo
+    const byName = new Map(getRunRepoProfiles("r").map((p) => [p.nameWithOwner, p.signals]));
+    expect(byName.get("acme/a")?.commitsCount).toBe(1200);
+    expect(byName.get("acme/b")?.commitsCount).toBe(42);
+  });
+
+  test("keeps the run completed when a repo's commit count fails", async () => {
+    const repos = [discovered("ok"), discovered("boom")];
+    const commitDeps: Partial<ProfileRunnerDeps> = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: async (_rest, r) => {
+        if (r.name === "boom") throw new Error("commit count blew up");
+        return 7;
+      },
+    };
+
+    const run = await runProfile(
+      clients,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      commitDeps,
+    );
+
+    // A commit-count failure is best-effort: the run still completes and both
+    // repos are listed; the failing repo just keeps commitsCount 0.
+    expect(run.state).toBe("completed");
+    const byName = new Map(getRunRepoProfiles("r").map((p) => [p.nameWithOwner, p.signals]));
+    expect(byName.get("acme/ok")?.commitsCount).toBe(7);
+    expect(byName.get("acme/boom")?.commitsCount).toBe(0);
   });
 
   test("persists the run before crawling (a created run exists by completion)", async () => {

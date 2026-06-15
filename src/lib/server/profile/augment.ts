@@ -70,13 +70,14 @@ interface RepoCountsNode {
 }
 
 /**
- * Expensive per-repo verification fields: a commit-graph walk
- * (`history.totalCount`), two git-object reads (`.gitattributes`,
- * `.github/workflows`), branch-protection rule detail, and the release-asset
- * scan. Gathered in a second pass so a timeout here can't block the counts.
+ * Expensive per-repo verification fields: two git-object reads
+ * (`.gitattributes`, `.github/workflows`), branch-protection rule detail, and
+ * the release-asset scan. Gathered in a second pass so a timeout here can't
+ * block the counts. (Commit count is gathered separately via REST — see
+ * `commits.ts` — because GraphQL's `history.totalCount` walks the whole commit
+ * graph and times out at scale.)
  */
 interface RepoDetailsNode {
-  defaultBranchRef: { target: { history: { totalCount: number } } | null } | null;
   /** Root `.gitattributes` on the default branch (`Blob`), or null if absent. */
   gitattributes: { text: string | null } | null;
   /** `.github/workflows` dir on the default branch (`Tree`), or null if absent. */
@@ -91,7 +92,6 @@ interface RepoDetailsNode {
 /** The verification fields the details pass produces, merged onto the counts. */
 export interface RepoDetails {
   nameWithOwner: string;
-  commitsCount: number;
   branchProtectionRulesUsingUnmigratedFeatures: number;
   usesLfs: boolean;
   workflowFileCount: number;
@@ -122,18 +122,16 @@ const COUNTS_FRAGMENT = `fragment Counts on Repository {
 }`;
 
 /**
- * Verification fragment — the expensive parts: the commit-graph walk
- * (`history.totalCount`), two git-object reads (`.gitattributes`,
- * `.github/workflows`), branch-protection rule detail, and (when `scanReleases`)
- * the release-asset scan. Run as a second pass so a timeout here degrades a
- * repo's verification rather than blocking its counts.
+ * Verification fragment — the expensive parts: two git-object reads
+ * (`.gitattributes`, `.github/workflows`), branch-protection rule detail, and
+ * (when `scanReleases`) the release-asset scan. Run as a second pass so a
+ * timeout here degrades a repo's verification rather than blocking its counts.
  */
 function detailsFragment(scanReleases: boolean): string {
   const releases = scanReleases
     ? `releases(first: ${RELEASES_SCANNED}) { nodes { releaseAssets(first: ${ASSETS_SCANNED}) { nodes { size } } } }`
     : "";
   return `fragment Details on Repository {
-  defaultBranchRef { target { ... on Commit { history(first: 1) { totalCount } } } }
   gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
   workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
   ${releases}
@@ -268,7 +266,6 @@ export function baseSignals(repo: DiscoveredRepo): RepoSignals {
 function toDetails(repo: DiscoveredRepo, node: RepoDetailsNode | null): RepoDetails {
   return {
     nameWithOwner: repo.nameWithOwner,
-    commitsCount: node?.defaultBranchRef?.target?.history.totalCount ?? 0,
     branchProtectionRulesUsingUnmigratedFeatures: node
       ? node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length
       : 0,

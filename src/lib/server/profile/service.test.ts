@@ -65,7 +65,6 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   const s = signalsFor(repo, over);
   return {
     nameWithOwner: repo.nameWithOwner,
-    commitsCount: s.commitsCount,
     branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
     usesLfs: s.usesLfs,
     workflowFileCount: s.workflowFileCount,
@@ -105,6 +104,7 @@ function serviceDeps(
           chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
         augmentDetails: async (_gql, chunk) =>
           chunk.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
+        countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
       });
       return state.runPromise;
     },

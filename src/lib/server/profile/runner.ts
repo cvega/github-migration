@@ -19,6 +19,7 @@ import type { graphql } from "@octokit/graphql";
 import type { GitHubClient } from "$lib/server/core/github";
 import { analyzeRepo } from "./analyze";
 import { augmentRepoCounts, augmentRepoDetails, baseSignals } from "./augment";
+import { countRepoCommits } from "./commits";
 import { discoverOrgRepos } from "./discover";
 import {
   completeProfileRun,
@@ -39,12 +40,13 @@ import {
 } from "./types";
 
 /**
- * Repos per augment request. The crawl runs in two passes:
+ * Repos per augment request. The crawl runs in three passes:
  *   - COUNTS: cheap `{ totalCount }`/scalar fields only — fills each repo's
  *     counts fast and is very unlikely to hit GitHub's 10s timeout.
- *   - DETAILS: the expensive verification (commit-graph walk, two git-object
- *     reads, branch-protection detail, and — for release-bearing repos — the
+ *   - DETAILS: the expensive verification (two git-object reads,
+ *     branch-protection detail, and — for release-bearing repos — the
  *     release-asset scan), so those batch smaller.
+ *   - COMMITS: one cheap REST `Link`-header count per repo (no graph walk).
  * Kept at 10-15 repos/request; `augmentRepo*` further splits any chunk that
  * still times out, so these are safe ceilings.
  */
@@ -54,6 +56,10 @@ const DETAILS_CHUNK_LITE = 15;
 
 /** How many augment requests are in flight at once (cuts wall-clock ~Nx). */
 const AUGMENT_CONCURRENCY = 3;
+
+/** How many per-repo commit-count requests are in flight at once. Each is a
+ *  single cheap REST call, so this runs wider than the GraphQL passes. */
+const COMMIT_CONCURRENCY = 8;
 
 /** Split an array into fixed-size chunks (the last may be smaller). */
 function chunk<T>(items: T[], size: number): T[][] {
@@ -101,6 +107,8 @@ export interface ProfileRunnerDeps {
   augmentCounts: typeof augmentRepoCounts;
   /** Pass 2: expensive per-repo verification details. */
   augmentDetails: typeof augmentRepoDetails;
+  /** Pass 3: per-repo commit count (cheap REST `Link`-header count). */
+  countCommits: typeof countRepoCommits;
   /** Count the org's rulesets. Default is a no-op (0); the service binds the
    *  real REST-backed implementation, which needs a client this module lacks. */
   getOrgRulesetCount: (org: string) => Promise<number>;
@@ -113,6 +121,7 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
   discover: discoverOrgRepos,
   augmentCounts: augmentRepoCounts,
   augmentDetails: augmentRepoDetails,
+  countCommits: countRepoCommits,
   getOrgRulesetCount: async () => 0,
   getOrgResources: async () => ZERO_ORG_RESOURCES,
 };
@@ -255,7 +264,6 @@ export async function runProfile(
               if (!base) continue;
               const merged: RepoSignals = {
                 ...base,
-                commitsCount: det.commitsCount,
                 branchProtectionRulesUsingUnmigratedFeatures:
                   det.branchProtectionRulesUsingUnmigratedFeatures,
                 usesLfs: det.usesLfs,
@@ -278,6 +286,43 @@ export async function runProfile(
       await Promise.all(
         Array.from({ length: Math.min(AUGMENT_CONCURRENCY, tasks.length) }, () => worker()),
       );
+    }
+
+    // ── Pass 3: commit counts (REST Link-header, best-effort) ──────────────
+    // One cheap REST request per repo (per_page=1 → the `rel="last"` page number
+    // is the default-branch commit count) instead of GraphQL's commit-graph walk.
+    // Runs as its own worker pool — wider than the GraphQL passes since each call
+    // is tiny — and merges onto the recorded signals. Non-fatal: a repo that
+    // can't be counted keeps commitsCount 0.
+    {
+      const repos = discovery.repos;
+      let next = 0;
+      const worker = async (): Promise<void> => {
+        while (next < repos.length) {
+          const r = repos[next++];
+          if (!r) break;
+          try {
+            const commitsCount = await d.countCommits(clients.rest, r);
+            const base = signalsByRepo.get(r.nameWithOwner);
+            if (base && commitsCount !== base.commitsCount) {
+              const merged: RepoSignals = { ...base, commitsCount };
+              signalsByRepo.set(r.nameWithOwner, merged);
+              recordRepoProfile(input.id, merged, analyzeRepo(merged));
+            }
+          } catch (err) {
+            console.error(
+              `[profile] run ${input.id} commit count failed for ${r.nameWithOwner}:`,
+              err,
+            );
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(COMMIT_CONCURRENCY, repos.length) }, () => worker()),
+      );
+      if (repos.length > 0) {
+        onProgress?.({ runId: input.id, profiled, total: discovery.total, repo: "" });
+      }
     }
 
     completeProfileRun(input.id);
