@@ -21,6 +21,25 @@ export function formatElapsed(seconds: number | null, fallback = "—"): string 
 }
 
 /**
+ * Format a duration given in hours as a coarse, human-readable string for
+ * estimates: minutes under an hour, `Hh Mm` under a day, `Dd Hh` beyond.
+ *
+ * @param hours - Duration in hours (may be fractional), or null/≤0.
+ * @param fallback - String to return when hours is null/≤0 (default "—").
+ */
+export function formatHours(hours: number | null, fallback = "—"): string {
+  if (hours == null || hours <= 0) return fallback;
+  const totalMinutes = Math.round(hours * 60);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
+}
+
+/**
  * Format a repository size given in kilobytes as a human-readable string
  * (KB / MB / GB). Mirrors the GitHub API's `size` field, which is in KB.
  *

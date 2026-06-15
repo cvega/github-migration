@@ -48,6 +48,12 @@ export interface DiscoveredRepo {
   branchesCount: number;
   /** Tags (`refs` under `refs/tags/`) — migration scale. */
   tagsCount: number;
+  /**
+   * Releases (`releases.totalCount`); GHES releases don't migrate at all.
+   * Gathered in discovery (free on the 100-wide page) so the augment pass can
+   * skip the heavy release-asset scan for repos that have none.
+   */
+  releasesCount: number;
 }
 
 /** Progress emitted after each discovery page (drives SSE / logging later). */
@@ -88,8 +94,12 @@ export interface RepoSignals extends DiscoveredRepo {
   projectsV2Count: number;
   /** Actions environments (`environments.totalCount`); not migrated. */
   environmentsCount: number;
-  /** Releases (`releases.totalCount`); GHES releases don't migrate at all. */
-  releasesCount: number;
+  /**
+   * Summed byte size of release assets across the repo's releases (bounded scan:
+   * the first 100 releases × first 50 assets each). An estimate — the usual
+   * driver of the per-repo release (10 GiB) and metadata-archive (40 GiB) limits.
+   */
+  releaseAssetBytes: number;
   /** Stars (`stargazerCount`); not migrated. */
   stargazerCount: number;
   /** Watchers (`watchers.totalCount`); not migrated. */
@@ -103,12 +113,56 @@ export interface RepoSignals extends DiscoveredRepo {
    * branch-protection-partial gap applies.
    */
   branchProtectionRulesUsingUnmigratedFeatures: number;
+  /** Packages in GitHub Packages (`packages.totalCount`); not migrated. */
+  packagesCount: number;
+  /**
+   * Whether the default branch's root `.gitattributes` configures Git LFS
+   * (`filter=lfs`). LFS objects are not carried by the export and must be pushed
+   * post-migration. A proxy: only the root file on the default branch is checked.
+   */
+  usesLfs: boolean;
+  /**
+   * Workflow files under `.github/workflows` on the default branch. Workflows
+   * themselves migrate, but their run history and artifacts do not — so `> 0`
+   * means there's run history that will be lost.
+   */
+  workflowFileCount: number;
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 /** Lifecycle state of a profiling run. */
 export type ProfileRunState = "running" | "completed" | "failed";
+
+/**
+ * Organization-level resources gathered once per run (REST). These are scoped
+ * to the org (not per-repo), are not migrated, and must be recreated on the
+ * target. Each degrades to 0 when its endpoint is unavailable or unauthorized.
+ */
+export interface OrgResources {
+  /** Org Actions secrets (`/orgs/{org}/actions/secrets`). */
+  actionsSecrets: number;
+  /** Org Actions variables (`/orgs/{org}/actions/variables`). */
+  actionsVariables: number;
+  /** Org Dependabot secrets (`/orgs/{org}/dependabot/secrets`). */
+  dependabotSecrets: number;
+  /** Org Codespaces secrets (`/orgs/{org}/codespaces/secrets`). */
+  codespacesSecrets: number;
+  /** Org self-hosted runners (`/orgs/{org}/actions/runners`). */
+  selfHostedRunners: number;
+  /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
+  customProperties: number;
+}
+
+/** All-zero org resources — the default before gathering (and on total failure). */
+export const ZERO_ORG_RESOURCES: OrgResources = {
+  actionsSecrets: 0,
+  actionsVariables: 0,
+  dependabotSecrets: 0,
+  codespacesSecrets: 0,
+  selfHostedRunners: 0,
+  customProperties: 0,
+};
 
 /**
  * An organization-scoped profiling run. Aggregate counters (`profiledRepos`,
@@ -127,6 +181,10 @@ export interface ProfileRun {
   blockers: number;
   /** Total applying warn-severity gaps across the run's repos. */
   warnings: number;
+  /** Organization rulesets (REST); not migrated, and can fail the migration. */
+  orgRulesetCount: number;
+  /** Organization-level resources (secrets, runners, …) gathered once per run. */
+  orgResources: OrgResources;
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;

@@ -6,7 +6,7 @@
  * startup. The query functions live in `./store`.
  */
 import type { Database } from "bun:sqlite";
-import type { DomainStore } from "$lib/server/core/db";
+import { addColumnIfMissing, type DomainStore } from "$lib/server/core/db";
 
 const PROFILE_DDL = `
   -- An organization-scoped readiness crawl. Aggregate counters (profiled_repos,
@@ -21,6 +21,8 @@ const PROFILE_DDL = `
     profiled_repos INTEGER NOT NULL DEFAULT 0,
     blockers INTEGER NOT NULL DEFAULT 0,
     warnings INTEGER NOT NULL DEFAULT 0,
+    org_ruleset_count INTEGER NOT NULL DEFAULT 0,
+    org_resources TEXT NOT NULL DEFAULT '{}',
     started_at TEXT NOT NULL,
     completed_at TEXT,
     failure_reason TEXT
@@ -72,6 +74,9 @@ export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.no
 export const profileStore: DomainStore = {
   applySchema(db) {
     db.run(PROFILE_DDL);
+    // Columns added after the table's first release — upgrade older databases.
+    addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
   },
   onInit: recoverInterruptedProfiles,
 };

@@ -30,6 +30,7 @@ function discovered(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
+    releasesCount: 0,
     ...over,
   };
 }
@@ -63,9 +64,15 @@ function node(over: {
   discussions?: number;
   projectsV2?: number;
   environments?: number;
-  releases?: number;
   stars?: number;
   watchers?: number;
+  packages?: number;
+  /** Raw `.gitattributes` text; omit for no file (null blob). */
+  lfsAttributes?: string;
+  /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
+  workflowFiles?: string[];
+  /** Asset byte sizes; placed in a single scanned release node (omit = not scanned). */
+  releaseAssetSizes?: number[];
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
   noDefaultBranch?: boolean;
@@ -77,9 +84,21 @@ function node(over: {
     discussions: { totalCount: over.discussions ?? 0 },
     projectsV2: { totalCount: over.projectsV2 ?? 0 },
     environments: { totalCount: over.environments ?? 0 },
-    releases: { totalCount: over.releases ?? 0 },
+    // `releases` is present only on a scanned node (mirrors scanReleases: true).
+    ...(over.releaseAssetSizes
+      ? {
+          releases: {
+            nodes: [{ releaseAssets: { nodes: over.releaseAssetSizes.map((size) => ({ size })) } }],
+          },
+        }
+      : {}),
     stargazerCount: over.stars ?? 0,
     watchers: { totalCount: over.watchers ?? 0 },
+    packages: { totalCount: over.packages ?? 0 },
+    gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
+    workflows: over.workflowFiles
+      ? { entries: over.workflowFiles.map((name) => ({ name })) }
+      : null,
     branchProtectionRules: {
       totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
       nodes: over.rules ?? [],
@@ -108,26 +127,102 @@ describe("augmentRepoSignals", () => {
         discussions: 3,
         projectsV2: 2,
         environments: 4,
-        releases: 7,
         stars: 41,
         watchers: 9,
       }),
     });
 
-    const [signals] = await augmentRepoSignals(fn, [discovered({ issuesCount: 11 })]);
+    const [signals] = await augmentRepoSignals(fn, [
+      discovered({ issuesCount: 11, releasesCount: 7 }),
+    ]);
 
     // Augmented counts.
     expect(signals?.commitsCount).toBe(512);
     expect(signals?.discussionsCount).toBe(3);
     expect(signals?.projectsV2Count).toBe(2);
     expect(signals?.environmentsCount).toBe(4);
-    expect(signals?.releasesCount).toBe(7);
     expect(signals?.stargazerCount).toBe(41);
     expect(signals?.watcherCount).toBe(9);
     // Discovered spine preserved (incl. the content counts from discovery).
     expect(signals?.nameWithOwner).toBe("acme/widget");
     expect(signals?.diskUsageKb).toBe(1234);
     expect(signals?.issuesCount).toBe(11);
+    expect(signals?.releasesCount).toBe(7);
+  });
+
+  test("maps the packages count", async () => {
+    const { fn } = mockGql({ r0: node({ packages: 6 }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.packagesCount).toBe(6);
+  });
+
+  test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
+    const { fn } = mockGql({
+      r0: node({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),
+    });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(true);
+  });
+
+  test("a .gitattributes without filter=lfs is not flagged as LFS", async () => {
+    const { fn } = mockGql({ r0: node({ lfsAttributes: "*.txt text eol=lf\n" }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(false);
+  });
+
+  test("an absent .gitattributes means no LFS", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(false);
+    expect(signals?.packagesCount).toBe(0);
+  });
+
+  test("sums release asset bytes across releases", async () => {
+    const { fn } = mockGql({ r0: node({ releaseAssetSizes: [1000, 2500, 500] }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.releaseAssetBytes).toBe(4000);
+  });
+
+  test("a repo with no releases has zero release asset bytes", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.releaseAssetBytes).toBe(0);
+  });
+
+  test("omits the release-asset scan from the query when scanReleases is false", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: node({}) };
+    }) as unknown as typeof graphql;
+
+    await augmentRepoSignals(fn, [discovered()], { scanReleases: false });
+    expect(query).not.toContain("releaseAssets");
+  });
+
+  test("includes the release-asset scan from the query when scanReleases is true", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: node({ releaseAssetSizes: [10] }) };
+    }) as unknown as typeof graphql;
+
+    await augmentRepoSignals(fn, [discovered()], { scanReleases: true });
+    expect(query).toContain("releaseAssets");
+  });
+
+  test("counts only .yml/.yaml workflow files under .github/workflows", async () => {
+    const { fn } = mockGql({
+      r0: node({ workflowFiles: ["ci.yml", "release.yaml", "README.md", "dependabot.yml"] }),
+    });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.workflowFileCount).toBe(3);
+  });
+
+  test("a repo with no .github/workflows tree has zero workflow files", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.workflowFileCount).toBe(0);
   });
 
   test("treats a missing default branch as zero commits", async () => {

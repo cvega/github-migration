@@ -33,6 +33,7 @@ interface RepoNode {
   pullRequests: { totalCount: number };
   branches: { totalCount: number };
   tags: { totalCount: number };
+  releases: { totalCount: number };
 }
 
 /** Raw shape of the paged discovery query response. */
@@ -70,6 +71,7 @@ const ORG_REPOS_QUERY = `query orgRepos($login: String!, $cursor: String, $pageS
         pullRequests { totalCount }
         branches: refs(refPrefix: "refs/heads/", first: 1) { totalCount }
         tags: refs(refPrefix: "refs/tags/", first: 1) { totalCount }
+        releases { totalCount }
       }
     }
   }
@@ -96,6 +98,7 @@ function toDiscoveredRepo(node: RepoNode): DiscoveredRepo {
     pullRequestsCount: node.pullRequests.totalCount,
     branchesCount: node.branches.totalCount,
     tagsCount: node.tags.totalCount,
+    releasesCount: node.releases.totalCount,
   };
 }
 

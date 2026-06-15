@@ -27,6 +27,7 @@ interface RepoNode {
   pullRequests: { totalCount: number };
   branches: { totalCount: number };
   tags: { totalCount: number };
+  releases: { totalCount: number };
 }
 
 /** Build a repo node, overriding only the fields a test cares about. */
@@ -50,6 +51,7 @@ function node(name: string, over: Partial<RepoNode> = {}): RepoNode {
     pullRequests: { totalCount: 0 },
     branches: { totalCount: 0 },
     tags: { totalCount: 0 },
+    releases: { totalCount: 0 },
     ...over,
   };
 }
@@ -172,6 +174,7 @@ describe("discoverOrgRepos", () => {
       pullRequestsCount: 0,
       branchesCount: 0,
       tagsCount: 0,
+      releasesCount: 0,
     });
   });
 
@@ -184,6 +187,7 @@ describe("discoverOrgRepos", () => {
             pullRequests: { totalCount: 17 },
             branches: { totalCount: 6 },
             tags: { totalCount: 9 },
+            releases: { totalCount: 5 },
           }),
         ],
         { total: 1 },
@@ -196,6 +200,7 @@ describe("discoverOrgRepos", () => {
     expect(repo?.pullRequestsCount).toBe(17);
     expect(repo?.branchesCount).toBe(6);
     expect(repo?.tagsCount).toBe(9);
+    expect(repo?.releasesCount).toBe(5);
   });
 
   test("handles an organization with no repositories", async () => {

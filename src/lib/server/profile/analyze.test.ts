@@ -39,6 +39,10 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     watcherCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
+    packagesCount: 0,
+    usesLfs: false,
+    releaseAssetBytes: 0,
+    workflowFileCount: 0,
     ...over,
   };
 }
@@ -68,8 +72,8 @@ describe("analyzeRepo", () => {
 
   test("considerations without a detector are reported as indeterminate, not clear", () => {
     const profile = analyzeRepo(cleanSignals());
-    // `packages` has no signal gathered yet.
-    expect(finding(profile, "packages")?.status).toBe("indeterminate");
+    // `webhooks` has no signal gathered yet.
+    expect(finding(profile, "webhooks")?.status).toBe("indeterminate");
     expect(finding(profile, "discussions")?.status).toBe("clear");
   });
 
@@ -85,6 +89,9 @@ describe("analyzeRepo", () => {
         watcherCount: 1,
         isFork: true,
         hasWiki: true,
+        packagesCount: 2,
+        usesLfs: true,
+        workflowFileCount: 4,
       }),
     );
 
@@ -101,6 +108,11 @@ describe("analyzeRepo", () => {
     expect(finding(profile, "fork-relationships")?.evidence).toBe("repository is a fork");
     expect(finding(profile, "wiki-attachments")?.evidence).toBe(
       "wiki enabled (attachments not migrated)",
+    );
+    expect(finding(profile, "packages")?.evidence).toBe("2 packages");
+    expect(finding(profile, "git-lfs")?.status).toBe("applies");
+    expect(finding(profile, "actions-run-history")?.evidence).toBe(
+      "4 workflows (run history & artifacts not migrated)",
     );
   });
 
@@ -134,6 +146,26 @@ describe("analyzeRepo", () => {
     const small = analyzeRepo(cleanSignals({ diskUsageKb: 500 * 1024 })); // 500 MiB
     expect(finding(small, "git-archive-size-limit")?.status).toBe("clear");
     expect(small.summary.blockers).toBe(0);
+  });
+
+  test("flags release assets over 10 GiB as a release-size blocker", () => {
+    const profile = analyzeRepo(cleanSignals({ releaseAssetBytes: 11 * 1024 ** 3 }));
+    const f = finding(profile, "release-size-limit");
+    expect(f?.status).toBe("applies");
+    expect(f?.evidence).toMatch(/GiB of release assets/);
+    expect(finding(profile, "metadata-archive-limit")?.status).toBe("clear");
+  });
+
+  test("flags release assets over 40 GiB as both release-size and metadata blockers", () => {
+    const profile = analyzeRepo(cleanSignals({ releaseAssetBytes: 41 * 1024 ** 3 }));
+    expect(finding(profile, "release-size-limit")?.status).toBe("applies");
+    expect(finding(profile, "metadata-archive-limit")?.status).toBe("applies");
+  });
+
+  test("clears the release-size considerations under the limits", () => {
+    const profile = analyzeRepo(cleanSignals({ releaseAssetBytes: 1 * 1024 ** 3 }));
+    expect(finding(profile, "release-size-limit")?.status).toBe("clear");
+    expect(finding(profile, "metadata-archive-limit")?.status).toBe("clear");
   });
 
   test("null diskUsage is clear of the size blocker (not a false positive)", () => {

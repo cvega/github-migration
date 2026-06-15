@@ -34,6 +34,7 @@ function discovered(name: string): DiscoveredRepo {
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
+    releasesCount: 0,
   };
 }
 
@@ -44,11 +45,14 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
-    releasesCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
+    packagesCount: 0,
+    usesLfs: false,
+    releaseAssetBytes: 0,
+    workflowFileCount: 0,
     ...over,
   };
 }
@@ -65,9 +69,13 @@ function serviceDeps(
     gqlBuilt: 0,
   };
   const deps: ProfileServiceDeps = {
-    buildSourceGql: () => {
+    buildSourceClients: () => {
       state.gqlBuilt += 1;
-      return { gql: {} as never, sourceApiUrl: "https://ghes.example.com/api/v3" };
+      return {
+        gql: {} as never,
+        rest: {} as never,
+        sourceApiUrl: "https://ghes.example.com/api/v3",
+      };
     },
     run: (gql, input, onProgress) => {
       state.lastInput = input;
@@ -128,7 +136,7 @@ describe("startOrgProfile", () => {
 
   test("propagates a source-auth failure (no run created)", () => {
     const deps: ProfileServiceDeps = {
-      buildSourceGql: () => {
+      buildSourceClients: () => {
         throw new Error("No source token provided and no source GitHub App configured");
       },
       run: () => Promise.resolve({} as never),

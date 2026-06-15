@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDateTime, formatElapsed, formatRepoSize, timeAgo } from "./format";
+import { formatDateTime, formatElapsed, formatHours, formatRepoSize, timeAgo } from "./format";
 
 describe("formatElapsed", () => {
   test("returns the fallback for null", () => {
@@ -21,6 +21,32 @@ describe("formatElapsed", () => {
     expect(formatElapsed(3600)).toBe("1h 0m");
     expect(formatElapsed(3661)).toBe("1h 1m");
     expect(formatElapsed(7200)).toBe("2h 0m");
+  });
+});
+
+describe("formatHours", () => {
+  test("returns the fallback for null or non-positive input", () => {
+    expect(formatHours(null)).toBe("—");
+    expect(formatHours(0)).toBe("—");
+    expect(formatHours(-1)).toBe("—");
+    expect(formatHours(null, "n/a")).toBe("n/a");
+  });
+
+  test("formats sub-hour durations as minutes", () => {
+    expect(formatHours(0.1)).toBe("6 min");
+    expect(formatHours(0.5)).toBe("30 min");
+  });
+
+  test("formats hour-and-minute durations under a day", () => {
+    expect(formatHours(1)).toBe("1h");
+    expect(formatHours(1.5)).toBe("1h 30m");
+    expect(formatHours(23.5)).toBe("23h 30m");
+  });
+
+  test("formats multi-day durations as days and hours", () => {
+    expect(formatHours(24)).toBe("1d");
+    expect(formatHours(25)).toBe("1d 1h");
+    expect(formatHours(49)).toBe("2d 1h");
   });
 });
 
