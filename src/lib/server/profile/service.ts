@@ -45,7 +45,6 @@ interface MigrationScale {
   repos: number;
   issues: number;
   pullRequests: number;
-  commits: number;
   branches: number;
   tags: number;
   releases: number;
@@ -70,7 +69,6 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
     repos: repos.length,
     issues: 0,
     pullRequests: 0,
-    commits: 0,
     branches: 0,
     tags: 0,
     releases: 0,
@@ -79,7 +77,6 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
   for (const { signals } of repos) {
     scale.issues += signals.issuesCount;
     scale.pullRequests += signals.pullRequestsCount;
-    scale.commits += signals.commitsCount;
     scale.branches += signals.branchesCount;
     scale.tags += signals.tagsCount;
     scale.releases += signals.releasesCount;

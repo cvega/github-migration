@@ -86,8 +86,6 @@ export interface OrgDiscovery {
  * read a number and compare, rather than re-deriving GraphQL schema details.
  */
 export interface RepoSignals extends DiscoveredRepo {
-  /** Commits on the default branch (`history.totalCount`) — migration scale. */
-  commitsCount: number;
   /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
   discussionsCount: number;
   /** Projects (new experience) (`projectsV2.totalCount`); not migrated. */

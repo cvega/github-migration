@@ -22,12 +22,18 @@
 import type { graphql } from "@octokit/graphql";
 import type { DiscoveredRepo, RepoSignals } from "./types";
 
-/** GraphQL caps `branchProtectionRules(first:)` at 100 — plenty per repo. */
-const MAX_RULES = 100;
+/** GraphQL caps `branchProtectionRules(first:)` at 100; most repos have <10, so
+ *  50 covers virtually all of them while halving the worst-case node fan-out. */
+const MAX_RULES = 50;
 
-/** Bounded release scan: first N releases, first M assets each (an estimate). */
-const RELEASES_SCANNED = 100;
-const ASSETS_SCANNED = 50;
+/**
+ * Bounded release scan: first N releases, first M assets each (an estimate).
+ * Kept deliberately shallow — `releases(first:){releaseAssets(first:)}` is a
+ * deeply nested connection, the main driver of the 10s query timeout when many
+ * repos are aliased into one request.
+ */
+const RELEASES_SCANNED = 50;
+const ASSETS_SCANNED = 30;
 
 /** One branch protection rule's migration-relevant flags. */
 interface BranchProtectionRuleNode {
@@ -42,7 +48,6 @@ interface BranchProtectionRuleNode {
 
 /** Raw shape of one repository alias in the batched signals query. */
 interface RepoSignalsNode {
-  defaultBranchRef: { target: { history: { totalCount: number } } | null } | null;
   discussions: { totalCount: number };
   projectsV2: { totalCount: number };
   environments: { totalCount: number };
@@ -67,20 +72,20 @@ interface RepoSignalsNode {
 type BatchSignalsResult = Record<string, RepoSignalsNode | null>;
 
 /**
- * The per-repo selection. `history` sits behind a `... on Commit` inline
- * fragment because `defaultBranchRef.target` is a `GitObject` (Commit | Tree |
- * Blob | Tag); only a Commit has `history`.
+ * The per-repo selection. The release-asset scan (the heaviest part — up to 50
+ * releases × 30 assets) is included only when `scanReleases` is set, so repos
+ * discovery already knows have zero releases can be batched far wider.
  *
- * The release-asset scan (the heaviest part — up to 100 releases × 50 assets) is
- * included only when `scanReleases` is set, so repos discovery already knows have
- * zero releases can be batched far wider.
+ * Deliberately omits commit count (`history.totalCount`): it walks the whole
+ * commit graph and is the single most expensive resolver — the main cause of
+ * the 10s query timeout when repos are aliased — while being pure scale
+ * decoration (git history migrates wholesale).
  */
 function signalsFragment(scanReleases: boolean): string {
   const releases = scanReleases
     ? `releases(first: ${RELEASES_SCANNED}) { nodes { releaseAssets(first: ${ASSETS_SCANNED}) { nodes { size } } } }`
     : "";
   return `fragment Sig on Repository {
-  defaultBranchRef { target { ... on Commit { history(first: 1) { totalCount } } } }
   discussions { totalCount }
   projectsV2 { totalCount }
   environments { totalCount }
@@ -174,7 +179,6 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
   if (!node) {
     return {
       ...repo,
-      commitsCount: 0,
       discussionsCount: 0,
       projectsV2Count: 0,
       environmentsCount: 0,
@@ -190,7 +194,6 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
   }
   return {
     ...repo,
-    commitsCount: node.defaultBranchRef?.target?.history.totalCount ?? 0,
     discussionsCount: node.discussions.totalCount,
     projectsV2Count: node.projectsV2.totalCount,
     environmentsCount: node.environments.totalCount,

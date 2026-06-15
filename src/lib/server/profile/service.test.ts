@@ -41,7 +41,6 @@ function discovered(name: string): DiscoveredRepo {
 function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
   return {
     ...repo,
-    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -218,7 +217,6 @@ describe("getProfileDetail", () => {
       signalsFor(discovered("a"), {
         issuesCount: 10,
         pullRequestsCount: 4,
-        commitsCount: 100,
         branchesCount: 3,
         tagsCount: 2,
         releasesCount: 1,
@@ -231,7 +229,6 @@ describe("getProfileDetail", () => {
       signalsFor(discovered("b"), {
         issuesCount: 5,
         pullRequestsCount: 6,
-        commitsCount: 50,
         branchesCount: 1,
         tagsCount: 0,
         releasesCount: 2,
@@ -245,7 +242,6 @@ describe("getProfileDetail", () => {
       repos: 2,
       issues: 15,
       pullRequests: 10,
-      commits: 150,
       branches: 4,
       tags: 2,
       releases: 3,

@@ -60,7 +60,6 @@ function rule(flags: RuleFlags = {}) {
 
 /** Build one repository alias node. */
 function node(over: {
-  commits?: number;
   discussions?: number;
   projectsV2?: number;
   environments?: number;
@@ -75,12 +74,8 @@ function node(over: {
   releaseAssetSizes?: number[];
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
-  noDefaultBranch?: boolean;
 }) {
   return {
-    defaultBranchRef: over.noDefaultBranch
-      ? null
-      : { target: { history: { totalCount: over.commits ?? 0 } } },
     discussions: { totalCount: over.discussions ?? 0 },
     projectsV2: { totalCount: over.projectsV2 ?? 0 },
     environments: { totalCount: over.environments ?? 0 },
@@ -123,7 +118,6 @@ describe("augmentRepoSignals", () => {
   test("maps every count signal and preserves the discovered fields", async () => {
     const { fn } = mockGql({
       r0: node({
-        commits: 512,
         discussions: 3,
         projectsV2: 2,
         environments: 4,
@@ -137,7 +131,6 @@ describe("augmentRepoSignals", () => {
     ]);
 
     // Augmented counts.
-    expect(signals?.commitsCount).toBe(512);
     expect(signals?.discussionsCount).toBe(3);
     expect(signals?.projectsV2Count).toBe(2);
     expect(signals?.environmentsCount).toBe(4);
@@ -225,14 +218,6 @@ describe("augmentRepoSignals", () => {
     expect(signals?.workflowFileCount).toBe(0);
   });
 
-  test("treats a missing default branch as zero commits", async () => {
-    const { fn } = mockGql({ r0: node({ noDefaultBranch: true }) });
-
-    const [signals] = await augmentRepoSignals(fn, [discovered({ isEmpty: true })]);
-
-    expect(signals?.commitsCount).toBe(0);
-  });
-
   test("derives owner/name per alias and caps the rules page", async () => {
     const { fn, calls } = mockGql({ r0: node({}), r1: node({}) });
 
@@ -242,7 +227,7 @@ describe("augmentRepoSignals", () => {
     ]);
 
     expect(calls[0]).toMatchObject({
-      rules: 100,
+      rules: 50,
       o0: "octo-org",
       n0: "widget",
       o1: "octo-org",
@@ -252,9 +237,9 @@ describe("augmentRepoSignals", () => {
 
   test("profiles a whole chunk in a single request, in input order", async () => {
     const { fn, calls } = mockGql({
-      r0: node({ commits: 1 }),
-      r1: node({ commits: 2 }),
-      r2: node({ commits: 3 }),
+      r0: node({ discussions: 1 }),
+      r1: node({ discussions: 2 }),
+      r2: node({ discussions: 3 }),
     });
 
     const signals = await augmentRepoSignals(fn, [
@@ -264,7 +249,7 @@ describe("augmentRepoSignals", () => {
     ]);
 
     expect(calls).toHaveLength(1); // one batched request for three repos
-    expect(signals.map((s) => [s.nameWithOwner, s.commitsCount])).toEqual([
+    expect(signals.map((s) => [s.nameWithOwner, s.discussionsCount])).toEqual([
       ["o/a", 1],
       ["o/b", 2],
       ["o/c", 3],
@@ -323,18 +308,18 @@ describe("augmentRepoSignals", () => {
   });
 
   test("degrades a null alias to zeroed signals (keeps the discovery spine)", async () => {
-    const { fn } = mockGql({ r0: node({ commits: 5 }), r1: null });
+    const { fn } = mockGql({ r0: node({ discussions: 5 }), r1: null });
 
     const signals = await augmentRepoSignals(fn, [
       discovered({ nameWithOwner: "o/ok", name: "ok" }),
       discovered({ nameWithOwner: "o/gone", name: "gone", issuesCount: 3 }),
     ]);
 
-    expect(signals[0]?.commitsCount).toBe(5);
+    expect(signals[0]?.discussionsCount).toBe(5);
     // The inaccessible repo keeps its discovered fields but zeroes augment counts.
     expect(signals[1]?.nameWithOwner).toBe("o/gone");
     expect(signals[1]?.issuesCount).toBe(3);
-    expect(signals[1]?.commitsCount).toBe(0);
+    expect(signals[1]?.discussionsCount).toBe(0);
     expect(signals[1]?.branchProtectionRuleCount).toBe(0);
   });
 
@@ -342,7 +327,7 @@ describe("augmentRepoSignals", () => {
     // GraphQL returns partial data + errors when one alias is inaccessible; the
     // client surfaces that as a throw carrying `.data`. Recover the good repos.
     const err = Object.assign(new Error("Could not resolve to a Repository"), {
-      data: { r0: node({ commits: 8 }), r1: null },
+      data: { r0: node({ discussions: 8 }), r1: null },
     });
     const fn = (async () => {
       throw err;
@@ -353,8 +338,8 @@ describe("augmentRepoSignals", () => {
       discovered({ nameWithOwner: "o/b", name: "b" }),
     ]);
 
-    expect(signals[0]?.commitsCount).toBe(8);
-    expect(signals[1]?.commitsCount).toBe(0);
+    expect(signals[0]?.discussionsCount).toBe(8);
+    expect(signals[1]?.discussionsCount).toBe(0);
   });
 
   test("rethrows an error with no recoverable data payload", async () => {

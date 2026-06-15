@@ -37,13 +37,18 @@ import {
 } from "./types";
 
 /**
- * Repos per augment request. Repos discovery found to have zero releases skip
- * the heavy release-asset scan, so they batch far wider (LITE); repos with
- * releases keep the conservative width (FULL) to stay within GitHub's per-query
- * node budget and 10s execution timeout.
+ * Repos per augment request. Each repo carries server-side git object reads
+ * (`.gitattributes` blob + `.github/workflows` tree) plus up to 100
+ * branch-protection nodes — and, for release-bearing repos, the release-asset
+ * scan — so the real cost per repo is high and the limiting factor is GitHub's
+ * ~10s GraphQL execution timeout, not the static node budget. These widths are
+ * deliberately small: wide batches (e.g. 25+) time out and return a 502.
+ *
+ * LITE = repos discovery found to have zero releases (skip the release scan).
+ * FULL = repos with releases (the heaviest queries), kept at the floor.
  */
-const AUGMENT_CHUNK_FULL = 25;
-const AUGMENT_CHUNK_LITE = 90;
+const AUGMENT_CHUNK_FULL = 10;
+const AUGMENT_CHUNK_LITE = 15;
 
 /** How many augment requests are in flight at once (cuts wall-clock ~Nx). */
 const AUGMENT_CONCURRENCY = 3;

@@ -28,7 +28,6 @@ function signals(diskUsageKb: number | null): RepoSignals {
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
-    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,

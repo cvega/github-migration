@@ -48,7 +48,6 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
 function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
   return {
     ...repo,
-    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -202,8 +201,9 @@ describe("runProfile", () => {
   });
 
   test("persists completed chunks when a later chunk fails", async () => {
-    // 26 repos with releases → two full-scan chunks (25 + 1). The chunk holding
-    // the last repo throws; the other chunk's 25 repos still persist.
+    // 26 repos with releases at FULL=10 → chunks of 10 + 10 + 6. The chunk
+    // holding the last repo (r20–r25) throws; the other two chunks' 20 repos
+    // still persist.
     const repos = Array.from({ length: 26 }, (_, i) =>
       discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
     );
@@ -223,7 +223,7 @@ describe("runProfile", () => {
     );
 
     expect(run.state).toBe("failed");
-    expect(getRunRepoProfiles("r")).toHaveLength(25); // the surviving chunk persisted
+    expect(getRunRepoProfiles("r")).toHaveLength(20); // the two surviving chunks persisted
   });
 
   test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {
