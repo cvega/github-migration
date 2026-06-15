@@ -117,6 +117,12 @@ export interface RepoSignals extends DiscoveredRepo {
    * post-migration. A proxy: only the root file on the default branch is checked.
    */
   usesLfs: boolean;
+  /**
+   * Workflow files under `.github/workflows` on the default branch. Workflows
+   * themselves migrate, but their run history and artifacts do not — so `> 0`
+   * means there's run history that will be lost.
+   */
+  workflowFileCount: number;
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────

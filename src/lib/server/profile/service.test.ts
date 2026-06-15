@@ -52,6 +52,7 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
+    workflowFileCount: 0,
     ...over,
   };
 }

@@ -62,6 +62,7 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
+    workflowFileCount: 0,
     ...over,
   };
 }

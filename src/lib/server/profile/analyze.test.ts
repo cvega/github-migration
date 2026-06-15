@@ -42,6 +42,7 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
+    workflowFileCount: 0,
     ...over,
   };
 }
@@ -90,6 +91,7 @@ describe("analyzeRepo", () => {
         hasWiki: true,
         packagesCount: 2,
         usesLfs: true,
+        workflowFileCount: 4,
       }),
     );
 
@@ -109,6 +111,9 @@ describe("analyzeRepo", () => {
     );
     expect(finding(profile, "packages")?.evidence).toBe("2 packages");
     expect(finding(profile, "git-lfs")?.status).toBe("applies");
+    expect(finding(profile, "actions-run-history")?.evidence).toBe(
+      "4 workflows (run history & artifacts not migrated)",
+    );
   });
 
   test("rolls up applying considerations by severity", () => {

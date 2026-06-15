@@ -105,6 +105,10 @@ const DETECTORS: Record<string, Detector> = {
       : null,
   "fork-relationships": (s) => (s.isFork ? "repository is a fork" : null),
   "wiki-attachments": (s) => (s.hasWiki ? "wiki enabled (attachments not migrated)" : null),
+  "actions-run-history": (s) =>
+    s.workflowFileCount > 0
+      ? `${count(s.workflowFileCount, "workflow")} (run history & artifacts not migrated)`
+      : null,
   "git-archive-size-limit": (s) => {
     if (s.diskUsageKb == null || s.diskUsageKb < GIT_ARCHIVE_PROXY_KB) return null;
     const gib = (s.diskUsageKb / (1024 * 1024)).toFixed(1);

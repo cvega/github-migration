@@ -69,6 +69,8 @@ function node(over: {
   packages?: number;
   /** Raw `.gitattributes` text; omit for no file (null blob). */
   lfsAttributes?: string;
+  /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
+  workflowFiles?: string[];
   /** Asset byte sizes; placed in a single release node. */
   releaseAssetSizes?: number[];
   ruleTotal?: number;
@@ -92,6 +94,9 @@ function node(over: {
     watchers: { totalCount: over.watchers ?? 0 },
     packages: { totalCount: over.packages ?? 0 },
     gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
+    workflows: over.workflowFiles
+      ? { entries: over.workflowFiles.map((name) => ({ name })) }
+      : null,
     branchProtectionRules: {
       totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
       nodes: over.rules ?? [],
@@ -179,6 +184,20 @@ describe("augmentRepoSignals", () => {
     const { fn } = mockGql({ r0: node({}) });
     const [signals] = await augmentRepoSignals(fn, [discovered()]);
     expect(signals?.releaseAssetBytes).toBe(0);
+  });
+
+  test("counts only .yml/.yaml workflow files under .github/workflows", async () => {
+    const { fn } = mockGql({
+      r0: node({ workflowFiles: ["ci.yml", "release.yaml", "README.md", "dependabot.yml"] }),
+    });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.workflowFileCount).toBe(3);
+  });
+
+  test("a repo with no .github/workflows tree has zero workflow files", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.workflowFileCount).toBe(0);
   });
 
   test("treats a missing default branch as zero commits", async () => {

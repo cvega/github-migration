@@ -55,6 +55,8 @@ interface RepoSignalsNode {
   packages: { totalCount: number };
   /** Root `.gitattributes` on the default branch (`Blob`), or null if absent. */
   gitattributes: { text: string | null } | null;
+  /** `.github/workflows` dir on the default branch (`Tree`), or null if absent. */
+  workflows: { entries: { name: string }[] } | null;
   branchProtectionRules: {
     totalCount: number;
     nodes: BranchProtectionRuleNode[];
@@ -82,6 +84,7 @@ const SIGNALS_FRAGMENT = `fragment Sig on Repository {
   watchers { totalCount }
   packages { totalCount }
   gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
+  workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
   branchProtectionRules(first: $rules) {
     totalCount
     nodes {
@@ -150,6 +153,12 @@ function sumReleaseAssetBytes(releases: RepoSignalsNode["releases"]): number {
   return bytes;
 }
 
+/** Count workflow definition files (`.yml`/`.yaml`) in a `.github/workflows` tree. */
+function countWorkflowFiles(workflows: { entries: { name: string }[] } | null): number {
+  if (!workflows) return 0;
+  return workflows.entries.filter((e) => /\.ya?ml$/i.test(e.name)).length;
+}
+
 /** Map a repo + its (possibly null) augment node to full `RepoSignals`. */
 function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSignals {
   // A null node means the repo was inaccessible on this pass (permissions edge,
@@ -170,6 +179,7 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       packagesCount: 0,
       usesLfs: false,
       releaseAssetBytes: 0,
+      workflowFileCount: 0,
     };
   }
   return {
@@ -187,6 +197,7 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
     packagesCount: node.packages.totalCount,
     usesLfs: usesLfsAttributes(node.gitattributes),
     releaseAssetBytes: sumReleaseAssetBytes(node.releases),
+    workflowFileCount: countWorkflowFiles(node.workflows),
   };
 }
 

@@ -40,6 +40,7 @@ function signals(diskUsageKb: number | null): RepoSignals {
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
+    workflowFileCount: 0,
   };
 }
 
