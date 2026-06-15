@@ -16,6 +16,7 @@
  * network.
  */
 import type { graphql } from "@octokit/graphql";
+import type { GitHubClient } from "$lib/server/core/github";
 import { analyzeRepo } from "./analyze";
 import { augmentRepoCounts, augmentRepoDetails, baseSignals } from "./augment";
 import { discoverOrgRepos } from "./discover";
@@ -86,6 +87,13 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Source clients the runner needs: REST for discovery (the reliable repo
+ *  listing), GraphQL for the batched augment passes (indexed counts + details). */
+export interface ProfileClients {
+  gql: typeof graphql;
+  rest: GitHubClient;
+}
+
 /** Injectable crawl primitives (defaults hit the real GraphQL helpers). */
 export interface ProfileRunnerDeps {
   discover: typeof discoverOrgRepos;
@@ -112,14 +120,14 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
 /**
  * Profile one organization end to end and persist the result.
  *
- * @param gql        Injected GraphQL client for the source.
+ * @param clients    Injected source clients (REST for discovery, GraphQL for augment).
  * @param input      Run id, org login, and the source API URL being profiled.
  * @param onProgress Optional per-repo progress callback (drives SSE later).
  * @param deps       Injectable crawl primitives (defaults to the real ones).
  * @returns          The final persisted run — `completed` or `failed`.
  */
 export async function runProfile(
-  gql: typeof graphql,
+  clients: ProfileClients,
   input: { id: string; org: string; sourceApiUrl: string },
   onProgress?: (progress: ProfileProgress) => void,
   deps: Partial<ProfileRunnerDeps> = {},
@@ -130,19 +138,14 @@ export async function runProfile(
   console.log(`[profile] run ${input.id} started — org=${input.org}, source=${input.sourceApiUrl}`);
 
   try {
-    // Set the run total as soon as the FIRST discovery page reports it (the org
-    // total is known from page 1) and nudge any live watcher, so the detail page
-    // shows movement during the otherwise-silent discovery phase instead of
-    // sitting at 0/0.
-    let totalSet = false;
-    const discovery = await d.discover(gql, input.org, (p) => {
-      if (!totalSet && p.total > 0) {
-        totalSet = true;
-        setProfileRunTotal(input.id, p.total);
-        onProgress?.({ runId: input.id, profiled: 0, total: p.total, repo: "" });
-      }
+    // REST discovery lists the whole org cheaply. It doesn't report an org total
+    // up front, so each page nudges the run total with the running count (and a
+    // live watcher with it); the exact total lands once discovery completes.
+    const discovery = await d.discover(clients.rest, input.org, (p) => {
+      setProfileRunTotal(input.id, p.total);
+      onProgress?.({ runId: input.id, profiled: 0, total: p.total, repo: "" });
     });
-    if (!totalSet) setProfileRunTotal(input.id, discovery.total);
+    setProfileRunTotal(input.id, discovery.total);
     console.log(
       `[profile] run ${input.id} discovered ${discovery.total} repo(s) in ${Date.now() - startedMs}ms`,
     );
@@ -190,7 +193,7 @@ export async function runProfile(
           const c = chunks[next++];
           if (!c) break;
           try {
-            const chunkSignals = await d.augmentCounts(gql, c);
+            const chunkSignals = await d.augmentCounts(clients.gql, c);
             for (const signals of chunkSignals) {
               recordRepoProfile(input.id, signals, analyzeRepo(signals));
               signalsByRepo.set(signals.nameWithOwner, signals);
@@ -220,12 +223,16 @@ export async function runProfile(
 
     // ── Pass 2: verification details (best-effort) ─────────────────────────
     // The expensive checks. Repos with no releases skip the release-asset scan
-    // and batch wider; repos with releases batch narrower. Each result merges
-    // onto the already-recorded counts and re-records. This pass is NON-fatal:
-    // the counts are already persisted, so a details failure enriches less but
-    // never fails the run.
-    const withReleases = discovery.repos.filter((r) => r.releasesCount > 0);
-    const withoutReleases = discovery.repos.filter((r) => r.releasesCount === 0);
+    // and batch wider; repos with releases batch narrower. The release count
+    // comes from the counts pass above (signalsByRepo), defaulting to 0 for any
+    // repo whose counts didn't land — so it simply skips the scan. Each result
+    // merges onto the already-recorded counts and re-records. This pass is
+    // NON-fatal: the counts are already persisted, so a details failure enriches
+    // less but never fails the run.
+    const releasesOf = (nameWithOwner: string) =>
+      signalsByRepo.get(nameWithOwner)?.releasesCount ?? 0;
+    const withReleases = discovery.repos.filter((r) => releasesOf(r.nameWithOwner) > 0);
+    const withoutReleases = discovery.repos.filter((r) => releasesOf(r.nameWithOwner) === 0);
     const tasks: Array<{ repos: typeof discovery.repos; scanReleases: boolean }> = [
       ...chunk(withoutReleases, DETAILS_CHUNK_LITE).map((repos) => ({
         repos,
@@ -240,7 +247,7 @@ export async function runProfile(
           const task = tasks[next++];
           if (!task) break;
           try {
-            const details = await d.augmentDetails(gql, task.repos, {
+            const details = await d.augmentDetails(clients.gql, task.repos, {
               scanReleases: task.scanReleases,
             });
             for (const det of details) {

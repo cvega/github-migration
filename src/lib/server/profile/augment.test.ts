@@ -27,11 +27,6 @@ function discovered(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     defaultBranch: "main",
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
     ...over,
   };
 }
@@ -61,6 +56,11 @@ function rule(flags: RuleFlags = {}) {
 
 /** Build one repository alias node for the cheap counts pass. */
 function countsNode(over: {
+  issues?: number;
+  pullRequests?: number;
+  branches?: number;
+  tags?: number;
+  releases?: number;
   discussions?: number;
   projectsV2?: number;
   environments?: number;
@@ -73,6 +73,11 @@ function countsNode(over: {
   ruleTotal?: number;
 }) {
   return {
+    issues: { totalCount: over.issues ?? 0 },
+    pullRequests: { totalCount: over.pullRequests ?? 0 },
+    branches: { totalCount: over.branches ?? 0 },
+    tags: { totalCount: over.tags ?? 0 },
+    releases: { totalCount: over.releases ?? 0 },
     discussions: { totalCount: over.discussions ?? 0 },
     projectsV2: { totalCount: over.projectsV2 ?? 0 },
     environments: { totalCount: over.environments ?? 0 },
@@ -134,6 +139,8 @@ describe("augmentRepoCounts", () => {
   test("maps every cheap count and preserves the discovered fields", async () => {
     const { fn } = mockGql({
       r0: countsNode({
+        issues: 11,
+        releases: 7,
         discussions: 3,
         projectsV2: 2,
         environments: 4,
@@ -146,7 +153,7 @@ describe("augmentRepoCounts", () => {
       }),
     });
 
-    const [s] = await augmentRepoCounts(fn, [discovered({ issuesCount: 11, releasesCount: 7 })]);
+    const [s] = await augmentRepoCounts(fn, [discovered()]);
 
     expect(s?.discussionsCount).toBe(3);
     expect(s?.projectsV2Count).toBe(2);
@@ -215,11 +222,12 @@ describe("augmentRepoCounts", () => {
     const { fn } = mockGql({ r0: countsNode({ discussions: 5 }), r1: null });
     const signals = await augmentRepoCounts(fn, [
       discovered({ nameWithOwner: "o/ok", name: "ok" }),
-      discovered({ nameWithOwner: "o/gone", name: "gone", issuesCount: 3 }),
+      discovered({ nameWithOwner: "o/gone", name: "gone", diskUsageKb: 42 }),
     ]);
     expect(signals[0]?.discussionsCount).toBe(5);
     expect(signals[1]?.nameWithOwner).toBe("o/gone");
-    expect(signals[1]?.issuesCount).toBe(3); // spine kept
+    expect(signals[1]?.diskUsageKb).toBe(42); // discovery spine kept
+    expect(signals[1]?.issuesCount).toBe(0); // augment count zeroed
     expect(signals[1]?.discussionsCount).toBe(0); // augment zeroed
   });
 
@@ -269,12 +277,14 @@ describe("augmentRepoCounts", () => {
       throw Object.assign(new Error("Gateway Timeout"), { status: 504 });
     }) as unknown as typeof graphql;
     const repos = [
-      discovered({ name: "a", nameWithOwner: "o/a", issuesCount: 7 }),
+      discovered({ name: "a", nameWithOwner: "o/a", diskUsageKb: 7 }),
       discovered({ name: "b", nameWithOwner: "o/b" }),
     ];
     const signals = await augmentRepoCounts(fn, repos);
     expect(signals).toHaveLength(2);
-    expect(signals[0]?.issuesCount).toBe(7); // spine kept
+    expect(signals[0]?.nameWithOwner).toBe("o/a");
+    expect(signals[0]?.diskUsageKb).toBe(7); // discovery spine kept
+    expect(signals[0]?.issuesCount).toBe(0); // degraded count
     expect(signals[0]?.discussionsCount).toBe(0); // degraded
   });
 });

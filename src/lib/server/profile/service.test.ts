@@ -31,11 +31,6 @@ function discovered(name: string): DiscoveredRepo {
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
   };
 }
 
@@ -56,6 +51,11 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
+    releasesCount: 0,
     ...over,
   };
 }
@@ -93,9 +93,9 @@ function serviceDeps(
         sourceApiUrl: "https://ghes.example.com/api/v3",
       };
     },
-    run: (gql, input, onProgress) => {
+    run: (clients, input, onProgress) => {
       state.lastInput = input;
-      state.runPromise = runProfile(gql, input, onProgress, {
+      state.runPromise = runProfile(clients, input, onProgress, {
         discover: async (): Promise<OrgDiscovery> => ({
           org: input.org,
           total: repos.length,

@@ -107,7 +107,7 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
 
   deps
     .run(
-      gql,
+      { gql, rest },
       { id, org, sourceApiUrl },
       (p) =>
         publishProfileEvent(id, {

@@ -1,14 +1,16 @@
 /**
- * Per-repo signal augmentation — the second crawl pass, batched.
+ * Per-repo signal augmentation — the GraphQL passes that enrich the REST spine.
  *
- * Discovery (`discover.ts`) gives the cheap, breadth-first spine and the
- * content-volume counts that ride along free in each 100-repo page. This pass
- * gathers the signals that can't fold into a discovery node: the
- * branch-protection rule *details* (node-level flags, not just a count) and the
- * default-branch commit count (`history.totalCount`, the one count with timeout
- * risk at 100-wide, so kept to a smaller fan-out here).
+ * Discovery (`discover.ts`) lists the org via REST, giving the cheap spine
+ * (names, visibility, sizes, feature toggles). These passes add the indexed
+ * GraphQL signals on top, batched:
+ *   - the COUNTS pass: pure `{ totalCount }`/scalar fields (issues, PRs,
+ *     branches, tags, releases, discussions, …) — indexed reads that don't
+ *     materialize nodes, so they batch safely;
+ *   - the DETAILS pass: the expensive verification (commit-graph walk,
+ *     git-object reads, branch-protection rule node detail, release-asset scan).
  *
- * It profiles a CHUNK of repos in one aliased GraphQL request
+ * Each pass profiles a CHUNK of repos in one aliased GraphQL request
  * (`r0: repository(...) {…} r1: repository(...) {…} …`), so an org of N repos
  * costs ~N/chunk requests instead of one per repo. The request is
  * partial-failure aware: if a repo in the chunk is inaccessible, GraphQL
@@ -50,6 +52,11 @@ interface BranchProtectionRuleNode {
 /** Cheap per-repo counts: pure `{ totalCount }` / scalar fields, no git reads
  *  and no node materialization — indexed reads that batch safely. */
 interface RepoCountsNode {
+  issues: { totalCount: number };
+  pullRequests: { totalCount: number };
+  branches: { totalCount: number };
+  tags: { totalCount: number };
+  releases: { totalCount: number };
   discussions: { totalCount: number };
   projectsV2: { totalCount: number };
   environments: { totalCount: number };
@@ -98,6 +105,11 @@ export interface RepoDetails {
  * GitHub's 10s timeout even at the batch ceiling.
  */
 const COUNTS_FRAGMENT = `fragment Counts on Repository {
+  issues { totalCount }
+  pullRequests { totalCount }
+  branches: refs(refPrefix: "refs/heads/", first: 1) { totalCount }
+  tags: refs(refPrefix: "refs/tags/", first: 1) { totalCount }
+  releases { totalCount }
   discussions { totalCount }
   projectsV2 { totalCount }
   environments { totalCount }
@@ -225,6 +237,11 @@ function countsToSignals(repo: DiscoveredRepo, node: RepoCountsNode | null): Rep
     workflowFileCount: 0,
     releaseAssetBytes: 0,
     // Cheap counts.
+    issuesCount: node?.issues.totalCount ?? 0,
+    pullRequestsCount: node?.pullRequests.totalCount ?? 0,
+    branchesCount: node?.branches.totalCount ?? 0,
+    tagsCount: node?.tags.totalCount ?? 0,
+    releasesCount: node?.releases.totalCount ?? 0,
     discussionsCount: node?.discussions.totalCount ?? 0,
     projectsV2Count: node?.projectsV2.totalCount ?? 0,
     environmentsCount: node?.environments.totalCount ?? 0,

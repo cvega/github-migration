@@ -19,7 +19,7 @@ import {
   ZERO_ORG_RESOURCES,
 } from "./types";
 
-const gql = {} as never; // the fakes ignore it
+const clients = {} as never; // the fakes ignore it
 
 function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
   return {
@@ -37,11 +37,6 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
     ...over,
   };
 }
@@ -63,6 +58,11 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
+    releasesCount: 0,
     ...over,
   };
 }
@@ -117,7 +117,7 @@ describe("runProfile", () => {
     const repos = [discovered("alpha"), discovered("beta", { hasWiki: true })];
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "run-1", org: "acme", sourceApiUrl: "https://ghes.example.com/api/v3" },
       undefined,
       deps(repos, { alpha: { discussionsCount: 2 } }),
@@ -139,7 +139,7 @@ describe("runProfile", () => {
 
   test("records the org ruleset count on the run", async () => {
     const run = await runProfile(
-      gql,
+      clients,
       { id: "run-rs", org: "acme", sourceApiUrl: "u" },
       undefined,
       deps([discovered("alpha")], {}, 3),
@@ -149,7 +149,7 @@ describe("runProfile", () => {
 
   test("records the org resource counts on the run", async () => {
     const run = await runProfile(
-      gql,
+      clients,
       { id: "run-or", org: "acme", sourceApiUrl: "u" },
       undefined,
       deps([discovered("alpha")], {}, 0, { actionsSecrets: 5, selfHostedRunners: 2 }),
@@ -175,7 +175,7 @@ describe("runProfile", () => {
     };
 
     await runProfile(
-      gql,
+      clients,
       { id: "disc", org: "acme", sourceApiUrl: "u" },
       (p) => progress.push(p),
       withDiscoveryProgress,
@@ -197,7 +197,7 @@ describe("runProfile", () => {
     };
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "http", org: "acme", sourceApiUrl: "u" },
       undefined,
       failing,
@@ -213,7 +213,7 @@ describe("runProfile", () => {
     const progress: ProfileProgress[] = [];
 
     await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       (p) => progress.push(p),
       deps(repos),
@@ -230,7 +230,7 @@ describe("runProfile", () => {
 
   test("completes an empty organization with zero profiled repos", async () => {
     const run = await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       undefined,
       deps([]),
@@ -249,7 +249,7 @@ describe("runProfile", () => {
     };
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       undefined,
       failingDeps,
@@ -270,7 +270,7 @@ describe("runProfile", () => {
     };
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       undefined,
       partialDeps,
@@ -291,7 +291,7 @@ describe("runProfile", () => {
     // throws in the counts pass; every repo is still listed (recorded at
     // discovery) and the run completes.
     const repos = Array.from({ length: 26 }, (_, i) =>
-      discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
+      discovered(`r${String(i).padStart(2, "0")}`),
     );
     const chunkedDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
@@ -302,7 +302,7 @@ describe("runProfile", () => {
     };
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       undefined,
       chunkedDeps,
@@ -313,20 +313,22 @@ describe("runProfile", () => {
   });
 
   test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {
-    // The details pass partitions by releases: 2 release-free repos share one
-    // lite chunk (scanReleases: false); the 3 with releases share one full
-    // chunk (scanReleases: true).
+    // The details pass partitions by releases — which come from the counts pass:
+    // 2 release-free repos share one lite chunk (scanReleases: false); the 3 with
+    // releases share one full chunk (scanReleases: true).
     const repos = [
-      discovered("a", { releasesCount: 0 }),
-      discovered("b", { releasesCount: 2 }),
-      discovered("c", { releasesCount: 0 }),
-      discovered("d", { releasesCount: 5 }),
-      discovered("e", { releasesCount: 1 }),
+      discovered("a"),
+      discovered("b"),
+      discovered("c"),
+      discovered("d"),
+      discovered("e"),
     ];
+    const releasesByName: Record<string, number> = { a: 0, b: 2, c: 0, d: 5, e: 1 };
     const calls: Array<{ size: number; scanReleases: boolean | undefined }> = [];
     const recordingDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
-      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentCounts: async (_gql, c) =>
+        c.map((r) => countsSignals(r, { releasesCount: releasesByName[r.name] ?? 0 })),
       augmentDetails: async (_gql, c, opts) => {
         calls.push({ size: c.length, scanReleases: opts?.scanReleases });
         return c.map((r) => detailsFor(r));
@@ -334,7 +336,7 @@ describe("runProfile", () => {
     };
 
     const run = await runProfile(
-      gql,
+      clients,
       { id: "r", org: "acme", sourceApiUrl: "u" },
       undefined,
       recordingDeps,
@@ -350,7 +352,7 @@ describe("runProfile", () => {
 
   test("persists the run before crawling (a created run exists by completion)", async () => {
     await runProfile(
-      gql,
+      clients,
       { id: "persisted", org: "acme", sourceApiUrl: "u" },
       undefined,
       deps([discovered("a")]),
