@@ -62,6 +62,31 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * Produce a concise, actionable failure reason from a crawl error. Octokit
+ * surfaces HTTP failures with a numeric `status` (e.g. 502 on a GraphQL
+ * timeout) and GraphQL errors with an `errors[]` array; pull those out so the
+ * persisted `failureReason` (shown on the detail page) says something useful
+ * rather than a bare "[object Object]".
+ */
+function describeError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as {
+      status?: number;
+      message?: string;
+      errors?: Array<{ message?: string; type?: string }>;
+    };
+    const parts: string[] = [];
+    if (typeof e.status === "number") parts.push(`HTTP ${e.status}`);
+    const firstGqlError = Array.isArray(e.errors) ? e.errors[0] : undefined;
+    if (firstGqlError?.message) parts.push(firstGqlError.message);
+    else if (firstGqlError?.type) parts.push(firstGqlError.type);
+    else if (e.message) parts.push(e.message);
+    if (parts.length > 0) return parts.join(": ");
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Injectable crawl primitives (defaults hit the real GraphQL helpers). */
 export interface ProfileRunnerDeps {
   discover: typeof discoverOrgRepos;
@@ -97,11 +122,27 @@ export async function runProfile(
   deps: Partial<ProfileRunnerDeps> = {},
 ): Promise<ProfileRun> {
   const d = { ...DEFAULT_DEPS, ...deps };
+  const startedMs = Date.now();
   createProfileRun({ id: input.id, sourceApiUrl: input.sourceApiUrl, org: input.org });
+  console.log(`[profile] run ${input.id} started — org=${input.org}, source=${input.sourceApiUrl}`);
 
   try {
-    const discovery = await d.discover(gql, input.org);
-    setProfileRunTotal(input.id, discovery.total);
+    // Set the run total as soon as the FIRST discovery page reports it (the org
+    // total is known from page 1) and nudge any live watcher, so the detail page
+    // shows movement during the otherwise-silent discovery phase instead of
+    // sitting at 0/0.
+    let totalSet = false;
+    const discovery = await d.discover(gql, input.org, (p) => {
+      if (!totalSet && p.total > 0) {
+        totalSet = true;
+        setProfileRunTotal(input.id, p.total);
+        onProgress?.({ runId: input.id, profiled: 0, total: p.total, repo: "" });
+      }
+    });
+    if (!totalSet) setProfileRunTotal(input.id, discovery.total);
+    console.log(
+      `[profile] run ${input.id} discovered ${discovery.total} repo(s) in ${Date.now() - startedMs}ms`,
+    );
 
     // Org-level signals are gathered once per run (best-effort, never fatal) —
     // they're org-scoped, not per-repo. Run the two REST passes concurrently.
@@ -150,6 +191,10 @@ export async function runProfile(
             });
           }
         } catch (err) {
+          console.error(
+            `[profile] run ${input.id} augment chunk failed — ${task.repos.length} repo(s), scanReleases=${task.scanReleases}:`,
+            err,
+          );
           if (firstError === null) firstError = err;
         }
       }
@@ -160,8 +205,18 @@ export async function runProfile(
     if (firstError !== null) throw firstError;
 
     completeProfileRun(input.id);
+    const completed = getProfileRun(input.id);
+    console.log(
+      `[profile] run ${input.id} completed — ${profiled} repo(s) profiled, ` +
+        `${completed?.blockers ?? 0} blocker(s), ${completed?.warnings ?? 0} warning(s) ` +
+        `in ${Date.now() - startedMs}ms`,
+    );
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = describeError(err);
+    console.error(
+      `[profile] run ${input.id} failed after ${Date.now() - startedMs}ms — ${reason}`,
+      err,
+    );
     failProfileRun(input.id, reason);
   }
 

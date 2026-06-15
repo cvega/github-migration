@@ -370,4 +370,65 @@ describe("augmentRepoSignals", () => {
 
     await expect(augmentRepoSignals(fn, [discovered()])).rejects.toThrow(/network down/);
   });
+
+  test("splits a timed-out chunk and retries the smaller halves", async () => {
+    // A `gql` double that 502s (GitHub's timeout) for any request wider than 2
+    // repos, and succeeds otherwise. Records the size of each attempted request.
+    const sizes: number[] = [];
+    const fn = (async (_q: string, vars: Record<string, unknown>) => {
+      const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
+      sizes.push(size);
+      if (size > 2) throw Object.assign(new Error("Bad Gateway"), { status: 502 });
+      const res: Record<string, unknown> = {};
+      for (let i = 0; i < size; i++) res[`r${i}`] = node({});
+      return res;
+    }) as unknown as typeof graphql;
+
+    const repos = ["a", "b", "c", "d"].map((n) => discovered({ name: n, nameWithOwner: `o/${n}` }));
+    const signals = await augmentRepoSignals(fn, repos);
+
+    // All four repos come back, in order, despite the initial timeout.
+    expect(signals.map((s) => s.nameWithOwner)).toEqual(["o/a", "o/b", "o/c", "o/d"]);
+    // 4 timed out → split into 2 + 2, each of which succeeds.
+    expect(sizes).toEqual([4, 2, 2]);
+  });
+
+  test("degrades a single repo that keeps timing out to zeroed signals", async () => {
+    // Always 502s, so splitting bottoms out at one repo each, which degrades.
+    const fn = (async () => {
+      throw Object.assign(new Error("Gateway Timeout"), { status: 504 });
+    }) as unknown as typeof graphql;
+
+    const repos = [
+      discovered({ name: "a", nameWithOwner: "o/a", issuesCount: 7 }),
+      discovered({ name: "b", nameWithOwner: "o/b" }),
+    ];
+    const signals = await augmentRepoSignals(fn, repos);
+
+    expect(signals).toHaveLength(2);
+    // Discovery spine preserved; augment counts degraded to zero.
+    expect(signals[0]?.nameWithOwner).toBe("o/a");
+    expect(signals[0]?.issuesCount).toBe(7);
+    expect(signals[0]?.discussionsCount).toBe(0);
+    expect(signals[1]?.nameWithOwner).toBe("o/b");
+  });
+
+  test("treats a timeout message (not just a status) as splittable", async () => {
+    let calls = 0;
+    const fn = (async (_q: string, vars: Record<string, unknown>) => {
+      const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
+      calls += 1;
+      if (size > 1) throw new Error("Something went wrong while executing your query");
+      return { r0: node({ discussions: 1 }) };
+    }) as unknown as typeof graphql;
+
+    const repos = [
+      discovered({ name: "a", nameWithOwner: "o/a" }),
+      discovered({ name: "b", nameWithOwner: "o/b" }),
+    ];
+    const signals = await augmentRepoSignals(fn, repos);
+
+    expect(signals.map((s) => s.discussionsCount)).toEqual([1, 1]);
+    expect(calls).toBe(3); // 2 (timeout) → 1 + 1 (ok)
+  });
 });

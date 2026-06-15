@@ -223,13 +223,29 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
   };
 }
 
-/** Recover partial `data` from a GraphQL error that carries it, else rethrow. */
-function dataFromError(err: unknown): BatchSignalsResult {
+/** Recover partial `data` from a GraphQL error that carries it, else null. */
+function partialDataFromError(err: unknown): BatchSignalsResult | null {
   if (err && typeof err === "object" && "data" in err) {
     const data = (err as { data?: unknown }).data;
     if (data && typeof data === "object") return data as BatchSignalsResult;
   }
-  throw err;
+  return null;
+}
+
+/**
+ * Whether an error is a GitHub processing timeout. The GraphQL API terminates
+ * any request that takes longer than ~10s and responds with a 502 or 504 (or a
+ * "Something went wrong while executing your query" message). These carry no
+ * usable partial data — the remedy is to make the query cheaper, i.e. split it.
+ */
+function isTimeoutError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { status?: number; message?: string };
+  if (e.status === 502 || e.status === 504) return true;
+  return (
+    typeof e.message === "string" &&
+    /timeout|timed out|executing your query|respond to your request in time/i.test(e.message)
+  );
 }
 
 /** Options controlling how wide/deep a single augment request reaches. */
@@ -271,9 +287,32 @@ export async function augmentRepoSignals(
       variables,
     );
   } catch (err) {
+    // A GitHub processing timeout (502/504): the query was too expensive to
+    // evaluate in GitHub's 10s window. Splitting the chunk makes each query
+    // cheaper; recurse on the halves until it fits. A single repo that still
+    // times out degrades to zeroed augment signals (keeping its discovery
+    // spine) so one pathological repo can't fail the whole crawl.
+    if (isTimeoutError(err)) {
+      if (repos.length === 1) {
+        const only = repos[0];
+        console.warn(
+          `[profile] augment timed out for a single repo${only ? ` (${only.nameWithOwner})` : ""}; recording it with zeroed signals`,
+        );
+        return only ? [toSignals(only, null)] : [];
+      }
+      const mid = Math.ceil(repos.length / 2);
+      console.warn(
+        `[profile] augment timed out for ${repos.length} repos; splitting ${mid} + ${repos.length - mid} and retrying`,
+      );
+      const left = await augmentRepoSignals(gql, repos.slice(0, mid), opts);
+      const right = await augmentRepoSignals(gql, repos.slice(mid), opts);
+      return [...left, ...right];
+    }
     // A chunk with one inaccessible repo errors but still carries partial data;
     // recover it so the accessible repos in the chunk still get profiled.
-    data = dataFromError(err);
+    const partial = partialDataFromError(err);
+    if (!partial) throw err;
+    data = partial;
   }
 
   return repos.map((repo, i) => toSignals(repo, data[`r${i}`] ?? null));

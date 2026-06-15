@@ -432,7 +432,15 @@
 		{#if repos.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
 				<Octicon name={run.state === 'running' ? 'sync' : 'inbox'} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />
-				<p class="mt-3">{run.state === 'running' ? 'Crawling…' : 'No repositories profiled'}</p>
+				<p class="mt-3">
+					{#if run.state !== 'running'}
+						No repositories profiled
+					{:else if run.totalRepos > 0}
+						Profiling {run.totalRepos.toLocaleString()} repositories… ({run.profiledRepos.toLocaleString()} done)
+					{:else}
+						Discovering repositories…
+					{/if}
+				</p>
 			</div>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-gray-700">

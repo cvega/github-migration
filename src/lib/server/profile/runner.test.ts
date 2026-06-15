@@ -131,6 +131,54 @@ describe("runProfile", () => {
     expect(run.orgResources.codespacesSecrets).toBe(0);
   });
 
+  test("sets the run total from the first discovery page and nudges watchers", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    const progress: ProfileProgress[] = [];
+    const withDiscoveryProgress: Partial<ProfileRunnerDeps> = {
+      discover: async (_gql, _org, onProgress) => {
+        // The org total is known from page 1, before the repos are returned.
+        onProgress?.({ org: "acme", discovered: 2, total: 2, page: 1 });
+        return { org: "acme", total: 2, repos };
+      },
+      augment: async (_gql, c) => c.map((r) => signalsFor(r)),
+      getOrgRulesetCount: async () => 0,
+      getOrgResources: async () => ZERO_ORG_RESOURCES,
+    };
+
+    await runProfile(
+      gql,
+      { id: "disc", org: "acme", sourceApiUrl: "u" },
+      (p) => progress.push(p),
+      withDiscoveryProgress,
+    );
+
+    // The first nudge is the discovery one (profiled 0), before any per-repo
+    // progress, and the run total is set from it.
+    expect(progress[0]).toEqual({ runId: "disc", profiled: 0, total: 2, repo: "" });
+    expect(getProfileRun("disc")?.totalRepos).toBe(2);
+  });
+
+  test("records a richer failure reason for an HTTP error (status + message)", async () => {
+    const failing: Partial<ProfileRunnerDeps> = {
+      discover: async () => {
+        throw Object.assign(new Error("Something went wrong while executing your query"), {
+          status: 502,
+        });
+      },
+    };
+
+    const run = await runProfile(
+      gql,
+      { id: "http", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      failing,
+    );
+
+    expect(run.state).toBe("failed");
+    expect(run.failureReason).toContain("HTTP 502");
+    expect(run.failureReason).toContain("Something went wrong");
+  });
+
   test("emits progress once per repo with running totals", async () => {
     const repos = [discovered("a"), discovered("b"), discovered("c")];
     const progress: ProfileProgress[] = [];
