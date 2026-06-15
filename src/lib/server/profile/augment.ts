@@ -99,9 +99,9 @@ function ownerOf(nameWithOwner: string): string {
 }
 
 /**
- * Whether a branch protection rule uses any feature GitHub's importer does not
- * migrate. (Plain required-reviews/status-checks DO migrate, so a rule using
- * only those counts as zero here.)
+ * Whether a branch protection rule uses any feature the GitHub export does not carry.
+ * (Plain required-reviews/status-checks DO migrate, so a rule using only those
+ * counts as zero here.)
  */
 function usesUnmigratedFeature(rule: BranchProtectionRuleNode): boolean {
   return (

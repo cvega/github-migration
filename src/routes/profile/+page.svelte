@@ -55,7 +55,7 @@
 				Profile
 			</h1>
 			<p class="mt-1 text-sm text-gray-400">
-				Crawl a source organization and surface what GitHub Enterprise Importer won't migrate cleanly.
+				Crawl a source organization and surface what the GitHub export won't carry cleanly.
 			</p>
 		</div>
 		<a href="/" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← Workspaces</a>

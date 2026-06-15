@@ -72,8 +72,8 @@ a `targetOrg`.
 ## Profile
 
 The Profiler workspace (`/api/profile/*`) crawls an organization's repositories
-and reports per-repo migration *considerations* (things GEI won't carry over)
-and actionable insights, so you can assess readiness before migrating.
+and reports per-repo migration *considerations* (things the GitHub export won't
+carry over) and actionable insights, so you can assess readiness before migrating.
 
 | Method | Endpoint | Description |
 |---|---|---|

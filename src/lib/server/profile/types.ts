@@ -97,8 +97,8 @@ export interface RepoSignals extends DiscoveredRepo {
   /** Branch protection rules (`branchProtectionRules.totalCount`). */
   branchProtectionRuleCount: number;
   /**
-   * How many branch protection rules use at least one feature GEI does not
-   * migrate (force-push allowance, required deployments, lock branch, block
+   * How many branch protection rules use at least one feature the GitHub export
+   * does not carry (force-push allowance, required deployments, lock branch, block
    * creations, require last-push approval, or bypass actors). `> 0` means the
    * branch-protection-partial gap applies.
    */

@@ -3,9 +3,9 @@ import {
   type Consideration,
   type ConsiderationKind,
   type ConsiderationSeverity,
-  GEI_DOC_URL,
-  GEI_DOCS_VERIFIED,
   MIGRATION_CONSIDERATIONS,
+  MIGRATION_DOC_URL,
+  MIGRATION_DOCS_VERIFIED,
 } from "./consideration-registry";
 
 const KINDS: ConsiderationKind[] = [
@@ -79,7 +79,7 @@ describe("consideration registry integrity", () => {
     for (const g of MIGRATION_CONSIDERATIONS) {
       expect(g.docAnchor, g.id).toMatch(/^#[a-z0-9-]+$/);
     }
-    expect(GEI_DOC_URL).toMatch(/^https:\/\/docs\.github\.com\//);
+    expect(MIGRATION_DOC_URL).toMatch(/^https:\/\/docs\.github\.com\//);
   });
 
   test("size/limit blockers are estimated, exact-signal considerations are exact", () => {
@@ -93,8 +93,8 @@ describe("consideration registry integrity", () => {
   });
 
   test("the docs-verified stamp is an ISO date", () => {
-    expect(GEI_DOCS_VERIFIED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(Number.isNaN(Date.parse(GEI_DOCS_VERIFIED))).toBe(false);
+    expect(MIGRATION_DOCS_VERIFIED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Number.isNaN(Date.parse(MIGRATION_DOCS_VERIFIED))).toBe(false);
   });
 
   test("covers the considerations the Profile workspace is built around", () => {
