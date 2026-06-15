@@ -7,7 +7,7 @@ keep the codebase honest.
 - [Stack](#stack)
 - [Dev loop](#dev-loop)
 - [The gate suite (`verify`)](#the-gate-suite-verify)
-- [Machine-readable verify (`verify:json`)](#machine-readable-verify-verifyjson)
+- [Machine-readable verify (`gates`)](#machine-readable-verify-gates)
 - [Testing](#testing)
 - [Discovery tooling](#discovery-tooling)
 - [Seeding the database](#seeding-the-database)
@@ -63,18 +63,18 @@ bun run verify
 | `check` | `svelte-check --fail-on-warnings` | Svelte/TS diagnostics incl. a11y; must be **0/0** |
 | `lint` | `biome check --error-on-warnings` | Lint + formatting + import-organization across `.ts`/`.js`/`.svelte` |
 | `format:check` | `biome format` | Formatting drift (explicit) |
-| `coverage:check` | `scripts/check-coverage.ts` | Test coverage below the floor (85% func / 82% line) |
+| `coverage:check` | `scripts/coverage-check.ts` | Test coverage below the floor (85% func / 82% line) |
 | `dup` | `jscpd` | Code duplication above 3% (lines) |
 | `deadcode` | `knip` | Unused files / exports / dependencies |
 | `cycles` | `madge --circular` | Circular imports |
-| `boundaries` | `scripts/check-boundaries.ts` | Server layering: `core/` stays primitive, domains stay decoupled |
+| `boundaries` | `scripts/boundaries.ts` | Server layering: `core/` stays primitive, domains stay decoupled |
 | `build` | `vite build` + postbuild | The production build actually compiles |
 | `audit` | `bun audit` | Dependency advisories |
 
 A few notes:
 
 - **Coverage** isn't enforced by Bun directly (it reports but doesn't fail), so
-  `scripts/check-coverage.ts` parses the summary and enforces the floor itself.
+  `scripts/coverage-check.ts` parses the summary and enforces the floor itself.
   Floors sit a notch below actuals; ratchet them up as coverage climbs.
 - **Duplication** is measured on production code only (tests are excluded). The
   3% threshold is evaluated against the *lines* percentage. Some duplication is
@@ -85,9 +85,9 @@ A few notes:
 
 ---
 
-## Machine-readable verify (`verify:json`)
+## Machine-readable verify (`gates`)
 
-`bun run verify:json` runs the same gates but emits a single compact JSON object
+`bun run gates` runs the same gates but emits a single compact JSON object
 instead of ~150 lines of human output — built for CI and AI/automation:
 
 ```jsonc
@@ -101,7 +101,7 @@ instead of ~150 lines of human output — built for CI and AI/automation:
   and a red run still has enough to act on.
 - It runs **all** gates (collecting every failure) rather than stopping at the
   first, and exits non-zero iff any gate failed.
-- Pass gate names to run a subset: `bun run verify:json typecheck lint`.
+- Pass gate names to run a subset: `bun run gates typecheck lint`.
 
 ---
 
@@ -139,7 +139,7 @@ Beyond the hard gates, these surface issues the gates can't:
 |---|---|---|
 | `bun run deadcode` | knip | Unused files/exports/deps (a hard gate) |
 | `bun run cycles` | madge | Circular imports (a hard gate) |
-| `bun run boundaries` | `check-boundaries.ts` | Server layering: `core/` imports no domain; domains stay decoupled (a hard gate) |
+| `bun run boundaries` | `boundaries.ts` | Server layering: `core/` imports no domain; domains stay decoupled (a hard gate) |
 | `bun run dup` | jscpd | Duplication (a hard gate) |
 | `bun run mutation` | Stryker | **Opt-in.** Mutates code to prove tests actually assert, not just execute |
 
@@ -213,7 +213,7 @@ for review before publishing.
 - **Every gate must stay green.** A change that fixes one thing but reddens
   another is a regression — fix it forward before moving on.
 - **Small, atomic commits** with a clear message describing the root cause.
-- **Verify before committing:** `bun run verify` (or `verify:json`) must pass.
+- **Verify before committing:** `bun run verify` (or `gates`) must pass.
 
 See [CONTRIBUTING](../CONTRIBUTING.md) for the contribution workflow and
 [Architecture](architecture.md) for how the pieces fit together.

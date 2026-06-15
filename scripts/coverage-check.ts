@@ -35,7 +35,7 @@ const output = raw.replace(ansi, "");
 if (proc.exitCode !== 0) {
   process.stdout.write(output);
   // Re-print just the failing tests LAST so they survive log truncation (e.g.
-  // verify:json's tail()) — the coverage table otherwise buries the one detail
+  // gates' tail()) — the coverage table otherwise buries the one detail
   // that matters: which tests failed and why. `(fail)` lines name the test;
   // the indented `error:`/assertion lines that follow give the reason.
   const lines = output.split("\n");
