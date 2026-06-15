@@ -46,8 +46,8 @@ interface RepoSignalsNode {
   discussions: { totalCount: number };
   projectsV2: { totalCount: number };
   environments: { totalCount: number };
-  releases: {
-    totalCount: number;
+  /** Present only when the release-asset scan is requested (`scanReleases`). */
+  releases?: {
     nodes: { releaseAssets: { nodes: { size: number }[] } }[];
   };
   stargazerCount: number;
@@ -70,16 +70,21 @@ type BatchSignalsResult = Record<string, RepoSignalsNode | null>;
  * The per-repo selection. `history` sits behind a `... on Commit` inline
  * fragment because `defaultBranchRef.target` is a `GitObject` (Commit | Tree |
  * Blob | Tag); only a Commit has `history`.
+ *
+ * The release-asset scan (the heaviest part — up to 100 releases × 50 assets) is
+ * included only when `scanReleases` is set, so repos discovery already knows have
+ * zero releases can be batched far wider.
  */
-const SIGNALS_FRAGMENT = `fragment Sig on Repository {
+function signalsFragment(scanReleases: boolean): string {
+  const releases = scanReleases
+    ? `releases(first: ${RELEASES_SCANNED}) { nodes { releaseAssets(first: ${ASSETS_SCANNED}) { nodes { size } } } }`
+    : "";
+  return `fragment Sig on Repository {
   defaultBranchRef { target { ... on Commit { history(first: 1) { totalCount } } } }
   discussions { totalCount }
   projectsV2 { totalCount }
   environments { totalCount }
-  releases(first: ${RELEASES_SCANNED}) {
-    totalCount
-    nodes { releaseAssets(first: ${ASSETS_SCANNED}) { nodes { size } } }
-  }
+  ${releases}
   stargazerCount
   watchers { totalCount }
   packages { totalCount }
@@ -98,16 +103,17 @@ const SIGNALS_FRAGMENT = `fragment Sig on Repository {
     }
   }
 }`;
+}
 
 /** Build the aliased query for a chunk of `n` repos (aliases `r0…r{n-1}`). */
-function buildBatchQuery(n: number): string {
+function buildBatchQuery(n: number, scanReleases: boolean): string {
   const varDefs = ["$rules: Int!"];
   const fields: string[] = [];
   for (let i = 0; i < n; i++) {
     varDefs.push(`$o${i}: String!`, `$n${i}: String!`);
     fields.push(`r${i}: repository(owner: $o${i}, name: $n${i}) { ...Sig }`);
   }
-  return `query batchSignals(${varDefs.join(", ")}) {\n${fields.join("\n")}\n}\n${SIGNALS_FRAGMENT}`;
+  return `query batchSignals(${varDefs.join(", ")}) {\n${fields.join("\n")}\n}\n${signalsFragment(scanReleases)}`;
 }
 
 /** Split `owner/name` into its owner; falls back to the whole string. */
@@ -146,6 +152,7 @@ function usesLfsAttributes(gitattributes: { text: string | null } | null): boole
 
 /** Sum the byte size of every scanned release asset in a repo node. */
 function sumReleaseAssetBytes(releases: RepoSignalsNode["releases"]): number {
+  if (!releases) return 0;
   let bytes = 0;
   for (const release of releases.nodes) {
     for (const asset of release.releaseAssets.nodes) bytes += asset.size;
@@ -171,7 +178,6 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       discussionsCount: 0,
       projectsV2Count: 0,
       environmentsCount: 0,
-      releasesCount: 0,
       stargazerCount: 0,
       watcherCount: 0,
       branchProtectionRuleCount: 0,
@@ -188,7 +194,6 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
     discussionsCount: node.discussions.totalCount,
     projectsV2Count: node.projectsV2.totalCount,
     environmentsCount: node.environments.totalCount,
-    releasesCount: node.releases.totalCount,
     stargazerCount: node.stargazerCount,
     watcherCount: node.watchers.totalCount,
     branchProtectionRuleCount: node.branchProtectionRules.totalCount,
@@ -210,17 +215,29 @@ function dataFromError(err: unknown): BatchSignalsResult {
   throw err;
 }
 
+/** Options controlling how wide/deep a single augment request reaches. */
+export interface AugmentOptions {
+  /**
+   * Whether to include the heavy release-asset scan. Pass `false` for repos
+   * discovery already knows have zero releases, so they can be batched far wider.
+   * Defaults to `true` (scan), the safe behavior for an unpartitioned call.
+   */
+  scanReleases?: boolean;
+}
+
 /**
  * Enrich a chunk of discovered repositories with their per-repo signals in a
  * single aliased GraphQL request.
  *
  * @param gql   Injected GraphQL client (`createSingleClient(...).graphql`).
  * @param repos The chunk of repositories (from discovery) to augment.
+ * @param opts  Per-request options (e.g. whether to scan release assets).
  * @returns     One `RepoSignals` per input repo, in input order.
  */
 export async function augmentRepoSignals(
   gql: typeof graphql,
   repos: DiscoveredRepo[],
+  opts: AugmentOptions = {},
 ): Promise<RepoSignals[]> {
   if (repos.length === 0) return [];
 
@@ -232,7 +249,10 @@ export async function augmentRepoSignals(
 
   let data: BatchSignalsResult;
   try {
-    data = await gql<BatchSignalsResult>(buildBatchQuery(repos.length), variables);
+    data = await gql<BatchSignalsResult>(
+      buildBatchQuery(repos.length, opts.scanReleases ?? true),
+      variables,
+    );
   } catch (err) {
     // A chunk with one inaccessible repo errors but still carries partial data;
     // recover it so the accessible repos in the chunk still get profiled.

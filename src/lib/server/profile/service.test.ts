@@ -34,6 +34,7 @@ function discovered(name: string): DiscoveredRepo {
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
+    releasesCount: 0,
   };
 }
 
@@ -44,7 +45,6 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
-    releasesCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
     branchProtectionRuleCount: 0,

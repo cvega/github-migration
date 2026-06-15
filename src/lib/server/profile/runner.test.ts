@@ -40,6 +40,7 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
+    releasesCount: 0,
     ...over,
   };
 }
@@ -51,7 +52,6 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
-    releasesCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
     branchProtectionRuleCount: 0,
@@ -202,17 +202,15 @@ describe("runProfile", () => {
   });
 
   test("persists completed chunks when a later chunk fails", async () => {
-    // 26 repos → two augment chunks (25 + 1). The first chunk succeeds and is
-    // persisted; the second throws, failing the run — the first chunk survives.
+    // 26 repos with releases → two full-scan chunks (25 + 1). The chunk holding
+    // the last repo throws; the other chunk's 25 repos still persist.
     const repos = Array.from({ length: 26 }, (_, i) =>
-      discovered(`r${String(i).padStart(2, "0")}`),
+      discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
     );
-    let call = 0;
     const chunkedDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
       augment: async (_gql, chunk) => {
-        call += 1;
-        if (call >= 2) throw new Error("second chunk failed");
+        if (chunk.some((r) => r.name === "r25")) throw new Error("a chunk failed");
         return chunk.map((r) => signalsFor(r));
       },
     };
@@ -225,7 +223,41 @@ describe("runProfile", () => {
     );
 
     expect(run.state).toBe("failed");
-    expect(getRunRepoProfiles("r")).toHaveLength(25); // the first chunk persisted
+    expect(getRunRepoProfiles("r")).toHaveLength(25); // the surviving chunk persisted
+  });
+
+  test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {
+    // 2 repos with zero releases share one lite chunk (scanReleases: false); the
+    // 3 with releases share one full chunk (scanReleases: true).
+    const repos = [
+      discovered("a", { releasesCount: 0 }),
+      discovered("b", { releasesCount: 2 }),
+      discovered("c", { releasesCount: 0 }),
+      discovered("d", { releasesCount: 5 }),
+      discovered("e", { releasesCount: 1 }),
+    ];
+    const calls: Array<{ size: number; scanReleases: boolean | undefined }> = [];
+    const recordingDeps: Partial<ProfileRunnerDeps> = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augment: async (_gql, chunkRepos, opts) => {
+        calls.push({ size: chunkRepos.length, scanReleases: opts?.scanReleases });
+        return chunkRepos.map((r) => signalsFor(r));
+      },
+    };
+
+    const run = await runProfile(
+      gql,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      recordingDeps,
+    );
+
+    expect(run.state).toBe("completed");
+    expect(run.profiledRepos).toBe(5);
+    const lite = calls.find((c) => c.scanReleases === false);
+    const full = calls.find((c) => c.scanReleases === true);
+    expect(lite?.size).toBe(2); // release-free repos, batched together
+    expect(full?.size).toBe(3); // release-bearing repos, batched together
   });
 
   test("persists the run before crawling (a created run exists by completion)", async () => {

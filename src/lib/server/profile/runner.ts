@@ -37,11 +37,23 @@ import {
 } from "./types";
 
 /**
- * Repos per augment request. Each chunk is one aliased GraphQL query; 25 keeps
- * the per-request node budget (≤ 25 × 100 branch-protection rules) and query
- * complexity comfortably within GitHub's limits while cutting requests 25×.
+ * Repos per augment request. Repos discovery found to have zero releases skip
+ * the heavy release-asset scan, so they batch far wider (LITE); repos with
+ * releases keep the conservative width (FULL) to stay within GitHub's per-query
+ * node budget and 10s execution timeout.
  */
-const AUGMENT_CHUNK = 25;
+const AUGMENT_CHUNK_FULL = 25;
+const AUGMENT_CHUNK_LITE = 90;
+
+/** How many augment requests are in flight at once (cuts wall-clock ~Nx). */
+const AUGMENT_CONCURRENCY = 3;
+
+/** Split an array into fixed-size chunks (the last may be smaller). */
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 /** Injectable crawl primitives (defaults hit the real GraphQL helpers). */
 export interface ProfileRunnerDeps {
@@ -93,24 +105,52 @@ export async function runProfile(
     setProfileRunRulesets(input.id, rulesetCount);
     setProfileRunOrgResources(input.id, orgResources);
 
-    // Profile repos in chunks: each `augment` call is one aliased GraphQL
-    // request covering up to AUGMENT_CHUNK repos, so an org of N repos costs
-    // ~N/AUGMENT_CHUNK requests instead of one per repo.
+    // Profile repos in chunks. Repos with no releases skip the release-asset
+    // scan and batch wide; repos with releases batch narrow. Chunks run with
+    // bounded concurrency to cut wall-clock without stressing rate limits.
+    const withReleases = discovery.repos.filter((r) => r.releasesCount > 0);
+    const withoutReleases = discovery.repos.filter((r) => r.releasesCount === 0);
+    const tasks: Array<{ repos: typeof discovery.repos; scanReleases: boolean }> = [
+      ...chunk(withoutReleases, AUGMENT_CHUNK_LITE).map((repos) => ({
+        repos,
+        scanReleases: false,
+      })),
+      ...chunk(withReleases, AUGMENT_CHUNK_FULL).map((repos) => ({ repos, scanReleases: true })),
+    ];
+
     let profiled = 0;
-    for (let i = 0; i < discovery.repos.length; i += AUGMENT_CHUNK) {
-      const chunk = discovery.repos.slice(i, i + AUGMENT_CHUNK);
-      const chunkSignals = await d.augment(gql, chunk);
-      for (const signals of chunkSignals) {
-        recordRepoProfile(input.id, signals, analyzeRepo(signals));
-        profiled += 1;
-        onProgress?.({
-          runId: input.id,
-          profiled,
-          total: discovery.total,
-          repo: signals.nameWithOwner,
-        });
+    let firstError: unknown = null;
+    let next = 0;
+    // A worker pulls the next chunk until the queue drains or a chunk fails.
+    // Completed chunks persist regardless; the first error fails the run after
+    // in-flight chunks settle (mirrors the previous stop-on-first-failure).
+    const worker = async (): Promise<void> => {
+      while (next < tasks.length && firstError === null) {
+        const task = tasks[next++];
+        if (!task) break;
+        try {
+          const chunkSignals = await d.augment(gql, task.repos, {
+            scanReleases: task.scanReleases,
+          });
+          for (const signals of chunkSignals) {
+            recordRepoProfile(input.id, signals, analyzeRepo(signals));
+            profiled += 1;
+            onProgress?.({
+              runId: input.id,
+              profiled,
+              total: discovery.total,
+              repo: signals.nameWithOwner,
+            });
+          }
+        } catch (err) {
+          if (firstError === null) firstError = err;
+        }
       }
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(AUGMENT_CONCURRENCY, tasks.length) }, () => worker()),
+    );
+    if (firstError !== null) throw firstError;
 
     completeProfileRun(input.id);
   } catch (err) {

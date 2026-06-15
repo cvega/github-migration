@@ -30,6 +30,7 @@ function discovered(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     pullRequestsCount: 0,
     branchesCount: 0,
     tagsCount: 0,
+    releasesCount: 0,
     ...over,
   };
 }
@@ -63,7 +64,6 @@ function node(over: {
   discussions?: number;
   projectsV2?: number;
   environments?: number;
-  releases?: number;
   stars?: number;
   watchers?: number;
   packages?: number;
@@ -71,7 +71,7 @@ function node(over: {
   lfsAttributes?: string;
   /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
   workflowFiles?: string[];
-  /** Asset byte sizes; placed in a single release node. */
+  /** Asset byte sizes; placed in a single scanned release node (omit = not scanned). */
   releaseAssetSizes?: number[];
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
@@ -84,12 +84,14 @@ function node(over: {
     discussions: { totalCount: over.discussions ?? 0 },
     projectsV2: { totalCount: over.projectsV2 ?? 0 },
     environments: { totalCount: over.environments ?? 0 },
-    releases: {
-      totalCount: over.releases ?? (over.releaseAssetSizes ? 1 : 0),
-      nodes: over.releaseAssetSizes
-        ? [{ releaseAssets: { nodes: over.releaseAssetSizes.map((size) => ({ size })) } }]
-        : [],
-    },
+    // `releases` is present only on a scanned node (mirrors scanReleases: true).
+    ...(over.releaseAssetSizes
+      ? {
+          releases: {
+            nodes: [{ releaseAssets: { nodes: over.releaseAssetSizes.map((size) => ({ size })) } }],
+          },
+        }
+      : {}),
     stargazerCount: over.stars ?? 0,
     watchers: { totalCount: over.watchers ?? 0 },
     packages: { totalCount: over.packages ?? 0 },
@@ -125,26 +127,27 @@ describe("augmentRepoSignals", () => {
         discussions: 3,
         projectsV2: 2,
         environments: 4,
-        releases: 7,
         stars: 41,
         watchers: 9,
       }),
     });
 
-    const [signals] = await augmentRepoSignals(fn, [discovered({ issuesCount: 11 })]);
+    const [signals] = await augmentRepoSignals(fn, [
+      discovered({ issuesCount: 11, releasesCount: 7 }),
+    ]);
 
     // Augmented counts.
     expect(signals?.commitsCount).toBe(512);
     expect(signals?.discussionsCount).toBe(3);
     expect(signals?.projectsV2Count).toBe(2);
     expect(signals?.environmentsCount).toBe(4);
-    expect(signals?.releasesCount).toBe(7);
     expect(signals?.stargazerCount).toBe(41);
     expect(signals?.watcherCount).toBe(9);
     // Discovered spine preserved (incl. the content counts from discovery).
     expect(signals?.nameWithOwner).toBe("acme/widget");
     expect(signals?.diskUsageKb).toBe(1234);
     expect(signals?.issuesCount).toBe(11);
+    expect(signals?.releasesCount).toBe(7);
   });
 
   test("maps the packages count", async () => {
@@ -184,6 +187,28 @@ describe("augmentRepoSignals", () => {
     const { fn } = mockGql({ r0: node({}) });
     const [signals] = await augmentRepoSignals(fn, [discovered()]);
     expect(signals?.releaseAssetBytes).toBe(0);
+  });
+
+  test("omits the release-asset scan from the query when scanReleases is false", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: node({}) };
+    }) as unknown as typeof graphql;
+
+    await augmentRepoSignals(fn, [discovered()], { scanReleases: false });
+    expect(query).not.toContain("releaseAssets");
+  });
+
+  test("includes the release-asset scan from the query when scanReleases is true", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: node({ releaseAssetSizes: [10] }) };
+    }) as unknown as typeof graphql;
+
+    await augmentRepoSignals(fn, [discovered()], { scanReleases: true });
+    expect(query).toContain("releaseAssets");
   });
 
   test("counts only .yml/.yaml workflow files under .github/workflows", async () => {

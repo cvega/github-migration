@@ -48,6 +48,12 @@ export interface DiscoveredRepo {
   branchesCount: number;
   /** Tags (`refs` under `refs/tags/`) — migration scale. */
   tagsCount: number;
+  /**
+   * Releases (`releases.totalCount`); GHES releases don't migrate at all.
+   * Gathered in discovery (free on the 100-wide page) so the augment pass can
+   * skip the heavy release-asset scan for repos that have none.
+   */
+  releasesCount: number;
 }
 
 /** Progress emitted after each discovery page (drives SSE / logging later). */
@@ -88,8 +94,6 @@ export interface RepoSignals extends DiscoveredRepo {
   projectsV2Count: number;
   /** Actions environments (`environments.totalCount`); not migrated. */
   environmentsCount: number;
-  /** Releases (`releases.totalCount`); GHES releases don't migrate at all. */
-  releasesCount: number;
   /**
    * Summed byte size of release assets across the repo's releases (bounded scan:
    * the first 100 releases × first 50 assets each). An estimate — the usual
