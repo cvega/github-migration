@@ -588,7 +588,7 @@
 											{#each repo.applyingConsiderations as item (item.considerationId)}
 												{@const meta = considerationMeta.get(item.considerationId)}
 												<span
-													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {sevClass[meta?.severity ?? 'info']}"
+													class="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs {sevClass[meta?.severity ?? 'info']}"
 													title={item.evidence}
 												>
 													{meta?.label ?? item.considerationId}
@@ -604,10 +604,10 @@
 										<div class="flex flex-wrap gap-1.5">
 											{#each repo.insights as insight (insight.id)}
 												<span
-													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {toneClass[insight.tone]}"
+													class="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs {toneClass[insight.tone]}"
 													title={insight.detail}
 												>
-													<Octicon name={toneIcon[insight.tone] ?? 'info'} size={12} />
+													<Octicon name={toneIcon[insight.tone] ?? 'info'} size={12} class="shrink-0" />
 													{insight.label}
 												</span>
 											{/each}
