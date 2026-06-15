@@ -144,6 +144,8 @@ export const ORG_EVALUATED_CONSIDERATION_IDS: readonly string[] = [
   "dependabot-secrets",
   "codespaces-secrets",
   "custom-properties",
+  "teams",
+  "github-apps",
 ];
 
 function summarize(findings: ConsiderationFinding[]): ProfileSummary {

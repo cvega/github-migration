@@ -172,6 +172,8 @@ describe("setProfileRunOrgResources", () => {
       codespacesSecrets: 0,
       selfHostedRunners: 0,
       customProperties: 0,
+      teams: 0,
+      appInstallations: 0,
     });
   });
 
@@ -184,12 +186,16 @@ describe("setProfileRunOrgResources", () => {
       codespacesSecrets: 0,
       selfHostedRunners: 4,
       customProperties: 5,
+      teams: 7,
+      appInstallations: 6,
     });
     expect(getProfileRun("r")?.orgResources).toMatchObject({
       actionsSecrets: 3,
       dependabotSecrets: 2,
       selfHostedRunners: 4,
       customProperties: 5,
+      teams: 7,
+      appInstallations: 6,
     });
   });
 });

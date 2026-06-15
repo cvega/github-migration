@@ -183,6 +183,10 @@ export interface OrgResources {
   selfHostedRunners: number;
   /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
   customProperties: number;
+  /** Org teams (`/orgs/{org}/teams`) — neither teams nor membership migrate. */
+  teams: number;
+  /** Installed GitHub Apps (`/orgs/{org}/installations`) — not migrated. */
+  appInstallations: number;
 }
 
 /** All-zero org resources — the default before gathering (and on total failure). */
@@ -193,6 +197,8 @@ export const ZERO_ORG_RESOURCES: OrgResources = {
   codespacesSecrets: 0,
   selfHostedRunners: 0,
   customProperties: 0,
+  teams: 0,
+  appInstallations: 0,
 };
 
 /**

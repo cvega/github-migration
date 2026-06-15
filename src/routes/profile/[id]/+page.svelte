@@ -83,7 +83,9 @@
 				{ label: 'Dependabot secrets', value: run.orgResources.dependabotSecrets, icon: 'dependabot' },
 				{ label: 'Codespaces secrets', value: run.orgResources.codespacesSecrets, icon: 'codespaces' },
 				{ label: 'Self-hosted runners', value: run.orgResources.selfHostedRunners, icon: 'server' },
-				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' }
+				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' },
+				{ label: 'Teams', value: run.orgResources.teams, icon: 'people' },
+				{ label: 'GitHub Apps', value: run.orgResources.appInstallations, icon: 'apps' }
 			] satisfies Array<{
 				label: string;
 				value: number;
