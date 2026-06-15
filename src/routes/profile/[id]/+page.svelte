@@ -64,17 +64,33 @@
 	);
 
 	// Org-level resources to recreate on the target (run-level, not per-repo).
-	// Only non-zero resources are shown.
+	// Only non-zero resources are shown. Rulesets lead the list with a warning
+	// accent: like the others they're org-scoped and not migrated, but unlike
+	// them a ruleset can fail the migration outright, so it carries extra weight.
 	const orgResourceTiles = $derived(
 		(
 			[
+				{
+					label: 'Rulesets',
+					value: run.orgRulesetCount,
+					icon: 'law',
+					warn: true,
+					title:
+						'Organization rulesets are not migrated, and one (e.g. a commit-author email rule) can fail the migration itself. Review before migrating.'
+				},
 				{ label: 'Actions secrets', value: run.orgResources.actionsSecrets, icon: 'key' },
 				{ label: 'Actions variables', value: run.orgResources.actionsVariables, icon: 'note' },
 				{ label: 'Dependabot secrets', value: run.orgResources.dependabotSecrets, icon: 'dependabot' },
 				{ label: 'Codespaces secrets', value: run.orgResources.codespacesSecrets, icon: 'codespaces' },
 				{ label: 'Self-hosted runners', value: run.orgResources.selfHostedRunners, icon: 'server' },
 				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' }
-			] satisfies Array<{ label: string; value: number; icon: IconName }>
+			] satisfies Array<{
+				label: string;
+				value: number;
+				icon: IconName;
+				warn?: boolean;
+				title?: string;
+			}>
 		).filter((t) => t.value > 0)
 	);
 
@@ -348,16 +364,6 @@
 				Migration summary
 			</h2>
 
-			{#if run.orgRulesetCount > 0}
-				<div class="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-200">
-					<Octicon name="law" size={16} class="mt-0.5 shrink-0" />
-					<span>
-						<span class="font-semibold">{run.orgRulesetCount} organization ruleset{run.orgRulesetCount === 1 ? '' : 's'}</span>
-						— not migrated, and an org ruleset (e.g. a commit-author email rule) can fail the migration. Review before migrating.
-					</span>
-				</div>
-			{/if}
-
 			{#if orgResourceTiles.length > 0}
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 					<div class="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-300">
@@ -366,16 +372,23 @@
 					</div>
 					<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
 						{#each orgResourceTiles as t (t.label)}
-							<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
-								<Octicon name={t.icon} size={16} class="shrink-0 text-gray-500" />
+							<div
+								class="flex items-center gap-2 rounded-md border px-2.5 py-2 {t.warn
+									? 'border-yellow-500/30 bg-yellow-500/10'
+									: 'border-gray-700/60 bg-gray-950/40'}"
+								title={t.title}
+							>
+								<Octicon name={t.icon} size={16} class="shrink-0 {t.warn ? 'text-yellow-400' : 'text-gray-500'}" />
 								<div class="min-w-0">
-									<div class="text-sm font-semibold tabular-nums text-gray-100">{t.value.toLocaleString()}</div>
-									<div class="truncate text-[11px] text-gray-400">{t.label}</div>
+									<div class="text-sm font-semibold tabular-nums {t.warn ? 'text-yellow-200' : 'text-gray-100'}">{t.value.toLocaleString()}</div>
+									<div class="truncate text-[11px] {t.warn ? 'text-yellow-300/80' : 'text-gray-400'}">{t.label}</div>
 								</div>
 							</div>
 						{/each}
 					</div>
-					<p class="mt-2 text-[11px] text-gray-500">Org-scoped and not migrated — recreate on the target. Secret values are never exported.</p>
+					<p class="mt-2 text-[11px] text-gray-500">
+						Org-scoped and not migrated — recreate on the target. Secret values are never exported.{#if run.orgRulesetCount > 0} A ruleset (e.g. a commit-author email rule) can fail the migration itself — review before migrating.{/if}
+					</p>
 				</div>
 			{/if}
 
