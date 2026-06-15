@@ -229,4 +229,58 @@ describe("discoverOrgRepos", () => {
     expect(calls).toHaveLength(1);
     expect(result.repos.map((r) => r.name)).toEqual(["a"]);
   });
+
+  test("halves the page and retries the same cursor when a page times out", async () => {
+    const calls: Array<{ cursor: string | null; pageSize: number }> = [];
+    let attempt = 0;
+    const fn = (async (_q: string, vars: Record<string, unknown>) => {
+      calls.push({
+        cursor: (vars.cursor as string | null) ?? null,
+        pageSize: vars.pageSize as number,
+      });
+      attempt += 1;
+      // The first attempt (100-wide) times out with a GitHub 502; the retry at
+      // half the size succeeds — no repos are skipped because the cursor holds.
+      if (attempt === 1) throw Object.assign(new Error("502 Bad Gateway"), { status: 502 });
+      return page([node("a"), node("b")], { total: 2 });
+    }) as unknown as typeof graphql;
+
+    const result = await discoverOrgRepos(fn, "acme");
+
+    expect(result.repos.map((r) => r.name)).toEqual(["a", "b"]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.pageSize).toBe(100); // first attempt at the full page
+    expect(calls[1]?.pageSize).toBe(50); // retried at half after the 502
+    expect(calls[1]?.cursor).toBeNull(); // same cursor — nothing skipped
+  });
+
+  test("keeps the shrunk page size for the rest of the crawl", async () => {
+    const sizes: number[] = [];
+    let attempt = 0;
+    const fn = (async (_q: string, vars: Record<string, unknown>) => {
+      sizes.push(vars.pageSize as number);
+      attempt += 1;
+      if (attempt === 1) throw Object.assign(new Error("504"), { status: 504 });
+      // After the shrink, page 1 (at 50) has a next page; page 2 must reuse 50.
+      if (attempt === 2)
+        return page([node("a")], { total: 2, hasNextPage: true, endCursor: "CUR" });
+      return page([node("b")], { total: 2 });
+    }) as unknown as typeof graphql;
+
+    const result = await discoverOrgRepos(fn, "acme");
+
+    expect(result.repos.map((r) => r.name)).toEqual(["a", "b"]);
+    expect(sizes).toEqual([100, 50, 50]); // shrunk once, then held
+  });
+
+  test("surfaces a non-timeout error without retrying", async () => {
+    let attempts = 0;
+    const fn = (async () => {
+      attempts += 1;
+      throw Object.assign(new Error("Bad credentials"), { status: 401 });
+    }) as unknown as typeof graphql;
+
+    await expect(discoverOrgRepos(fn, "acme")).rejects.toThrow("Bad credentials");
+    expect(attempts).toBe(1); // a 401 is not a timeout — no page-size retry
+  });
 });

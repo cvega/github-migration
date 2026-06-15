@@ -20,6 +20,7 @@
  * branch-protection derivation are unit-testable without a network.
  */
 import type { graphql } from "@octokit/graphql";
+import { isTimeoutError } from "./graphql-errors";
 import type { DiscoveredRepo, RepoSignals } from "./types";
 
 /** GraphQL caps `branchProtectionRules(first:)` at 100; most repos have <10, so
@@ -236,6 +237,16 @@ function countsToSignals(repo: DiscoveredRepo, node: RepoCountsNode | null): Rep
   };
 }
 
+/**
+ * A repo's signals with only the discovery spine — every augmented field at its
+ * default. Recorded at discovery time so each repo is listed immediately; the
+ * counts and details passes then enrich it in place. This is the single source
+ * of truth for the zeroed shape (it's exactly an un-augmented counts node).
+ */
+export function baseSignals(repo: DiscoveredRepo): RepoSignals {
+  return countsToSignals(repo, null);
+}
+
 /** Map a repo + its (possibly null) details node to the verification fields. */
 function toDetails(repo: DiscoveredRepo, node: RepoDetailsNode | null): RepoDetails {
   return {
@@ -257,22 +268,6 @@ function partialDataFromError(err: unknown): Record<string, unknown> | null {
     if (data && typeof data === "object") return data as Record<string, unknown>;
   }
   return null;
-}
-
-/**
- * Whether an error is a GitHub processing timeout. The GraphQL API terminates
- * any request that takes longer than ~10s and responds with a 502 or 504 (or a
- * "Something went wrong while executing your query" message). These carry no
- * usable partial data — the remedy is to make the query cheaper, i.e. split it.
- */
-function isTimeoutError(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const e = err as { status?: number; message?: string };
-  if (e.status === 502 || e.status === 504) return true;
-  return (
-    typeof e.message === "string" &&
-    /timeout|timed out|executing your query|respond to your request in time/i.test(e.message)
-  );
 }
 
 /** Options controlling how wide/deep a single augment request reaches. */

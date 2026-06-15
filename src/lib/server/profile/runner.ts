@@ -17,7 +17,7 @@
  */
 import type { graphql } from "@octokit/graphql";
 import { analyzeRepo } from "./analyze";
-import { augmentRepoCounts, augmentRepoDetails } from "./augment";
+import { augmentRepoCounts, augmentRepoDetails, baseSignals } from "./augment";
 import { discoverOrgRepos } from "./discover";
 import {
   completeProfileRun,
@@ -156,19 +156,37 @@ export async function runProfile(
     setProfileRunRulesets(input.id, rulesetCount);
     setProfileRunOrgResources(input.id, orgResources);
 
-    // ── Pass 1: cheap counts ──────────────────────────────────────────────
-    // One aliased request per chunk of cheap `{ totalCount }` fields, run with
-    // bounded concurrency. Each repo's profile is recorded immediately so the
-    // detail page fills in counts while the run is still in progress. A counts
-    // chunk that fails (after the internal split/degrade) fails the run.
+    // ── Record the list up front ──────────────────────────────────────────
+    // Every discovered repo is recorded immediately with the discovery spine and
+    // its augmented fields zeroed, so the detail page shows the FULL list the
+    // moment discovery finishes — exactly the "list of repos" the user wants
+    // before any enrichment. The two passes below fill each repo in place and
+    // are best-effort: a transient GraphQL 502 in either enriches fewer repos
+    // but can never empty the list or fail the run.
     const signalsByRepo = new Map<string, RepoSignals>();
+    for (const repo of discovery.repos) {
+      const base = baseSignals(repo);
+      signalsByRepo.set(repo.nameWithOwner, base);
+      recordRepoProfile(input.id, base, analyzeRepo(base));
+    }
+    if (discovery.repos.length > 0) {
+      // Nudge any live watcher to render the freshly-listed repos.
+      onProgress?.({ runId: input.id, profiled: 0, total: discovery.total, repo: "" });
+    }
+
+    // ── Pass 1: cheap counts (best-effort) ────────────────────────────────
+    // One aliased request per chunk of cheap `{ totalCount }`/scalar fields, run
+    // with bounded concurrency; each repo's counts are recorded as they arrive.
+    // `augmentCounts` already splits/degrades on a GitHub 502 timeout, so a
+    // chunk reaching this catch failed for some other reason — we log it and
+    // move on, leaving those repos at their base signals rather than failing the
+    // whole run.
     let profiled = 0;
     {
       const chunks = chunk(discovery.repos, COUNTS_CHUNK);
-      let firstError: unknown = null;
       let next = 0;
       const worker = async (): Promise<void> => {
-        while (next < chunks.length && firstError === null) {
+        while (next < chunks.length) {
           const c = chunks[next++];
           if (!c) break;
           try {
@@ -186,20 +204,18 @@ export async function runProfile(
             }
           } catch (err) {
             console.error(
-              `[profile] run ${input.id} counts chunk failed — ${c.length} repo(s):`,
+              `[profile] run ${input.id} counts chunk failed — ${c.length} repo(s) kept at base signals:`,
               err,
             );
-            if (firstError === null) firstError = err;
           }
         }
       };
       await Promise.all(
         Array.from({ length: Math.min(AUGMENT_CONCURRENCY, chunks.length) }, () => worker()),
       );
-      if (firstError !== null) throw firstError;
     }
     console.log(
-      `[profile] run ${input.id} counts pass done — ${profiled} repo(s) in ${Date.now() - startedMs}ms`,
+      `[profile] run ${input.id} counts pass done — ${profiled} repo(s) enriched in ${Date.now() - startedMs}ms`,
     );
 
     // ── Pass 2: verification details (best-effort) ─────────────────────────

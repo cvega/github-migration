@@ -259,7 +259,7 @@ describe("runProfile", () => {
     expect(run.failureReason).toMatch(/not found or not accessible/);
   });
 
-  test("marks the run failed when the counts pass throws", async () => {
+  test("keeps the run completed (repos still listed) when a counts chunk fails", async () => {
     const repos = [discovered("ok"), discovered("boom")];
     const partialDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
@@ -276,14 +276,20 @@ describe("runProfile", () => {
       partialDeps,
     );
 
-    expect(run.state).toBe("failed");
-    expect(run.failureReason).toBe("repo augmentation failed");
+    // The counts pass is best-effort: a chunk failure no longer fails the run.
+    // Both repos were recorded from discovery, so the list survives.
+    expect(run.state).toBe("completed");
+    expect(
+      getRunRepoProfiles("r")
+        .map((p) => p.nameWithOwner)
+        .sort(),
+    ).toEqual(["acme/boom", "acme/ok"]);
   });
 
-  test("persists completed counts chunks when a later chunk fails", async () => {
-    // 26 repos at COUNTS_CHUNK=15 → chunks of 15 + 11. The chunk holding the
-    // last repo (r15–r25) throws in the counts pass; the first chunk's 15 repos
-    // still persist.
+  test("lists every repo even when a counts chunk fails, enriching the rest", async () => {
+    // 26 repos at COUNTS_CHUNK=15 → chunks of 15 + 11. The chunk holding r25
+    // throws in the counts pass; every repo is still listed (recorded at
+    // discovery) and the run completes.
     const repos = Array.from({ length: 26 }, (_, i) =>
       discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
     );
@@ -302,8 +308,8 @@ describe("runProfile", () => {
       chunkedDeps,
     );
 
-    expect(run.state).toBe("failed");
-    expect(getRunRepoProfiles("r")).toHaveLength(15); // the surviving counts chunk persisted
+    expect(run.state).toBe("completed");
+    expect(getRunRepoProfiles("r")).toHaveLength(26); // all repos listed despite the failed chunk
   });
 
   test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {

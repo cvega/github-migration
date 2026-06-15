@@ -8,10 +8,16 @@
  * network or a live Octokit.
  */
 import type { graphql } from "@octokit/graphql";
+import { isTimeoutError } from "./graphql-errors";
 import type { DiscoveredRepo, DiscoveryProgress, OrgDiscovery, RepoVisibility } from "./types";
 
 /** GraphQL caps `repositories(first:)` at 100. */
 const REPOS_PER_PAGE = 100;
+
+/** Smallest discovery page we'll shrink to before surfacing a timeout. A page
+ *  of only indexed counts should never time out this small; if it does, the
+ *  error is real and worth surfacing rather than retrying forever. */
+const MIN_PAGE_SIZE = 10;
 
 /** Raw shape of one repository node in the discovery query. */
 interface RepoNode {
@@ -103,6 +109,45 @@ function toDiscoveredRepo(node: RepoNode): DiscoveredRepo {
 }
 
 /**
+ * Fetch one discovery page, halving the page size and retrying the *same*
+ * cursor each time GitHub times the request out (502/504), down to
+ * `MIN_PAGE_SIZE`. A 100-wide page of indexed counts is normally cheap, but an
+ * org with repos that have very many refs/issues can tip one page over GitHub's
+ * ~10s limit; shrinking keeps discovery — the only thing between the user and "a
+ * list of repos" — completing instead of failing the whole run. Returns the page
+ * plus the size that actually worked so the caller can keep using it for the
+ * remaining pages rather than re-hitting the timeout on every one.
+ */
+async function fetchPageAdaptive(
+  gql: typeof graphql,
+  org: string,
+  cursor: string | null,
+  pageSize: number,
+): Promise<{ result: OrgReposResult; pageSize: number }> {
+  let size = pageSize;
+  for (;;) {
+    try {
+      const result = await gql<OrgReposResult>(ORG_REPOS_QUERY, {
+        login: org,
+        cursor,
+        pageSize: size,
+      });
+      return { result, pageSize: size };
+    } catch (err) {
+      if (isTimeoutError(err) && size > MIN_PAGE_SIZE) {
+        const smaller = Math.max(MIN_PAGE_SIZE, Math.floor(size / 2));
+        console.warn(
+          `[profile] discovery page of ${size} timed out for '${org}'; retrying this page at ${smaller}`,
+        );
+        size = smaller;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Discover every repository in an organization via paged GraphQL.
  *
  * @param gql        Injected GraphQL client (`createSingleClient(...).graphql`).
@@ -120,16 +165,13 @@ export async function discoverOrgRepos(
   let cursor: string | null = null;
   let total = 0;
   let page = 0;
+  // Adaptive page size: starts at the 100-wide max and only shrinks (and stays
+  // shrunk) if a page times out, so small orgs pay nothing for the resilience.
+  let pageSize = REPOS_PER_PAGE;
 
   for (;;) {
-    // `result` is annotated explicitly: `cursor` is both an input to this call
-    // and reassigned from its output below, so without the annotation TS sees a
-    // self-referential initializer and falls back to `any` (TS7022).
-    const result: OrgReposResult = await gql<OrgReposResult>(ORG_REPOS_QUERY, {
-      login: org,
-      cursor,
-      pageSize: REPOS_PER_PAGE,
-    });
+    const { result, pageSize: usedSize } = await fetchPageAdaptive(gql, org, cursor, pageSize);
+    pageSize = usedSize;
 
     const connection = result.organization?.repositories;
     if (!connection) {
