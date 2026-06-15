@@ -137,6 +137,13 @@
 		else expanded.add(name);
 	}
 
+	// Repo name without the owner prefix — every row shares the org owner (shown
+	// in the header), so `owner/` is redundant noise in the table.
+	function shortRepoName(nameWithOwner: string): string {
+		const slash = nameWithOwner.indexOf('/');
+		return slash >= 0 ? nameWithOwner.slice(slash + 1) : nameWithOwner;
+	}
+
 	// One repo's individual signal counts, as labelled tiles for the detail row.
 	function repoCounts(s: RepoSignalsView): Array<{ label: string; value: string; icon: IconName }> {
 		return [
@@ -534,10 +541,11 @@
 										type="button"
 										onclick={() => toggleRepo(repo.nameWithOwner)}
 										aria-expanded={expanded.has(repo.nameWithOwner)}
+										title={repo.nameWithOwner}
 										class="flex items-center gap-1.5 text-left font-medium text-gray-50 transition-colors hover:text-violet-300"
 									>
 										<Octicon name={expanded.has(repo.nameWithOwner) ? 'chevron-down' : 'chevron-right'} size={12} class="shrink-0 text-gray-500" />
-										{repo.nameWithOwner}
+										{shortRepoName(repo.nameWithOwner)}
 									</button>
 								</td>
 								<td class="px-4 py-3 text-center">
@@ -597,13 +605,13 @@
 												</div>
 											{/each}
 										</div>
-										<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+										<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 [&>*:not(:first-child)]:before:mr-3 [&>*:not(:first-child)]:before:text-gray-600 [&>*:not(:first-child)]:before:content-['·']">
 											<span class="lowercase">{repo.signals.visibility}</span>
-											{#if repo.signals.defaultBranch}<span>· default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}
-											{#if repo.signals.pushedAt}<span>· pushed {timeAgo(repo.signals.pushedAt)}</span>{/if}
-											{#if repo.signals.isArchived}<span class="text-amber-400">· archived</span>{/if}
-											{#if repo.signals.isFork}<span>· fork</span>{/if}
-											{#if repo.signals.isEmpty}<span>· empty</span>{/if}
+											{#if repo.signals.defaultBranch}<span>default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}
+											{#if repo.signals.pushedAt}<span>pushed {timeAgo(repo.signals.pushedAt)}</span>{/if}
+											{#if repo.signals.isArchived}<span class="text-amber-400">archived</span>{/if}
+											{#if repo.signals.isFork}<span>fork</span>{/if}
+											{#if repo.signals.isEmpty}<span>empty</span>{/if}
 										</div>
 									</td>
 								</tr>
