@@ -1,5 +1,5 @@
 /**
- * Tests for the GEI archive-export wait helper. `waitForArchive` polls a GHES
+ * Tests for the archive-export wait helper. `waitForArchive` polls a GHES
  * migration's status and resolves with the archive URL once it's exported.
  *
  * The helper takes a full `InstanceType<typeof RetryOctokit>` (hundreds of

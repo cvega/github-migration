@@ -25,7 +25,7 @@
 ## Capabilities
 
 - Migrates repositories GHES → GHEC and GHEC → GHEC, via archive upload or direct passthrough.
-- Profiles an organization before migrating — crawls every repository and surfaces per-repo migration *considerations* (what GEI won't carry over) plus actionable insights, streamed live.
+- Profiles an organization before migrating — crawls every repository and surfaces per-repo migration *considerations* (what the GitHub export won't carry over) plus actionable insights, streamed live.
 - Accepts batch requests of up to 500 repositories; a FIFO queue caps execution at 10 concurrent migrations (GitHub's limit).
 - Reports progress over Server-Sent Events (SSE) — phase timeline, per-resource progress, and throughput.
 - Supports cancelling in-flight migrations and restarting failed or cancelled ones in place.

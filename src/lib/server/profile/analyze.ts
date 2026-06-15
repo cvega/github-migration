@@ -1,9 +1,9 @@
 /**
- * Consideration-analysis engine — runs a repository's signals against the GEI
+ * Consideration-analysis engine — runs a repository's signals against the
  * consideration registry and produces a per-repo readiness profile.
  *
  * The registry (`$lib/profile/consideration-registry`) is the canonical checklist of
- * what GEI does not migrate cleanly. This engine evaluates each entry against
+ * what the GitHub export does not carry cleanly. This engine evaluates each entry against
  * the gathered `RepoSignals` and classifies it:
  *
  *   - applies        — the consideration is present (with human-readable evidence)

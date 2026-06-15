@@ -69,7 +69,7 @@ const REPO_SIGNALS_QUERY = `query repoSignals($owner: String!, $name: String!, $
 }`;
 
 /**
- * Whether a branch protection rule uses any feature GEI does not migrate.
+ * Whether a branch protection rule uses any feature the GitHub export does not carry.
  * (Plain required-reviews/status-checks DO migrate, so a rule using only those
  * counts as zero here.)
  */

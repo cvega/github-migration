@@ -1,12 +1,12 @@
 /**
- * GitHub Enterprise Importer (GEI) operations — the migration-specific GitHub
+ * GitHub cross-product migration operations — the migration-specific GitHub
  * calls that drive the import pipeline, kept out of `core/github` so that
  * module stays a generic client + repo-operations primitive any domain can use.
  *
  * Two groups:
  *   - GHES archive export (REST): version gate + git/metadata archive jobs and
  *     the poll-until-exported wait.
- *   - GEI GraphQL: migration-source creation, start/get/abort a repository
+ *   - Migration GraphQL: migration-source creation, start/get/abort a repository
  *     migration, and post-migration source archiving.
  *
  * Depends only on `core` (the client type, the version comparator, sleep) — no
@@ -122,7 +122,7 @@ export async function waitForArchive(
   throw new Error("Archive wait aborted");
 }
 
-// ── GEI GraphQL ──────────────────────────────────────────────────────────────
+// ── Migration GraphQL ───────────────────────────────────────────────────────────
 
 export async function getOrgId(gql: typeof graphql, org: string): Promise<string> {
   const result = await gql<{ organization: { id: string } }>(

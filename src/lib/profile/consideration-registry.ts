@@ -1,26 +1,26 @@
 /**
- * Consideration registry — the canonical list of source data that GitHub
- * Enterprise Importer (GEI) does not migrate cleanly. The Profile workspace
- * reads this to detect each consideration, classify it, and route it to its
- * remediation (supplemental tooling, a reconfigure step, or a "heads up, this
- * is lost" note).
+ * Consideration registry — the canonical list of source data that the GitHub
+ * export does not carry cleanly. The Profile workspace reads this to detect
+ * each consideration, classify it, and route it to its remediation
+ * (supplemental tooling, a reconfigure step, or a "heads up, this is lost"
+ * note).
  *
- * It is plain reference data — edit it whenever GEI changes. The accompanying
- * test (consideration-registry.test.ts) guards its integrity (unique ids,
- * well-formed entries, kind/severity consistency) so edits can't silently
- * corrupt it.
+ * It is plain reference data — edit it whenever the export's coverage changes.
+ * The accompanying test (consideration-registry.test.ts) guards its integrity
+ * (unique ids, well-formed entries, kind/severity consistency) so edits can't
+ * silently corrupt it.
  *
  * Verified against GitHub's "About migrations between GitHub products" and its
  * "Limitations on migrated data" section. Several entries are in public preview
- * upstream, so re-check periodically and bump GEI_DOCS_VERIFIED.
+ * upstream, so re-check periodically and bump MIGRATION_DOCS_VERIFIED.
  */
 
-/** Base GEI documentation URL; each entry's `docAnchor` appends to this. */
-export const GEI_DOC_URL =
+/** Base migration documentation URL; each entry's `docAnchor` appends to this. */
+export const MIGRATION_DOC_URL =
   "https://docs.github.com/en/migrations/using-github-enterprise-importer/migrating-between-github-products/about-migrations-between-github-products";
 
-/** Date the registry was last reconciled with the GEI docs (YYYY-MM-DD). */
-export const GEI_DOCS_VERIFIED = "2026-06-13";
+/** Date the registry was last reconciled with the migration docs (YYYY-MM-DD). */
+export const MIGRATION_DOCS_VERIFIED = "2026-06-13";
 
 /**
  * What kind of remediation a consideration needs:
@@ -63,7 +63,7 @@ export interface Consideration {
   routesTo: string | null;
   /** One-line, doc-grounded explanation of the consideration. */
   summary: string;
-  /** Anchor into GEI_DOC_URL backing this entry. */
+  /** Anchor into MIGRATION_DOC_URL backing this entry. */
   docAnchor: string;
 }
 
@@ -109,7 +109,7 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     detector: "graphql-discussions-count",
     confidence: "exact",
     routesTo: "Discussions migration tooling",
-    summary: "Discussions at the repository level are not migrated by GEI.",
+    summary: "Discussions at the repository level are not included in the GitHub export.",
     docAnchor: NOT_MIGRATED,
   },
   {
