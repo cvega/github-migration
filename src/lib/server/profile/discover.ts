@@ -29,6 +29,10 @@ interface RepoNode {
   defaultBranchRef: { name: string } | null;
   pushedAt: string | null;
   updatedAt: string | null;
+  issues: { totalCount: number };
+  pullRequests: { totalCount: number };
+  branches: { totalCount: number };
+  tags: { totalCount: number };
 }
 
 /** Raw shape of the paged discovery query response. */
@@ -62,6 +66,10 @@ const ORG_REPOS_QUERY = `query orgRepos($login: String!, $cursor: String, $pageS
         defaultBranchRef { name }
         pushedAt
         updatedAt
+        issues { totalCount }
+        pullRequests { totalCount }
+        branches: refs(refPrefix: "refs/heads/", first: 1) { totalCount }
+        tags: refs(refPrefix: "refs/tags/", first: 1) { totalCount }
       }
     }
   }
@@ -84,6 +92,10 @@ function toDiscoveredRepo(node: RepoNode): DiscoveredRepo {
     defaultBranch: node.defaultBranchRef?.name ?? null,
     pushedAt: node.pushedAt,
     updatedAt: node.updatedAt,
+    issuesCount: node.issues.totalCount,
+    pullRequestsCount: node.pullRequests.totalCount,
+    branchesCount: node.branches.totalCount,
+    tagsCount: node.tags.totalCount,
   };
 }
 

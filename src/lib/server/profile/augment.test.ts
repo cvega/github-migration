@@ -26,6 +26,10 @@ function discovered(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     defaultBranch: "main",
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
     ...over,
   };
 }
@@ -53,8 +57,9 @@ function rule(flags: RuleFlags = {}) {
   };
 }
 
-/** Build the repository query response. */
-function repoResult(over: {
+/** Build one repository alias node. */
+function node(over: {
+  commits?: number;
   discussions?: number;
   projectsV2?: number;
   environments?: number;
@@ -63,32 +68,33 @@ function repoResult(over: {
   watchers?: number;
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
+  noDefaultBranch?: boolean;
 }) {
   return {
-    repository: {
-      discussions: { totalCount: over.discussions ?? 0 },
-      projectsV2: { totalCount: over.projectsV2 ?? 0 },
-      environments: { totalCount: over.environments ?? 0 },
-      releases: { totalCount: over.releases ?? 0 },
-      stargazerCount: over.stars ?? 0,
-      watchers: { totalCount: over.watchers ?? 0 },
-      branchProtectionRules: {
-        totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
-        nodes: over.rules ?? [],
-      },
+    defaultBranchRef: over.noDefaultBranch
+      ? null
+      : { target: { history: { totalCount: over.commits ?? 0 } } },
+    discussions: { totalCount: over.discussions ?? 0 },
+    projectsV2: { totalCount: over.projectsV2 ?? 0 },
+    environments: { totalCount: over.environments ?? 0 },
+    releases: { totalCount: over.releases ?? 0 },
+    stargazerCount: over.stars ?? 0,
+    watchers: { totalCount: over.watchers ?? 0 },
+    branchProtectionRules: {
+      totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
+      nodes: over.rules ?? [],
     },
   };
 }
 
-/** A `gql` double returning one queued response and recording its variables. */
-function mockGql(response: unknown) {
-  const calls: Array<{ owner: string; name: string; rules: number }> = [];
+/**
+ * A `gql` double returning a queued aliased response (keyed `r0`, `r1`, …) and
+ * recording the variables it was called with.
+ */
+function mockGql(response: Record<string, unknown>) {
+  const calls: Array<Record<string, unknown>> = [];
   const fn = (async (_query: string, vars: Record<string, unknown>) => {
-    calls.push({
-      owner: vars.owner as string,
-      name: vars.name as string,
-      rules: vars.rules as number,
-    });
+    calls.push(vars);
     return response;
   }) as unknown as typeof graphql;
   return { fn, calls };
@@ -96,8 +102,9 @@ function mockGql(response: unknown) {
 
 describe("augmentRepoSignals", () => {
   test("maps every count signal and preserves the discovered fields", async () => {
-    const { fn } = mockGql(
-      repoResult({
+    const { fn } = mockGql({
+      r0: node({
+        commits: 512,
         discussions: 3,
         projectsV2: 2,
         environments: 4,
@@ -105,34 +112,73 @@ describe("augmentRepoSignals", () => {
         stars: 41,
         watchers: 9,
       }),
-    );
+    });
 
-    const signals = await augmentRepoSignals(fn, discovered({ name: "widget" }));
+    const [signals] = await augmentRepoSignals(fn, [discovered({ issuesCount: 11 })]);
 
     // Augmented counts.
-    expect(signals.discussionsCount).toBe(3);
-    expect(signals.projectsV2Count).toBe(2);
-    expect(signals.environmentsCount).toBe(4);
-    expect(signals.releasesCount).toBe(7);
-    expect(signals.stargazerCount).toBe(41);
-    expect(signals.watcherCount).toBe(9);
-    // Discovered spine preserved.
-    expect(signals.nameWithOwner).toBe("acme/widget");
-    expect(signals.diskUsageKb).toBe(1234);
-    expect(signals.hasDiscussions).toBe(true);
+    expect(signals?.commitsCount).toBe(512);
+    expect(signals?.discussionsCount).toBe(3);
+    expect(signals?.projectsV2Count).toBe(2);
+    expect(signals?.environmentsCount).toBe(4);
+    expect(signals?.releasesCount).toBe(7);
+    expect(signals?.stargazerCount).toBe(41);
+    expect(signals?.watcherCount).toBe(9);
+    // Discovered spine preserved (incl. the content counts from discovery).
+    expect(signals?.nameWithOwner).toBe("acme/widget");
+    expect(signals?.diskUsageKb).toBe(1234);
+    expect(signals?.issuesCount).toBe(11);
   });
 
-  test("derives the owner from nameWithOwner and caps the rules page", async () => {
-    const { fn, calls } = mockGql(repoResult({}));
+  test("treats a missing default branch as zero commits", async () => {
+    const { fn } = mockGql({ r0: node({ noDefaultBranch: true }) });
 
-    await augmentRepoSignals(fn, discovered({ name: "widget", nameWithOwner: "octo-org/widget" }));
+    const [signals] = await augmentRepoSignals(fn, [discovered({ isEmpty: true })]);
 
-    expect(calls[0]).toEqual({ owner: "octo-org", name: "widget", rules: 100 });
+    expect(signals?.commitsCount).toBe(0);
+  });
+
+  test("derives owner/name per alias and caps the rules page", async () => {
+    const { fn, calls } = mockGql({ r0: node({}), r1: node({}) });
+
+    await augmentRepoSignals(fn, [
+      discovered({ name: "widget", nameWithOwner: "octo-org/widget" }),
+      discovered({ name: "gadget", nameWithOwner: "octo-org/gadget" }),
+    ]);
+
+    expect(calls[0]).toMatchObject({
+      rules: 100,
+      o0: "octo-org",
+      n0: "widget",
+      o1: "octo-org",
+      n1: "gadget",
+    });
+  });
+
+  test("profiles a whole chunk in a single request, in input order", async () => {
+    const { fn, calls } = mockGql({
+      r0: node({ commits: 1 }),
+      r1: node({ commits: 2 }),
+      r2: node({ commits: 3 }),
+    });
+
+    const signals = await augmentRepoSignals(fn, [
+      discovered({ nameWithOwner: "o/a", name: "a" }),
+      discovered({ nameWithOwner: "o/b", name: "b" }),
+      discovered({ nameWithOwner: "o/c", name: "c" }),
+    ]);
+
+    expect(calls).toHaveLength(1); // one batched request for three repos
+    expect(signals.map((s) => [s.nameWithOwner, s.commitsCount])).toEqual([
+      ["o/a", 1],
+      ["o/b", 2],
+      ["o/c", 3],
+    ]);
   });
 
   test("counts only branch protection rules that use an unmigrated feature", async () => {
-    const { fn } = mockGql(
-      repoResult({
+    const { fn } = mockGql({
+      r0: node({
         ruleTotal: 4,
         rules: [
           rule({ allowsForcePushes: true }), // unmigrated
@@ -141,21 +187,21 @@ describe("augmentRepoSignals", () => {
           rule({}), // only migrated features → not counted
         ],
       }),
-    );
+    });
 
-    const signals = await augmentRepoSignals(fn, discovered());
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
 
-    expect(signals.branchProtectionRuleCount).toBe(4);
-    expect(signals.branchProtectionRulesUsingUnmigratedFeatures).toBe(3);
+    expect(signals?.branchProtectionRuleCount).toBe(4);
+    expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(3);
   });
 
   test("treats a rule with no unmigrated features as fully migratable", async () => {
-    const { fn } = mockGql(repoResult({ ruleTotal: 1, rules: [rule({})] }));
+    const { fn } = mockGql({ r0: node({ ruleTotal: 1, rules: [rule({})] }) });
 
-    const signals = await augmentRepoSignals(fn, discovered());
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
 
-    expect(signals.branchProtectionRuleCount).toBe(1);
-    expect(signals.branchProtectionRulesUsingUnmigratedFeatures).toBe(0);
+    expect(signals?.branchProtectionRuleCount).toBe(1);
+    expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(0);
   });
 
   test("flags each unmigrated feature individually", async () => {
@@ -166,17 +212,61 @@ describe("augmentRepoSignals", () => {
       rule({ bypassForcePush: 1 }),
     ];
     for (const r of cases) {
-      const { fn } = mockGql(repoResult({ ruleTotal: 1, rules: [r] }));
-      const signals = await augmentRepoSignals(fn, discovered());
-      expect(signals.branchProtectionRulesUsingUnmigratedFeatures).toBe(1);
+      const { fn } = mockGql({ r0: node({ ruleTotal: 1, rules: [r] }) });
+      const [signals] = await augmentRepoSignals(fn, [discovered()]);
+      expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(1);
     }
   });
 
-  test("throws when the repository is missing or inaccessible", async () => {
-    const { fn } = mockGql({ repository: null });
+  test("returns no signals for an empty chunk without calling gql", async () => {
+    const { fn, calls } = mockGql({});
 
-    await expect(augmentRepoSignals(fn, discovered())).rejects.toThrow(
-      /not found or not accessible/i,
-    );
+    const signals = await augmentRepoSignals(fn, []);
+
+    expect(signals).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("degrades a null alias to zeroed signals (keeps the discovery spine)", async () => {
+    const { fn } = mockGql({ r0: node({ commits: 5 }), r1: null });
+
+    const signals = await augmentRepoSignals(fn, [
+      discovered({ nameWithOwner: "o/ok", name: "ok" }),
+      discovered({ nameWithOwner: "o/gone", name: "gone", issuesCount: 3 }),
+    ]);
+
+    expect(signals[0]?.commitsCount).toBe(5);
+    // The inaccessible repo keeps its discovered fields but zeroes augment counts.
+    expect(signals[1]?.nameWithOwner).toBe("o/gone");
+    expect(signals[1]?.issuesCount).toBe(3);
+    expect(signals[1]?.commitsCount).toBe(0);
+    expect(signals[1]?.branchProtectionRuleCount).toBe(0);
+  });
+
+  test("recovers partial data when the request errors with a data payload", async () => {
+    // GraphQL returns partial data + errors when one alias is inaccessible; the
+    // client surfaces that as a throw carrying `.data`. Recover the good repos.
+    const err = Object.assign(new Error("Could not resolve to a Repository"), {
+      data: { r0: node({ commits: 8 }), r1: null },
+    });
+    const fn = (async () => {
+      throw err;
+    }) as unknown as typeof graphql;
+
+    const signals = await augmentRepoSignals(fn, [
+      discovered({ nameWithOwner: "o/a", name: "a" }),
+      discovered({ nameWithOwner: "o/b", name: "b" }),
+    ]);
+
+    expect(signals[0]?.commitsCount).toBe(8);
+    expect(signals[1]?.commitsCount).toBe(0);
+  });
+
+  test("rethrows an error with no recoverable data payload", async () => {
+    const fn = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof graphql;
+
+    await expect(augmentRepoSignals(fn, [discovered()])).rejects.toThrow(/network down/);
   });
 });

@@ -30,12 +30,17 @@ function discovered(name: string): DiscoveredRepo {
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
   };
 }
 
 function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
   return {
     ...repo,
+    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -72,7 +77,7 @@ function serviceDeps(
           total: repos.length,
           repos,
         }),
-        augment: async (_gql, repo) => signalsFor(repo, augmentOver[repo.name] ?? {}),
+        augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
       });
       return state.runPromise;
     },
@@ -191,6 +196,53 @@ describe("getProfileDetail", () => {
 
     const detail = getProfileDetail("r");
     expect(detail?.repos[0]?.insights.map((i) => i.id)).toContain("archived-move-now");
+  });
+
+  test("derives the org migration-scale rollup by summing repo signals", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    const emptyProfile = (nameWithOwner: string): RepoProfile => ({
+      nameWithOwner,
+      findings: [],
+      summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+    });
+    recordRepoProfile(
+      "r",
+      signalsFor(discovered("a"), {
+        issuesCount: 10,
+        pullRequestsCount: 4,
+        commitsCount: 100,
+        branchesCount: 3,
+        tagsCount: 2,
+        releasesCount: 1,
+        diskUsageKb: 500,
+      }),
+      emptyProfile("acme/a"),
+    );
+    recordRepoProfile(
+      "r",
+      signalsFor(discovered("b"), {
+        issuesCount: 5,
+        pullRequestsCount: 6,
+        commitsCount: 50,
+        branchesCount: 1,
+        tagsCount: 0,
+        releasesCount: 2,
+        diskUsageKb: 250,
+      }),
+      emptyProfile("acme/b"),
+    );
+
+    const scale = getProfileDetail("r")?.scale;
+    expect(scale).toEqual({
+      repos: 2,
+      issues: 15,
+      pullRequests: 10,
+      commits: 150,
+      branches: 4,
+      tags: 2,
+      releases: 3,
+      diskUsageKb: 750,
+    });
   });
 
   test("returns null for an unknown run", () => {

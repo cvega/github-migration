@@ -29,6 +29,13 @@ import {
 } from "./store";
 import type { ProfileProgress, ProfileRun } from "./types";
 
+/**
+ * Repos per augment request. Each chunk is one aliased GraphQL query; 25 keeps
+ * the per-request node budget (≤ 25 × 100 branch-protection rules) and query
+ * complexity comfortably within GitHub's limits while cutting requests 25×.
+ */
+const AUGMENT_CHUNK = 25;
+
 /** Injectable crawl primitives (defaults hit the real GraphQL helpers). */
 export interface ProfileRunnerDeps {
   discover: typeof discoverOrgRepos;
@@ -61,17 +68,23 @@ export async function runProfile(
     const discovery = await deps.discover(gql, input.org);
     setProfileRunTotal(input.id, discovery.total);
 
+    // Profile repos in chunks: each `augment` call is one aliased GraphQL
+    // request covering up to AUGMENT_CHUNK repos, so an org of N repos costs
+    // ~N/AUGMENT_CHUNK requests instead of one per repo.
     let profiled = 0;
-    for (const repo of discovery.repos) {
-      const signals = await deps.augment(gql, repo);
-      recordRepoProfile(input.id, signals, analyzeRepo(signals));
-      profiled += 1;
-      onProgress?.({
-        runId: input.id,
-        profiled,
-        total: discovery.total,
-        repo: repo.nameWithOwner,
-      });
+    for (let i = 0; i < discovery.repos.length; i += AUGMENT_CHUNK) {
+      const chunk = discovery.repos.slice(i, i + AUGMENT_CHUNK);
+      const chunkSignals = await deps.augment(gql, chunk);
+      for (const signals of chunkSignals) {
+        recordRepoProfile(input.id, signals, analyzeRepo(signals));
+        profiled += 1;
+        onProgress?.({
+          runId: input.id,
+          profiled,
+          total: discovery.total,
+          repo: signals.nameWithOwner,
+        });
+      }
     }
 
     completeProfileRun(input.id);

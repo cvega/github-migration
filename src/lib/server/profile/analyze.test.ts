@@ -26,6 +26,11 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     defaultBranch: "main",
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
+    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -115,6 +120,25 @@ describe("analyzeRepo", () => {
     expect(profile.summary.warnings).toBe(4);
     expect(profile.summary.infos).toBe(3);
     expect(profile.summary.blockers).toBe(0);
+  });
+
+  test("flags an oversized repo as a git-archive-size blocker", () => {
+    const big = analyzeRepo(cleanSignals({ diskUsageKb: 3 * 1024 * 1024 })); // ~3 GiB
+    const f = finding(big, "git-archive-size-limit");
+    expect(f?.status).toBe("applies");
+    expect(f?.evidence).toMatch(/3\.0 GiB.*git-sizer/);
+    expect(big.summary.blockers).toBe(1);
+  });
+
+  test("a repo under the archive proxy threshold is clear of the size blocker", () => {
+    const small = analyzeRepo(cleanSignals({ diskUsageKb: 500 * 1024 })); // 500 MiB
+    expect(finding(small, "git-archive-size-limit")?.status).toBe("clear");
+    expect(small.summary.blockers).toBe(0);
+  });
+
+  test("null diskUsage is clear of the size blocker (not a false positive)", () => {
+    const unknown = analyzeRepo(cleanSignals({ diskUsageKb: null }));
+    expect(finding(unknown, "git-archive-size-limit")?.status).toBe("clear");
   });
 
   test("branch-protection consideration ignores rules that use only migratable features", () => {
