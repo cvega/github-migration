@@ -40,6 +40,14 @@ export interface DiscoveredRepo {
   pushedAt: string | null;
   /** ISO timestamp of the last update, or null. */
   updatedAt: string | null;
+  /** Issues (`issues.totalCount`, all states; excludes PRs) — migration scale. */
+  issuesCount: number;
+  /** Pull requests (`pullRequests.totalCount`, all states) — migration scale. */
+  pullRequestsCount: number;
+  /** Branches (`refs` under `refs/heads/`) — migration scale. */
+  branchesCount: number;
+  /** Tags (`refs` under `refs/tags/`) — migration scale. */
+  tagsCount: number;
 }
 
 /** Progress emitted after each discovery page (drives SSE / logging later). */
@@ -72,6 +80,8 @@ export interface OrgDiscovery {
  * read a number and compare, rather than re-deriving GraphQL schema details.
  */
 export interface RepoSignals extends DiscoveredRepo {
+  /** Commits on the default branch (`history.totalCount`) — migration scale. */
+  commitsCount: number;
   /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
   discussionsCount: number;
   /** Projects (new experience) (`projectsV2.totalCount`); not migrated. */

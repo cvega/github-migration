@@ -1,7 +1,9 @@
 <!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
+	import type { IconName } from '@primer/octicons';
+	import { SvelteSet } from 'svelte/reactivity';
 	import Octicon from '$lib/components/Octicon.svelte';
-	import { timeAgo } from '$lib/format';
+	import { formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
@@ -14,6 +16,21 @@
 	const fresh = $derived(polled && polled.run.id === data.run.id ? polled : null);
 	const run = $derived(fresh?.run ?? data.run);
 	const repos = $derived(fresh?.repos ?? data.repos);
+	const scale = $derived(fresh?.scale ?? data.scale);
+
+	// Org-wide content-volume tiles (migration scale). `formatRepoSize` handles
+	// the disk total; counts get thousands separators. Each gets a matching icon.
+	const scaleTiles = $derived(
+		[
+			{ label: 'Issues', value: scale.issues.toLocaleString(), icon: 'issue-opened' },
+			{ label: 'Pull requests', value: scale.pullRequests.toLocaleString(), icon: 'git-pull-request' },
+			{ label: 'Commits', value: scale.commits.toLocaleString(), icon: 'git-commit' },
+			{ label: 'Branches', value: scale.branches.toLocaleString(), icon: 'git-branch' },
+			{ label: 'Tags', value: scale.tags.toLocaleString(), icon: 'tag' },
+			{ label: 'Releases', value: scale.releases.toLocaleString(), icon: 'rocket' },
+			{ label: 'Total size', value: formatRepoSize(scale.diskUsageKb), icon: 'database' }
+		] satisfies Array<{ label: string; value: string; icon: IconName }>
+	);
 
 	type RunState = 'running' | 'completed' | 'failed';
 
@@ -59,6 +76,35 @@
 	};
 
 	const badge = $derived(stateBadge[run.state]);
+
+	// Per-repo drill-down: which repo rows are expanded to reveal their counts.
+	// Keyed on the stable `nameWithOwner`, so expansion survives a live refresh.
+	type RepoSignalsView = (typeof data)['repos'][number]['signals'];
+	const expanded = new SvelteSet<string>();
+	function toggleRepo(name: string) {
+		if (expanded.has(name)) expanded.delete(name);
+		else expanded.add(name);
+	}
+
+	// One repo's individual signal counts, as labelled tiles for the detail row.
+	function repoCounts(s: RepoSignalsView): Array<{ label: string; value: string; icon: IconName }> {
+		return [
+			{ label: 'Issues', value: s.issuesCount.toLocaleString(), icon: 'issue-opened' },
+			{ label: 'Pull requests', value: s.pullRequestsCount.toLocaleString(), icon: 'git-pull-request' },
+			{ label: 'Commits', value: s.commitsCount.toLocaleString(), icon: 'git-commit' },
+			{ label: 'Branches', value: s.branchesCount.toLocaleString(), icon: 'git-branch' },
+			{ label: 'Tags', value: s.tagsCount.toLocaleString(), icon: 'tag' },
+			{ label: 'Releases', value: s.releasesCount.toLocaleString(), icon: 'rocket' },
+			{ label: 'Discussions', value: s.discussionsCount.toLocaleString(), icon: 'comment-discussion' },
+			{ label: 'Projects', value: s.projectsV2Count.toLocaleString(), icon: 'project' },
+			{ label: 'Environments', value: s.environmentsCount.toLocaleString(), icon: 'server' },
+			{ label: 'Stars', value: s.stargazerCount.toLocaleString(), icon: 'star' },
+			{ label: 'Watchers', value: s.watcherCount.toLocaleString(), icon: 'eye' },
+			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
+			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
+		];
+	}
+
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
 	async function refresh() {
@@ -122,7 +168,10 @@
 	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span></div>
-			<div class="mt-1 text-xs text-gray-400">Repositories profiled</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="repo" size={12} class="text-gray-500" />
+				Repositories profiled
+			</div>
 			{#if run.state === 'running'}
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
 					<div class="h-full bg-violet-500 transition-all" style="width: {pct}%"></div>
@@ -139,7 +188,29 @@
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
-			<div class="mt-1 text-xs text-gray-400">Repos with results</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="checklist" size={12} class="text-gray-500" />
+				Repos with results
+			</div>
+		</div>
+	</section>
+
+	<!-- Migration scale: org-wide content volume -->
+	<section>
+		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
+			<Octicon name="graph" size={16} />
+			Migration scale
+		</h2>
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+			{#each scaleTiles as tile (tile.label)}
+				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+					<div class="text-xl font-semibold tabular-nums text-gray-50">{tile.value}</div>
+					<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+						<Octicon name={tile.icon} size={12} class="text-gray-500" />
+						{tile.label}
+					</div>
+				</div>
+			{/each}
 		</div>
 	</section>
 
@@ -188,7 +259,17 @@
 					<tbody class="divide-y divide-gray-800">
 						{#each repos as repo (repo.nameWithOwner)}
 							<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
-								<td class="px-4 py-3 font-medium text-gray-50">{repo.nameWithOwner}</td>
+								<td class="px-4 py-3">
+									<button
+										type="button"
+										onclick={() => toggleRepo(repo.nameWithOwner)}
+										aria-expanded={expanded.has(repo.nameWithOwner)}
+										class="flex items-center gap-1.5 text-left font-medium text-gray-50 transition-colors hover:text-violet-300"
+									>
+										<Octicon name={expanded.has(repo.nameWithOwner) ? 'chevron-down' : 'chevron-right'} size={12} class="shrink-0 text-gray-500" />
+										{repo.nameWithOwner}
+									</button>
+								</td>
 								<td class="px-4 py-3 text-center">
 									<span class="inline-flex items-center gap-2 text-xs">
 										{#if repo.blockers > 0}<span class="inline-flex items-center gap-0.5 text-red-400"><Octicon name="stop" size={12} />{repo.blockers}</span>{/if}
@@ -232,6 +313,31 @@
 									{/if}
 								</td>
 							</tr>
+							{#if expanded.has(repo.nameWithOwner)}
+								<tr class="bg-gray-900/40">
+									<td colspan="4" class="px-4 py-4">
+										<div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+											{#each repoCounts(repo.signals) as c (c.label)}
+												<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
+													<Octicon name={c.icon} size={16} class="shrink-0 text-gray-500" />
+													<div class="min-w-0">
+														<div class="text-sm font-semibold tabular-nums text-gray-100">{c.value}</div>
+														<div class="truncate text-[11px] text-gray-400">{c.label}</div>
+													</div>
+												</div>
+											{/each}
+										</div>
+										<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+											<span class="lowercase">{repo.signals.visibility}</span>
+											{#if repo.signals.defaultBranch}<span>· default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}
+											{#if repo.signals.pushedAt}<span>· pushed {timeAgo(repo.signals.pushedAt)}</span>{/if}
+											{#if repo.signals.isArchived}<span class="text-amber-400">· archived</span>{/if}
+											{#if repo.signals.isFork}<span>· fork</span>{/if}
+											{#if repo.signals.isEmpty}<span>· empty</span>{/if}
+										</div>
+									</td>
+								</tr>
+							{/if}
 						{/each}
 					</tbody>
 				</table>

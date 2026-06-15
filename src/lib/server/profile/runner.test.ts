@@ -29,6 +29,10 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
     ...over,
   };
 }
@@ -36,6 +40,7 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
 function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
   return {
     ...repo,
+    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -48,14 +53,14 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   };
 }
 
-/** Deps whose discover returns the given repos and augment maps each by name. */
+/** Deps whose discover returns the given repos and augment maps each chunk by name. */
 function deps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
 ): ProfileRunnerDeps {
   return {
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
-    augment: async (_gql, repo) => signalsFor(repo, augmentOver[repo.name] ?? {}),
+    augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
   };
 }
 
@@ -124,7 +129,7 @@ describe("runProfile", () => {
       discover: async () => {
         throw new Error("Organization 'acme' not found or not accessible");
       },
-      augment: async (_gql, repo) => signalsFor(repo),
+      augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r)),
     };
 
     const run = await runProfile(
@@ -138,13 +143,13 @@ describe("runProfile", () => {
     expect(run.failureReason).toMatch(/not found or not accessible/);
   });
 
-  test("marks the run failed if a repo augmentation throws mid-crawl", async () => {
+  test("marks the run failed when a chunk's augmentation throws", async () => {
     const repos = [discovered("ok"), discovered("boom")];
     const partialDeps: ProfileRunnerDeps = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
-      augment: async (_gql, repo) => {
-        if (repo.name === "boom") throw new Error("repo augmentation failed");
-        return signalsFor(repo);
+      augment: async (_gql, chunk) => {
+        if (chunk.some((r) => r.name === "boom")) throw new Error("repo augmentation failed");
+        return chunk.map((r) => signalsFor(r));
       },
     };
 
@@ -157,8 +162,33 @@ describe("runProfile", () => {
 
     expect(run.state).toBe("failed");
     expect(run.failureReason).toBe("repo augmentation failed");
-    // The repo profiled before the failure was still persisted.
-    expect(getRunRepoProfiles("r").map((p) => p.nameWithOwner)).toEqual(["acme/ok"]);
+  });
+
+  test("persists completed chunks when a later chunk fails", async () => {
+    // 26 repos → two augment chunks (25 + 1). The first chunk succeeds and is
+    // persisted; the second throws, failing the run — the first chunk survives.
+    const repos = Array.from({ length: 26 }, (_, i) =>
+      discovered(`r${String(i).padStart(2, "0")}`),
+    );
+    let call = 0;
+    const chunkedDeps: ProfileRunnerDeps = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augment: async (_gql, chunk) => {
+        call += 1;
+        if (call >= 2) throw new Error("second chunk failed");
+        return chunk.map((r) => signalsFor(r));
+      },
+    };
+
+    const run = await runProfile(
+      gql,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      chunkedDeps,
+    );
+
+    expect(run.state).toBe("failed");
+    expect(getRunRepoProfiles("r")).toHaveLength(25); // the first chunk persisted
   });
 
   test("persists the run before crawling (a created run exists by completion)", async () => {
