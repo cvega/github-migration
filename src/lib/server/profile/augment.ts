@@ -228,12 +228,15 @@ function countWorkflowFiles(workflows: { entries: { name: string }[] } | null): 
 function countsToSignals(repo: DiscoveredRepo, node: RepoCountsNode | null): RepoSignals {
   return {
     ...repo,
-    // Verification fields — defaults until the details pass merges them in.
+    // Verification fields — defaults until the details / REST passes merge them in.
     commitsCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     usesLfs: false,
     workflowFileCount: 0,
     releaseAssetBytes: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     // Cheap counts.
     issuesCount: node?.issues.totalCount ?? 0,
     pullRequestsCount: node?.pullRequests.totalCount ?? 0,

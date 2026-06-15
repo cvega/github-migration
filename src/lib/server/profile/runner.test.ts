@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoDetails } from "./augment";
-import { type ProfileRunnerDeps, runProfile } from "./runner";
+import { type ProfileClients, type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import {
   type DiscoveredRepo,
@@ -19,7 +19,18 @@ import {
   ZERO_ORG_RESOURCES,
 } from "./types";
 
-const clients = {} as never; // the fakes ignore it
+// The fakes ignore gql/rest; getApiCalls is called by the runner at completion.
+const clients = { getApiCalls: () => 0 } as unknown as ProfileClients;
+
+/** Pass-3 REST stubs for inline deps that reach the per-repo REST pass but don't
+ *  care about commits / webhooks / Pages / code scanning. Keeps tests off the
+ *  real network functions (which would hit the fake `rest` client). */
+const noCommits: ProfileRunnerDeps["countCommits"] = async () => 0;
+const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
+  webhooksCount: 0,
+  hasPages: false,
+  hasCodeScanningAlerts: false,
+});
 
 function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
   return {
@@ -58,6 +69,9 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -103,6 +117,11 @@ function deps(
     augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r, augmentOver[r.name] ?? {})),
     augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
     countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
+    gatherRestSignals: async (_rest, r) => ({
+      webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
+      hasPages: augmentOver[r.name]?.hasPages ?? false,
+      hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+    }),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
   };
@@ -170,6 +189,8 @@ describe("runProfile", () => {
       },
       augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
       augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
       getOrgRulesetCount: async () => 0,
       getOrgResources: async () => ZERO_ORG_RESOURCES,
     };
@@ -267,6 +288,8 @@ describe("runProfile", () => {
         if (chunk.some((r) => r.name === "boom")) throw new Error("repo augmentation failed");
         return chunk.map((r) => countsSignals(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -299,6 +322,8 @@ describe("runProfile", () => {
         if (chunk.some((r) => r.name === "r25")) throw new Error("a chunk failed");
         return chunk.map((r) => countsSignals(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -333,6 +358,8 @@ describe("runProfile", () => {
         calls.push({ size: c.length, scanReleases: opts?.scanReleases });
         return c.map((r) => detailsFor(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -361,6 +388,7 @@ describe("runProfile", () => {
         commitCalls.push(r.nameWithOwner);
         return r.name === "a" ? 1200 : 42;
       },
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -387,6 +415,7 @@ describe("runProfile", () => {
         if (r.name === "boom") throw new Error("commit count blew up");
         return 7;
       },
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(

@@ -18,6 +18,7 @@ import {
   getRunRepoProfiles,
   listProfileRuns,
   recordRepoProfile,
+  setProfileRunApiCalls,
   setProfileRunOrgResources,
   setProfileRunRulesets,
   setProfileRunTotal,
@@ -65,6 +66,9 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     ...over,
   };
 }
@@ -146,6 +150,15 @@ describe("setProfileRunRulesets", () => {
     expect(getProfileRun("r")?.orgRulesetCount).toBe(0);
     setProfileRunRulesets("r", 4);
     expect(getProfileRun("r")?.orgRulesetCount).toBe(4);
+  });
+});
+
+describe("setProfileRunApiCalls", () => {
+  test("records the run's API-call total (default 0)", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    expect(getProfileRun("r")?.apiCalls).toBe(0);
+    setProfileRunApiCalls("r", 1234);
+    expect(getProfileRun("r")?.apiCalls).toBe(1234);
   });
 });
 

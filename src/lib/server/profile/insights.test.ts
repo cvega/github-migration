@@ -48,6 +48,9 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     ...over,
   };
 }

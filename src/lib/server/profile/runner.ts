@@ -21,12 +21,14 @@ import { analyzeRepo } from "./analyze";
 import { augmentRepoCounts, augmentRepoDetails, baseSignals } from "./augment";
 import { countRepoCommits } from "./commits";
 import { discoverOrgRepos } from "./discover";
+import { gatherRepoRestSignals } from "./rest-signals";
 import {
   completeProfileRun,
   createProfileRun,
   failProfileRun,
   getProfileRun,
   recordRepoProfile,
+  setProfileRunApiCalls,
   setProfileRunOrgResources,
   setProfileRunRulesets,
   setProfileRunTotal,
@@ -69,6 +71,18 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
+ * A coarse "scan this first" weight from a repo's size vectors. The expensive
+ * per-repo passes process repos heaviest-first, so if a run is cut short (rate
+ * limit, timeout) the most significant repos — the ones most likely to hit a
+ * migration limit — are the ones already covered. Issues and PRs are the
+ * metadata-volume drivers; disk usage (MiB) the Git-size driver; releases hint
+ * at large assets. The exact weighting doesn't matter, only the ordering.
+ */
+function riskScore(s: RepoSignals): number {
+  return s.issuesCount + s.pullRequestsCount + (s.diskUsageKb ?? 0) / 1024 + s.releasesCount * 10;
+}
+
+/**
  * Produce a concise, actionable failure reason from a crawl error. Octokit
  * surfaces HTTP failures with a numeric `status` (e.g. 502 on a GraphQL
  * timeout) and GraphQL errors with an `errors[]` array; pull those out so the
@@ -94,10 +108,13 @@ function describeError(err: unknown): string {
 }
 
 /** Source clients the runner needs: REST for discovery (the reliable repo
- *  listing), GraphQL for the batched augment passes (indexed counts + details). */
+ *  listing), GraphQL for the batched augment passes (indexed counts + details),
+ *  and a tally of every API request made (for cost/rate-limit visibility). */
 export interface ProfileClients {
   gql: typeof graphql;
   rest: GitHubClient;
+  /** Total GitHub API requests made so far across this client pair. */
+  getApiCalls: () => number;
 }
 
 /** Injectable crawl primitives (defaults hit the real GraphQL helpers). */
@@ -109,6 +126,8 @@ export interface ProfileRunnerDeps {
   augmentDetails: typeof augmentRepoDetails;
   /** Pass 3: per-repo commit count (cheap REST `Link`-header count). */
   countCommits: typeof countRepoCommits;
+  /** Pass 3: per-repo REST signals (webhooks, Pages, code scanning). */
+  gatherRestSignals: typeof gatherRepoRestSignals;
   /** Count the org's rulesets. Default is a no-op (0); the service binds the
    *  real REST-backed implementation, which needs a client this module lacks. */
   getOrgRulesetCount: (org: string) => Promise<number>;
@@ -122,6 +141,7 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
   augmentCounts: augmentRepoCounts,
   augmentDetails: augmentRepoDetails,
   countCommits: countRepoCommits,
+  gatherRestSignals: gatherRepoRestSignals,
   getOrgRulesetCount: async () => 0,
   getOrgResources: async () => ZERO_ORG_RESOURCES,
 };
@@ -195,7 +215,12 @@ export async function runProfile(
     // whole run.
     let profiled = 0;
     {
-      const chunks = chunk(discovery.repos, COUNTS_CHUNK);
+      // Before counts land, disk usage (from REST discovery) is the only size
+      // vector — chunk biggest-first so heavy repos are counted earliest.
+      const ordered = [...discovery.repos].sort(
+        (a, b) => (b.diskUsageKb ?? 0) - (a.diskUsageKb ?? 0),
+      );
+      const chunks = chunk(ordered, COUNTS_CHUNK);
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < chunks.length) {
@@ -238,10 +263,19 @@ export async function runProfile(
     // merges onto the already-recorded counts and re-records. This pass is
     // NON-fatal: the counts are already persisted, so a details failure enriches
     // less but never fails the run.
-    const releasesOf = (nameWithOwner: string) =>
-      signalsByRepo.get(nameWithOwner)?.releasesCount ?? 0;
-    const withReleases = discovery.repos.filter((r) => releasesOf(r.nameWithOwner) > 0);
-    const withoutReleases = discovery.repos.filter((r) => releasesOf(r.nameWithOwner) === 0);
+    //
+    // Now that counts have landed, order the per-repo passes heaviest-first by
+    // the size-vector risk score, so a run cut short still covered the riskiest
+    // repos. Partition that ordered list by releases for the scan/no-scan batches.
+    const signalsOf = (nameWithOwner: string) => signalsByRepo.get(nameWithOwner);
+    const byRisk = [...discovery.repos].sort(
+      (a, b) =>
+        riskScore(signalsOf(b.nameWithOwner) ?? baseSignals(b)) -
+        riskScore(signalsOf(a.nameWithOwner) ?? baseSignals(a)),
+    );
+    const releasesOf = (nameWithOwner: string) => signalsOf(nameWithOwner)?.releasesCount ?? 0;
+    const withReleases = byRisk.filter((r) => releasesOf(r.nameWithOwner) > 0);
+    const withoutReleases = byRisk.filter((r) => releasesOf(r.nameWithOwner) === 0);
     const tasks: Array<{ repos: typeof discovery.repos; scanReleases: boolean }> = [
       ...chunk(withoutReleases, DETAILS_CHUNK_LITE).map((repos) => ({
         repos,
@@ -288,43 +322,51 @@ export async function runProfile(
       );
     }
 
-    // ── Pass 3: commit counts (REST Link-header, best-effort) ──────────────
-    // One cheap REST request per repo (per_page=1 → the `rel="last"` page number
-    // is the default-branch commit count) instead of GraphQL's commit-graph walk.
-    // Runs as its own worker pool — wider than the GraphQL passes since each call
-    // is tiny — and merges onto the recorded signals. Non-fatal: a repo that
-    // can't be counted keeps commitsCount 0.
+    // ── Pass 3: per-repo REST signals (best-effort) ────────────────────────
+    // Commit count (the `rel="last"` Link-header trick — no commit-graph walk)
+    // plus webhooks / Pages / code-scanning presence, gathered per repo in one
+    // worker. Runs riskiest-first and wider than the GraphQL passes since each
+    // call is tiny. Non-fatal: a repo that can't be read keeps its defaults.
     {
-      const repos = discovery.repos;
       let next = 0;
       const worker = async (): Promise<void> => {
-        while (next < repos.length) {
-          const r = repos[next++];
+        while (next < byRisk.length) {
+          const r = byRisk[next++];
           if (!r) break;
+          const base = signalsByRepo.get(r.nameWithOwner);
+          if (!base) continue;
           try {
-            const commitsCount = await d.countCommits(clients.rest, r);
-            const base = signalsByRepo.get(r.nameWithOwner);
-            if (base && commitsCount !== base.commitsCount) {
-              const merged: RepoSignals = { ...base, commitsCount };
-              signalsByRepo.set(r.nameWithOwner, merged);
-              recordRepoProfile(input.id, merged, analyzeRepo(merged));
-            }
+            const [commitsCount, rest] = await Promise.all([
+              d.countCommits(clients.rest, r),
+              d.gatherRestSignals(clients.rest, r),
+            ]);
+            const merged: RepoSignals = {
+              ...base,
+              commitsCount,
+              webhooksCount: rest.webhooksCount,
+              hasPages: rest.hasPages,
+              hasCodeScanningAlerts: rest.hasCodeScanningAlerts,
+            };
+            signalsByRepo.set(r.nameWithOwner, merged);
+            recordRepoProfile(input.id, merged, analyzeRepo(merged));
           } catch (err) {
             console.error(
-              `[profile] run ${input.id} commit count failed for ${r.nameWithOwner}:`,
+              `[profile] run ${input.id} REST signals failed for ${r.nameWithOwner}:`,
               err,
             );
           }
         }
       };
       await Promise.all(
-        Array.from({ length: Math.min(COMMIT_CONCURRENCY, repos.length) }, () => worker()),
+        Array.from({ length: Math.min(COMMIT_CONCURRENCY, byRisk.length) }, () => worker()),
       );
-      if (repos.length > 0) {
+      if (byRisk.length > 0) {
         onProgress?.({ runId: input.id, profiled, total: discovery.total, repo: "" });
       }
     }
 
+    // Persist the run's total API cost before marking it complete.
+    setProfileRunApiCalls(input.id, clients.getApiCalls());
     completeProfileRun(input.id);
     const completed = getProfileRun(input.id);
     console.log(

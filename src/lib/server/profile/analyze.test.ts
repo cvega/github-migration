@@ -45,6 +45,9 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     ...over,
   };
 }
@@ -74,8 +77,8 @@ describe("analyzeRepo", () => {
 
   test("considerations without a detector are reported as indeterminate, not clear", () => {
     const profile = analyzeRepo(cleanSignals());
-    // `webhooks` has no signal gathered yet.
-    expect(finding(profile, "webhooks")?.status).toBe("indeterminate");
+    // `commit-size-limit` needs git-sizer — no signal gathered yet.
+    expect(finding(profile, "commit-size-limit")?.status).toBe("indeterminate");
     expect(finding(profile, "discussions")?.status).toBe("clear");
   });
 
@@ -95,6 +98,9 @@ describe("analyzeRepo", () => {
         usesLfs: true,
         workflowFileCount: 4,
         rulesetCount: 3,
+        webhooksCount: 2,
+        hasPages: true,
+        hasCodeScanningAlerts: true,
       }),
     );
 
@@ -118,6 +124,9 @@ describe("analyzeRepo", () => {
       "4 workflows (run history & artifacts not migrated)",
     );
     expect(finding(profile, "rulesets")?.evidence).toBe("3 rulesets");
+    expect(finding(profile, "webhooks")?.evidence).toBe("2 webhooks");
+    expect(finding(profile, "pages")?.status).toBe("applies");
+    expect(finding(profile, "code-scanning-history")?.status).toBe("applies");
   });
 
   test("rolls up applying considerations by severity", () => {

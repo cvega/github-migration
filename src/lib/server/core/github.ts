@@ -237,7 +237,7 @@ export async function countByPagination(
   params: Record<string, string | number>,
 ): Promise<number> {
   const res = await client.request(route, { ...params, per_page: 1 });
-  const link = res.headers.link;
+  const link = res.headers?.link;
   if (typeof link === "string") {
     // The header is a comma-separated list of `<url>; rel="…"` parts. Find the
     // `last` part and read its `page=N` query param (position-independent).

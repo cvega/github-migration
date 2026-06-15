@@ -16,7 +16,7 @@ import {
   type ConsiderationSeverity,
   MIGRATION_CONSIDERATIONS,
 } from "$lib/profile/consideration-registry";
-import { DETECTED_CONSIDERATION_IDS } from "./analyze";
+import { DETECTED_CONSIDERATION_IDS, ORG_EVALUATED_CONSIDERATION_IDS } from "./analyze";
 import type { StoredRepoProfile } from "./types";
 
 /** One consideration rolled up across the org, with how many repos it touches. */
@@ -99,9 +99,12 @@ export function buildPreparationSummary(repos: StoredRepoProfile[]): Preparation
       a.label.localeCompare(b.label),
   );
 
-  const detected = new Set(DETECTED_CONSIDERATION_IDS);
+  // "Crawled" = a per-repo detector evaluated it, OR it's an org-level
+  // consideration gathered once per run (secrets, runners, custom properties).
+  // Neither belongs in the not-yet-evaluated list.
+  const evaluated = new Set([...DETECTED_CONSIDERATION_IDS, ...ORG_EVALUATED_CONSIDERATION_IDS]);
   const notYetCrawled: UncrawledConsideration[] = MIGRATION_CONSIDERATIONS.filter(
-    (c) => !detected.has(c.id),
+    (c) => !evaluated.has(c.id),
   ).map((c) => ({ considerationId: c.id, label: c.label, severity: c.severity }));
 
   return { items, notYetCrawled, blockerRepos, warnRepos, cleanRepos };

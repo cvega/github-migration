@@ -1,14 +1,23 @@
 <!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
 	import type { IconName } from '@primer/octicons';
+	import { getContext } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
+
+	// Live source rate-limit, shared from the layout (same pill the Migrate pages
+	// show). A crawl spends source API quota, so surfacing remaining quota here is
+	// the relevant "are we close to the limit?" signal. Optional — null if the
+	// layout context isn't present (e.g. an isolated render).
+	const authPill = getContext<AuthPillContext>(AUTH_PILL_KEY);
 
 	// Prefer freshly-polled data, but only when it's for the run currently shown
 	// (on navigation `data.run.id` changes and we fall back to the new snapshot
@@ -145,6 +154,9 @@
 			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
 			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
+			{ label: 'Webhooks', value: s.webhooksCount.toLocaleString(), icon: 'webhook' },
+			{ label: 'Pages', value: s.hasPages ? 'Yes' : '—', icon: 'browser' },
+			{ label: 'Code scanning', value: s.hasCodeScanningAlerts ? 'Yes' : '—', icon: 'codescan' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
 		];
 	}
@@ -215,9 +227,23 @@
 					{badge.label}
 				</span>
 			</h1>
-			<p class="mt-1 font-mono text-xs text-gray-500">{run.sourceApiUrl} · started {timeAgo(run.startedAt)}</p>
+			<p class="mt-1 font-mono text-xs text-gray-500">
+				{run.sourceApiUrl} · started {timeAgo(run.startedAt)}
+				{#if run.apiCalls > 0}· <span title="GitHub API requests this crawl made (REST + GraphQL)">{run.apiCalls.toLocaleString()} API calls</span>{/if}
+			</p>
 		</div>
-		<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		<div class="flex items-center gap-2">
+			{#if authPill}
+				<AuthPill
+					label="Source"
+					isApp={authPill.sourceApp}
+					rateText={authPill.sourceRateText}
+					ratePct={authPill.sourceRatePct}
+					migrating={run.state === 'running'}
+				/>
+			{/if}
+			<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		</div>
 	</header>
 
 	{#if run.failureReason}
