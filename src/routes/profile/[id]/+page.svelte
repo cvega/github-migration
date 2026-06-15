@@ -485,6 +485,30 @@
 				</div>
 			{/if}
 
+			<!-- Always lost: whole-migration facts that apply to every run -->
+			{#if summary.alwaysLost.length > 0}
+				<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-4">
+					<h3 class="flex items-center gap-1.5 text-sm font-semibold text-gray-300">
+						<Octicon name="circle-slash" size={16} class="text-gray-500" />
+						Always lost in every migration ({summary.alwaysLost.length})
+					</h3>
+					<p class="mt-1 text-xs text-gray-500">
+						Not tied to any repo — the Importer never carries these over, so plan to recreate or accept them.
+					</p>
+					<ul class="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+						{#each summary.alwaysLost as c (c.considerationId)}
+							<li class="flex gap-2">
+								<Octicon name="dot-fill" size={12} class="mt-1 shrink-0 text-gray-600" />
+								<span class="text-xs leading-relaxed">
+									<span class="font-medium text-gray-200">{c.label}</span>
+									<span class="text-gray-500"> — {c.summary}</span>
+								</span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+
 			<!-- Coverage honesty: considerations whose signal isn't gathered yet -->
 			{#if summary.notYetCrawled.length > 0}
 				<details class="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-sm">

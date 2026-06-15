@@ -38,12 +38,21 @@ interface UncrawledConsideration {
   severity: ConsiderationSeverity;
 }
 
+/** A whole-migration loss that always applies (mannequins, audit logs, …). */
+interface AlwaysLostConsideration {
+  considerationId: string;
+  label: string;
+  summary: string;
+}
+
 /** Org-level preparation rollup across a run's repos. */
 export interface PreparationSummary {
   /** Applying considerations, most-actionable first (blocker→warn→info, then reach). */
   items: PreparationItem[];
   /** Considerations not yet detectable (signal not gathered) — honesty about coverage. */
   notYetCrawled: UncrawledConsideration[];
+  /** Whole-migration losses that always apply, regardless of repo. */
+  alwaysLost: AlwaysLostConsideration[];
   /** Repos with at least one blocker-severity consideration. */
   blockerRepos: number;
   /** Repos with at least one warn-severity consideration. */
@@ -99,13 +108,21 @@ export function buildPreparationSummary(repos: StoredRepoProfile[]): Preparation
       a.label.localeCompare(b.label),
   );
 
+  // Whole-migration losses (scope "migration") always apply — list them as such,
+  // separate from per-repo / org coverage.
+  const alwaysLost: AlwaysLostConsideration[] = MIGRATION_CONSIDERATIONS.filter(
+    (c) => c.scope === "migration",
+  ).map((c) => ({ considerationId: c.id, label: c.label, summary: c.summary }));
+
   // "Crawled" = a per-repo detector evaluated it, OR it's an org-level
   // consideration gathered once per run (secrets, runners, custom properties).
-  // Neither belongs in the not-yet-evaluated list.
+  // Migration-scope facts are reported via `alwaysLost`, not here. Whatever's
+  // left — a repo/org consideration we recognize but haven't gathered yet — is
+  // honestly listed as not-yet-evaluated.
   const evaluated = new Set([...DETECTED_CONSIDERATION_IDS, ...ORG_EVALUATED_CONSIDERATION_IDS]);
   const notYetCrawled: UncrawledConsideration[] = MIGRATION_CONSIDERATIONS.filter(
-    (c) => !evaluated.has(c.id),
+    (c) => c.scope !== "migration" && !evaluated.has(c.id),
   ).map((c) => ({ considerationId: c.id, label: c.label, severity: c.severity }));
 
-  return { items, notYetCrawled, blockerRepos, warnRepos, cleanRepos };
+  return { items, notYetCrawled, alwaysLost, blockerRepos, warnRepos, cleanRepos };
 }
