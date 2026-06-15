@@ -16,8 +16,10 @@ export type RepoVisibility = "PUBLIC" | "PRIVATE" | "INTERNAL";
 
 /**
  * One repository as surfaced by the bulk discovery crawl. Every field comes
- * from a single GraphQL page — no per-repo REST calls — so this is cheap to
- * gather at org scale and forms the spine each later augmentation hangs off.
+ * from the REST `GET /orgs/{org}/repos` listing (the `minimal-repository`
+ * shape) — one cheap, reliable paged call that lists the whole org without ever
+ * hitting GraphQL's 10s query timeout. This is the spine each later GraphQL
+ * augmentation (the indexed `totalCount`s) hangs off.
  */
 export interface DiscoveredRepo {
   /** Repo name (without owner). */
@@ -27,8 +29,9 @@ export interface DiscoveredRepo {
   visibility: RepoVisibility;
   isArchived: boolean;
   isFork: boolean;
+  /** Proxy for “no commits”: the REST listing reports `size === 0`. */
   isEmpty: boolean;
-  /** GraphQL `diskUsage` in KiB; null when the viewer can't see it. */
+  /** REST `size` in KiB; null when the listing omits it. */
   diskUsageKb: number | null;
   hasWiki: boolean;
   hasIssues: boolean;
@@ -40,20 +43,6 @@ export interface DiscoveredRepo {
   pushedAt: string | null;
   /** ISO timestamp of the last update, or null. */
   updatedAt: string | null;
-  /** Issues (`issues.totalCount`, all states; excludes PRs) — migration scale. */
-  issuesCount: number;
-  /** Pull requests (`pullRequests.totalCount`, all states) — migration scale. */
-  pullRequestsCount: number;
-  /** Branches (`refs` under `refs/heads/`) — migration scale. */
-  branchesCount: number;
-  /** Tags (`refs` under `refs/tags/`) — migration scale. */
-  tagsCount: number;
-  /**
-   * Releases (`releases.totalCount`); GHES releases don't migrate at all.
-   * Gathered in discovery (free on the 100-wide page) so the augment pass can
-   * skip the heavy release-asset scan for repos that have none.
-   */
-  releasesCount: number;
 }
 
 /** Progress emitted after each discovery page (drives SSE / logging later). */
@@ -86,7 +75,12 @@ export interface OrgDiscovery {
  * read a number and compare, rather than re-deriving GraphQL schema details.
  */
 export interface RepoSignals extends DiscoveredRepo {
-  /** Commits on the default branch (`history.totalCount`) — migration scale. */
+  /**
+   * Commits on the default branch (`history.totalCount`). Gathered in the
+   * verification pass, not the cheap counts pass: unlike the indexed
+   * `totalCount`s it walks the commit graph, so a timeout degrades it to 0 for
+   * that one repo rather than blocking the cheap counts.
+   */
   commitsCount: number;
   /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
   discussionsCount: number;
@@ -104,6 +98,10 @@ export interface RepoSignals extends DiscoveredRepo {
   stargazerCount: number;
   /** Watchers (`watchers.totalCount`); not migrated. */
   watcherCount: number;
+  /** Forks (`forkCount`); fork relationships are not migrated. */
+  forkCount: number;
+  /** Repository-level rulesets (`rulesets.totalCount`); not migrated. */
+  rulesetCount: number;
   /** Branch protection rules (`branchProtectionRules.totalCount`). */
   branchProtectionRuleCount: number;
   /**
@@ -127,6 +125,24 @@ export interface RepoSignals extends DiscoveredRepo {
    * means there's run history that will be lost.
    */
   workflowFileCount: number;
+  // ── Content-volume counts (migration scale) ──────────────────────────────
+  // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
+  // here, not on the REST discovery spine, because REST doesn't expose the
+  // GraphQL-equivalent counts). Each defaults to 0 until the counts pass fills
+  // it; a counts timeout degrades a repo to 0 rather than dropping it.
+  /** Issues (`issues.totalCount`, all states; excludes PRs). */
+  issuesCount: number;
+  /** Pull requests (`pullRequests.totalCount`, all states). */
+  pullRequestsCount: number;
+  /** Branches (`refs` under `refs/heads/`). */
+  branchesCount: number;
+  /** Tags (`refs` under `refs/tags/`). */
+  tagsCount: number;
+  /**
+   * Releases (`releases.totalCount`); GHES releases don't migrate at all. Drives
+   * the details pass's release-asset-scan partition (repos with 0 skip it).
+   */
+  releasesCount: number;
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────

@@ -15,6 +15,11 @@ const SSE_HEADERS = {
   "Content-Type": "text/event-stream",
   "Cache-Control": "no-cache",
   Connection: "keep-alive",
+  // Disable proxy response buffering (nginx and similar). Without this, a proxy
+  // buffers the event stream and can close it as "idle" or time the upstream out
+  // — surfacing as a 502 on the SSE endpoint. nginx honors this header the same
+  // way as `proxy_buffering off;`.
+  "X-Accel-Buffering": "no",
 } as const;
 
 /**

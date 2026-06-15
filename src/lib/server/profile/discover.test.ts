@@ -1,168 +1,146 @@
 /**
- * Tests for the org discovery crawl. The GraphQL client is injected, so these
- * exercise the real orchestration — pagination, cursor threading, mapping, and
+ * Tests for the org discovery crawl. The REST client is injected, so these
+ * exercise the real orchestration — pagination, mapping (REST → spine), and
  * progress — against in-memory page fixtures with no network.
  */
 import { describe, expect, test } from "bun:test";
-import type { graphql } from "@octokit/graphql";
+import type { GitHubClient } from "$lib/server/core/github";
 import { discoverOrgRepos } from "./discover";
 import type { DiscoveryProgress } from "./types";
 
-interface RepoNode {
+/** The subset of a REST `minimal-repository` the discovery mapper reads. */
+interface RestRepo {
   name: string;
-  nameWithOwner: string;
-  visibility: "PUBLIC" | "PRIVATE" | "INTERNAL";
-  isArchived: boolean;
-  isFork: boolean;
-  isEmpty: boolean;
-  diskUsage: number | null;
-  hasWikiEnabled: boolean;
-  hasIssuesEnabled: boolean;
-  hasProjectsEnabled: boolean;
-  hasDiscussionsEnabled: boolean;
-  defaultBranchRef: { name: string } | null;
-  pushedAt: string | null;
-  updatedAt: string | null;
-  issues: { totalCount: number };
-  pullRequests: { totalCount: number };
-  branches: { totalCount: number };
-  tags: { totalCount: number };
-  releases: { totalCount: number };
+  full_name: string;
+  private: boolean;
+  fork: boolean;
+  visibility?: string;
+  archived?: boolean;
+  size?: number;
+  has_wiki?: boolean;
+  has_issues?: boolean;
+  has_projects?: boolean;
+  has_discussions?: boolean;
+  default_branch?: string;
+  pushed_at?: string | null;
+  updated_at?: string | null;
 }
 
-/** Build a repo node, overriding only the fields a test cares about. */
-function node(name: string, over: Partial<RepoNode> = {}): RepoNode {
+/** Build a REST repo item, overriding only the fields a test cares about. */
+function repo(name: string, over: Partial<RestRepo> = {}): RestRepo {
   return {
     name,
-    nameWithOwner: `acme/${name}`,
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsage: 100,
-    hasWikiEnabled: false,
-    hasIssuesEnabled: true,
-    hasProjectsEnabled: false,
-    hasDiscussionsEnabled: false,
-    defaultBranchRef: { name: "main" },
-    pushedAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-02T00:00:00Z",
-    issues: { totalCount: 0 },
-    pullRequests: { totalCount: 0 },
-    branches: { totalCount: 0 },
-    tags: { totalCount: 0 },
-    releases: { totalCount: 0 },
+    full_name: `acme/${name}`,
+    private: true,
+    fork: false,
+    visibility: "private",
+    archived: false,
+    size: 100,
+    has_wiki: false,
+    has_issues: true,
+    has_projects: false,
+    has_discussions: false,
+    default_branch: "main",
+    pushed_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
     ...over,
   };
 }
 
-/** One discovery page's worth of GraphQL response. */
-function page(
-  nodes: RepoNode[],
-  opts: { total: number; hasNextPage?: boolean; endCursor?: string | null },
-) {
-  return {
-    organization: {
-      repositories: {
-        totalCount: opts.total,
-        pageInfo: {
-          hasNextPage: opts.hasNextPage ?? false,
-          endCursor: opts.endCursor ?? null,
-        },
-        nodes,
+/**
+ * A `rest` test double whose `paginate.iterator` yields the queued pages and
+ * records the options it was called with (to assert the request shape). Mirrors
+ * the Octokit surface `discoverOrgRepos` uses: `rest.paginate.iterator(
+ * rest.repos.listForOrg, opts)`.
+ */
+function mockRest(pages: RestRepo[][]) {
+  const calls: Array<Record<string, unknown>> = [];
+  const rest = {
+    repos: { listForOrg: () => undefined },
+    paginate: {
+      iterator: (_route: unknown, opts: Record<string, unknown>) => {
+        calls.push(opts);
+        return (async function* () {
+          for (const data of pages) yield { data };
+        })();
       },
     },
-  };
-}
-
-/**
- * A `gql` test double: returns each queued response in turn and records the
- * variables it was called with (to assert cursor threading).
- */
-function mockGql(responses: unknown[]) {
-  const calls: Array<{ login: string; cursor: string | null; pageSize: number }> = [];
-  let i = 0;
-  const fn = (async (_query: string, vars: Record<string, unknown>) => {
-    calls.push({
-      login: vars.login as string,
-      cursor: (vars.cursor as string | null) ?? null,
-      pageSize: vars.pageSize as number,
-    });
-    return responses[i++];
-  }) as unknown as typeof graphql;
-  return { fn, calls };
+  } as unknown as GitHubClient;
+  return { rest, calls };
 }
 
 describe("discoverOrgRepos", () => {
-  test("collects a single page and reports the org total", async () => {
-    const { fn } = mockGql([page([node("alpha"), node("beta")], { total: 2 })]);
+  test("collects a single page and reports the running total", async () => {
+    const { rest } = mockRest([[repo("alpha"), repo("beta")]]);
 
-    const result = await discoverOrgRepos(fn, "acme");
+    const result = await discoverOrgRepos(rest, "acme");
 
     expect(result.org).toBe("acme");
     expect(result.total).toBe(2);
     expect(result.repos.map((r) => r.name)).toEqual(["alpha", "beta"]);
   });
 
-  test("pages through results, threading the cursor forward", async () => {
-    const { fn, calls } = mockGql([
-      page([node("a"), node("b")], { total: 3, hasNextPage: true, endCursor: "CUR1" }),
-      page([node("c")], { total: 3, hasNextPage: false }),
-    ]);
+  test("concatenates repos across pages", async () => {
+    const { rest } = mockRest([[repo("a"), repo("b")], [repo("c")]]);
 
-    const result = await discoverOrgRepos(fn, "acme");
+    const result = await discoverOrgRepos(rest, "acme");
 
     expect(result.repos.map((r) => r.name)).toEqual(["a", "b", "c"]);
-    // First call has no cursor; second resumes from the first page's endCursor.
-    expect(calls).toHaveLength(2);
-    expect(calls[0]?.cursor).toBeNull();
-    expect(calls[1]?.cursor).toBe("CUR1");
+    expect(result.total).toBe(3);
   });
 
   test("invokes the progress callback once per page with running totals", async () => {
-    const { fn } = mockGql([
-      page([node("a"), node("b")], { total: 3, hasNextPage: true, endCursor: "CUR1" }),
-      page([node("c")], { total: 3, hasNextPage: false }),
-    ]);
+    const { rest } = mockRest([[repo("a"), repo("b")], [repo("c")]]);
     const progress: DiscoveryProgress[] = [];
 
-    await discoverOrgRepos(fn, "acme", (p) => progress.push(p));
+    await discoverOrgRepos(rest, "acme", (p) => progress.push(p));
 
     expect(progress).toEqual([
-      { org: "acme", discovered: 2, total: 3, page: 1 },
+      { org: "acme", discovered: 2, total: 2, page: 1 },
       { org: "acme", discovered: 3, total: 3, page: 2 },
     ]);
   });
 
-  test("maps GraphQL fields, including null diskUsage and a missing default branch", async () => {
-    const { fn } = mockGql([
-      page(
-        [
-          node("empty-repo", {
-            visibility: "INTERNAL",
-            isArchived: true,
-            isEmpty: true,
-            diskUsage: null,
-            defaultBranchRef: null,
-            hasWikiEnabled: true,
-            hasDiscussionsEnabled: true,
-            pushedAt: null,
-          }),
-        ],
-        { total: 1 },
-      ),
+  test("requests every repo type, 100 per page, sorted by name", async () => {
+    const { rest, calls } = mockRest([[repo("a")]]);
+
+    await discoverOrgRepos(rest, "acme");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      org: "acme",
+      per_page: 100,
+      type: "all",
+      sort: "full_name",
+      direction: "asc",
+    });
+  });
+
+  test("maps REST fields, normalizing visibility and proxying empty via size", async () => {
+    const { rest } = mockRest([
+      [
+        repo("empty-repo", {
+          visibility: "internal",
+          archived: true,
+          size: 0,
+          default_branch: undefined,
+          has_wiki: true,
+          has_discussions: true,
+          pushed_at: null,
+        }),
+      ],
     ]);
 
-    const [repo] = (await discoverOrgRepos(fn, "acme")).repos;
+    const [mapped] = (await discoverOrgRepos(rest, "acme")).repos;
 
-    expect(repo).toEqual({
+    expect(mapped).toEqual({
       name: "empty-repo",
       nameWithOwner: "acme/empty-repo",
       visibility: "INTERNAL",
       isArchived: true,
       isFork: false,
-      isEmpty: true,
-      diskUsageKb: null,
+      isEmpty: true, // size 0 → empty proxy
+      diskUsageKb: 0,
       hasWiki: true,
       hasIssues: true,
       hasProjects: false,
@@ -170,63 +148,37 @@ describe("discoverOrgRepos", () => {
       defaultBranch: null,
       pushedAt: null,
       updatedAt: "2026-01-02T00:00:00Z",
-      issuesCount: 0,
-      pullRequestsCount: 0,
-      branchesCount: 0,
-      tagsCount: 0,
-      releasesCount: 0,
     });
   });
 
-  test("maps the content-volume counts from the discovery page", async () => {
-    const { fn } = mockGql([
-      page(
-        [
-          node("busy", {
-            issues: { totalCount: 42 },
-            pullRequests: { totalCount: 17 },
-            branches: { totalCount: 6 },
-            tags: { totalCount: 9 },
-            releases: { totalCount: 5 },
-          }),
-        ],
-        { total: 1 },
-      ),
+  test("derives visibility from `private` when the field is absent", async () => {
+    const { rest } = mockRest([
+      [
+        repo("pub", { visibility: undefined, private: false }),
+        repo("prv", { visibility: undefined, private: true }),
+      ],
     ]);
 
-    const [repo] = (await discoverOrgRepos(fn, "acme")).repos;
+    const repos = (await discoverOrgRepos(rest, "acme")).repos;
 
-    expect(repo?.issuesCount).toBe(42);
-    expect(repo?.pullRequestsCount).toBe(17);
-    expect(repo?.branchesCount).toBe(6);
-    expect(repo?.tagsCount).toBe(9);
-    expect(repo?.releasesCount).toBe(5);
+    expect(repos.map((r) => r.visibility)).toEqual(["PUBLIC", "PRIVATE"]);
+  });
+
+  test("treats a non-zero size as non-empty", async () => {
+    const { rest } = mockRest([[repo("busy", { size: 4096 })]]);
+
+    const [mapped] = (await discoverOrgRepos(rest, "acme")).repos;
+
+    expect(mapped?.isEmpty).toBe(false);
+    expect(mapped?.diskUsageKb).toBe(4096);
   });
 
   test("handles an organization with no repositories", async () => {
-    const { fn } = mockGql([page([], { total: 0 })]);
+    const { rest } = mockRest([]);
 
-    const result = await discoverOrgRepos(fn, "empty-org");
+    const result = await discoverOrgRepos(rest, "empty-org");
 
     expect(result.total).toBe(0);
     expect(result.repos).toEqual([]);
-  });
-
-  test("throws when the organization is missing or inaccessible", async () => {
-    const { fn } = mockGql([{ organization: null }]);
-
-    await expect(discoverOrgRepos(fn, "ghost")).rejects.toThrow(/not found or not accessible/i);
-  });
-
-  test("stops if a page claims another page but does not advance the cursor", async () => {
-    // hasNextPage is true forever, but endCursor never changes — the guard must
-    // break the loop instead of looping forever.
-    const stuck = page([node("a")], { total: 5, hasNextPage: true, endCursor: null });
-    const { fn, calls } = mockGql([stuck, stuck, stuck]);
-
-    const result = await discoverOrgRepos(fn, "acme");
-
-    expect(calls).toHaveLength(1);
-    expect(result.repos.map((r) => r.name)).toEqual(["a"]);
   });
 });

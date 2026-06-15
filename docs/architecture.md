@@ -240,7 +240,7 @@ src/
     profile/            the Profile workspace pages
     login/              auth pages
     api/                REST + SSE endpoints (see api.md)
-scripts/                seed, coverage + boundary gates, postbuild, verify:json
+scripts/                seed, coverage + boundary checks, postbuild, gates (full verify)
 ```
 
 The `server/` layering is enforced by the `boundaries` gate: `core/` may not

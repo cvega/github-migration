@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
+import type { RepoDetails } from "./augment";
 import { type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
 import { getProfileDetail, type ProfileServiceDeps, startOrgProfile } from "./service";
@@ -30,11 +31,6 @@ function discovered(name: string): DiscoveredRepo {
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
   };
 }
 
@@ -47,13 +43,33 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     environmentsCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
+    forkCount: 0,
+    rulesetCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    issuesCount: 0,
+    pullRequestsCount: 0,
+    branchesCount: 0,
+    tagsCount: 0,
+    releasesCount: 0,
     ...over,
+  };
+}
+
+/** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
+function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
+  const s = signalsFor(repo, over);
+  return {
+    nameWithOwner: repo.nameWithOwner,
+    commitsCount: s.commitsCount,
+    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
+    usesLfs: s.usesLfs,
+    workflowFileCount: s.workflowFileCount,
+    releaseAssetBytes: s.releaseAssetBytes,
   };
 }
 
@@ -77,15 +93,18 @@ function serviceDeps(
         sourceApiUrl: "https://ghes.example.com/api/v3",
       };
     },
-    run: (gql, input, onProgress) => {
+    run: (clients, input, onProgress) => {
       state.lastInput = input;
-      state.runPromise = runProfile(gql, input, onProgress, {
+      state.runPromise = runProfile(clients, input, onProgress, {
         discover: async (): Promise<OrgDiscovery> => ({
           org: input.org,
           total: repos.length,
           repos,
         }),
-        augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
+        augmentCounts: async (_gql, chunk) =>
+          chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
+        augmentDetails: async (_gql, chunk) =>
+          chunk.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
       });
       return state.runPromise;
     },
@@ -166,7 +185,9 @@ describe("startOrgProfile", () => {
     const events = frames.map(
       (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as ProfileSseEvent,
     );
-    const progress = events.filter((e) => e.type === "progress");
+    // Per-repo frames come from the counts pass; the details pass adds repo-less
+    // refetch nudges, filtered out here.
+    const progress = events.filter((e) => e.type === "progress" && e.repo !== "");
     expect(progress).toEqual([
       { type: "progress", profiled: 1, total: 2, repo: "acme/a" },
       { type: "progress", profiled: 2, total: 2, repo: "acme/b" },

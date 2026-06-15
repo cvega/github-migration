@@ -31,7 +31,7 @@ circular-import, build, and audit gates. CI runs the same suite. See
 [docs/development.md](docs/development.md#the-gate-suite-verify) for what each
 gate enforces.
 
-`bun run verify:json` gives the same result as a compact JSON summary, handy for
+`bun run gates` gives the same result as a compact JSON summary, handy for
 scripting or quickly seeing which gate failed.
 
 ## What not to do

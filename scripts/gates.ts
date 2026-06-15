@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * verify:json — run the full gate suite and emit a compact JSON summary instead
+ * gates — run the full gate suite and emit a compact JSON summary instead
  * of `verify`'s ~150 lines of human output (the vite build chunk listing alone
  * is a large, low-signal block). Built for AI / automated consumption:
  *
@@ -13,7 +13,7 @@
  *
  * Runs the exact commands behind the `verify` script, so a pass here means the
  * same as a `verify` pass. Pass gate names as args to run a subset, e.g.
- *   bun run verify:json typecheck lint
+ *   bun run gates typecheck lint
  */
 export {};
 
@@ -143,7 +143,7 @@ const failures: string[] = [];
 // Prepare: generate SvelteKit's `.svelte-kit/` (the $types + $lib path aliases)
 // once, up front. On a fresh checkout it doesn't exist yet, and without it both
 // `tsc` (typecheck) and `bun test` ($lib import resolution) fail. Doing it here
-// — not relying on gate order — keeps subset runs (e.g. `verify:json coverage`)
+// — not relying on gate order — keeps subset runs (e.g. `gates coverage`)
 // correct too.
 const sync = run(["bunx", "--bun", "svelte-kit", "sync"]);
 if (sync.code !== 0) {

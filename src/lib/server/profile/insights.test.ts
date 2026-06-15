@@ -40,6 +40,8 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     releasesCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
+    forkCount: 0,
+    rulesetCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,

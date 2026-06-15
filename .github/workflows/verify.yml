@@ -23,9 +23,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # verify:json runs the exact 11-gate suite developers run locally
+      # `bun run gates` runs the exact 11-gate suite developers run locally
       # (typecheck · check · lint · format · coverage · dup · deadcode · cycles
       # · boundaries · build · audit), collects every failure (not fail-fast),
       # and exits non-zero if any gate is red.
       - name: Run gate suite
-        run: bun run verify:json
+        run: bun run gates

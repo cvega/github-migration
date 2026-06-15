@@ -3,6 +3,7 @@
 	import type { IconName } from '@primer/octicons';
 	import { SvelteSet } from 'svelte/reactivity';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
@@ -141,10 +142,31 @@
 			{ label: 'Environments', value: s.environmentsCount.toLocaleString(), icon: 'server' },
 			{ label: 'Stars', value: s.stargazerCount.toLocaleString(), icon: 'star' },
 			{ label: 'Watchers', value: s.watcherCount.toLocaleString(), icon: 'eye' },
+			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
+			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
 		];
 	}
+
+	// ── Repository list: client-side search + pagination ───────────────────────
+	// Every repo is already loaded (and live-refreshed), so filtering and paging
+	// run on the client for instant feedback. Search matches the owner/name.
+	const REPOS_PER_PAGE = 25;
+	let repoSearch = $state('');
+	let repoPage = $state(1);
+
+	const filteredRepos = $derived.by(() => {
+		const q = repoSearch.trim().toLowerCase();
+		return q ? repos.filter((r) => r.nameWithOwner.toLowerCase().includes(q)) : repos;
+	});
+	// Clamp the shown page when the filtered set shrinks (no effect needed): the
+	// Pagination control sets `repoPage`, and `repoPageSafe` keeps it in range.
+	const repoTotalPages = $derived(Math.max(1, Math.ceil(filteredRepos.length / REPOS_PER_PAGE)));
+	const repoPageSafe = $derived(Math.min(repoPage, repoTotalPages));
+	const pagedRepos = $derived(
+		filteredRepos.slice((repoPageSafe - 1) * REPOS_PER_PAGE, repoPageSafe * REPOS_PER_PAGE)
+	);
 
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
@@ -424,15 +446,48 @@
 
 	<!-- Per-repo readiness -->
 	<section>
-		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-			<Octicon name="repo" size={16} />
-			Repositories
-		</h2>
+		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
+				<Octicon name="repo" size={16} />
+				Repositories
+				{#if repos.length > 0}<span class="text-sm font-normal text-gray-500">({filteredRepos.length.toLocaleString()})</span>{/if}
+			</h2>
+			{#if repos.length > 0}
+				<div class="relative">
+					<Octicon
+						name="search"
+						size={16}
+						class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"
+					/>
+					<input
+						type="search"
+						bind:value={repoSearch}
+						oninput={() => (repoPage = 1)}
+						placeholder="Filter repositories…"
+						aria-label="Filter repositories"
+						class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pl-9 pr-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none"
+					/>
+				</div>
+			{/if}
+		</div>
 
 		{#if repos.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
 				<Octicon name={run.state === 'running' ? 'sync' : 'inbox'} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />
-				<p class="mt-3">{run.state === 'running' ? 'Crawling…' : 'No repositories profiled'}</p>
+				<p class="mt-3">
+					{#if run.state !== 'running'}
+						No repositories profiled
+					{:else if run.totalRepos > 0}
+						Profiling {run.totalRepos.toLocaleString()} repositories… ({run.profiledRepos.toLocaleString()} done)
+					{:else}
+						Discovering repositories…
+					{/if}
+				</p>
+			</div>
+		{:else if filteredRepos.length === 0}
+			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
+				<Octicon name="search" size={24} class="h-10 w-10 text-gray-500" />
+				<p class="mt-3">No repositories match <span class="font-medium text-gray-300">“{repoSearch}”</span></p>
 			</div>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-gray-700">
@@ -446,7 +501,7 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-800">
-						{#each repos as repo (repo.nameWithOwner)}
+						{#each pagedRepos as repo (repo.nameWithOwner)}
 							<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
 								<td class="px-4 py-3">
 									<button
@@ -531,6 +586,13 @@
 					</tbody>
 				</table>
 			</div>
+			<Pagination
+				page={repoPageSafe}
+				totalPages={repoTotalPages}
+				total={filteredRepos.length}
+				limit={REPOS_PER_PAGE}
+				onPageChange={(p) => (repoPage = p)}
+			/>
 		{/if}
 	</section>
 </div>
