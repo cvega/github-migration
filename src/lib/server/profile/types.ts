@@ -103,6 +103,14 @@ export interface RepoSignals extends DiscoveredRepo {
    * branch-protection-partial gap applies.
    */
   branchProtectionRulesUsingUnmigratedFeatures: number;
+  /** Packages in GitHub Packages (`packages.totalCount`); not migrated. */
+  packagesCount: number;
+  /**
+   * Whether the default branch's root `.gitattributes` configures Git LFS
+   * (`filter=lfs`). LFS objects are not carried by the export and must be pushed
+   * post-migration. A proxy: only the root file on the default branch is checked.
+   */
+  usesLfs: boolean;
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────

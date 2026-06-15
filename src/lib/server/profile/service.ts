@@ -8,10 +8,12 @@
  * with no network.
  */
 import { getSourceGraphql } from "$lib/server/core/auth";
+import { type DurationEstimate, estimateDuration } from "./estimate";
 import { publishProfileEvent } from "./events";
 import { deriveInsights, type Insight } from "./insights";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
+import { buildPreparationSummary, type PreparationSummary } from "./summary";
 import type { ProfileRun, StoredRepoProfile } from "./types";
 
 /** Injectable service dependencies (defaults use the real implementations). */
@@ -54,6 +56,10 @@ export interface ProfileDetail {
   run: ProfileRun;
   repos: RepoProfileView[];
   scale: MigrationScale;
+  /** Org-level preparation checklist rolled up from the per-repo findings. */
+  summary: PreparationSummary;
+  /** Coarse size-band duration estimate (parallelism applied client-side). */
+  estimate: DurationEstimate;
 }
 
 /** Sum the per-repo signals into the org-wide migration-scale rollup. */
@@ -127,5 +133,11 @@ export function getProfileDetail(id: string): ProfileDetail | null {
     ...repo,
     insights: deriveInsights(repo.signals),
   }));
-  return { run, repos, scale: computeScale(repos) };
+  return {
+    run,
+    repos,
+    scale: computeScale(repos),
+    summary: buildPreparationSummary(repos),
+    estimate: estimateDuration(repos),
+  };
 }

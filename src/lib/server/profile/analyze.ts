@@ -77,6 +77,9 @@ const GIT_ARCHIVE_PROXY_KB = 2 * 1024 * 1024;
  * consideration id. Add an entry here as each new signal is gathered.
  */
 const DETECTORS: Record<string, Detector> = {
+  "git-lfs": (s) =>
+    s.usesLfs ? "Git LFS in use (.gitattributes filter=lfs); objects pushed post-migration" : null,
+  packages: (s) => (s.packagesCount > 0 ? count(s.packagesCount, "package") : null),
   discussions: (s) => (s.discussionsCount > 0 ? count(s.discussionsCount, "discussion") : null),
   "projects-v2": (s) => (s.projectsV2Count > 0 ? count(s.projectsV2Count, "project") : null),
   "actions-environments": (s) =>

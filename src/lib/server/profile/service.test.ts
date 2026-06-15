@@ -49,6 +49,8 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     watcherCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
+    packagesCount: 0,
+    usesLfs: false,
     ...over,
   };
 }

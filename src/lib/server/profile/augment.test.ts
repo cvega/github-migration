@@ -66,6 +66,9 @@ function node(over: {
   releases?: number;
   stars?: number;
   watchers?: number;
+  packages?: number;
+  /** Raw `.gitattributes` text; omit for no file (null blob). */
+  lfsAttributes?: string;
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
   noDefaultBranch?: boolean;
@@ -80,6 +83,8 @@ function node(over: {
     releases: { totalCount: over.releases ?? 0 },
     stargazerCount: over.stars ?? 0,
     watchers: { totalCount: over.watchers ?? 0 },
+    packages: { totalCount: over.packages ?? 0 },
+    gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
     branchProtectionRules: {
       totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
       nodes: over.rules ?? [],
@@ -128,6 +133,33 @@ describe("augmentRepoSignals", () => {
     expect(signals?.nameWithOwner).toBe("acme/widget");
     expect(signals?.diskUsageKb).toBe(1234);
     expect(signals?.issuesCount).toBe(11);
+  });
+
+  test("maps the packages count", async () => {
+    const { fn } = mockGql({ r0: node({ packages: 6 }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.packagesCount).toBe(6);
+  });
+
+  test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
+    const { fn } = mockGql({
+      r0: node({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),
+    });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(true);
+  });
+
+  test("a .gitattributes without filter=lfs is not flagged as LFS", async () => {
+    const { fn } = mockGql({ r0: node({ lfsAttributes: "*.txt text eol=lf\n" }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(false);
+  });
+
+  test("an absent .gitattributes means no LFS", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.usesLfs).toBe(false);
+    expect(signals?.packagesCount).toBe(0);
   });
 
   test("treats a missing default branch as zero commits", async () => {

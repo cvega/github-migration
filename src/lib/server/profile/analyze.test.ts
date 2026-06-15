@@ -39,6 +39,8 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     watcherCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
+    packagesCount: 0,
+    usesLfs: false,
     ...over,
   };
 }
@@ -68,8 +70,8 @@ describe("analyzeRepo", () => {
 
   test("considerations without a detector are reported as indeterminate, not clear", () => {
     const profile = analyzeRepo(cleanSignals());
-    // `packages` has no signal gathered yet.
-    expect(finding(profile, "packages")?.status).toBe("indeterminate");
+    // `webhooks` has no signal gathered yet.
+    expect(finding(profile, "webhooks")?.status).toBe("indeterminate");
     expect(finding(profile, "discussions")?.status).toBe("clear");
   });
 
@@ -85,6 +87,8 @@ describe("analyzeRepo", () => {
         watcherCount: 1,
         isFork: true,
         hasWiki: true,
+        packagesCount: 2,
+        usesLfs: true,
       }),
     );
 
@@ -102,6 +106,8 @@ describe("analyzeRepo", () => {
     expect(finding(profile, "wiki-attachments")?.evidence).toBe(
       "wiki enabled (attachments not migrated)",
     );
+    expect(finding(profile, "packages")?.evidence).toBe("2 packages");
+    expect(finding(profile, "git-lfs")?.status).toBe("applies");
   });
 
   test("rolls up applying considerations by severity", () => {

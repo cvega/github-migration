@@ -45,6 +45,9 @@ interface RepoSignalsNode {
   releases: { totalCount: number };
   stargazerCount: number;
   watchers: { totalCount: number };
+  packages: { totalCount: number };
+  /** Root `.gitattributes` on the default branch (`Blob`), or null if absent. */
+  gitattributes: { text: string | null } | null;
   branchProtectionRules: {
     totalCount: number;
     nodes: BranchProtectionRuleNode[];
@@ -67,6 +70,8 @@ const SIGNALS_FRAGMENT = `fragment Sig on Repository {
   releases { totalCount }
   stargazerCount
   watchers { totalCount }
+  packages { totalCount }
+  gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
   branchProtectionRules(first: $rules) {
     totalCount
     nodes {
@@ -115,6 +120,17 @@ function usesUnmigratedFeature(rule: BranchProtectionRuleNode): boolean {
   );
 }
 
+/**
+ * Whether a repo's root `.gitattributes` configures Git LFS. Matches a
+ * `filter=lfs` attribute (the marker `git lfs track` writes). Only the default
+ * branch's root file is inspected, so LFS configured solely in a subdirectory or
+ * a non-default branch is not detected — a deliberate proxy for a cheap signal.
+ */
+function usesLfsAttributes(gitattributes: { text: string | null } | null): boolean {
+  const text = gitattributes?.text;
+  return text != null && /filter=lfs/.test(text);
+}
+
 /** Map a repo + its (possibly null) augment node to full `RepoSignals`. */
 function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSignals {
   // A null node means the repo was inaccessible on this pass (permissions edge,
@@ -132,6 +148,8 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       watcherCount: 0,
       branchProtectionRuleCount: 0,
       branchProtectionRulesUsingUnmigratedFeatures: 0,
+      packagesCount: 0,
+      usesLfs: false,
     };
   }
   return {
@@ -146,6 +164,8 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
     branchProtectionRuleCount: node.branchProtectionRules.totalCount,
     branchProtectionRulesUsingUnmigratedFeatures:
       node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length,
+    packagesCount: node.packages.totalCount,
+    usesLfs: usesLfsAttributes(node.gitattributes),
   };
 }
 
