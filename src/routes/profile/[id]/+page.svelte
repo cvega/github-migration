@@ -24,6 +24,7 @@
 		[
 			{ label: 'Issues', value: scale.issues.toLocaleString(), icon: 'issue-opened' },
 			{ label: 'Pull requests', value: scale.pullRequests.toLocaleString(), icon: 'git-pull-request' },
+			{ label: 'Commits', value: scale.commits.toLocaleString(), icon: 'git-commit' },
 			{ label: 'Branches', value: scale.branches.toLocaleString(), icon: 'git-branch' },
 			{ label: 'Tags', value: scale.tags.toLocaleString(), icon: 'tag' },
 			{ label: 'Releases', value: scale.releases.toLocaleString(), icon: 'rocket' },
@@ -131,6 +132,7 @@
 		return [
 			{ label: 'Issues', value: s.issuesCount.toLocaleString(), icon: 'issue-opened' },
 			{ label: 'Pull requests', value: s.pullRequestsCount.toLocaleString(), icon: 'git-pull-request' },
+			{ label: 'Commits', value: s.commitsCount.toLocaleString(), icon: 'git-commit' },
 			{ label: 'Branches', value: s.branchesCount.toLocaleString(), icon: 'git-branch' },
 			{ label: 'Tags', value: s.tagsCount.toLocaleString(), icon: 'tag' },
 			{ label: 'Releases', value: s.releasesCount.toLocaleString(), icon: 'rocket' },

@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
+import type { RepoDetails } from "./augment";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import {
@@ -48,6 +49,7 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
 function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
   return {
     ...repo,
+    commitsCount: 0,
     discussionsCount: 0,
     projectsV2Count: 0,
     environmentsCount: 0,
@@ -65,7 +67,32 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   };
 }
 
-/** Deps whose discover returns the given repos and augment maps each chunk by name. */
+/** Counts-pass signals (verification fields defaulted, as pass 1 produces). */
+function countsSignals(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
+  return {
+    ...signalsFor(repo, over),
+    commitsCount: 0,
+    branchProtectionRulesUsingUnmigratedFeatures: 0,
+    usesLfs: false,
+    workflowFileCount: 0,
+    releaseAssetBytes: 0,
+  };
+}
+
+/** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
+function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
+  const s = signalsFor(repo, over);
+  return {
+    nameWithOwner: repo.nameWithOwner,
+    commitsCount: s.commitsCount,
+    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
+    usesLfs: s.usesLfs,
+    workflowFileCount: s.workflowFileCount,
+    releaseAssetBytes: s.releaseAssetBytes,
+  };
+}
+
+/** Deps whose discover returns the given repos and the two passes map by name. */
 function deps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
@@ -74,7 +101,8 @@ function deps(
 ): ProfileRunnerDeps {
   return {
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
-    augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
+    augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r, augmentOver[r.name] ?? {})),
+    augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
   };
@@ -140,7 +168,8 @@ describe("runProfile", () => {
         onProgress?.({ org: "acme", discovered: 2, total: 2, page: 1 });
         return { org: "acme", total: 2, repos };
       },
-      augment: async (_gql, c) => c.map((r) => signalsFor(r)),
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
       getOrgRulesetCount: async () => 0,
       getOrgResources: async () => ZERO_ORG_RESOURCES,
     };
@@ -190,7 +219,9 @@ describe("runProfile", () => {
       deps(repos),
     );
 
-    expect(progress).toEqual([
+    // Pass 1 emits one per-repo frame as each repo's counts are recorded. (The
+    // details pass adds repo-less nudges, filtered out here.)
+    expect(progress.filter((p) => p.repo !== "")).toEqual([
       { runId: "r", profiled: 1, total: 3, repo: "acme/a" },
       { runId: "r", profiled: 2, total: 3, repo: "acme/b" },
       { runId: "r", profiled: 3, total: 3, repo: "acme/c" },
@@ -215,7 +246,6 @@ describe("runProfile", () => {
       discover: async () => {
         throw new Error("Organization 'acme' not found or not accessible");
       },
-      augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r)),
     };
 
     const run = await runProfile(
@@ -229,13 +259,13 @@ describe("runProfile", () => {
     expect(run.failureReason).toMatch(/not found or not accessible/);
   });
 
-  test("marks the run failed when a chunk's augmentation throws", async () => {
+  test("marks the run failed when the counts pass throws", async () => {
     const repos = [discovered("ok"), discovered("boom")];
     const partialDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
-      augment: async (_gql, chunk) => {
+      augmentCounts: async (_gql, chunk) => {
         if (chunk.some((r) => r.name === "boom")) throw new Error("repo augmentation failed");
-        return chunk.map((r) => signalsFor(r));
+        return chunk.map((r) => countsSignals(r));
       },
     };
 
@@ -250,18 +280,18 @@ describe("runProfile", () => {
     expect(run.failureReason).toBe("repo augmentation failed");
   });
 
-  test("persists completed chunks when a later chunk fails", async () => {
-    // 26 repos with releases at FULL=10 → chunks of 10 + 10 + 6. The chunk
-    // holding the last repo (r20–r25) throws; the other two chunks' 20 repos
+  test("persists completed counts chunks when a later chunk fails", async () => {
+    // 26 repos at COUNTS_CHUNK=15 → chunks of 15 + 11. The chunk holding the
+    // last repo (r15–r25) throws in the counts pass; the first chunk's 15 repos
     // still persist.
     const repos = Array.from({ length: 26 }, (_, i) =>
       discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
     );
     const chunkedDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
-      augment: async (_gql, chunk) => {
+      augmentCounts: async (_gql, chunk) => {
         if (chunk.some((r) => r.name === "r25")) throw new Error("a chunk failed");
-        return chunk.map((r) => signalsFor(r));
+        return chunk.map((r) => countsSignals(r));
       },
     };
 
@@ -273,12 +303,13 @@ describe("runProfile", () => {
     );
 
     expect(run.state).toBe("failed");
-    expect(getRunRepoProfiles("r")).toHaveLength(20); // the two surviving chunks persisted
+    expect(getRunRepoProfiles("r")).toHaveLength(15); // the surviving counts chunk persisted
   });
 
   test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {
-    // 2 repos with zero releases share one lite chunk (scanReleases: false); the
-    // 3 with releases share one full chunk (scanReleases: true).
+    // The details pass partitions by releases: 2 release-free repos share one
+    // lite chunk (scanReleases: false); the 3 with releases share one full
+    // chunk (scanReleases: true).
     const repos = [
       discovered("a", { releasesCount: 0 }),
       discovered("b", { releasesCount: 2 }),
@@ -289,9 +320,10 @@ describe("runProfile", () => {
     const calls: Array<{ size: number; scanReleases: boolean | undefined }> = [];
     const recordingDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
-      augment: async (_gql, chunkRepos, opts) => {
-        calls.push({ size: chunkRepos.length, scanReleases: opts?.scanReleases });
-        return chunkRepos.map((r) => signalsFor(r));
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c, opts) => {
+        calls.push({ size: c.length, scanReleases: opts?.scanReleases });
+        return c.map((r) => detailsFor(r));
       },
     };
 

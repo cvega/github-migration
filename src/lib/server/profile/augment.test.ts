@@ -1,12 +1,13 @@
 /**
- * Tests for per-repo GraphQL signal augmentation. The `gql` client is injected,
- * so these exercise the query-variable shaping, field mapping, and — the part
- * with real logic — the branch-protection "uses an unmigrated feature"
- * derivation, all without a network.
+ * Tests for per-repo GraphQL signal augmentation, split into the cheap counts
+ * pass (`augmentRepoCounts`) and the expensive verification pass
+ * (`augmentRepoDetails`). The `gql` client is injected, so these exercise query
+ * shaping, field mapping, the branch-protection derivation, and the shared
+ * resilience (split-on-timeout, degrade, partial-data) without a network.
  */
 import { describe, expect, test } from "bun:test";
 import type { graphql } from "@octokit/graphql";
-import { augmentRepoSignals } from "./augment";
+import { augmentRepoCounts, augmentRepoDetails } from "./augment";
 import type { DiscoveredRepo } from "./types";
 
 /** A discovered repo fixture (the spread input to augmentation). */
@@ -58,8 +59,8 @@ function rule(flags: RuleFlags = {}) {
   };
 }
 
-/** Build one repository alias node. */
-function node(over: {
+/** Build one repository alias node for the cheap counts pass. */
+function countsNode(over: {
   discussions?: number;
   projectsV2?: number;
   environments?: number;
@@ -67,20 +68,43 @@ function node(over: {
   watchers?: number;
   forks?: number;
   packages?: number;
-  rulesets?: number;
+  /** Repo ruleset count, or `null` for a null (no-access) connection. */
+  rulesets?: number | null;
+  ruleTotal?: number;
+}) {
+  return {
+    discussions: { totalCount: over.discussions ?? 0 },
+    projectsV2: { totalCount: over.projectsV2 ?? 0 },
+    environments: { totalCount: over.environments ?? 0 },
+    stargazerCount: over.stars ?? 0,
+    forkCount: over.forks ?? 0,
+    watchers: { totalCount: over.watchers ?? 0 },
+    packages: { totalCount: over.packages ?? 0 },
+    rulesets: over.rulesets === null ? null : { totalCount: over.rulesets ?? 0 },
+    branchProtectionRules: { totalCount: over.ruleTotal ?? 0 },
+  };
+}
+
+/** Build one repository alias node for the verification details pass. */
+function detailsNode(over: {
+  commits?: number;
   /** Raw `.gitattributes` text; omit for no file (null blob). */
   lfsAttributes?: string;
   /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
   workflowFiles?: string[];
   /** Asset byte sizes; placed in a single scanned release node (omit = not scanned). */
   releaseAssetSizes?: number[];
-  ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
+  noDefaultBranch?: boolean;
 }) {
   return {
-    discussions: { totalCount: over.discussions ?? 0 },
-    projectsV2: { totalCount: over.projectsV2 ?? 0 },
-    environments: { totalCount: over.environments ?? 0 },
+    defaultBranchRef: over.noDefaultBranch
+      ? null
+      : { target: { history: { totalCount: over.commits ?? 0 } } },
+    gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
+    workflows: over.workflowFiles
+      ? { entries: over.workflowFiles.map((name) => ({ name })) }
+      : null,
     // `releases` is present only on a scanned node (mirrors scanReleases: true).
     ...(over.releaseAssetSizes
       ? {
@@ -89,19 +113,7 @@ function node(over: {
           },
         }
       : {}),
-    stargazerCount: over.stars ?? 0,
-    forkCount: over.forks ?? 0,
-    watchers: { totalCount: over.watchers ?? 0 },
-    packages: { totalCount: over.packages ?? 0 },
-    rulesets: { totalCount: over.rulesets ?? 0 },
-    gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
-    workflows: over.workflowFiles
-      ? { entries: over.workflowFiles.map((name) => ({ name })) }
-      : null,
-    branchProtectionRules: {
-      totalCount: over.ruleTotal ?? over.rules?.length ?? 0,
-      nodes: over.rules ?? [],
-    },
+    branchProtectionRules: { nodes: over.rules ?? [] },
   };
 }
 
@@ -118,158 +130,73 @@ function mockGql(response: Record<string, unknown>) {
   return { fn, calls };
 }
 
-describe("augmentRepoSignals", () => {
-  test("maps every count signal and preserves the discovered fields", async () => {
+describe("augmentRepoCounts", () => {
+  test("maps every cheap count and preserves the discovered fields", async () => {
     const { fn } = mockGql({
-      r0: node({
+      r0: countsNode({
         discussions: 3,
         projectsV2: 2,
         environments: 4,
         stars: 41,
         watchers: 9,
+        forks: 12,
+        packages: 6,
+        rulesets: 4,
+        ruleTotal: 5,
       }),
     });
 
-    const [signals] = await augmentRepoSignals(fn, [
-      discovered({ issuesCount: 11, releasesCount: 7 }),
-    ]);
+    const [s] = await augmentRepoCounts(fn, [discovered({ issuesCount: 11, releasesCount: 7 })]);
 
-    // Augmented counts.
-    expect(signals?.discussionsCount).toBe(3);
-    expect(signals?.projectsV2Count).toBe(2);
-    expect(signals?.environmentsCount).toBe(4);
-    expect(signals?.stargazerCount).toBe(41);
-    expect(signals?.watcherCount).toBe(9);
-    // Discovered spine preserved (incl. the content counts from discovery).
-    expect(signals?.nameWithOwner).toBe("acme/widget");
-    expect(signals?.diskUsageKb).toBe(1234);
-    expect(signals?.issuesCount).toBe(11);
-    expect(signals?.releasesCount).toBe(7);
-  });
-
-  test("maps the packages count", async () => {
-    const { fn } = mockGql({ r0: node({ packages: 6 }) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.packagesCount).toBe(6);
-  });
-
-  test("maps the fork count and repository ruleset count", async () => {
-    const { fn } = mockGql({ r0: node({ forks: 12, rulesets: 4 }) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.forkCount).toBe(12);
-    expect(signals?.rulesetCount).toBe(4);
+    expect(s?.discussionsCount).toBe(3);
+    expect(s?.projectsV2Count).toBe(2);
+    expect(s?.environmentsCount).toBe(4);
+    expect(s?.stargazerCount).toBe(41);
+    expect(s?.watcherCount).toBe(9);
+    expect(s?.forkCount).toBe(12);
+    expect(s?.packagesCount).toBe(6);
+    expect(s?.rulesetCount).toBe(4);
+    expect(s?.branchProtectionRuleCount).toBe(5);
+    // Discovered spine preserved.
+    expect(s?.nameWithOwner).toBe("acme/widget");
+    expect(s?.diskUsageKb).toBe(1234);
+    expect(s?.issuesCount).toBe(11);
+    expect(s?.releasesCount).toBe(7);
+    // Verification fields are left at defaults for the details pass.
+    expect(s?.commitsCount).toBe(0);
+    expect(s?.usesLfs).toBe(false);
+    expect(s?.workflowFileCount).toBe(0);
+    expect(s?.releaseAssetBytes).toBe(0);
+    expect(s?.branchProtectionRulesUsingUnmigratedFeatures).toBe(0);
   });
 
   test("treats a null rulesets connection as zero (schema allows null)", async () => {
-    // RepositoryRulesetConnection is nullable in the schema; a viewer without
-    // ruleset read access gets null rather than a connection.
-    const n = node({});
-    (n as { rulesets: unknown }).rulesets = null;
-    const { fn } = mockGql({ r0: n });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.rulesetCount).toBe(0);
+    const { fn } = mockGql({ r0: countsNode({ rulesets: null }) });
+    const [s] = await augmentRepoCounts(fn, [discovered()]);
+    expect(s?.rulesetCount).toBe(0);
   });
 
-  test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
-    const { fn } = mockGql({
-      r0: node({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),
-    });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.usesLfs).toBe(true);
+  test("does not pass a $rules variable (counts query has no rule detail)", async () => {
+    const { fn, calls } = mockGql({ r0: countsNode({}) });
+    await augmentRepoCounts(fn, [discovered({ nameWithOwner: "o/a", name: "a" })]);
+    expect(calls[0]).toMatchObject({ o0: "o", n0: "a" });
+    expect(calls[0]).not.toHaveProperty("rules");
   });
 
-  test("a .gitattributes without filter=lfs is not flagged as LFS", async () => {
-    const { fn } = mockGql({ r0: node({ lfsAttributes: "*.txt text eol=lf\n" }) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.usesLfs).toBe(false);
-  });
-
-  test("an absent .gitattributes means no LFS", async () => {
-    const { fn } = mockGql({ r0: node({}) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.usesLfs).toBe(false);
-    expect(signals?.packagesCount).toBe(0);
-  });
-
-  test("sums release asset bytes across releases", async () => {
-    const { fn } = mockGql({ r0: node({ releaseAssetSizes: [1000, 2500, 500] }) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.releaseAssetBytes).toBe(4000);
-  });
-
-  test("a repo with no releases has zero release asset bytes", async () => {
-    const { fn } = mockGql({ r0: node({}) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.releaseAssetBytes).toBe(0);
-  });
-
-  test("omits the release-asset scan from the query when scanReleases is false", async () => {
-    let query = "";
-    const fn = (async (q: string) => {
-      query = q;
-      return { r0: node({}) };
-    }) as unknown as typeof graphql;
-
-    await augmentRepoSignals(fn, [discovered()], { scanReleases: false });
-    expect(query).not.toContain("releaseAssets");
-  });
-
-  test("includes the release-asset scan from the query when scanReleases is true", async () => {
-    let query = "";
-    const fn = (async (q: string) => {
-      query = q;
-      return { r0: node({ releaseAssetSizes: [10] }) };
-    }) as unknown as typeof graphql;
-
-    await augmentRepoSignals(fn, [discovered()], { scanReleases: true });
-    expect(query).toContain("releaseAssets");
-  });
-
-  test("counts only .yml/.yaml workflow files under .github/workflows", async () => {
-    const { fn } = mockGql({
-      r0: node({ workflowFiles: ["ci.yml", "release.yaml", "README.md", "dependabot.yml"] }),
-    });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.workflowFileCount).toBe(3);
-  });
-
-  test("a repo with no .github/workflows tree has zero workflow files", async () => {
-    const { fn } = mockGql({ r0: node({}) });
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-    expect(signals?.workflowFileCount).toBe(0);
-  });
-
-  test("derives owner/name per alias and caps the rules page", async () => {
-    const { fn, calls } = mockGql({ r0: node({}), r1: node({}) });
-
-    await augmentRepoSignals(fn, [
-      discovered({ name: "widget", nameWithOwner: "octo-org/widget" }),
-      discovered({ name: "gadget", nameWithOwner: "octo-org/gadget" }),
-    ]);
-
-    expect(calls[0]).toMatchObject({
-      rules: 50,
-      o0: "octo-org",
-      n0: "widget",
-      o1: "octo-org",
-      n1: "gadget",
-    });
-  });
-
-  test("profiles a whole chunk in a single request, in input order", async () => {
+  test("profiles a whole chunk in one request, in input order", async () => {
     const { fn, calls } = mockGql({
-      r0: node({ discussions: 1 }),
-      r1: node({ discussions: 2 }),
-      r2: node({ discussions: 3 }),
+      r0: countsNode({ discussions: 1 }),
+      r1: countsNode({ discussions: 2 }),
+      r2: countsNode({ discussions: 3 }),
     });
 
-    const signals = await augmentRepoSignals(fn, [
+    const signals = await augmentRepoCounts(fn, [
       discovered({ nameWithOwner: "o/a", name: "a" }),
       discovered({ nameWithOwner: "o/b", name: "b" }),
       discovered({ nameWithOwner: "o/c", name: "c" }),
     ]);
 
-    expect(calls).toHaveLength(1); // one batched request for three repos
+    expect(calls).toHaveLength(1);
     expect(signals.map((s) => [s.nameWithOwner, s.discussionsCount])).toEqual([
       ["o/a", 1],
       ["o/b", 2],
@@ -277,10 +204,147 @@ describe("augmentRepoSignals", () => {
     ]);
   });
 
+  test("returns no signals for an empty chunk without calling gql", async () => {
+    const { fn, calls } = mockGql({});
+    const signals = await augmentRepoCounts(fn, []);
+    expect(signals).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("degrades a null alias to zeroed counts (keeps the discovery spine)", async () => {
+    const { fn } = mockGql({ r0: countsNode({ discussions: 5 }), r1: null });
+    const signals = await augmentRepoCounts(fn, [
+      discovered({ nameWithOwner: "o/ok", name: "ok" }),
+      discovered({ nameWithOwner: "o/gone", name: "gone", issuesCount: 3 }),
+    ]);
+    expect(signals[0]?.discussionsCount).toBe(5);
+    expect(signals[1]?.nameWithOwner).toBe("o/gone");
+    expect(signals[1]?.issuesCount).toBe(3); // spine kept
+    expect(signals[1]?.discussionsCount).toBe(0); // augment zeroed
+  });
+
+  test("recovers partial data when the request errors with a data payload", async () => {
+    const err = Object.assign(new Error("Could not resolve to a Repository"), {
+      data: { r0: countsNode({ discussions: 8 }), r1: null },
+    });
+    const fn = (async () => {
+      throw err;
+    }) as unknown as typeof graphql;
+
+    const signals = await augmentRepoCounts(fn, [
+      discovered({ nameWithOwner: "o/a", name: "a" }),
+      discovered({ nameWithOwner: "o/b", name: "b" }),
+    ]);
+    expect(signals[0]?.discussionsCount).toBe(8);
+    expect(signals[1]?.discussionsCount).toBe(0);
+  });
+
+  test("rethrows an error with no recoverable data payload", async () => {
+    const fn = (async () => {
+      throw new Error("network down");
+    }) as unknown as typeof graphql;
+    await expect(augmentRepoCounts(fn, [discovered()])).rejects.toThrow(/network down/);
+  });
+
+  test("splits a timed-out chunk and retries the smaller halves", async () => {
+    // 502s for any request wider than 2 repos; succeeds otherwise.
+    const sizes: number[] = [];
+    const fn = (async (_q: string, vars: Record<string, unknown>) => {
+      const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
+      sizes.push(size);
+      if (size > 2) throw Object.assign(new Error("Bad Gateway"), { status: 502 });
+      const res: Record<string, unknown> = {};
+      for (let i = 0; i < size; i++) res[`r${i}`] = countsNode({});
+      return res;
+    }) as unknown as typeof graphql;
+
+    const repos = ["a", "b", "c", "d"].map((n) => discovered({ name: n, nameWithOwner: `o/${n}` }));
+    const signals = await augmentRepoCounts(fn, repos);
+    expect(signals.map((s) => s.nameWithOwner)).toEqual(["o/a", "o/b", "o/c", "o/d"]);
+    expect(sizes).toEqual([4, 2, 2]); // 4 timed out → 2 + 2
+  });
+
+  test("degrades a single repo that keeps timing out to zeroed counts", async () => {
+    const fn = (async () => {
+      throw Object.assign(new Error("Gateway Timeout"), { status: 504 });
+    }) as unknown as typeof graphql;
+    const repos = [
+      discovered({ name: "a", nameWithOwner: "o/a", issuesCount: 7 }),
+      discovered({ name: "b", nameWithOwner: "o/b" }),
+    ];
+    const signals = await augmentRepoCounts(fn, repos);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.issuesCount).toBe(7); // spine kept
+    expect(signals[0]?.discussionsCount).toBe(0); // degraded
+  });
+});
+
+describe("augmentRepoDetails", () => {
+  test("maps the commit count from the default branch history", async () => {
+    const { fn } = mockGql({ r0: detailsNode({ commits: 512 }) });
+    const [d] = await augmentRepoDetails(fn, [discovered()]);
+    expect(d?.commitsCount).toBe(512);
+  });
+
+  test("treats a missing default branch as zero commits", async () => {
+    const { fn } = mockGql({ r0: detailsNode({ noDefaultBranch: true }) });
+    const [d] = await augmentRepoDetails(fn, [discovered({ isEmpty: true })]);
+    expect(d?.commitsCount).toBe(0);
+  });
+
+  test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
+    const { fn } = mockGql({
+      r0: detailsNode({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),
+    });
+    const [d] = await augmentRepoDetails(fn, [discovered()]);
+    expect(d?.usesLfs).toBe(true);
+  });
+
+  test("a .gitattributes without filter=lfs is not flagged, and an absent one is false", async () => {
+    const a = mockGql({ r0: detailsNode({ lfsAttributes: "*.txt text eol=lf\n" }) });
+    expect((await augmentRepoDetails(a.fn, [discovered()]))[0]?.usesLfs).toBe(false);
+    const b = mockGql({ r0: detailsNode({}) });
+    expect((await augmentRepoDetails(b.fn, [discovered()]))[0]?.usesLfs).toBe(false);
+  });
+
+  test("counts only .yml/.yaml workflow files under .github/workflows", async () => {
+    const { fn } = mockGql({
+      r0: detailsNode({ workflowFiles: ["ci.yml", "release.yaml", "README.md", "dependabot.yml"] }),
+    });
+    const [d] = await augmentRepoDetails(fn, [discovered()]);
+    expect(d?.workflowFileCount).toBe(3);
+  });
+
+  test("sums release asset bytes when scanning, passing $rules", async () => {
+    const { fn, calls } = mockGql({ r0: detailsNode({ releaseAssetSizes: [1000, 2500, 500] }) });
+    const [d] = await augmentRepoDetails(fn, [discovered()], { scanReleases: true });
+    expect(d?.releaseAssetBytes).toBe(4000);
+    expect(calls[0]).toMatchObject({ rules: 50 });
+  });
+
+  test("omits the release-asset scan from the query when scanReleases is false", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: detailsNode({}) };
+    }) as unknown as typeof graphql;
+    await augmentRepoDetails(fn, [discovered()], { scanReleases: false });
+    expect(query).not.toContain("releaseAssets");
+  });
+
+  test("includes the release-asset scan when scanReleases is true", async () => {
+    let query = "";
+    const fn = (async (q: string) => {
+      query = q;
+      return { r0: detailsNode({ releaseAssetSizes: [10] }) };
+    }) as unknown as typeof graphql;
+    await augmentRepoDetails(fn, [discovered()], { scanReleases: true });
+    expect(query).toContain("releaseAssets");
+  });
+
   test("counts only branch protection rules that use an unmigrated feature", async () => {
     const { fn } = mockGql({
-      r0: node({
-        ruleTotal: 4,
+      r0: detailsNode({
         rules: [
           rule({ allowsForcePushes: true }), // unmigrated
           rule({ bypassPullRequest: 2 }), // unmigrated (bypass actors)
@@ -289,20 +353,8 @@ describe("augmentRepoSignals", () => {
         ],
       }),
     });
-
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-
-    expect(signals?.branchProtectionRuleCount).toBe(4);
-    expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(3);
-  });
-
-  test("treats a rule with no unmigrated features as fully migratable", async () => {
-    const { fn } = mockGql({ r0: node({ ruleTotal: 1, rules: [rule({})] }) });
-
-    const [signals] = await augmentRepoSignals(fn, [discovered()]);
-
-    expect(signals?.branchProtectionRuleCount).toBe(1);
-    expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(0);
+    const [d] = await augmentRepoDetails(fn, [discovered()]);
+    expect(d?.branchProtectionRulesUsingUnmigratedFeatures).toBe(3);
   });
 
   test("flags each unmigrated feature individually", async () => {
@@ -313,104 +365,21 @@ describe("augmentRepoSignals", () => {
       rule({ bypassForcePush: 1 }),
     ];
     for (const r of cases) {
-      const { fn } = mockGql({ r0: node({ ruleTotal: 1, rules: [r] }) });
-      const [signals] = await augmentRepoSignals(fn, [discovered()]);
-      expect(signals?.branchProtectionRulesUsingUnmigratedFeatures).toBe(1);
+      const { fn } = mockGql({ r0: detailsNode({ rules: [r] }) });
+      const [d] = await augmentRepoDetails(fn, [discovered()]);
+      expect(d?.branchProtectionRulesUsingUnmigratedFeatures).toBe(1);
     }
   });
 
-  test("returns no signals for an empty chunk without calling gql", async () => {
-    const { fn, calls } = mockGql({});
-
-    const signals = await augmentRepoSignals(fn, []);
-
-    expect(signals).toEqual([]);
-    expect(calls).toHaveLength(0);
-  });
-
-  test("degrades a null alias to zeroed signals (keeps the discovery spine)", async () => {
-    const { fn } = mockGql({ r0: node({ discussions: 5 }), r1: null });
-
-    const signals = await augmentRepoSignals(fn, [
+  test("degrades a null alias to zeroed details (keeps the repo)", async () => {
+    const { fn } = mockGql({ r0: detailsNode({ commits: 5 }), r1: null });
+    const details = await augmentRepoDetails(fn, [
       discovered({ nameWithOwner: "o/ok", name: "ok" }),
-      discovered({ nameWithOwner: "o/gone", name: "gone", issuesCount: 3 }),
+      discovered({ nameWithOwner: "o/gone", name: "gone" }),
     ]);
-
-    expect(signals[0]?.discussionsCount).toBe(5);
-    // The inaccessible repo keeps its discovered fields but zeroes augment counts.
-    expect(signals[1]?.nameWithOwner).toBe("o/gone");
-    expect(signals[1]?.issuesCount).toBe(3);
-    expect(signals[1]?.discussionsCount).toBe(0);
-    expect(signals[1]?.branchProtectionRuleCount).toBe(0);
-  });
-
-  test("recovers partial data when the request errors with a data payload", async () => {
-    // GraphQL returns partial data + errors when one alias is inaccessible; the
-    // client surfaces that as a throw carrying `.data`. Recover the good repos.
-    const err = Object.assign(new Error("Could not resolve to a Repository"), {
-      data: { r0: node({ discussions: 8 }), r1: null },
-    });
-    const fn = (async () => {
-      throw err;
-    }) as unknown as typeof graphql;
-
-    const signals = await augmentRepoSignals(fn, [
-      discovered({ nameWithOwner: "o/a", name: "a" }),
-      discovered({ nameWithOwner: "o/b", name: "b" }),
-    ]);
-
-    expect(signals[0]?.discussionsCount).toBe(8);
-    expect(signals[1]?.discussionsCount).toBe(0);
-  });
-
-  test("rethrows an error with no recoverable data payload", async () => {
-    const fn = (async () => {
-      throw new Error("network down");
-    }) as unknown as typeof graphql;
-
-    await expect(augmentRepoSignals(fn, [discovered()])).rejects.toThrow(/network down/);
-  });
-
-  test("splits a timed-out chunk and retries the smaller halves", async () => {
-    // A `gql` double that 502s (GitHub's timeout) for any request wider than 2
-    // repos, and succeeds otherwise. Records the size of each attempted request.
-    const sizes: number[] = [];
-    const fn = (async (_q: string, vars: Record<string, unknown>) => {
-      const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
-      sizes.push(size);
-      if (size > 2) throw Object.assign(new Error("Bad Gateway"), { status: 502 });
-      const res: Record<string, unknown> = {};
-      for (let i = 0; i < size; i++) res[`r${i}`] = node({});
-      return res;
-    }) as unknown as typeof graphql;
-
-    const repos = ["a", "b", "c", "d"].map((n) => discovered({ name: n, nameWithOwner: `o/${n}` }));
-    const signals = await augmentRepoSignals(fn, repos);
-
-    // All four repos come back, in order, despite the initial timeout.
-    expect(signals.map((s) => s.nameWithOwner)).toEqual(["o/a", "o/b", "o/c", "o/d"]);
-    // 4 timed out → split into 2 + 2, each of which succeeds.
-    expect(sizes).toEqual([4, 2, 2]);
-  });
-
-  test("degrades a single repo that keeps timing out to zeroed signals", async () => {
-    // Always 502s, so splitting bottoms out at one repo each, which degrades.
-    const fn = (async () => {
-      throw Object.assign(new Error("Gateway Timeout"), { status: 504 });
-    }) as unknown as typeof graphql;
-
-    const repos = [
-      discovered({ name: "a", nameWithOwner: "o/a", issuesCount: 7 }),
-      discovered({ name: "b", nameWithOwner: "o/b" }),
-    ];
-    const signals = await augmentRepoSignals(fn, repos);
-
-    expect(signals).toHaveLength(2);
-    // Discovery spine preserved; augment counts degraded to zero.
-    expect(signals[0]?.nameWithOwner).toBe("o/a");
-    expect(signals[0]?.issuesCount).toBe(7);
-    expect(signals[0]?.discussionsCount).toBe(0);
-    expect(signals[1]?.nameWithOwner).toBe("o/b");
+    expect(details[0]?.commitsCount).toBe(5);
+    expect(details[1]?.nameWithOwner).toBe("o/gone");
+    expect(details[1]?.commitsCount).toBe(0);
   });
 
   test("treats a timeout message (not just a status) as splittable", async () => {
@@ -419,16 +388,15 @@ describe("augmentRepoSignals", () => {
       const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
       calls += 1;
       if (size > 1) throw new Error("Something went wrong while executing your query");
-      return { r0: node({ discussions: 1 }) };
+      return { r0: detailsNode({ commits: 1 }) };
     }) as unknown as typeof graphql;
 
     const repos = [
       discovered({ name: "a", nameWithOwner: "o/a" }),
       discovered({ name: "b", nameWithOwner: "o/b" }),
     ];
-    const signals = await augmentRepoSignals(fn, repos);
-
-    expect(signals.map((s) => s.discussionsCount)).toEqual([1, 1]);
-    expect(calls).toBe(3); // 2 (timeout) → 1 + 1 (ok)
+    const details = await augmentRepoDetails(fn, repos);
+    expect(details.map((d) => d.commitsCount)).toEqual([1, 1]);
+    expect(calls).toBe(3); // 2 (timeout) → 1 + 1
   });
 });

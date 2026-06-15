@@ -86,6 +86,13 @@ export interface OrgDiscovery {
  * read a number and compare, rather than re-deriving GraphQL schema details.
  */
 export interface RepoSignals extends DiscoveredRepo {
+  /**
+   * Commits on the default branch (`history.totalCount`). Gathered in the
+   * verification pass, not the cheap counts pass: unlike the indexed
+   * `totalCount`s it walks the commit graph, so a timeout degrades it to 0 for
+   * that one repo rather than blocking the cheap counts.
+   */
+  commitsCount: number;
   /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
   discussionsCount: number;
   /** Projects (new experience) (`projectsV2.totalCount`); not migrated. */
