@@ -2,6 +2,54 @@
 
 All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
+## [0.1.0] - 2026-06-15
+
+### ♻️ Refactoring
+
+- **profile:** Use the shared Pagination component for the repo list
+- **profile:** List repos via REST, gather counts via batched GraphQL
+- **profile:** Two-pass crawl — cheap counts first, verification later
+- Replace GEI wording with "GitHub export"
+
+### ⚡ Performance
+
+- **profile:** Batch the cheap totalCount pass wide + add fork/ruleset signals
+- **profile:** Fix GraphQL 502 timeouts by shrinking the augment query
+- **profile:** Release-partition the augment pass + concurrent chunks
+
+### 🐛 Bug Fixes
+
+- **profile:** Make discovery 502-resilient and the repo list non-fatal
+- **profile:** Cap augment repo-batch at 10-15 (FULL=10, LITE=15)
+- **profile:** Survive GitHub GraphQL timeouts + add crawl observability
+- **profile:** Scope repo rulesets to includeParents:false + handle null
+- **csp:** Detect dev via argv so HMR websocket isn't blocked
+- **ci:** Commit CHANGELOG.md on the first release
+
+### 📚 Documentation
+
+- Document the Profile API and correct the gate count
+- **development:** Document the release:prep flow
+
+### 📦 Build & Tooling
+
+- **release:** Add git-cliff version-bump script
+
+### 🚀 Features
+
+- **profile:** Add client-side search and pagination to the repo list
+- **profile:** Detect workflow run history (.github/workflows)
+- **profile:** Gather org-level resources (secrets, runners, properties)
+- **profile:** Gather org rulesets via REST
+- **profile:** Detect oversized release assets (>10 GiB)
+- **profile:** Migration summary + duration estimate
+- **profile:** Drill into a repo for its individual counts
+- **profile:** Add per-metric icons to the scale and summary tiles
+- **profile:** Collect content counts, batch augment, size blockers
+
+### 🧹 Chores
+
+- **scripts:** Rename verify:json to gates and align gate file names
 ## [0.0.3] - 2026-06-14
 
 ### 🐛 Bug Fixes
