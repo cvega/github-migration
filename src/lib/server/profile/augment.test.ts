@@ -160,6 +160,16 @@ describe("augmentRepoSignals", () => {
     expect(signals?.rulesetCount).toBe(4);
   });
 
+  test("treats a null rulesets connection as zero (schema allows null)", async () => {
+    // RepositoryRulesetConnection is nullable in the schema; a viewer without
+    // ruleset read access gets null rather than a connection.
+    const n = node({});
+    (n as { rulesets: unknown }).rulesets = null;
+    const { fn } = mockGql({ r0: n });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.rulesetCount).toBe(0);
+  });
+
   test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
     const { fn } = mockGql({
       r0: node({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),

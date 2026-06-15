@@ -59,7 +59,8 @@ interface RepoSignalsNode {
   forkCount: number;
   watchers: { totalCount: number };
   packages: { totalCount: number };
-  rulesets: { totalCount: number };
+  /** Repo-level rulesets. The connection is nullable in the schema (no `!`). */
+  rulesets: { totalCount: number } | null;
   /** Root `.gitattributes` on the default branch (`Blob`), or null if absent. */
   gitattributes: { text: string | null } | null;
   /** `.github/workflows` dir on the default branch (`Tree`), or null if absent. */
@@ -101,7 +102,7 @@ function signalsFragment(scanReleases: boolean): string {
   forkCount
   watchers { totalCount }
   packages { totalCount }
-  rulesets(first: 1) { totalCount }
+  rulesets(first: 1, includeParents: false) { totalCount }
   gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
   workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
   branchProtectionRules(first: $rules) {
@@ -211,7 +212,7 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
     stargazerCount: node.stargazerCount,
     watcherCount: node.watchers.totalCount,
     forkCount: node.forkCount,
-    rulesetCount: node.rulesets.totalCount,
+    rulesetCount: node.rulesets?.totalCount ?? 0,
     branchProtectionRuleCount: node.branchProtectionRules.totalCount,
     branchProtectionRulesUsingUnmigratedFeatures:
       node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length,
