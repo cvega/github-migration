@@ -53,6 +53,8 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     environmentsCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
+    forkCount: 0,
+    rulesetCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
@@ -201,9 +203,8 @@ describe("runProfile", () => {
   });
 
   test("persists completed chunks when a later chunk fails", async () => {
-    // 26 repos with releases at FULL=10 → chunks of 10 + 10 + 6. The chunk
-    // holding the last repo (r20–r25) throws; the other two chunks' 20 repos
-    // still persist.
+    // 26 repos with releases at FULL=15 → chunks of 15 + 11. The chunk holding
+    // the last repo (r15–r25) throws; the first chunk's 15 repos still persist.
     const repos = Array.from({ length: 26 }, (_, i) =>
       discovered(`r${String(i).padStart(2, "0")}`, { releasesCount: 1 }),
     );
@@ -223,7 +224,7 @@ describe("runProfile", () => {
     );
 
     expect(run.state).toBe("failed");
-    expect(getRunRepoProfiles("r")).toHaveLength(20); // the two surviving chunks persisted
+    expect(getRunRepoProfiles("r")).toHaveLength(15); // the surviving chunk persisted
   });
 
   test("batches release-free repos wide (no scan) and release-bearing repos narrow", async () => {

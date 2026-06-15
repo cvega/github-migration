@@ -139,7 +139,9 @@
 			{ label: 'Environments', value: s.environmentsCount.toLocaleString(), icon: 'server' },
 			{ label: 'Stars', value: s.stargazerCount.toLocaleString(), icon: 'star' },
 			{ label: 'Watchers', value: s.watcherCount.toLocaleString(), icon: 'eye' },
+			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
+			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
 		];
 	}

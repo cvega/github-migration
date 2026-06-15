@@ -56,8 +56,10 @@ interface RepoSignalsNode {
     nodes: { releaseAssets: { nodes: { size: number }[] } }[];
   };
   stargazerCount: number;
+  forkCount: number;
   watchers: { totalCount: number };
   packages: { totalCount: number };
+  rulesets: { totalCount: number };
   /** Root `.gitattributes` on the default branch (`Blob`), or null if absent. */
   gitattributes: { text: string | null } | null;
   /** `.github/workflows` dir on the default branch (`Tree`), or null if absent. */
@@ -72,14 +74,19 @@ interface RepoSignalsNode {
 type BatchSignalsResult = Record<string, RepoSignalsNode | null>;
 
 /**
- * The per-repo selection. The release-asset scan (the heaviest part — up to 50
- * releases × 30 assets) is included only when `scanReleases` is set, so repos
+ * The per-repo selection. Almost everything here is a scalar or a
+ * `{ totalCount }`-only connection: per GitHub's node-limit rules those don't
+ * materialize `nodes`/`edges`, so they're indexed reads that stay cheap even
+ * when many repos are aliased into one request. The one exception is the
+ * release-asset scan (`releases{...releaseAssets}`), a deeply-nested walk that
+ * materializes nodes — included only when `scanReleases` is set so repos
  * discovery already knows have zero releases can be batched far wider.
  *
- * Deliberately omits commit count (`history.totalCount`): it walks the whole
- * commit graph and is the single most expensive resolver — the main cause of
- * the 10s query timeout when repos are aliased — while being pure scale
- * decoration (git history migrates wholesale).
+ * Deliberately omits commit count (`history.totalCount`): unlike the other
+ * counts it is NOT indexed — it walks the whole commit graph — making it the
+ * single most expensive resolver and the main cause of the 10s query timeout
+ * when repos are aliased, while being pure scale decoration (history migrates
+ * wholesale).
  */
 function signalsFragment(scanReleases: boolean): string {
   const releases = scanReleases
@@ -91,8 +98,10 @@ function signalsFragment(scanReleases: boolean): string {
   environments { totalCount }
   ${releases}
   stargazerCount
+  forkCount
   watchers { totalCount }
   packages { totalCount }
+  rulesets(first: 1) { totalCount }
   gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
   workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
   branchProtectionRules(first: $rules) {
@@ -184,6 +193,8 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       environmentsCount: 0,
       stargazerCount: 0,
       watcherCount: 0,
+      forkCount: 0,
+      rulesetCount: 0,
       branchProtectionRuleCount: 0,
       branchProtectionRulesUsingUnmigratedFeatures: 0,
       packagesCount: 0,
@@ -199,6 +210,8 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
     environmentsCount: node.environments.totalCount,
     stargazerCount: node.stargazerCount,
     watcherCount: node.watchers.totalCount,
+    forkCount: node.forkCount,
+    rulesetCount: node.rulesets.totalCount,
     branchProtectionRuleCount: node.branchProtectionRules.totalCount,
     branchProtectionRulesUsingUnmigratedFeatures:
       node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length,

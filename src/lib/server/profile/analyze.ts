@@ -99,6 +99,7 @@ const DETECTORS: Record<string, Detector> = {
     s.branchProtectionRulesUsingUnmigratedFeatures > 0
       ? `${count(s.branchProtectionRulesUsingUnmigratedFeatures, "rule")} using unmigrated features`
       : null,
+  rulesets: (s) => (s.rulesetCount > 0 ? count(s.rulesetCount, "ruleset") : null),
   "stars-watchers": (s) =>
     s.stargazerCount > 0 || s.watcherCount > 0
       ? `${count(s.stargazerCount, "star")}, ${count(s.watcherCount, "watcher")}`

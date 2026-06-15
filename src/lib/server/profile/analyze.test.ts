@@ -36,6 +36,8 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     releasesCount: 0,
     stargazerCount: 0,
     watcherCount: 0,
+    forkCount: 0,
+    rulesetCount: 0,
     branchProtectionRuleCount: 0,
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
@@ -91,6 +93,7 @@ describe("analyzeRepo", () => {
         packagesCount: 2,
         usesLfs: true,
         workflowFileCount: 4,
+        rulesetCount: 3,
       }),
     );
 
@@ -113,6 +116,7 @@ describe("analyzeRepo", () => {
     expect(finding(profile, "actions-run-history")?.evidence).toBe(
       "4 workflows (run history & artifacts not migrated)",
     );
+    expect(finding(profile, "rulesets")?.evidence).toBe("3 rulesets");
   });
 
   test("rolls up applying considerations by severity", () => {

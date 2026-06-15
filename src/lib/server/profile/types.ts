@@ -102,6 +102,10 @@ export interface RepoSignals extends DiscoveredRepo {
   stargazerCount: number;
   /** Watchers (`watchers.totalCount`); not migrated. */
   watcherCount: number;
+  /** Forks (`forkCount`); fork relationships are not migrated. */
+  forkCount: number;
+  /** Repository-level rulesets (`rulesets.totalCount`); not migrated. */
+  rulesetCount: number;
   /** Branch protection rules (`branchProtectionRules.totalCount`). */
   branchProtectionRuleCount: number;
   /**

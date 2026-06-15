@@ -65,7 +65,9 @@ function node(over: {
   environments?: number;
   stars?: number;
   watchers?: number;
+  forks?: number;
   packages?: number;
+  rulesets?: number;
   /** Raw `.gitattributes` text; omit for no file (null blob). */
   lfsAttributes?: string;
   /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
@@ -88,8 +90,10 @@ function node(over: {
         }
       : {}),
     stargazerCount: over.stars ?? 0,
+    forkCount: over.forks ?? 0,
     watchers: { totalCount: over.watchers ?? 0 },
     packages: { totalCount: over.packages ?? 0 },
+    rulesets: { totalCount: over.rulesets ?? 0 },
     gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
     workflows: over.workflowFiles
       ? { entries: over.workflowFiles.map((name) => ({ name })) }
@@ -147,6 +151,13 @@ describe("augmentRepoSignals", () => {
     const { fn } = mockGql({ r0: node({ packages: 6 }) });
     const [signals] = await augmentRepoSignals(fn, [discovered()]);
     expect(signals?.packagesCount).toBe(6);
+  });
+
+  test("maps the fork count and repository ruleset count", async () => {
+    const { fn } = mockGql({ r0: node({ forks: 12, rulesets: 4 }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.forkCount).toBe(12);
+    expect(signals?.rulesetCount).toBe(4);
   });
 
   test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
