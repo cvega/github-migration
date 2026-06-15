@@ -25,6 +25,7 @@ import {
   failProfileRun,
   getProfileRun,
   recordRepoProfile,
+  setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
 import type { ProfileProgress, ProfileRun } from "./types";
@@ -40,11 +41,15 @@ const AUGMENT_CHUNK = 25;
 export interface ProfileRunnerDeps {
   discover: typeof discoverOrgRepos;
   augment: typeof augmentRepoSignals;
+  /** Count the org's rulesets. Default is a no-op (0); the service binds the
+   *  real REST-backed implementation, which needs a client this module lacks. */
+  getOrgRulesetCount: (org: string) => Promise<number>;
 }
 
 const DEFAULT_DEPS: ProfileRunnerDeps = {
   discover: discoverOrgRepos,
   augment: augmentRepoSignals,
+  getOrgRulesetCount: async () => 0,
 };
 
 /**
@@ -60,13 +65,18 @@ export async function runProfile(
   gql: typeof graphql,
   input: { id: string; org: string; sourceApiUrl: string },
   onProgress?: (progress: ProfileProgress) => void,
-  deps: ProfileRunnerDeps = DEFAULT_DEPS,
+  deps: Partial<ProfileRunnerDeps> = {},
 ): Promise<ProfileRun> {
+  const d = { ...DEFAULT_DEPS, ...deps };
   createProfileRun({ id: input.id, sourceApiUrl: input.sourceApiUrl, org: input.org });
 
   try {
-    const discovery = await deps.discover(gql, input.org);
+    const discovery = await d.discover(gql, input.org);
     setProfileRunTotal(input.id, discovery.total);
+
+    // Org rulesets are a single REST call (best-effort, never fatal) gathered
+    // once per run — they're org-level, not per-repo.
+    setProfileRunRulesets(input.id, await d.getOrgRulesetCount(input.org));
 
     // Profile repos in chunks: each `augment` call is one aliased GraphQL
     // request covering up to AUGMENT_CHUNK repos, so an org of N repos costs
@@ -74,7 +84,7 @@ export async function runProfile(
     let profiled = 0;
     for (let i = 0; i < discovery.repos.length; i += AUGMENT_CHUNK) {
       const chunk = discovery.repos.slice(i, i + AUGMENT_CHUNK);
-      const chunkSignals = await deps.augment(gql, chunk);
+      const chunkSignals = await d.augment(gql, chunk);
       for (const signals of chunkSignals) {
         recordRepoProfile(input.id, signals, analyzeRepo(signals));
         profiled += 1;

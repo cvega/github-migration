@@ -7,10 +7,11 @@
  * injectable so the orchestration is testable against a real in-memory store
  * with no network.
  */
-import { getSourceGraphql } from "$lib/server/core/auth";
+import { getSourceClients } from "$lib/server/core/auth";
 import { type DurationEstimate, estimateDuration } from "./estimate";
 import { publishProfileEvent } from "./events";
 import { deriveInsights, type Insight } from "./insights";
+import { getOrgRulesetCount } from "./rulesets";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import { buildPreparationSummary, type PreparationSummary } from "./summary";
@@ -18,13 +19,13 @@ import type { ProfileRun, StoredRepoProfile } from "./types";
 
 /** Injectable service dependencies (defaults use the real implementations). */
 export interface ProfileServiceDeps {
-  buildSourceGql: typeof getSourceGraphql;
+  buildSourceClients: typeof getSourceClients;
   run: typeof runProfile;
   newId: () => string;
 }
 
 const DEFAULT_DEPS: ProfileServiceDeps = {
-  buildSourceGql: getSourceGraphql,
+  buildSourceClients: getSourceClients,
   run: runProfile,
   newId: () => Bun.randomUUIDv7(),
 };
@@ -100,17 +101,21 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
  *         400 before the crawl starts).
  */
 export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_DEPS): ProfileRun {
-  const { gql, sourceApiUrl } = deps.buildSourceGql();
+  const { gql, rest, sourceApiUrl } = deps.buildSourceClients();
   const id = deps.newId();
 
   deps
-    .run(gql, { id, org, sourceApiUrl }, (p) =>
-      publishProfileEvent(id, {
-        type: "progress",
-        profiled: p.profiled,
-        total: p.total,
-        repo: p.repo,
-      }),
+    .run(
+      gql,
+      { id, org, sourceApiUrl },
+      (p) =>
+        publishProfileEvent(id, {
+          type: "progress",
+          profiled: p.profiled,
+          total: p.total,
+          repo: p.repo,
+        }),
+      { getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target) },
     )
     .then((run) => publishProfileEvent(id, { type: "done", state: run.state }))
     .catch((err) => {

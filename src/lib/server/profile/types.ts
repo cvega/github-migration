@@ -141,6 +141,8 @@ export interface ProfileRun {
   blockers: number;
   /** Total applying warn-severity gaps across the run's repos. */
   warnings: number;
+  /** Organization rulesets (REST); not migrated, and can fail the migration. */
+  orgRulesetCount: number;
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;

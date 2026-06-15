@@ -248,6 +248,16 @@
 				Migration summary
 			</h2>
 
+			{#if run.orgRulesetCount > 0}
+				<div class="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-200">
+					<Octicon name="law" size={16} class="mt-0.5 shrink-0" />
+					<span>
+						<span class="font-semibold">{run.orgRulesetCount} organization ruleset{run.orgRulesetCount === 1 ? '' : 's'}</span>
+						— not migrated, and an org ruleset (e.g. a commit-author email rule) can fail the migration. Review before migrating.
+					</span>
+				</div>
+			{/if}
+
 			<!-- Readiness rollup -->
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">

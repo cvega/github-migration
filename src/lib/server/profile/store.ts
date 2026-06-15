@@ -29,6 +29,7 @@ interface ProfileRunRow {
   profiled_repos: number;
   blockers: number;
   warnings: number;
+  org_ruleset_count: number;
   started_at: string;
   completed_at: string | null;
   failure_reason: string | null;
@@ -45,7 +46,7 @@ interface ProfileRepoRow {
 }
 
 const RUN_COLS =
-  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, started_at, completed_at, failure_reason";
+  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, started_at, completed_at, failure_reason";
 
 /** Parse JSON from a DB column, falling back to a default on malformed data. */
 function safeParse<T>(json: string, fallback: T): T {
@@ -66,6 +67,7 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
     profiledRepos: row.profiled_repos,
     blockers: row.blockers,
     warnings: row.warnings,
+    orgRulesetCount: row.org_ruleset_count,
     startedAt: row.started_at,
     completedAt: row.completed_at,
     failureReason: row.failure_reason,
@@ -107,6 +109,13 @@ export function setProfileRunTotal(runId: string, total: number): void {
   getDb()
     .prepare(`UPDATE profile_runs SET total_repos = $total WHERE id = $id`)
     .run({ $total: total, $id: runId });
+}
+
+/** Record the organization's ruleset count (gathered once per run). */
+export function setProfileRunRulesets(runId: string, count: number): void {
+  getDb()
+    .prepare(`UPDATE profile_runs SET org_ruleset_count = $count WHERE id = $id`)
+    .run({ $count: count, $id: runId });
 }
 
 /**

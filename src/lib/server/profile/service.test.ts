@@ -68,9 +68,13 @@ function serviceDeps(
     gqlBuilt: 0,
   };
   const deps: ProfileServiceDeps = {
-    buildSourceGql: () => {
+    buildSourceClients: () => {
       state.gqlBuilt += 1;
-      return { gql: {} as never, sourceApiUrl: "https://ghes.example.com/api/v3" };
+      return {
+        gql: {} as never,
+        rest: {} as never,
+        sourceApiUrl: "https://ghes.example.com/api/v3",
+      };
     },
     run: (gql, input, onProgress) => {
       state.lastInput = input;
@@ -131,7 +135,7 @@ describe("startOrgProfile", () => {
 
   test("propagates a source-auth failure (no run created)", () => {
     const deps: ProfileServiceDeps = {
-      buildSourceGql: () => {
+      buildSourceClients: () => {
         throw new Error("No source token provided and no source GitHub App configured");
       },
       run: () => Promise.resolve({} as never),

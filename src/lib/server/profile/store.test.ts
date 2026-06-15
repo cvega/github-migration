@@ -18,6 +18,7 @@ import {
   getRunRepoProfiles,
   listProfileRuns,
   recordRepoProfile,
+  setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
 import type { RepoSignals } from "./types";
@@ -132,6 +133,15 @@ describe("setProfileRunTotal", () => {
     createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
     setProfileRunTotal("r", 42);
     expect(getProfileRun("r")?.totalRepos).toBe(42);
+  });
+});
+
+describe("setProfileRunRulesets", () => {
+  test("records the org ruleset count (default 0)", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    expect(getProfileRun("r")?.orgRulesetCount).toBe(0);
+    setProfileRunRulesets("r", 4);
+    expect(getProfileRun("r")?.orgRulesetCount).toBe(4);
   });
 });
 

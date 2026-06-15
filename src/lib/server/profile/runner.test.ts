@@ -60,10 +60,12 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
 function deps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
+  rulesetCount = 0,
 ): ProfileRunnerDeps {
   return {
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
     augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
+    getOrgRulesetCount: async () => rulesetCount,
   };
 }
 
@@ -94,6 +96,16 @@ describe("runProfile", () => {
       considerationId: "discussions",
       evidence: "2 discussions",
     });
+  });
+
+  test("records the org ruleset count on the run", async () => {
+    const run = await runProfile(
+      gql,
+      { id: "run-rs", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      deps([discovered("alpha")], {}, 3),
+    );
+    expect(run.orgRulesetCount).toBe(3);
   });
 
   test("emits progress once per repo with running totals", async () => {
@@ -128,7 +140,7 @@ describe("runProfile", () => {
   });
 
   test("marks the run failed (not thrown) when discovery fails", async () => {
-    const failingDeps: ProfileRunnerDeps = {
+    const failingDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => {
         throw new Error("Organization 'acme' not found or not accessible");
       },
@@ -148,7 +160,7 @@ describe("runProfile", () => {
 
   test("marks the run failed when a chunk's augmentation throws", async () => {
     const repos = [discovered("ok"), discovered("boom")];
-    const partialDeps: ProfileRunnerDeps = {
+    const partialDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
       augment: async (_gql, chunk) => {
         if (chunk.some((r) => r.name === "boom")) throw new Error("repo augmentation failed");
@@ -174,7 +186,7 @@ describe("runProfile", () => {
       discovered(`r${String(i).padStart(2, "0")}`),
     );
     let call = 0;
-    const chunkedDeps: ProfileRunnerDeps = {
+    const chunkedDeps: Partial<ProfileRunnerDeps> = {
       discover: async () => ({ org: "acme", total: repos.length, repos }),
       augment: async (_gql, chunk) => {
         call += 1;
