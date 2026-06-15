@@ -107,17 +107,30 @@
 		note: 'info'
 	};
 
-	// Run-level insight rollup: count each insight kind across all repos.
-	const insightRollup = $derived.by(() => {
-		const m = new Map<string, { id: string; tone: string; label: string; count: number }>();
+	// Organization composition — what kind of repos make up the org, as a share
+	// of the evaluated set. Counts reuse the per-repo insight ids (one source of
+	// truth for the staleness rule), which are mutually exclusive per repo:
+	// empty short-circuits, archived suppresses stale. So the three never
+	// double-count and each percentage is of the whole org.
+	const composition = $derived.by(() => {
+		let empty = 0;
+		let archived = 0;
+		let stale = 0;
 		for (const repo of repos) {
 			for (const ins of repo.insights ?? []) {
-				const cur = m.get(ins.id);
-				if (cur) cur.count += 1;
-				else m.set(ins.id, { id: ins.id, tone: ins.tone, label: ins.label, count: 1 });
+				if (ins.id === 'empty-repo') empty += 1;
+				else if (ins.id === 'archived-move-now') archived += 1;
+				else if (ins.id === 'stale-confirm') stale += 1;
 			}
 		}
-		return [...m.values()];
+		const total = repos.length;
+		const pctOf = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+		return {
+			total,
+			stale: { count: stale, pct: pctOf(stale) },
+			empty: { count: empty, pct: pctOf(empty) },
+			archived: { count: archived, pct: pctOf(archived) }
+		};
 	});
 
 	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
@@ -260,7 +273,7 @@
 		</div>
 	{/if}
 
-	<!-- Summary tiles -->
+	<!-- Summary tiles: org composition (readiness/severity lives in Migration summary) -->
 	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span></div>
@@ -275,18 +288,24 @@
 			{/if}
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="flex items-center gap-1.5 text-2xl font-semibold text-red-400"><Octicon name="stop" size={16} />{run.blockers}</div>
-			<div class="mt-1 text-xs text-gray-400">Blockers</div>
-		</div>
-		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="flex items-center gap-1.5 text-2xl font-semibold text-yellow-400"><Octicon name="alert" size={16} />{run.warnings}</div>
-			<div class="mt-1 text-xs text-gray-400">Warnings</div>
-		</div>
-		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
+			<div class="text-2xl font-semibold tabular-nums text-amber-400">{composition.stale.pct}%</div>
 			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
-				<Octicon name="checklist" size={12} class="text-gray-500" />
-				Repos with results
+				<Octicon name="history" size={12} class="text-gray-500" />
+				Stale <span class="text-gray-500">· {composition.stale.count.toLocaleString()}</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-gray-300">{composition.empty.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="circle-slash" size={12} class="text-gray-500" />
+				Empty <span class="text-gray-500">· {composition.empty.count.toLocaleString()}</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-green-400">{composition.archived.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="archive" size={12} class="text-gray-500" />
+				Archived <span class="text-gray-500">· {composition.archived.count.toLocaleString()}</span>
 			</div>
 		</div>
 	</section>
@@ -455,25 +474,6 @@
 					</div>
 				</details>
 			{/if}
-		</section>
-	{/if}
-
-	<!-- Insights rollup -->
-	{#if insightRollup.length > 0}
-		<section>
-			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-				<Octicon name="light-bulb" size={16} />
-				Insights
-			</h2>
-			<div class="flex flex-wrap gap-2">
-				{#each insightRollup as item (item.id)}
-					<span class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm {toneClass[item.tone]}">
-						<Octicon name={toneIcon[item.tone] ?? 'info'} size={12} />
-						<span class="font-semibold tabular-nums">{item.count}</span>
-						{item.label}
-					</span>
-				{/each}
-			</div>
 		</section>
 	{/if}
 
