@@ -23,6 +23,7 @@ const PROFILE_DDL = `
     warnings INTEGER NOT NULL DEFAULT 0,
     org_ruleset_count INTEGER NOT NULL DEFAULT 0,
     org_resources TEXT NOT NULL DEFAULT '{}',
+    api_calls INTEGER NOT NULL DEFAULT 0,
     started_at TEXT NOT NULL,
     completed_at TEXT,
     failure_reason TEXT
@@ -77,6 +78,7 @@ export const profileStore: DomainStore = {
     // Columns added after the table's first release — upgrade older databases.
     addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
+    addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
   },
   onInit: recoverInterruptedProfiles,
 };

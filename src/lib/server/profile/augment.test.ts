@@ -24,6 +24,7 @@ function discovered(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: true,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
@@ -92,7 +93,6 @@ function countsNode(over: {
 
 /** Build one repository alias node for the verification details pass. */
 function detailsNode(over: {
-  commits?: number;
   /** Raw `.gitattributes` text; omit for no file (null blob). */
   lfsAttributes?: string;
   /** Workflow file names under `.github/workflows`; omit for no dir (null tree). */
@@ -100,12 +100,8 @@ function detailsNode(over: {
   /** Asset byte sizes; placed in a single scanned release node (omit = not scanned). */
   releaseAssetSizes?: number[];
   rules?: ReturnType<typeof rule>[];
-  noDefaultBranch?: boolean;
 }) {
   return {
-    defaultBranchRef: over.noDefaultBranch
-      ? null
-      : { target: { history: { totalCount: over.commits ?? 0 } } },
     gitattributes: over.lfsAttributes === undefined ? null : { text: over.lfsAttributes },
     workflows: over.workflowFiles
       ? { entries: over.workflowFiles.map((name) => ({ name })) }
@@ -290,18 +286,6 @@ describe("augmentRepoCounts", () => {
 });
 
 describe("augmentRepoDetails", () => {
-  test("maps the commit count from the default branch history", async () => {
-    const { fn } = mockGql({ r0: detailsNode({ commits: 512 }) });
-    const [d] = await augmentRepoDetails(fn, [discovered()]);
-    expect(d?.commitsCount).toBe(512);
-  });
-
-  test("treats a missing default branch as zero commits", async () => {
-    const { fn } = mockGql({ r0: detailsNode({ noDefaultBranch: true }) });
-    const [d] = await augmentRepoDetails(fn, [discovered({ isEmpty: true })]);
-    expect(d?.commitsCount).toBe(0);
-  });
-
   test("detects Git LFS from a .gitattributes with a filter=lfs entry", async () => {
     const { fn } = mockGql({
       r0: detailsNode({ lfsAttributes: "*.psd filter=lfs diff=lfs merge=lfs -text\n" }),
@@ -382,14 +366,17 @@ describe("augmentRepoDetails", () => {
   });
 
   test("degrades a null alias to zeroed details (keeps the repo)", async () => {
-    const { fn } = mockGql({ r0: detailsNode({ commits: 5 }), r1: null });
+    const { fn } = mockGql({
+      r0: detailsNode({ workflowFiles: ["ci.yml"] }),
+      r1: null,
+    });
     const details = await augmentRepoDetails(fn, [
       discovered({ nameWithOwner: "o/ok", name: "ok" }),
       discovered({ nameWithOwner: "o/gone", name: "gone" }),
     ]);
-    expect(details[0]?.commitsCount).toBe(5);
+    expect(details[0]?.workflowFileCount).toBe(1);
     expect(details[1]?.nameWithOwner).toBe("o/gone");
-    expect(details[1]?.commitsCount).toBe(0);
+    expect(details[1]?.workflowFileCount).toBe(0);
   });
 
   test("treats a timeout message (not just a status) as splittable", async () => {
@@ -398,7 +385,7 @@ describe("augmentRepoDetails", () => {
       const size = Object.keys(vars).filter((k) => /^o\d+$/.test(k)).length;
       calls += 1;
       if (size > 1) throw new Error("Something went wrong while executing your query");
-      return { r0: detailsNode({ commits: 1 }) };
+      return { r0: detailsNode({ workflowFiles: ["ci.yml"] }) };
     }) as unknown as typeof graphql;
 
     const repos = [
@@ -406,7 +393,8 @@ describe("augmentRepoDetails", () => {
       discovered({ name: "b", nameWithOwner: "o/b" }),
     ];
     const details = await augmentRepoDetails(fn, repos);
-    expect(details.map((d) => d.commitsCount)).toEqual([1, 1]);
+    expect(details.map((d) => d.workflowFileCount)).toEqual([1, 1]);
+    expect(details.map((d) => d.nameWithOwner)).toEqual(["o/a", "o/b"]);
     expect(calls).toBe(3); // 2 (timeout) → 1 + 1
   });
 });

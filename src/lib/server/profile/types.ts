@@ -37,6 +37,11 @@ export interface DiscoveredRepo {
   hasIssues: boolean;
   hasProjects: boolean;
   hasDiscussions: boolean;
+  /**
+   * Whether GitHub Pages is enabled (`has_pages` from the org listing — free, no
+   * per-repo call). Pages settings migrate but typically need reconfiguring.
+   */
+  hasPages: boolean;
   /** Default branch name, or null for an empty repo with no commits. */
   defaultBranch: string | null;
   /** ISO timestamp of the last push, or null if never pushed. */
@@ -125,6 +130,16 @@ export interface RepoSignals extends DiscoveredRepo {
    * means there's run history that will be lost.
    */
   workflowFileCount: number;
+  // ── Per-repo REST signals (gathered in the REST signals pass) ─────────────
+  // Cheap single-count / presence checks via REST (the `Link`-header trick or a
+  // 200/404 probe). Permission-sensitive endpoints (hooks, code scanning)
+  // degrade to 0/false for a read-only token rather than failing the repo.
+  /** Webhooks (`GET …/hooks`); migrate but arrive disabled, and their secrets
+   *  are not migrated. Needs `admin:repo_hook`/`repo`; 0 when unreadable. */
+  webhooksCount: number;
+  /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
+   *  Scanning history is not migrated. False when scanning is off or unreadable. */
+  hasCodeScanningAlerts: boolean;
   // ── Content-volume counts (migration scale) ──────────────────────────────
   // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
   // here, not on the REST discovery spine, because REST doesn't expose the
@@ -201,6 +216,9 @@ export interface ProfileRun {
   orgRulesetCount: number;
   /** Organization-level resources (secrets, runners, …) gathered once per run. */
   orgResources: OrgResources;
+  /** Total GitHub API requests the crawl made (REST + GraphQL, incl. retries and
+   *  each pagination page). Persisted at completion for cost/rate-limit visibility. */
+  apiCalls: number;
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;

@@ -100,6 +100,10 @@ const DETECTORS: Record<string, Detector> = {
       ? `${count(s.branchProtectionRulesUsingUnmigratedFeatures, "rule")} using unmigrated features`
       : null,
   rulesets: (s) => (s.rulesetCount > 0 ? count(s.rulesetCount, "ruleset") : null),
+  webhooks: (s) => (s.webhooksCount > 0 ? count(s.webhooksCount, "webhook") : null),
+  pages: (s) => (s.hasPages ? "GitHub Pages enabled (reconfigure on the target)" : null),
+  "code-scanning-history": (s) =>
+    s.hasCodeScanningAlerts ? "code scanning alerts present (history & states not migrated)" : null,
   "stars-watchers": (s) =>
     s.stargazerCount > 0 || s.watcherCount > 0
       ? `${count(s.stargazerCount, "star")}, ${count(s.watcherCount, "watcher")}`
@@ -127,6 +131,20 @@ const DETECTORS: Record<string, Detector> = {
 
 /** Consideration ids the engine can evaluate (the rest report indeterminate). */
 export const DETECTED_CONSIDERATION_IDS: readonly string[] = Object.keys(DETECTORS);
+
+/**
+ * Consideration ids evaluated at the ORGANIZATION level, not per repo — gathered
+ * once per run by the org-resources REST pass (`run.orgResources`). They have no
+ * per-repo detector, but they ARE evaluated, so the preparation summary counts
+ * them as crawled (not “not yet evaluated”) and surfaces them via the org tiles.
+ */
+export const ORG_EVALUATED_CONSIDERATION_IDS: readonly string[] = [
+  "actions-secrets",
+  "self-hosted-runners",
+  "dependabot-secrets",
+  "codespaces-secrets",
+  "custom-properties",
+];
 
 function summarize(findings: ConsiderationFinding[]): ProfileSummary {
   const summary: ProfileSummary = {

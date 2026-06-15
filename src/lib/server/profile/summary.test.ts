@@ -68,10 +68,12 @@ describe("buildPreparationSummary", () => {
   test("lists not-yet-crawled considerations, excluding detected ones", () => {
     const { notYetCrawled } = buildPreparationSummary([]);
     const ids = notYetCrawled.map((c) => c.considerationId);
-    expect(ids).toContain("webhooks"); // signal not gathered yet
+    expect(ids).toContain("commit-size-limit"); // needs git-sizer — not gathered yet
     expect(ids).not.toContain("discussions"); // detected
     expect(ids).not.toContain("packages"); // detected
     expect(ids).not.toContain("git-lfs"); // detected
+    expect(ids).not.toContain("webhooks"); // detected (REST signals pass)
+    expect(ids).not.toContain("actions-secrets"); // org-level evaluated
   });
 
   test("ignores a stale considerationId that is no longer in the registry", () => {

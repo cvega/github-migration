@@ -28,6 +28,7 @@ function discovered(name: string): DiscoveredRepo {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -51,6 +52,9 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -65,7 +69,6 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   const s = signalsFor(repo, over);
   return {
     nameWithOwner: repo.nameWithOwner,
-    commitsCount: s.commitsCount,
     branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
     usesLfs: s.usesLfs,
     workflowFileCount: s.workflowFileCount,
@@ -91,6 +94,7 @@ function serviceDeps(
         gql: {} as never,
         rest: {} as never,
         sourceApiUrl: "https://ghes.example.com/api/v3",
+        getApiCalls: () => 0,
       };
     },
     run: (clients, input, onProgress) => {
@@ -105,6 +109,11 @@ function serviceDeps(
           chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
         augmentDetails: async (_gql, chunk) =>
           chunk.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
+        countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
+        gatherRestSignals: async (_rest, r) => ({
+          webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
+          hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+        }),
       });
       return state.runPromise;
     },

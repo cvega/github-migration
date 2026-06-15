@@ -223,11 +223,25 @@ export function getSourceClients(): {
   gql: typeof graphql;
   rest: GitHubClient;
   sourceApiUrl: string;
+  getApiCalls: () => number;
 } {
   const sourceAuth = resolveSourceAuth();
   const sourceApiUrl = env.GH_SOURCE_API_URL || "https://api.github.com";
   const client = createSingleClient(sourceAuth, sourceApiUrl);
-  return { gql: client.graphql as typeof graphql, rest: client, sourceApiUrl };
+  // Count every HTTP request the crawl makes. The `before` hook fires once per
+  // actual request — REST and GraphQL (both go through Octokit's request
+  // pipeline), each pagination page, and each retry — so the tally reflects the
+  // true API cost of a run, which the runner persists for rate-limit visibility.
+  let apiCalls = 0;
+  client.hook.before("request", () => {
+    apiCalls += 1;
+  });
+  return {
+    gql: client.graphql as typeof graphql,
+    rest: client,
+    sourceApiUrl,
+    getApiCalls: () => apiCalls,
+  };
 }
 
 /**

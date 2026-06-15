@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoDetails } from "./augment";
-import { type ProfileRunnerDeps, runProfile } from "./runner";
+import { type ProfileClients, type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
 import {
   type DiscoveredRepo,
@@ -19,7 +19,17 @@ import {
   ZERO_ORG_RESOURCES,
 } from "./types";
 
-const clients = {} as never; // the fakes ignore it
+// The fakes ignore gql/rest; getApiCalls is called by the runner at completion.
+const clients = { getApiCalls: () => 0 } as unknown as ProfileClients;
+
+/** Pass-3 REST stubs for inline deps that reach the per-repo REST pass but don't
+ *  care about commits / webhooks / code scanning. Keeps tests off the
+ *  real network functions (which would hit the fake `rest` client). */
+const noCommits: ProfileRunnerDeps["countCommits"] = async () => 0;
+const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
+  webhooksCount: 0,
+  hasCodeScanningAlerts: false,
+});
 
 function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
   return {
@@ -34,6 +44,7 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -58,6 +69,9 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasPages: false,
+    hasCodeScanningAlerts: false,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -84,7 +98,6 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
   const s = signalsFor(repo, over);
   return {
     nameWithOwner: repo.nameWithOwner,
-    commitsCount: s.commitsCount,
     branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
     usesLfs: s.usesLfs,
     workflowFileCount: s.workflowFileCount,
@@ -103,6 +116,11 @@ function deps(
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
     augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r, augmentOver[r.name] ?? {})),
     augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r, augmentOver[r.name] ?? {})),
+    countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
+    gatherRestSignals: async (_rest, r) => ({
+      webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
+      hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+    }),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
   };
@@ -170,6 +188,8 @@ describe("runProfile", () => {
       },
       augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
       augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
       getOrgRulesetCount: async () => 0,
       getOrgResources: async () => ZERO_ORG_RESOURCES,
     };
@@ -267,6 +287,8 @@ describe("runProfile", () => {
         if (chunk.some((r) => r.name === "boom")) throw new Error("repo augmentation failed");
         return chunk.map((r) => countsSignals(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -299,6 +321,8 @@ describe("runProfile", () => {
         if (chunk.some((r) => r.name === "r25")) throw new Error("a chunk failed");
         return chunk.map((r) => countsSignals(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -333,6 +357,8 @@ describe("runProfile", () => {
         calls.push({ size: c.length, scanReleases: opts?.scanReleases });
         return c.map((r) => detailsFor(r));
       },
+      countCommits: noCommits,
+      gatherRestSignals: noRestSignals,
     };
 
     const run = await runProfile(
@@ -348,6 +374,62 @@ describe("runProfile", () => {
     const full = calls.find((c) => c.scanReleases === true);
     expect(lite?.size).toBe(2); // release-free repos, batched together
     expect(full?.size).toBe(3); // release-bearing repos, batched together
+  });
+
+  test("merges per-repo commit counts (REST pass) onto the recorded signals", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    const commitCalls: string[] = [];
+    const commitDeps: Partial<ProfileRunnerDeps> = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: async (_rest, r) => {
+        commitCalls.push(r.nameWithOwner);
+        return r.name === "a" ? 1200 : 42;
+      },
+      gatherRestSignals: noRestSignals,
+    };
+
+    const run = await runProfile(
+      clients,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      commitDeps,
+    );
+
+    expect(run.state).toBe("completed");
+    expect(commitCalls.sort()).toEqual(["acme/a", "acme/b"]); // one call per repo
+    const byName = new Map(getRunRepoProfiles("r").map((p) => [p.nameWithOwner, p.signals]));
+    expect(byName.get("acme/a")?.commitsCount).toBe(1200);
+    expect(byName.get("acme/b")?.commitsCount).toBe(42);
+  });
+
+  test("keeps the run completed when a repo's commit count fails", async () => {
+    const repos = [discovered("ok"), discovered("boom")];
+    const commitDeps: Partial<ProfileRunnerDeps> = {
+      discover: async () => ({ org: "acme", total: repos.length, repos }),
+      augmentCounts: async (_gql, c) => c.map((r) => countsSignals(r)),
+      augmentDetails: async (_gql, c) => c.map((r) => detailsFor(r)),
+      countCommits: async (_rest, r) => {
+        if (r.name === "boom") throw new Error("commit count blew up");
+        return 7;
+      },
+      gatherRestSignals: noRestSignals,
+    };
+
+    const run = await runProfile(
+      clients,
+      { id: "r", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      commitDeps,
+    );
+
+    // A commit-count failure is best-effort: the run still completes and both
+    // repos are listed; the failing repo just keeps commitsCount 0.
+    expect(run.state).toBe("completed");
+    const byName = new Map(getRunRepoProfiles("r").map((p) => [p.nameWithOwner, p.signals]));
+    expect(byName.get("acme/ok")?.commitsCount).toBe(7);
+    expect(byName.get("acme/boom")?.commitsCount).toBe(0);
   });
 
   test("persists the run before crawling (a created run exists by completion)", async () => {

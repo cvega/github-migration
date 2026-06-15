@@ -1,14 +1,23 @@
 <!-- One profiling run: readiness summary + per-repo consideration matrix. Streams live progress while running. -->
 <script lang="ts">
 	import type { IconName } from '@primer/octicons';
+	import { getContext } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
+
+	// Live source rate-limit, shared from the layout (same pill the Migrate pages
+	// show). A crawl spends source API quota, so surfacing remaining quota here is
+	// the relevant "are we close to the limit?" signal. Optional — null if the
+	// layout context isn't present (e.g. an isolated render).
+	const authPill = getContext<AuthPillContext>(AUTH_PILL_KEY);
 
 	// Prefer freshly-polled data, but only when it's for the run currently shown
 	// (on navigation `data.run.id` changes and we fall back to the new snapshot
@@ -55,17 +64,33 @@
 	);
 
 	// Org-level resources to recreate on the target (run-level, not per-repo).
-	// Only non-zero resources are shown.
+	// Only non-zero resources are shown. Rulesets lead the list with a warning
+	// accent: like the others they're org-scoped and not migrated, but unlike
+	// them a ruleset can fail the migration outright, so it carries extra weight.
 	const orgResourceTiles = $derived(
 		(
 			[
+				{
+					label: 'Rulesets',
+					value: run.orgRulesetCount,
+					icon: 'law',
+					warn: true,
+					title:
+						'Organization rulesets are not migrated, and one (e.g. a commit-author email rule) can fail the migration itself. Review before migrating.'
+				},
 				{ label: 'Actions secrets', value: run.orgResources.actionsSecrets, icon: 'key' },
 				{ label: 'Actions variables', value: run.orgResources.actionsVariables, icon: 'note' },
 				{ label: 'Dependabot secrets', value: run.orgResources.dependabotSecrets, icon: 'dependabot' },
 				{ label: 'Codespaces secrets', value: run.orgResources.codespacesSecrets, icon: 'codespaces' },
 				{ label: 'Self-hosted runners', value: run.orgResources.selfHostedRunners, icon: 'server' },
 				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' }
-			] satisfies Array<{ label: string; value: number; icon: IconName }>
+			] satisfies Array<{
+				label: string;
+				value: number;
+				icon: IconName;
+				warn?: boolean;
+				title?: string;
+			}>
 		).filter((t) => t.value > 0)
 	);
 
@@ -98,17 +123,33 @@
 		note: 'info'
 	};
 
-	// Run-level insight rollup: count each insight kind across all repos.
-	const insightRollup = $derived.by(() => {
-		const m = new Map<string, { id: string; tone: string; label: string; count: number }>();
+	// Organization composition — what kind of repos make up the org, as a share
+	// of the evaluated set. Counts reuse the per-repo insight ids (one source of
+	// truth for the staleness rule), which are mutually exclusive per repo:
+	// empty short-circuits, archived suppresses stale. So the buckets never
+	// overlap and partition the org — `active` is the remainder (not empty, not
+	// archived, pushed within the staleness window), so the four sum to 100%.
+	const composition = $derived.by(() => {
+		let empty = 0;
+		let archived = 0;
+		let stale = 0;
 		for (const repo of repos) {
 			for (const ins of repo.insights ?? []) {
-				const cur = m.get(ins.id);
-				if (cur) cur.count += 1;
-				else m.set(ins.id, { id: ins.id, tone: ins.tone, label: ins.label, count: 1 });
+				if (ins.id === 'empty-repo') empty += 1;
+				else if (ins.id === 'archived-move-now') archived += 1;
+				else if (ins.id === 'stale-confirm') stale += 1;
 			}
 		}
-		return [...m.values()];
+		const total = repos.length;
+		const active = Math.max(0, total - empty - archived - stale);
+		const pctOf = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+		return {
+			total,
+			active: { count: active, pct: pctOf(active) },
+			stale: { count: stale, pct: pctOf(stale) },
+			empty: { count: empty, pct: pctOf(empty) },
+			archived: { count: archived, pct: pctOf(archived) }
+		};
 	});
 
 	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
@@ -128,6 +169,13 @@
 		else expanded.add(name);
 	}
 
+	// Repo name without the owner prefix — every row shares the org owner (shown
+	// in the header), so `owner/` is redundant noise in the table.
+	function shortRepoName(nameWithOwner: string): string {
+		const slash = nameWithOwner.indexOf('/');
+		return slash >= 0 ? nameWithOwner.slice(slash + 1) : nameWithOwner;
+	}
+
 	// One repo's individual signal counts, as labelled tiles for the detail row.
 	function repoCounts(s: RepoSignalsView): Array<{ label: string; value: string; icon: IconName }> {
 		return [
@@ -145,6 +193,9 @@
 			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
 			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
+			{ label: 'Webhooks', value: s.webhooksCount.toLocaleString(), icon: 'webhook' },
+			{ label: 'Pages', value: s.hasPages ? 'Yes' : '—', icon: 'browser' },
+			{ label: 'Code scanning', value: s.hasCodeScanningAlerts ? 'Yes' : '—', icon: 'codescan' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
 		];
 	}
@@ -215,9 +266,24 @@
 					{badge.label}
 				</span>
 			</h1>
-			<p class="mt-1 font-mono text-xs text-gray-500">{run.sourceApiUrl} · started {timeAgo(run.startedAt)}</p>
+			<p class="mt-1 font-mono text-xs text-gray-500">
+				{run.sourceApiUrl} · started {timeAgo(run.startedAt)}
+				{#if run.apiCalls > 0}· <span title="GitHub API requests this crawl made (REST + GraphQL)">{run.apiCalls.toLocaleString()} API calls</span>{/if}
+			</p>
 		</div>
-		<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		<div class="flex items-center gap-3">
+			{#if authPill}
+				<AuthPill
+					label="Source"
+					isApp={authPill.sourceApp}
+					rateText={authPill.sourceRateText}
+					ratePct={authPill.sourceRatePct}
+					migrating={run.state === 'running'}
+				/>
+				<span class="h-4 w-px bg-gray-700" aria-hidden="true"></span>
+			{/if}
+			<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		</div>
 	</header>
 
 	{#if run.failureReason}
@@ -227,8 +293,8 @@
 		</div>
 	{/if}
 
-	<!-- Summary tiles -->
-	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+	<!-- Summary tiles: org composition (readiness/severity lives in Migration summary) -->
+	<section class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span></div>
 			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
@@ -242,18 +308,31 @@
 			{/if}
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="flex items-center gap-1.5 text-2xl font-semibold text-red-400"><Octicon name="stop" size={16} />{run.blockers}</div>
-			<div class="mt-1 text-xs text-gray-400">Blockers</div>
-		</div>
-		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="flex items-center gap-1.5 text-2xl font-semibold text-yellow-400"><Octicon name="alert" size={16} />{run.warnings}</div>
-			<div class="mt-1 text-xs text-gray-400">Warnings</div>
-		</div>
-		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="text-2xl font-semibold text-gray-50">{repos.length}</div>
+			<div class="text-2xl font-semibold tabular-nums text-green-400">{composition.active.pct}%</div>
 			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
-				<Octicon name="checklist" size={12} class="text-gray-500" />
-				Repos with results
+				<Octicon name="pulse" size={12} class="text-gray-500" />
+				Active <span class="text-gray-500">· {composition.active.count.toLocaleString()}</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-amber-400">{composition.stale.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="history" size={12} class="text-gray-500" />
+				Stale <span class="text-gray-500">· {composition.stale.count.toLocaleString()}</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-gray-300">{composition.empty.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="circle-slash" size={12} class="text-gray-500" />
+				Empty <span class="text-gray-500">· {composition.empty.count.toLocaleString()}</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-sky-400">{composition.archived.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="archive" size={12} class="text-gray-500" />
+				Archived <span class="text-gray-500">· {composition.archived.count.toLocaleString()}</span>
 			</div>
 		</div>
 	</section>
@@ -285,16 +364,6 @@
 				Migration summary
 			</h2>
 
-			{#if run.orgRulesetCount > 0}
-				<div class="flex items-start gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-200">
-					<Octicon name="law" size={16} class="mt-0.5 shrink-0" />
-					<span>
-						<span class="font-semibold">{run.orgRulesetCount} organization ruleset{run.orgRulesetCount === 1 ? '' : 's'}</span>
-						— not migrated, and an org ruleset (e.g. a commit-author email rule) can fail the migration. Review before migrating.
-					</span>
-				</div>
-			{/if}
-
 			{#if orgResourceTiles.length > 0}
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 					<div class="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-300">
@@ -303,16 +372,23 @@
 					</div>
 					<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
 						{#each orgResourceTiles as t (t.label)}
-							<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
-								<Octicon name={t.icon} size={16} class="shrink-0 text-gray-500" />
+							<div
+								class="flex items-center gap-2 rounded-md border px-2.5 py-2 {t.warn
+									? 'border-yellow-500/30 bg-yellow-500/10'
+									: 'border-gray-700/60 bg-gray-950/40'}"
+								title={t.title}
+							>
+								<Octicon name={t.icon} size={16} class="shrink-0 {t.warn ? 'text-yellow-400' : 'text-gray-500'}" />
 								<div class="min-w-0">
-									<div class="text-sm font-semibold tabular-nums text-gray-100">{t.value.toLocaleString()}</div>
-									<div class="truncate text-[11px] text-gray-400">{t.label}</div>
+									<div class="text-sm font-semibold tabular-nums {t.warn ? 'text-yellow-200' : 'text-gray-100'}">{t.value.toLocaleString()}</div>
+									<div class="truncate text-[11px] {t.warn ? 'text-yellow-300/80' : 'text-gray-400'}">{t.label}</div>
 								</div>
 							</div>
 						{/each}
 					</div>
-					<p class="mt-2 text-[11px] text-gray-500">Org-scoped and not migrated — recreate on the target. Secret values are never exported.</p>
+					<p class="mt-2 text-[11px] text-gray-500">
+						Org-scoped and not migrated — recreate on the target. Secret values are never exported.{#if run.orgRulesetCount > 0} A ruleset (e.g. a commit-author email rule) can fail the migration itself — review before migrating.{/if}
+					</p>
 				</div>
 			{/if}
 
@@ -425,25 +501,6 @@
 		</section>
 	{/if}
 
-	<!-- Insights rollup -->
-	{#if insightRollup.length > 0}
-		<section>
-			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-				<Octicon name="light-bulb" size={16} />
-				Insights
-			</h2>
-			<div class="flex flex-wrap gap-2">
-				{#each insightRollup as item (item.id)}
-					<span class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm {toneClass[item.tone]}">
-						<Octicon name={toneIcon[item.tone] ?? 'info'} size={12} />
-						<span class="font-semibold tabular-nums">{item.count}</span>
-						{item.label}
-					</span>
-				{/each}
-			</div>
-		</section>
-	{/if}
-
 	<!-- Per-repo readiness -->
 	<section>
 		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -508,10 +565,11 @@
 										type="button"
 										onclick={() => toggleRepo(repo.nameWithOwner)}
 										aria-expanded={expanded.has(repo.nameWithOwner)}
+										title={repo.nameWithOwner}
 										class="flex items-center gap-1.5 text-left font-medium text-gray-50 transition-colors hover:text-violet-300"
 									>
 										<Octicon name={expanded.has(repo.nameWithOwner) ? 'chevron-down' : 'chevron-right'} size={12} class="shrink-0 text-gray-500" />
-										{repo.nameWithOwner}
+										{shortRepoName(repo.nameWithOwner)}
 									</button>
 								</td>
 								<td class="px-4 py-3 text-center">
@@ -530,7 +588,7 @@
 											{#each repo.applyingConsiderations as item (item.considerationId)}
 												{@const meta = considerationMeta.get(item.considerationId)}
 												<span
-													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {sevClass[meta?.severity ?? 'info']}"
+													class="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs {sevClass[meta?.severity ?? 'info']}"
 													title={item.evidence}
 												>
 													{meta?.label ?? item.considerationId}
@@ -546,10 +604,10 @@
 										<div class="flex flex-wrap gap-1.5">
 											{#each repo.insights as insight (insight.id)}
 												<span
-													class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs {toneClass[insight.tone]}"
+													class="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs {toneClass[insight.tone]}"
 													title={insight.detail}
 												>
-													<Octicon name={toneIcon[insight.tone] ?? 'info'} size={12} />
+													<Octicon name={toneIcon[insight.tone] ?? 'info'} size={12} class="shrink-0" />
 													{insight.label}
 												</span>
 											{/each}
@@ -571,13 +629,13 @@
 												</div>
 											{/each}
 										</div>
-										<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+										<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 [&>*:not(:first-child)]:before:mr-3 [&>*:not(:first-child)]:before:text-gray-600 [&>*:not(:first-child)]:before:content-['·']">
 											<span class="lowercase">{repo.signals.visibility}</span>
-											{#if repo.signals.defaultBranch}<span>· default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}
-											{#if repo.signals.pushedAt}<span>· pushed {timeAgo(repo.signals.pushedAt)}</span>{/if}
-											{#if repo.signals.isArchived}<span class="text-amber-400">· archived</span>{/if}
-											{#if repo.signals.isFork}<span>· fork</span>{/if}
-											{#if repo.signals.isEmpty}<span>· empty</span>{/if}
+											{#if repo.signals.defaultBranch}<span>default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}
+											{#if repo.signals.pushedAt}<span>pushed {timeAgo(repo.signals.pushedAt)}</span>{/if}
+											{#if repo.signals.isArchived}<span class="text-amber-400">archived</span>{/if}
+											{#if repo.signals.isFork}<span>fork</span>{/if}
+											{#if repo.signals.isEmpty}<span>empty</span>{/if}
 										</div>
 									</td>
 								</tr>

@@ -33,6 +33,7 @@ interface ProfileRunRow {
   warnings: number;
   org_ruleset_count: number;
   org_resources: string;
+  api_calls: number;
   started_at: string;
   completed_at: string | null;
   failure_reason: string | null;
@@ -49,7 +50,7 @@ interface ProfileRepoRow {
 }
 
 const RUN_COLS =
-  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, started_at, completed_at, failure_reason";
+  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
 
 /** Parse JSON from a DB column, falling back to a default on malformed data. */
 function safeParse<T>(json: string, fallback: T): T {
@@ -75,6 +76,7 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
       ...ZERO_ORG_RESOURCES,
       ...safeParse<Partial<OrgResources>>(row.org_resources, {}),
     },
+    apiCalls: row.api_calls,
     startedAt: row.started_at,
     completedAt: row.completed_at,
     failureReason: row.failure_reason,
@@ -130,6 +132,13 @@ export function setProfileRunOrgResources(runId: string, resources: OrgResources
   getDb()
     .prepare(`UPDATE profile_runs SET org_resources = $json WHERE id = $id`)
     .run({ $json: JSON.stringify(resources), $id: runId });
+}
+
+/** Record the total API requests the crawl made (persisted once it settles). */
+export function setProfileRunApiCalls(runId: string, count: number): void {
+  getDb()
+    .prepare(`UPDATE profile_runs SET api_calls = $count WHERE id = $id`)
+    .run({ $count: count, $id: runId });
 }
 
 /**

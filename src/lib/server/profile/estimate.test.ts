@@ -21,6 +21,7 @@ function signals(diskUsageKb: number | null): RepoSignals {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -43,6 +44,8 @@ function signals(diskUsageKb: number | null): RepoSignals {
     usesLfs: false,
     releaseAssetBytes: 0,
     workflowFileCount: 0,
+    webhooksCount: 0,
+    hasCodeScanningAlerts: false,
   };
 }
 

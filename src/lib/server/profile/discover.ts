@@ -36,6 +36,7 @@ interface RestRepoSummary {
   has_issues?: boolean;
   has_projects?: boolean;
   has_discussions?: boolean;
+  has_pages?: boolean;
   default_branch?: string;
   pushed_at?: string | null;
   updated_at?: string | null;
@@ -63,6 +64,7 @@ function toDiscoveredRepo(repo: RestRepoSummary): DiscoveredRepo {
     hasIssues: repo.has_issues ?? false,
     hasProjects: repo.has_projects ?? false,
     hasDiscussions: repo.has_discussions ?? false,
+    hasPages: repo.has_pages ?? false,
     defaultBranch: repo.default_branch ?? null,
     pushedAt: repo.pushed_at ?? null,
     updatedAt: repo.updated_at ?? null,

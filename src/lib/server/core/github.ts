@@ -212,6 +212,46 @@ export async function doesRepoExist(
 // ── Repo counts (for progress) ────────────────────────────────────────────
 
 /**
+ * Count a paginated REST collection cheaply via the `Link` header.
+ *
+ * GitHub paginates list endpoints and advertises a `rel="last"` link whenever a
+ * collection spans more than one page. Requesting a single item per page
+ * (`per_page=1`) makes that last-page number equal the total item count — so one
+ * request sizes the collection without walking every page or materializing every
+ * object. This is the standard, protocol-level way to count commits, webhooks,
+ * and the like, rather than fetching them or walking a graph (e.g. GraphQL
+ * `history.totalCount`, which walks the whole commit graph and times out at
+ * scale).
+ *
+ * When there's no `rel="last"` link the collection fits on one page, so the
+ * count is the number of items actually returned (0 or 1).
+ *
+ * @param client REST client.
+ * @param route  Octokit route, e.g. `"GET /repos/{owner}/{repo}/commits"`.
+ * @param params Route + query params; `per_page` is forced to 1.
+ * @returns The item count.
+ */
+export async function countByPagination(
+  client: InstanceType<typeof RetryOctokit>,
+  route: string,
+  params: Record<string, string | number>,
+): Promise<number> {
+  const res = await client.request(route, { ...params, per_page: 1 });
+  const link = res.headers?.link;
+  if (typeof link === "string") {
+    // The header is a comma-separated list of `<url>; rel="…"` parts. Find the
+    // `last` part and read its `page=N` query param (position-independent).
+    for (const part of link.split(",")) {
+      if (/\brel="last"/.test(part)) {
+        const m = part.match(/[?&]page=(\d+)/);
+        if (m?.[1]) return Number.parseInt(m[1], 10);
+      }
+    }
+  }
+  return Array.isArray(res.data) ? res.data.length : 0;
+}
+
+/**
  * Fetch a repository's disk size in kilobytes (GitHub's `size` field).
  * Returns null if the repo can't be read — callers treat this as "unknown".
  */

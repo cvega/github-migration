@@ -102,12 +102,12 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
  *         400 before the crawl starts).
  */
 export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_DEPS): ProfileRun {
-  const { gql, rest, sourceApiUrl } = deps.buildSourceClients();
+  const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
   const id = deps.newId();
 
   deps
     .run(
-      { gql, rest },
+      { gql, rest, getApiCalls },
       { id, org, sourceApiUrl },
       (p) =>
         publishProfileEvent(id, {
