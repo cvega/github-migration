@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
+## [0.2.0] - 2026-06-15
+
+### ♻️ Refactoring
+
+- **profile:** Merge org rulesets into the resources-to-recreate box
+- **profile:** Dedup summary tiles, add org composition (stale/empty/archived %)
+- **profile:** Count commits via REST Link header, not a graph walk
+
+### ⚡ Performance
+
+- **profile:** Read Pages from discovery, drop the per-repo /pages probe
+
+### 🎨 Styling
+
+- **profile:** Refine the rate-limit pill and header spacing
+
+### 🐛 Bug Fixes
+
+- **profile:** Keep repo chips on one line (no mid-label wrap)
+- **profile:** Clean repo table — drop owner prefix, fix metadata separators
+
+### 🚀 Features
+
+- **profile:** Add Active % to the org composition row
+- **profile:** Webhooks/Pages/code-scanning signals, API-call counting, risk ordering
 ## [0.1.0] - 2026-06-15
 
 ### ♻️ Refactoring
