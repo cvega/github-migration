@@ -51,6 +51,7 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
     usesLfs: false,
+    releaseAssetBytes: 0,
     ...over,
   };
 }

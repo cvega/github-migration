@@ -72,6 +72,17 @@ function count(n: number, noun: string): string {
  */
 const GIT_ARCHIVE_PROXY_KB = 2 * 1024 * 1024;
 
+/** GHEC migrates releases up to 10 GiB per repo; assets beyond that don't migrate. */
+const RELEASE_LIMIT_BYTES = 10 * 1024 ** 3;
+
+/** The Importer rejects repos with more than 40 GiB of metadata (asset-driven). */
+const METADATA_LIMIT_BYTES = 40 * 1024 ** 3;
+
+/** Bytes as a one-decimal GiB string for evidence text. */
+function toGiB(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
 /**
  * Detectors for the considerations the crawl can currently evaluate, keyed by
  * consideration id. Add an entry here as each new signal is gathered.
@@ -99,6 +110,14 @@ const DETECTORS: Record<string, Detector> = {
     const gib = (s.diskUsageKb / (1024 * 1024)).toFixed(1);
     return `repository size ~${gib} GiB (estimate — confirm with git-sizer)`;
   },
+  "release-size-limit": (s) =>
+    s.releaseAssetBytes >= RELEASE_LIMIT_BYTES
+      ? `~${toGiB(s.releaseAssetBytes)} GiB of release assets (limit 10 GiB — estimate)`
+      : null,
+  "metadata-archive-limit": (s) =>
+    s.releaseAssetBytes >= METADATA_LIMIT_BYTES
+      ? `~${toGiB(s.releaseAssetBytes)} GiB of release assets (metadata limit 40 GiB — estimate)`
+      : null,
 };
 
 /** Consideration ids the engine can evaluate (the rest report indeterminate). */

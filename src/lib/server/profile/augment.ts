@@ -25,6 +25,10 @@ import type { DiscoveredRepo, RepoSignals } from "./types";
 /** GraphQL caps `branchProtectionRules(first:)` at 100 — plenty per repo. */
 const MAX_RULES = 100;
 
+/** Bounded release scan: first N releases, first M assets each (an estimate). */
+const RELEASES_SCANNED = 100;
+const ASSETS_SCANNED = 50;
+
 /** One branch protection rule's migration-relevant flags. */
 interface BranchProtectionRuleNode {
   allowsForcePushes: boolean;
@@ -42,7 +46,10 @@ interface RepoSignalsNode {
   discussions: { totalCount: number };
   projectsV2: { totalCount: number };
   environments: { totalCount: number };
-  releases: { totalCount: number };
+  releases: {
+    totalCount: number;
+    nodes: { releaseAssets: { nodes: { size: number }[] } }[];
+  };
   stargazerCount: number;
   watchers: { totalCount: number };
   packages: { totalCount: number };
@@ -67,7 +74,10 @@ const SIGNALS_FRAGMENT = `fragment Sig on Repository {
   discussions { totalCount }
   projectsV2 { totalCount }
   environments { totalCount }
-  releases { totalCount }
+  releases(first: ${RELEASES_SCANNED}) {
+    totalCount
+    nodes { releaseAssets(first: ${ASSETS_SCANNED}) { nodes { size } } }
+  }
   stargazerCount
   watchers { totalCount }
   packages { totalCount }
@@ -131,6 +141,15 @@ function usesLfsAttributes(gitattributes: { text: string | null } | null): boole
   return text != null && /filter=lfs/.test(text);
 }
 
+/** Sum the byte size of every scanned release asset in a repo node. */
+function sumReleaseAssetBytes(releases: RepoSignalsNode["releases"]): number {
+  let bytes = 0;
+  for (const release of releases.nodes) {
+    for (const asset of release.releaseAssets.nodes) bytes += asset.size;
+  }
+  return bytes;
+}
+
 /** Map a repo + its (possibly null) augment node to full `RepoSignals`. */
 function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSignals {
   // A null node means the repo was inaccessible on this pass (permissions edge,
@@ -150,6 +169,7 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       branchProtectionRulesUsingUnmigratedFeatures: 0,
       packagesCount: 0,
       usesLfs: false,
+      releaseAssetBytes: 0,
     };
   }
   return {
@@ -166,6 +186,7 @@ function toSignals(repo: DiscoveredRepo, node: RepoSignalsNode | null): RepoSign
       node.branchProtectionRules.nodes.filter(usesUnmigratedFeature).length,
     packagesCount: node.packages.totalCount,
     usesLfs: usesLfsAttributes(node.gitattributes),
+    releaseAssetBytes: sumReleaseAssetBytes(node.releases),
   };
 }
 

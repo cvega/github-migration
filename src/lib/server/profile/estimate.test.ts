@@ -39,6 +39,7 @@ function signals(diskUsageKb: number | null): RepoSignals {
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
     usesLfs: false,
+    releaseAssetBytes: 0,
   };
 }
 

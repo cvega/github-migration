@@ -44,6 +44,7 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     branchProtectionRulesUsingUnmigratedFeatures: 0,
     packagesCount: 0,
     usesLfs: false,
+    releaseAssetBytes: 0,
     ...over,
   };
 }

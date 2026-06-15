@@ -69,6 +69,8 @@ function node(over: {
   packages?: number;
   /** Raw `.gitattributes` text; omit for no file (null blob). */
   lfsAttributes?: string;
+  /** Asset byte sizes; placed in a single release node. */
+  releaseAssetSizes?: number[];
   ruleTotal?: number;
   rules?: ReturnType<typeof rule>[];
   noDefaultBranch?: boolean;
@@ -80,7 +82,12 @@ function node(over: {
     discussions: { totalCount: over.discussions ?? 0 },
     projectsV2: { totalCount: over.projectsV2 ?? 0 },
     environments: { totalCount: over.environments ?? 0 },
-    releases: { totalCount: over.releases ?? 0 },
+    releases: {
+      totalCount: over.releases ?? (over.releaseAssetSizes ? 1 : 0),
+      nodes: over.releaseAssetSizes
+        ? [{ releaseAssets: { nodes: over.releaseAssetSizes.map((size) => ({ size })) } }]
+        : [],
+    },
     stargazerCount: over.stars ?? 0,
     watchers: { totalCount: over.watchers ?? 0 },
     packages: { totalCount: over.packages ?? 0 },
@@ -160,6 +167,18 @@ describe("augmentRepoSignals", () => {
     const [signals] = await augmentRepoSignals(fn, [discovered()]);
     expect(signals?.usesLfs).toBe(false);
     expect(signals?.packagesCount).toBe(0);
+  });
+
+  test("sums release asset bytes across releases", async () => {
+    const { fn } = mockGql({ r0: node({ releaseAssetSizes: [1000, 2500, 500] }) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.releaseAssetBytes).toBe(4000);
+  });
+
+  test("a repo with no releases has zero release asset bytes", async () => {
+    const { fn } = mockGql({ r0: node({}) });
+    const [signals] = await augmentRepoSignals(fn, [discovered()]);
+    expect(signals?.releaseAssetBytes).toBe(0);
   });
 
   test("treats a missing default branch as zero commits", async () => {

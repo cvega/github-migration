@@ -90,6 +90,12 @@ export interface RepoSignals extends DiscoveredRepo {
   environmentsCount: number;
   /** Releases (`releases.totalCount`); GHES releases don't migrate at all. */
   releasesCount: number;
+  /**
+   * Summed byte size of release assets across the repo's releases (bounded scan:
+   * the first 100 releases × first 50 assets each). An estimate — the usual
+   * driver of the per-repo release (10 GiB) and metadata-archive (40 GiB) limits.
+   */
+  releaseAssetBytes: number;
   /** Stars (`stargazerCount`); not migrated. */
   stargazerCount: number;
   /** Watchers (`watchers.totalCount`); not migrated. */
