@@ -11,12 +11,14 @@
  */
 import { getDb } from "$lib/server/core/db";
 import type { RepoProfile } from "./analyze";
-import type {
-  ProfileRun,
-  ProfileRunState,
-  RepoSignals,
-  StoredFinding,
-  StoredRepoProfile,
+import {
+  type OrgResources,
+  type ProfileRun,
+  type ProfileRunState,
+  type RepoSignals,
+  type StoredFinding,
+  type StoredRepoProfile,
+  ZERO_ORG_RESOURCES,
 } from "./types";
 
 /** Raw `profile_runs` row shape. */
@@ -30,6 +32,7 @@ interface ProfileRunRow {
   blockers: number;
   warnings: number;
   org_ruleset_count: number;
+  org_resources: string;
   started_at: string;
   completed_at: string | null;
   failure_reason: string | null;
@@ -46,7 +49,7 @@ interface ProfileRepoRow {
 }
 
 const RUN_COLS =
-  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, started_at, completed_at, failure_reason";
+  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, started_at, completed_at, failure_reason";
 
 /** Parse JSON from a DB column, falling back to a default on malformed data. */
 function safeParse<T>(json: string, fallback: T): T {
@@ -68,6 +71,10 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
     blockers: row.blockers,
     warnings: row.warnings,
     orgRulesetCount: row.org_ruleset_count,
+    orgResources: {
+      ...ZERO_ORG_RESOURCES,
+      ...safeParse<Partial<OrgResources>>(row.org_resources, {}),
+    },
     startedAt: row.started_at,
     completedAt: row.completed_at,
     failureReason: row.failure_reason,
@@ -116,6 +123,13 @@ export function setProfileRunRulesets(runId: string, count: number): void {
   getDb()
     .prepare(`UPDATE profile_runs SET org_ruleset_count = $count WHERE id = $id`)
     .run({ $count: count, $id: runId });
+}
+
+/** Record the organization's resource counts (gathered once per run). */
+export function setProfileRunOrgResources(runId: string, resources: OrgResources): void {
+  getDb()
+    .prepare(`UPDATE profile_runs SET org_resources = $json WHERE id = $id`)
+    .run({ $json: JSON.stringify(resources), $id: runId });
 }
 
 /**

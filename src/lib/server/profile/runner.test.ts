@@ -9,7 +9,14 @@ import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
-import type { DiscoveredRepo, OrgDiscovery, ProfileProgress, RepoSignals } from "./types";
+import {
+  type DiscoveredRepo,
+  type OrgDiscovery,
+  type OrgResources,
+  type ProfileProgress,
+  type RepoSignals,
+  ZERO_ORG_RESOURCES,
+} from "./types";
 
 const gql = {} as never; // the fakes ignore it
 
@@ -61,11 +68,13 @@ function deps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
   rulesetCount = 0,
+  orgResources: Partial<OrgResources> = {},
 ): ProfileRunnerDeps {
   return {
     discover: async (): Promise<OrgDiscovery> => ({ org: "acme", total: repos.length, repos }),
     augment: async (_gql, chunk) => chunk.map((r) => signalsFor(r, augmentOver[r.name] ?? {})),
     getOrgRulesetCount: async () => rulesetCount,
+    getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
   };
 }
 
@@ -106,6 +115,18 @@ describe("runProfile", () => {
       deps([discovered("alpha")], {}, 3),
     );
     expect(run.orgRulesetCount).toBe(3);
+  });
+
+  test("records the org resource counts on the run", async () => {
+    const run = await runProfile(
+      gql,
+      { id: "run-or", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      deps([discovered("alpha")], {}, 0, { actionsSecrets: 5, selfHostedRunners: 2 }),
+    );
+    expect(run.orgResources.actionsSecrets).toBe(5);
+    expect(run.orgResources.selfHostedRunners).toBe(2);
+    expect(run.orgResources.codespacesSecrets).toBe(0);
   });
 
   test("emits progress once per repo with running totals", async () => {

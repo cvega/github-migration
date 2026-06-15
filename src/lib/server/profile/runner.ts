@@ -25,10 +25,16 @@ import {
   failProfileRun,
   getProfileRun,
   recordRepoProfile,
+  setProfileRunOrgResources,
   setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
-import type { ProfileProgress, ProfileRun } from "./types";
+import {
+  type OrgResources,
+  type ProfileProgress,
+  type ProfileRun,
+  ZERO_ORG_RESOURCES,
+} from "./types";
 
 /**
  * Repos per augment request. Each chunk is one aliased GraphQL query; 25 keeps
@@ -44,12 +50,16 @@ export interface ProfileRunnerDeps {
   /** Count the org's rulesets. Default is a no-op (0); the service binds the
    *  real REST-backed implementation, which needs a client this module lacks. */
   getOrgRulesetCount: (org: string) => Promise<number>;
+  /** Gather org-level resource counts. Default is zeros; the service binds the
+   *  real REST-backed implementation. */
+  getOrgResources: (org: string) => Promise<OrgResources>;
 }
 
 const DEFAULT_DEPS: ProfileRunnerDeps = {
   discover: discoverOrgRepos,
   augment: augmentRepoSignals,
   getOrgRulesetCount: async () => 0,
+  getOrgResources: async () => ZERO_ORG_RESOURCES,
 };
 
 /**
@@ -74,9 +84,14 @@ export async function runProfile(
     const discovery = await d.discover(gql, input.org);
     setProfileRunTotal(input.id, discovery.total);
 
-    // Org rulesets are a single REST call (best-effort, never fatal) gathered
-    // once per run — they're org-level, not per-repo.
-    setProfileRunRulesets(input.id, await d.getOrgRulesetCount(input.org));
+    // Org-level signals are gathered once per run (best-effort, never fatal) —
+    // they're org-scoped, not per-repo. Run the two REST passes concurrently.
+    const [rulesetCount, orgResources] = await Promise.all([
+      d.getOrgRulesetCount(input.org),
+      d.getOrgResources(input.org),
+    ]);
+    setProfileRunRulesets(input.id, rulesetCount);
+    setProfileRunOrgResources(input.id, orgResources);
 
     // Profile repos in chunks: each `augment` call is one aliased GraphQL
     // request covering up to AUGMENT_CHUNK repos, so an org of N repos costs

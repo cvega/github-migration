@@ -53,6 +53,21 @@
 		] as const
 	);
 
+	// Org-level resources to recreate on the target (run-level, not per-repo).
+	// Only non-zero resources are shown.
+	const orgResourceTiles = $derived(
+		(
+			[
+				{ label: 'Actions secrets', value: run.orgResources.actionsSecrets, icon: 'key' },
+				{ label: 'Actions variables', value: run.orgResources.actionsVariables, icon: 'note' },
+				{ label: 'Dependabot secrets', value: run.orgResources.dependabotSecrets, icon: 'dependabot' },
+				{ label: 'Codespaces secrets', value: run.orgResources.codespacesSecrets, icon: 'codespaces' },
+				{ label: 'Self-hosted runners', value: run.orgResources.selfHostedRunners, icon: 'server' },
+				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' }
+			] satisfies Array<{ label: string; value: number; icon: IconName }>
+		).filter((t) => t.value > 0)
+	);
+
 	type RunState = 'running' | 'completed' | 'failed';
 
 	// Registry lookup for consideration labels + severity (client-safe, pure data).
@@ -255,6 +270,27 @@
 						<span class="font-semibold">{run.orgRulesetCount} organization ruleset{run.orgRulesetCount === 1 ? '' : 's'}</span>
 						— not migrated, and an org ruleset (e.g. a commit-author email rule) can fail the migration. Review before migrating.
 					</span>
+				</div>
+			{/if}
+
+			{#if orgResourceTiles.length > 0}
+				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+					<div class="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-300">
+						<Octicon name="organization" size={16} class="text-gray-500" />
+						Organization-level resources to recreate
+					</div>
+					<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+						{#each orgResourceTiles as t (t.label)}
+							<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
+								<Octicon name={t.icon} size={16} class="shrink-0 text-gray-500" />
+								<div class="min-w-0">
+									<div class="text-sm font-semibold tabular-nums text-gray-100">{t.value.toLocaleString()}</div>
+									<div class="truncate text-[11px] text-gray-400">{t.label}</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+					<p class="mt-2 text-[11px] text-gray-500">Org-scoped and not migrated — recreate on the target. Secret values are never exported.</p>
 				</div>
 			{/if}
 

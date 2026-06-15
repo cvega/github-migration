@@ -125,6 +125,36 @@ export interface RepoSignals extends DiscoveredRepo {
 export type ProfileRunState = "running" | "completed" | "failed";
 
 /**
+ * Organization-level resources gathered once per run (REST). These are scoped
+ * to the org (not per-repo), are not migrated, and must be recreated on the
+ * target. Each degrades to 0 when its endpoint is unavailable or unauthorized.
+ */
+export interface OrgResources {
+  /** Org Actions secrets (`/orgs/{org}/actions/secrets`). */
+  actionsSecrets: number;
+  /** Org Actions variables (`/orgs/{org}/actions/variables`). */
+  actionsVariables: number;
+  /** Org Dependabot secrets (`/orgs/{org}/dependabot/secrets`). */
+  dependabotSecrets: number;
+  /** Org Codespaces secrets (`/orgs/{org}/codespaces/secrets`). */
+  codespacesSecrets: number;
+  /** Org self-hosted runners (`/orgs/{org}/actions/runners`). */
+  selfHostedRunners: number;
+  /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
+  customProperties: number;
+}
+
+/** All-zero org resources — the default before gathering (and on total failure). */
+export const ZERO_ORG_RESOURCES: OrgResources = {
+  actionsSecrets: 0,
+  actionsVariables: 0,
+  dependabotSecrets: 0,
+  codespacesSecrets: 0,
+  selfHostedRunners: 0,
+  customProperties: 0,
+};
+
+/**
  * An organization-scoped profiling run. Aggregate counters (`profiledRepos`,
  * `blockers`, `warnings`) are recomputed from the run's repos at completion.
  */
@@ -143,6 +173,8 @@ export interface ProfileRun {
   warnings: number;
   /** Organization rulesets (REST); not migrated, and can fail the migration. */
   orgRulesetCount: number;
+  /** Organization-level resources (secrets, runners, …) gathered once per run. */
+  orgResources: OrgResources;
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;

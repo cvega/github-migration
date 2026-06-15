@@ -18,6 +18,7 @@ import {
   getRunRepoProfiles,
   listProfileRuns,
   recordRepoProfile,
+  setProfileRunOrgResources,
   setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
@@ -142,6 +143,38 @@ describe("setProfileRunRulesets", () => {
     expect(getProfileRun("r")?.orgRulesetCount).toBe(0);
     setProfileRunRulesets("r", 4);
     expect(getProfileRun("r")?.orgRulesetCount).toBe(4);
+  });
+});
+
+describe("setProfileRunOrgResources", () => {
+  test("defaults to all-zero resources before gathering", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    expect(getProfileRun("r")?.orgResources).toEqual({
+      actionsSecrets: 0,
+      actionsVariables: 0,
+      dependabotSecrets: 0,
+      codespacesSecrets: 0,
+      selfHostedRunners: 0,
+      customProperties: 0,
+    });
+  });
+
+  test("round-trips the gathered resource counts", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    setProfileRunOrgResources("r", {
+      actionsSecrets: 3,
+      actionsVariables: 1,
+      dependabotSecrets: 2,
+      codespacesSecrets: 0,
+      selfHostedRunners: 4,
+      customProperties: 5,
+    });
+    expect(getProfileRun("r")?.orgResources).toMatchObject({
+      actionsSecrets: 3,
+      dependabotSecrets: 2,
+      selfHostedRunners: 4,
+      customProperties: 5,
+    });
   });
 });
 

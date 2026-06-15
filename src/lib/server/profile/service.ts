@@ -11,6 +11,7 @@ import { getSourceClients } from "$lib/server/core/auth";
 import { type DurationEstimate, estimateDuration } from "./estimate";
 import { publishProfileEvent } from "./events";
 import { deriveInsights, type Insight } from "./insights";
+import { getOrgResources } from "./org-resources";
 import { getOrgRulesetCount } from "./rulesets";
 import { runProfile } from "./runner";
 import { getProfileRun, getRunRepoProfiles } from "./store";
@@ -115,7 +116,10 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
           total: p.total,
           repo: p.repo,
         }),
-      { getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target) },
+      {
+        getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target),
+        getOrgResources: (target) => getOrgResources(rest, target),
+      },
     )
     .then((run) => publishProfileEvent(id, { type: "done", state: run.state }))
     .catch((err) => {

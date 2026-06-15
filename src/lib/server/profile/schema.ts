@@ -22,6 +22,7 @@ const PROFILE_DDL = `
     blockers INTEGER NOT NULL DEFAULT 0,
     warnings INTEGER NOT NULL DEFAULT 0,
     org_ruleset_count INTEGER NOT NULL DEFAULT 0,
+    org_resources TEXT NOT NULL DEFAULT '{}',
     started_at TEXT NOT NULL,
     completed_at TEXT,
     failure_reason TEXT
@@ -73,8 +74,9 @@ export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.no
 export const profileStore: DomainStore = {
   applySchema(db) {
     db.run(PROFILE_DDL);
-    // Column added after the table's first release — upgrade older databases.
+    // Columns added after the table's first release — upgrade older databases.
     addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
   },
   onInit: recoverInterruptedProfiles,
 };
