@@ -37,20 +37,18 @@ import {
 } from "./types";
 
 /**
- * Repos per augment request. The augment query is almost all scalars and
- * `{ totalCount }` connections, which per GitHub's node-limit rules don't
- * materialize nodes — they're indexed reads that stay cheap when many repos are
- * aliased into one request. The one exception is the release-asset scan (a
- * deeply-nested walk), so repos are split: those discovery found to have zero
- * releases skip that scan and batch wide (LITE); repos with releases include it
- * and batch narrow (FULL) to stay under the 10s GraphQL execution timeout.
- *
- * (LITE was previously capped low only because the query also walked the commit
- * graph via `history.totalCount`; that expensive field is gone, so the cheap
- * pass can batch wide again.)
+ * Repos per augment request. Even though most of the query is cheap
+ * `{ totalCount }` connections, each repo also does two server-side git-object
+ * reads (`.gitattributes` blob + `.github/workflows` tree), and repos with
+ * releases add the deeply-nested release-asset scan. In practice that pushes
+ * wide batches past GitHub's 10s GraphQL execution timeout (a 502/504), so
+ * batches are kept small: 10-15 repos per request. Repos discovery found to
+ * have zero releases skip the release scan and use the upper bound (LITE);
+ * repos with releases use the lower bound (FULL). If a chunk still times out,
+ * `augmentRepoSignals` splits and retries it, so these are safe ceilings.
  */
-const AUGMENT_CHUNK_FULL = 15;
-const AUGMENT_CHUNK_LITE = 50;
+const AUGMENT_CHUNK_FULL = 10;
+const AUGMENT_CHUNK_LITE = 15;
 
 /** How many augment requests are in flight at once (cuts wall-clock ~Nx). */
 const AUGMENT_CONCURRENCY = 3;
