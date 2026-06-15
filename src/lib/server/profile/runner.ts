@@ -344,7 +344,6 @@ export async function runProfile(
               ...base,
               commitsCount,
               webhooksCount: rest.webhooksCount,
-              hasPages: rest.hasPages,
               hasCodeScanningAlerts: rest.hasCodeScanningAlerts,
             };
             signalsByRepo.set(r.nameWithOwner, merged);

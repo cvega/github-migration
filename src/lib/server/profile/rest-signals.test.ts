@@ -22,6 +22,7 @@ function repo(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -51,7 +52,7 @@ function mockRest(
 }
 
 describe("gatherRepoRestSignals", () => {
-  test("gathers webhook count, Pages, and code-scanning together", async () => {
+  test("gathers webhook count and code-scanning together", async () => {
     const rest = mockRest({
       "GET /repos/{owner}/{repo}/hooks": () => ({
         headers: {
@@ -59,46 +60,65 @@ describe("gatherRepoRestSignals", () => {
         },
         data: [{}],
       }),
-      "GET /repos/{owner}/{repo}/pages": () => ({ status: 200, data: {} }),
       "GET /repos/{owner}/{repo}/code-scanning/alerts": () => ({ data: [{ number: 1 }] }),
     });
 
     expect(await gatherRepoRestSignals(rest, repo())).toEqual({
       webhooksCount: 3,
-      hasPages: true,
       hasCodeScanningAlerts: true,
     });
   });
 
-  test("Pages 404 → hasPages false; no code-scanning alerts → false", async () => {
+  test("no code-scanning alerts → false", async () => {
     const rest = mockRest({
       "GET /repos/{owner}/{repo}/hooks": () => ({ data: [{}] }), // 1 hook, no last link
-      // pages + code-scanning fall through to the default 404 thrower
       "GET /repos/{owner}/{repo}/code-scanning/alerts": () => ({ data: [] }),
     });
 
     expect(await gatherRepoRestSignals(rest, repo())).toEqual({
       webhooksCount: 1,
-      hasPages: false,
       hasCodeScanningAlerts: false,
     });
   });
 
-  test("each signal degrades independently (webhooks 403 doesn't suppress Pages)", async () => {
+  test("a 404 (code scanning not enabled) degrades to false", async () => {
+    // The hooks handler is present; code-scanning falls through to the default
+    // 404 thrower — the expected response when code scanning isn't set up.
+    const rest = mockRest({
+      "GET /repos/{owner}/{repo}/hooks": () => ({ data: [{}] }),
+    });
+
+    expect(await gatherRepoRestSignals(rest, repo())).toEqual({
+      webhooksCount: 1,
+      hasCodeScanningAlerts: false,
+    });
+  });
+
+  test("each signal degrades independently (a 403 on one doesn't suppress the other)", async () => {
     const rest = mockRest({
       "GET /repos/{owner}/{repo}/hooks": () => {
         throw Object.assign(new Error("Forbidden"), { status: 403 });
       },
-      "GET /repos/{owner}/{repo}/pages": () => ({ status: 200, data: {} }),
+      "GET /repos/{owner}/{repo}/code-scanning/alerts": () => ({ data: [{ number: 1 }] }),
+    });
+
+    expect(await gatherRepoRestSignals(rest, repo())).toEqual({
+      webhooksCount: 0, // 403 → 0
+      hasCodeScanningAlerts: true, // still read
+    });
+  });
+
+  test("a 403 on code scanning (GHAS off / no scope) degrades to false", async () => {
+    const rest = mockRest({
+      "GET /repos/{owner}/{repo}/hooks": () => ({ data: [{}] }),
       "GET /repos/{owner}/{repo}/code-scanning/alerts": () => {
         throw Object.assign(new Error("Forbidden"), { status: 403 });
       },
     });
 
     expect(await gatherRepoRestSignals(rest, repo())).toEqual({
-      webhooksCount: 0, // 403 → 0
-      hasPages: true, // still read
-      hasCodeScanningAlerts: false, // 403 → false
+      webhooksCount: 1,
+      hasCodeScanningAlerts: false,
     });
   });
 
@@ -113,7 +133,6 @@ describe("gatherRepoRestSignals", () => {
 
     expect(await gatherRepoRestSignals(rest, repo({ nameWithOwner: "no-slash" }))).toEqual({
       webhooksCount: 0,
-      hasPages: false,
       hasCodeScanningAlerts: false,
     });
     expect(called).toBe(false);

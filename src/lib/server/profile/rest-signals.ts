@@ -1,15 +1,13 @@
 /**
  * Per-repo REST signals — the cheap presence/count checks GraphQL can't fold in.
  *
- * Three migration considerations are best read straight from REST:
+ * Two migration considerations are best read straight from REST:
  *   - webhooks      — migrate but arrive disabled; their secrets aren't carried.
- *   - GitHub Pages  — settings migrate but usually need reconfiguring.
  *   - code scanning — alert history and states aren't migrated.
  *
- * Each is a single request: a `Link`-header count (`countByPagination`) for
- * webhooks, or a 200/404 presence probe for Pages and code scanning. All three
- * are permission-sensitive and degrade to 0/false for a read-only token rather
- * than failing the repo, so a sparse-scope crawl still completes.
+ * (GitHub Pages is read for free from discovery's `has_pages`, so it needs no
+ * per-repo request here.) Each call is permission-sensitive and degrades to
+ * 0/false rather than failing the repo, so a sparse-scope crawl still completes.
  *
  * The `rest` client is injected so this is unit-testable without a network.
  */
@@ -19,7 +17,6 @@ import type { DiscoveredRepo } from "./types";
 /** The REST-only signals merged onto a repo's profile. */
 export interface RepoRestSignals {
   webhooksCount: number;
-  hasPages: boolean;
   hasCodeScanningAlerts: boolean;
 }
 
@@ -39,17 +36,17 @@ async function countWebhooks(rest: GitHubClient, owner: string, repo: string): P
   }
 }
 
-/** Whether Pages is enabled — `GET …/pages` is 200 when configured, 404 when not. */
-async function hasPagesEnabled(rest: GitHubClient, owner: string, repo: string): Promise<boolean> {
-  try {
-    const res = await rest.request("GET /repos/{owner}/{repo}/pages", { owner, repo });
-    return res.status === 200;
-  } catch {
-    return false;
-  }
-}
-
-/** Whether the repo has any code-scanning alert (so there's history to lose). */
+/**
+ * Whether the repo has any code-scanning alert (so there's history to lose).
+ *
+ * The endpoint legitimately answers with a non-200 for most repos, which we map
+ * to "no scanning history":
+ *   - 404 — code scanning isn't set up (no default setup, no analyses).
+ *   - 403 — GitHub Advanced Security isn't enabled, or the token lacks the
+ *           `security_events` scope.
+ * Both mean “nothing to lose here” for our purposes, so they degrade to false
+ * (these are expected responses, not crawl failures).
+ */
 async function hasCodeScanning(rest: GitHubClient, owner: string, repo: string): Promise<boolean> {
   try {
     const res = await rest.request("GET /repos/{owner}/{repo}/code-scanning/alerts", {
@@ -59,31 +56,29 @@ async function hasCodeScanning(rest: GitHubClient, owner: string, repo: string):
     });
     return Array.isArray(res.data) && res.data.length > 0;
   } catch {
-    // 404 (code scanning not enabled) / 403 (no access) → treat as none.
     return false;
   }
 }
 
 /**
- * Gather a repository's REST-only signals. The three requests run concurrently;
- * each degrades independently, so one inaccessible endpoint doesn't suppress the
- * others.
+ * Gather a repository's REST-only signals. The requests run concurrently; each
+ * degrades independently, so one inaccessible endpoint doesn't suppress the
+ * other.
  *
  * @param rest Authenticated source REST client.
  * @param r    The discovered repo (provides `nameWithOwner`).
- * @returns    Webhook count plus Pages / code-scanning presence flags.
+ * @returns    Webhook count plus the code-scanning presence flag.
  */
 export async function gatherRepoRestSignals(
   rest: GitHubClient,
   r: DiscoveredRepo,
 ): Promise<RepoRestSignals> {
   const parts = splitOwnerRepo(r.nameWithOwner);
-  if (!parts) return { webhooksCount: 0, hasPages: false, hasCodeScanningAlerts: false };
+  if (!parts) return { webhooksCount: 0, hasCodeScanningAlerts: false };
   const { owner, repo } = parts;
-  const [webhooksCount, hasPages, hasCodeScanningAlerts] = await Promise.all([
+  const [webhooksCount, hasCodeScanningAlerts] = await Promise.all([
     countWebhooks(rest, owner, repo),
-    hasPagesEnabled(rest, owner, repo),
     hasCodeScanning(rest, owner, repo),
   ]);
-  return { webhooksCount, hasPages, hasCodeScanningAlerts };
+  return { webhooksCount, hasCodeScanningAlerts };
 }

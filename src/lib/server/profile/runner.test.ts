@@ -23,12 +23,11 @@ import {
 const clients = { getApiCalls: () => 0 } as unknown as ProfileClients;
 
 /** Pass-3 REST stubs for inline deps that reach the per-repo REST pass but don't
- *  care about commits / webhooks / Pages / code scanning. Keeps tests off the
+ *  care about commits / webhooks / code scanning. Keeps tests off the
  *  real network functions (which would hit the fake `rest` client). */
 const noCommits: ProfileRunnerDeps["countCommits"] = async () => 0;
 const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
   webhooksCount: 0,
-  hasPages: false,
   hasCodeScanningAlerts: false,
 });
 
@@ -45,6 +44,7 @@ function discovered(name: string, over: Partial<DiscoveredRepo> = {}): Discovere
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -119,7 +119,6 @@ function deps(
     countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
     gatherRestSignals: async (_rest, r) => ({
       webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
-      hasPages: augmentOver[r.name]?.hasPages ?? false,
       hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
     }),
     getOrgRulesetCount: async () => rulesetCount,

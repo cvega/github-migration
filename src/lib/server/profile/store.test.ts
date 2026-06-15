@@ -44,6 +44,7 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -67,7 +68,6 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     releaseAssetBytes: 0,
     workflowFileCount: 0,
     webhooksCount: 0,
-    hasPages: false,
     hasCodeScanningAlerts: false,
     ...over,
   };

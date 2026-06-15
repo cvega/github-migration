@@ -37,6 +37,11 @@ export interface DiscoveredRepo {
   hasIssues: boolean;
   hasProjects: boolean;
   hasDiscussions: boolean;
+  /**
+   * Whether GitHub Pages is enabled (`has_pages` from the org listing — free, no
+   * per-repo call). Pages settings migrate but typically need reconfiguring.
+   */
+  hasPages: boolean;
   /** Default branch name, or null for an empty repo with no commits. */
   defaultBranch: string | null;
   /** ISO timestamp of the last push, or null if never pushed. */
@@ -132,9 +137,6 @@ export interface RepoSignals extends DiscoveredRepo {
   /** Webhooks (`GET …/hooks`); migrate but arrive disabled, and their secrets
    *  are not migrated. Needs `admin:repo_hook`/`repo`; 0 when unreadable. */
   webhooksCount: number;
-  /** Whether GitHub Pages is enabled (`GET …/pages` 200 vs 404). Pages settings
-   *  migrate but typically need reconfiguring on the target. */
-  hasPages: boolean;
   /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
    *  Scanning history is not migrated. False when scanning is off or unreadable. */
   hasCodeScanningAlerts: boolean;

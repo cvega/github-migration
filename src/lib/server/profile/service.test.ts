@@ -28,6 +28,7 @@ function discovered(name: string): DiscoveredRepo {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,
@@ -111,7 +112,6 @@ function serviceDeps(
         countCommits: async (_rest, r) => augmentOver[r.name]?.commitsCount ?? 0,
         gatherRestSignals: async (_rest, r) => ({
           webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
-          hasPages: augmentOver[r.name]?.hasPages ?? false,
           hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
         }),
       });

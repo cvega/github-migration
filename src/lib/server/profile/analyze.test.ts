@@ -23,6 +23,7 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-02T00:00:00Z",
@@ -46,7 +47,6 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     releaseAssetBytes: 0,
     workflowFileCount: 0,
     webhooksCount: 0,
-    hasPages: false,
     hasCodeScanningAlerts: false,
     ...over,
   };

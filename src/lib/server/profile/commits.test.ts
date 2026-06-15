@@ -21,6 +21,7 @@ function repo(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
     hasIssues: true,
     hasProjects: false,
     hasDiscussions: false,
+    hasPages: false,
     defaultBranch: "main",
     pushedAt: null,
     updatedAt: null,

@@ -21,6 +21,7 @@ interface RestRepo {
   has_issues?: boolean;
   has_projects?: boolean;
   has_discussions?: boolean;
+  has_pages?: boolean;
   default_branch?: string;
   pushed_at?: string | null;
   updated_at?: string | null;
@@ -40,6 +41,7 @@ function repo(name: string, over: Partial<RestRepo> = {}): RestRepo {
     has_issues: true,
     has_projects: false,
     has_discussions: false,
+    has_pages: false,
     default_branch: "main",
     pushed_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
@@ -126,6 +128,7 @@ describe("discoverOrgRepos", () => {
           default_branch: undefined,
           has_wiki: true,
           has_discussions: true,
+          has_pages: true,
           pushed_at: null,
         }),
       ],
@@ -145,6 +148,7 @@ describe("discoverOrgRepos", () => {
       hasIssues: true,
       hasProjects: false,
       hasDiscussions: true,
+      hasPages: true, // read free from the org listing's has_pages
       defaultBranch: null,
       pushedAt: null,
       updatedAt: "2026-01-02T00:00:00Z",
