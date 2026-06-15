@@ -255,7 +255,7 @@
 				{#if run.apiCalls > 0}· <span title="GitHub API requests this crawl made (REST + GraphQL)">{run.apiCalls.toLocaleString()} API calls</span>{/if}
 			</p>
 		</div>
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-3">
 			{#if authPill}
 				<AuthPill
 					label="Source"
@@ -264,6 +264,7 @@
 					ratePct={authPill.sourceRatePct}
 					migrating={run.state === 'running'}
 				/>
+				<span class="h-4 w-px bg-gray-700" aria-hidden="true"></span>
 			{/if}
 			<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
 		</div>

@@ -70,6 +70,6 @@
 
 <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-4 transition-colors {pillClass}">
 	<Octicon name={isApp ? 'shield-lock' : 'key'} size={12} class={shouldPulse ? 'animate-pulse' : ''} />
-	{label}: {isApp ? 'App' : 'PAT'}
-	<span class={rateClass}>{rateText}</span>
+	<span>{label} <span class="opacity-70">·</span> {isApp ? 'App' : 'PAT'}</span>
+	<span class="border-l border-current/20 pl-1.5 tabular-nums {rateClass}">{rateText}</span>
 </span>
