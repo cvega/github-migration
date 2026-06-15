@@ -110,8 +110,9 @@
 	// Organization composition — what kind of repos make up the org, as a share
 	// of the evaluated set. Counts reuse the per-repo insight ids (one source of
 	// truth for the staleness rule), which are mutually exclusive per repo:
-	// empty short-circuits, archived suppresses stale. So the three never
-	// double-count and each percentage is of the whole org.
+	// empty short-circuits, archived suppresses stale. So the buckets never
+	// overlap and partition the org — `active` is the remainder (not empty, not
+	// archived, pushed within the staleness window), so the four sum to 100%.
 	const composition = $derived.by(() => {
 		let empty = 0;
 		let archived = 0;
@@ -124,9 +125,11 @@
 			}
 		}
 		const total = repos.length;
+		const active = Math.max(0, total - empty - archived - stale);
 		const pctOf = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
 		return {
 			total,
+			active: { count: active, pct: pctOf(active) },
 			stale: { count: stale, pct: pctOf(stale) },
 			empty: { count: empty, pct: pctOf(empty) },
 			archived: { count: archived, pct: pctOf(archived) }
@@ -274,7 +277,7 @@
 	{/if}
 
 	<!-- Summary tiles: org composition (readiness/severity lives in Migration summary) -->
-	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+	<section class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold text-gray-50">{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span></div>
 			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
@@ -286,6 +289,13 @@
 					<div class="h-full bg-violet-500 transition-all" style="width: {pct}%"></div>
 				</div>
 			{/if}
+		</div>
+		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+			<div class="text-2xl font-semibold tabular-nums text-green-400">{composition.active.pct}%</div>
+			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
+				<Octicon name="pulse" size={12} class="text-gray-500" />
+				Active <span class="text-gray-500">· {composition.active.count.toLocaleString()}</span>
+			</div>
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 			<div class="text-2xl font-semibold tabular-nums text-amber-400">{composition.stale.pct}%</div>
@@ -302,7 +312,7 @@
 			</div>
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="text-2xl font-semibold tabular-nums text-green-400">{composition.archived.pct}%</div>
+			<div class="text-2xl font-semibold tabular-nums text-sky-400">{composition.archived.pct}%</div>
 			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
 				<Octicon name="archive" size={12} class="text-gray-500" />
 				Archived <span class="text-gray-500">· {composition.archived.count.toLocaleString()}</span>
