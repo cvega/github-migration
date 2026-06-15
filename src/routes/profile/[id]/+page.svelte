@@ -148,6 +148,29 @@
 		];
 	}
 
+	// ── Repository list: client-side search + pagination ───────────────────────
+	// Every repo is already loaded (and live-refreshed), so filtering and paging
+	// run on the client for instant feedback. Search matches the owner/name.
+	const REPOS_PER_PAGE = 25;
+	let repoSearch = $state('');
+	let repoPage = $state(1);
+
+	const filteredRepos = $derived.by(() => {
+		const q = repoSearch.trim().toLowerCase();
+		return q ? repos.filter((r) => r.nameWithOwner.toLowerCase().includes(q)) : repos;
+	});
+	// Clamp the shown page when the filtered set shrinks (no effect needed): the
+	// prev/next buttons set `repoPage`, and `repoPageSafe` keeps it in range.
+	const repoTotalPages = $derived(Math.max(1, Math.ceil(filteredRepos.length / REPOS_PER_PAGE)));
+	const repoPageSafe = $derived(Math.min(repoPage, repoTotalPages));
+	const pagedRepos = $derived(
+		filteredRepos.slice((repoPageSafe - 1) * REPOS_PER_PAGE, repoPageSafe * REPOS_PER_PAGE)
+	);
+	const repoRangeStart = $derived(
+		filteredRepos.length === 0 ? 0 : (repoPageSafe - 1) * REPOS_PER_PAGE + 1
+	);
+	const repoRangeEnd = $derived(Math.min(repoPageSafe * REPOS_PER_PAGE, filteredRepos.length));
+
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
 	async function refresh() {
@@ -426,10 +449,29 @@
 
 	<!-- Per-repo readiness -->
 	<section>
-		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-			<Octicon name="repo" size={16} />
-			Repositories
-		</h2>
+		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
+				<Octicon name="repo" size={16} />
+				Repositories
+			</h2>
+			{#if repos.length > 0}
+				<div class="relative">
+					<Octicon
+						name="search"
+						size={16}
+						class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"
+					/>
+					<input
+						type="search"
+						bind:value={repoSearch}
+						oninput={() => (repoPage = 1)}
+						placeholder="Filter repositories…"
+						aria-label="Filter repositories"
+						class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pl-9 pr-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none"
+					/>
+				</div>
+			{/if}
+		</div>
 
 		{#if repos.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
@@ -444,6 +486,11 @@
 					{/if}
 				</p>
 			</div>
+		{:else if filteredRepos.length === 0}
+			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
+				<Octicon name="search" size={24} class="h-10 w-10 text-gray-500" />
+				<p class="mt-3">No repositories match <span class="font-medium text-gray-300">“{repoSearch}”</span></p>
+			</div>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-gray-700">
 				<table class="w-full text-sm">
@@ -456,7 +503,7 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-800">
-						{#each repos as repo (repo.nameWithOwner)}
+						{#each pagedRepos as repo (repo.nameWithOwner)}
 							<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
 								<td class="px-4 py-3">
 									<button
@@ -540,6 +587,33 @@
 						{/each}
 					</tbody>
 				</table>
+			</div>
+			<div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-gray-400">
+				<span>
+					Showing {repoRangeStart.toLocaleString()}–{repoRangeEnd.toLocaleString()} of {filteredRepos.length.toLocaleString()}
+					{#if filteredRepos.length !== repos.length}<span class="text-gray-500">(filtered from {repos.length.toLocaleString()})</span>{/if}
+				</span>
+				{#if repoTotalPages > 1}
+					<div class="flex items-center gap-1">
+						<button
+							type="button"
+							disabled={repoPageSafe <= 1}
+							onclick={() => (repoPage = repoPageSafe - 1)}
+							class="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							<Octicon name="chevron-left" size={12} /> Prev
+						</button>
+						<span class="px-2 tabular-nums text-gray-400">Page {repoPageSafe} / {repoTotalPages}</span>
+						<button
+							type="button"
+							disabled={repoPageSafe >= repoTotalPages}
+							onclick={() => (repoPage = repoPageSafe + 1)}
+							class="inline-flex items-center gap-1 rounded-md border border-gray-700 px-2.5 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							Next <Octicon name="chevron-right" size={12} />
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</section>
