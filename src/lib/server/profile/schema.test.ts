@@ -69,18 +69,14 @@ describe("recoverInterruptedProfiles", () => {
     expect(() => recoverInterruptedProfiles(getDb(), NOW)).not.toThrow();
   });
 
-  test("leaveStandaloneOrgRuns keeps standalone runs running, fails children", () => {
-    // A standalone org run and an enterprise run with a child org run.
-    createProfileRun({ id: "solo", sourceApiUrl: "u", org: "acme" });
+  test("fails running enterprise runs too", () => {
     createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
     createProfileRun({ id: "child", sourceApiUrl: "u", org: "team", enterpriseRunId: "ent" });
 
-    recoverInterruptedProfiles(getDb(), NOW, { leaveStandaloneOrgRuns: true });
+    recoverInterruptedProfiles(getDb(), NOW);
 
-    // Standalone is left for the service to resume; the child + enterprise fail.
-    expect(getProfileRun("solo")?.state).toBe("running");
-    expect(getProfileRun("child")?.state).toBe("failed");
     expect(getEnterpriseRun("ent")?.state).toBe("failed");
+    expect(getProfileRun("child")?.state).toBe("failed");
   });
 });
 

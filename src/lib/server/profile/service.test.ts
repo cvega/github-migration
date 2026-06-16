@@ -20,10 +20,12 @@ import {
   startOrgProfile,
 } from "./service";
 import {
+  completeProfileRun,
   createEnterpriseRun,
   createProfileRun,
   getEnrichedRepoNames,
   getEnterpriseChildRuns,
+  getEnterpriseRun,
   getProfileRun,
   recordRepoProfile,
   setRepoEnriched,
@@ -337,7 +339,7 @@ describe("resumeInterruptedProfiles", () => {
     resumeInterruptedProfiles(deps, () => false);
 
     expect(getProfileRun("rz")?.state).toBe("failed");
-    expect(getProfileRun("rz")?.failureReason).toMatch(/no source credentials/i);
+    expect(getProfileRun("rz")?.failureReason).toMatch(/restarted/i);
     // It never built a client when it can't resume.
     expect(state.gqlBuilt).toBe(0);
   });
@@ -347,17 +349,23 @@ describe("resumeInterruptedProfiles", () => {
     expect(() => resumeInterruptedProfiles(deps, () => true)).not.toThrow();
   });
 
-  test("leaves enterprise child runs alone (only standalone runs resume)", () => {
-    // A child org run (linked to an enterprise) is not a standalone run.
+  test("resumes an interrupted enterprise run, skipping finished child orgs", async () => {
+    // An interrupted enterprise: org "done" already finished, org "team" pending.
     createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
-    createProfileRun({ id: "child", sourceApiUrl: "u", org: "team", enterpriseRunId: "ent" });
-    const { deps, state } = serviceDeps([discovered("a")]);
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
 
+    // The fresh enumeration returns both orgs; only "team" still needs profiling.
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["done", "team"]);
     resumeInterruptedProfiles(deps, () => true);
+    await state.runPromise;
 
-    // The child wasn't picked up — no client built, no dispatch.
-    expect(state.gqlBuilt).toBe(0);
-    expect(getProfileRun("child")?.state).toBe("running");
+    // The enterprise completes; "done" is untouched, "team" gets a fresh child run.
+    expect(getEnterpriseRun("ent")?.state).toBe("completed");
+    const children = getEnterpriseChildRuns("ent");
+    expect(children.map((c) => c.org).sort()).toEqual(["done", "team"]);
+    expect(children.find((c) => c.org === "done")?.id).toBe("c-done"); // not re-run
+    expect(state.gqlBuilt).toBeGreaterThan(0); // a source client was built to resume
   });
 });
 

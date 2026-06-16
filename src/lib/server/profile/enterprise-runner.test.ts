@@ -11,11 +11,14 @@ import { DOMAIN_STORES } from "$lib/server/registry";
 import { type EnterpriseRunnerDeps, runEnterpriseProfile } from "./enterprise-runner";
 import type { ProfileClients } from "./runner";
 import {
+  completeEnterpriseRun,
   completeProfileRun,
+  createEnterpriseRun,
   createProfileRun,
   failProfileRun,
   getEnterpriseChildRuns,
   getProfileRun,
+  resetProfileRunForResume,
   setProfileRunTotal,
 } from "./store";
 import type { EnterpriseProgress } from "./types";
@@ -29,19 +32,27 @@ beforeEach(() => {
 /**
  * A `runOrg` double that creates a real child run linked to the enterprise,
  * sets its repo total, and completes (or fails) it — so the enterprise runner's
- * aggregate refresh reads real persisted children.
+ * aggregate refresh reads real persisted children. On a resume call (an existing
+ * child) it doesn't recreate the row; `inputs` records the full call for resume
+ * assertions while `calls` keeps the org-name list the older tests use.
  */
 function fakeRunOrg(opts: { totals?: Record<string, number>; fail?: string[] } = {}) {
   const calls: string[] = [];
+  const inputs: Array<{ id: string; org: string; resume: boolean }> = [];
   const failSet = new Set(opts.fail ?? []);
   const runOrg: EnterpriseRunnerDeps["runOrg"] = async (_clients, input) => {
     calls.push(input.org);
-    createProfileRun({
-      id: input.id,
-      sourceApiUrl: input.sourceApiUrl,
-      org: input.org,
-      enterpriseRunId: input.enterpriseRunId,
-    });
+    inputs.push({ id: input.id, org: input.org, resume: !!input.resume });
+    if (input.resume) {
+      resetProfileRunForResume(input.id); // existing child — continue it
+    } else {
+      createProfileRun({
+        id: input.id,
+        sourceApiUrl: input.sourceApiUrl,
+        org: input.org,
+        enterpriseRunId: input.enterpriseRunId,
+      });
+    }
     const total = opts.totals?.[input.org];
     if (total !== undefined) setProfileRunTotal(input.id, total);
     if (failSet.has(input.org)) failProfileRun(input.id, "org crawl failed");
@@ -50,7 +61,7 @@ function fakeRunOrg(opts: { totals?: Record<string, number>; fail?: string[] } =
     if (!run) throw new Error("fakeRunOrg: child run missing");
     return run;
   };
-  return { runOrg, calls };
+  return { runOrg, calls, inputs };
 }
 
 /** Deterministic child ids so assertions can be stable. */
@@ -179,5 +190,61 @@ describe("runEnterpriseProfile", () => {
     );
     expect(run.state).toBe("failed");
     expect(run.failureReason).toContain("not found or not accessible");
+  });
+
+  test("resume skips completed orgs, resumes unfinished ones, and starts new ones", async () => {
+    // An interrupted enterprise: alpha already finished, beta was mid-flight,
+    // gamma never started (it only shows up in the fresh org enumeration).
+    createEnterpriseRun({ id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" });
+    createProfileRun({ id: "c-alpha", sourceApiUrl: "u", org: "alpha", enterpriseRunId: "ent" });
+    completeProfileRun("c-alpha");
+    createProfileRun({ id: "c-beta", sourceApiUrl: "u", org: "beta", enterpriseRunId: "ent" });
+    // c-beta stays `running` — it was interrupted.
+
+    const { runOrg, inputs } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps(["alpha", "beta", "gamma"], { runOrg }),
+    );
+
+    // alpha is skipped entirely; beta + gamma are (re)dispatched.
+    expect(inputs.map((i) => i.org).sort()).toEqual(["beta", "gamma"]);
+    // beta resumes on its existing child id, gamma is a fresh child.
+    const beta = inputs.find((i) => i.org === "beta");
+    expect(beta?.id).toBe("c-beta");
+    expect(beta?.resume).toBe(true);
+    const gamma = inputs.find((i) => i.org === "gamma");
+    expect(gamma?.resume).toBe(false);
+    expect(gamma?.id).not.toBe("c-beta");
+
+    // Every org ends with exactly one child row and the run completes.
+    expect(run.state).toBe("completed");
+    expect(
+      getEnterpriseChildRuns("ent")
+        .map((c) => c.org)
+        .sort(),
+    ).toEqual(["alpha", "beta", "gamma"]);
+    expect(run.profiledOrgs).toBe(3);
+  });
+
+  test("resume of an already-finished enterprise re-runs nothing", async () => {
+    createEnterpriseRun({ id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" });
+    createProfileRun({ id: "c-alpha", sourceApiUrl: "u", org: "alpha", enterpriseRunId: "ent" });
+    completeProfileRun("c-alpha");
+    completeEnterpriseRun("ent");
+
+    const { runOrg, inputs } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps(["alpha"], { runOrg }),
+    );
+
+    expect(inputs).toEqual([]); // alpha already completed — nothing dispatched
+    expect(run.state).toBe("completed");
+    expect(run.profiledOrgs).toBe(1);
   });
 });

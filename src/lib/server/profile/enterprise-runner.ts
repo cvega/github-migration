@@ -23,8 +23,10 @@ import {
   completeEnterpriseRun,
   createEnterpriseRun,
   failEnterpriseRun,
+  getEnterpriseChildRuns,
   getEnterpriseRun,
   refreshEnterpriseRunAggregates,
+  resetEnterpriseRunForResume,
   setEnterpriseRunTotalOrgs,
 } from "./store";
 import type { EnterpriseProgress, EnterpriseRun, ProfileRun } from "./types";
@@ -48,7 +50,13 @@ export interface EnterpriseRunnerDeps {
    */
   runOrg: (
     clients: ProfileClients,
-    input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId: string },
+    input: {
+      id: string;
+      org: string;
+      sourceApiUrl: string;
+      enterpriseRunId: string;
+      resume?: boolean;
+    },
   ) => Promise<ProfileRun>;
   /** Generate a child run id. */
   newId: () => string;
@@ -88,20 +96,30 @@ function describeError(err: unknown): string {
  */
 export async function runEnterpriseProfile(
   clients: ProfileClients,
-  input: { id: string; enterpriseSlug: string; sourceApiUrl: string },
+  input: { id: string; enterpriseSlug: string; sourceApiUrl: string; resume?: boolean },
   onProgress?: (progress: EnterpriseProgress) => void,
   deps: Partial<EnterpriseRunnerDeps> = {},
 ): Promise<EnterpriseRun> {
   const d = { ...DEFAULT_DEPS, ...deps };
   const startedMs = Date.now();
-  createEnterpriseRun({
-    id: input.id,
-    sourceApiUrl: input.sourceApiUrl,
-    enterpriseSlug: input.enterpriseSlug,
-  });
-  console.log(
-    `[profile] enterprise run ${input.id} started — slug=${input.enterpriseSlug}, source=${input.sourceApiUrl}`,
-  );
+  if (input.resume) {
+    // Resume an interrupted enterprise run: keep its child runs and just flip it
+    // back to `running`. Below, orgs whose child already completed are skipped
+    // and the rest are resumed or started fresh.
+    resetEnterpriseRunForResume(input.id);
+    console.log(
+      `[profile] enterprise run ${input.id} resuming — slug=${input.enterpriseSlug}, source=${input.sourceApiUrl}`,
+    );
+  } else {
+    createEnterpriseRun({
+      id: input.id,
+      sourceApiUrl: input.sourceApiUrl,
+      enterpriseSlug: input.enterpriseSlug,
+    });
+    console.log(
+      `[profile] enterprise run ${input.id} started — slug=${input.enterpriseSlug}, source=${input.sourceApiUrl}`,
+    );
+  }
 
   try {
     onProgress?.({
@@ -129,17 +147,30 @@ export async function runEnterpriseProfile(
     // (runProfile records its own failure on the child run and never throws), so
     // one bad org doesn't abort the enterprise crawl. As each settles, refresh
     // the parent's aggregates and nudge any live watcher.
-    let settled = 0;
+    //
+    // On resume, an org whose child run already completed is skipped; one with an
+    // existing (unfinished) child is resumed on that same child; a brand-new org
+    // is started fresh.
+    const existingChild = input.resume
+      ? new Map(getEnterpriseChildRuns(input.id).map((c) => [c.org, c]))
+      : new Map<string, ProfileRun>();
+    let settled = input.resume
+      ? [...existingChild.values()].filter((c) => c.state === "completed").length
+      : 0;
     let next = 0;
     const worker = async (): Promise<void> => {
       while (next < orgs.length) {
         const org = orgs[next++];
         if (!org) break;
+        const child = existingChild.get(org);
+        if (child?.state === "completed") continue; // already done — skip
+
         await d.runOrg(clients, {
-          id: d.newId(),
+          id: child ? child.id : d.newId(),
           org,
           sourceApiUrl: input.sourceApiUrl,
           enterpriseRunId: input.id,
+          resume: child !== undefined,
         });
         settled += 1;
         refreshEnterpriseRunAggregates(input.id);

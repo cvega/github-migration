@@ -447,6 +447,30 @@ export function listEnterpriseRuns(limit = 50): EnterpriseRun[] {
   return rows.map(rowToEnterpriseRun);
 }
 
+/** Enterprise runs still marked `running` — interrupted by a restart. */
+export function listRunningEnterpriseRuns(): EnterpriseRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${ENTERPRISE_COLS} FROM profile_enterprise_runs
+       WHERE state = 'running' ORDER BY started_at ASC`,
+    )
+    .all() as EnterpriseRunRow[];
+  return rows.map(rowToEnterpriseRun);
+}
+
+/**
+ * Reset an interrupted enterprise run to `running` so a resume can continue it —
+ * clears the terminal fields but keeps its child runs (and their progress).
+ */
+export function resetEnterpriseRunForResume(runId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE profile_enterprise_runs SET state = 'running', failure_reason = NULL, completed_at = NULL
+       WHERE id = $id`,
+    )
+    .run({ $id: runId });
+}
+
 /** All child org runs of an enterprise run, most recent first. */
 export function getEnterpriseChildRuns(enterpriseRunId: string): ProfileRun[] {
   const rows = getDb()

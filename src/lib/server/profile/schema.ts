@@ -74,34 +74,21 @@ const PROFILE_DDL = `
 `;
 
 /**
- * On startup, fail profiling runs interrupted by a restart so a detail page
- * doesn't poll a run that can never settle. Standalone org runs are recoverable
- * (their work survives in `profile_repos`), so when `leaveStandaloneOrgRuns` is
- * set they're left `running` for the service's `resumeInterruptedProfiles` to
- * continue; everything else — enterprise runs and their child org runs — is
- * failed (enterprise resume isn't wired here).
- *
- * Called with no options by tests (fails every running run); the store's
- * `onInit` passes `leaveStandaloneOrgRuns: true` so production can resume.
+ * Fail every profiling run still marked `running` (org runs, enterprise runs,
+ * and child runs). Used by the service's startup recovery when no source
+ * credentials are available to resume — and by tests. When credentials ARE
+ * available the service resumes these runs instead, so this isn't wired to the
+ * store's `onInit`: the service is the single startup authority.
  */
-export function recoverInterruptedProfiles(
-  db: Database,
-  nowMs: number = Date.now(),
-  opts: { leaveStandaloneOrgRuns?: boolean } = {},
-): void {
+export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.now()): void {
   const isoNow = new Date(nowMs).toISOString();
-  // Standalone org runs (no enterprise parent) are left for the service to
-  // resume when requested; child runs are always failed here.
-  const orgWhere = opts.leaveStandaloneOrgRuns
-    ? "state = 'running' AND enterprise_run_id IS NOT NULL"
-    : "state = 'running'";
   const orphaned = db
     .prepare(
       `UPDATE profile_runs
        SET state = 'failed',
            failure_reason = 'Server restarted during profiling',
            completed_at = ?
-       WHERE ${orgWhere}`,
+       WHERE state = 'running'`,
     )
     .run(isoNow);
   if (orphaned.changes > 0) {
@@ -140,7 +127,6 @@ export const profileStore: DomainStore = {
       "CREATE INDEX IF NOT EXISTS idx_profile_runs_enterprise ON profile_runs(enterprise_run_id)",
     );
   },
-  // Leave standalone org runs `running` so the service can resume them; fail the
-  // rest (enterprise runs + their child org runs).
-  onInit: (db) => recoverInterruptedProfiles(db, Date.now(), { leaveStandaloneOrgRuns: true }),
+  // No onInit recovery: interrupted runs are left `running` for the service's
+  // `resumeInterruptedProfiles` to resume (or fail, when it can't) at startup.
 };
