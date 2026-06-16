@@ -9,7 +9,7 @@ import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoDetails } from "./augment";
 import { type ProfileClients, type ProfileRunnerDeps, runProfile } from "./runner";
-import { getProfileRun, getRunRepoProfiles } from "./store";
+import { getEnrichedRepoNames, getProfileRun, getRunRepoProfiles } from "./store";
 import {
   type DiscoveredRepo,
   type OrgDiscovery,
@@ -190,6 +190,75 @@ describe("runProfile", () => {
     // All three repos were counted (one chunk) and persisted before the details
     // pass ran — so the live value is already 3, not the 0 create-default.
     expect(profiledDuringDetails).toBe(3);
+  });
+
+  test("resume reprocesses only the repos that didn't finish enrichment", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    // First run: the final per-repo pass (countCommits) throws for "b", so it
+    // never gets marked enriched while "a" and "c" do.
+    await runProfile(clients, { id: "rz", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      countCommits: async (_rest, r) => {
+        if (r.name === "b") throw new Error("rate limited");
+        return 0;
+      },
+    });
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/c"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+
+    // Resume: track which repos each pass actually touches.
+    const counted: string[] = [];
+    const commits: string[] = [];
+    await runProfile(
+      clients,
+      { id: "rz", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      {
+        ...deps(repos),
+        augmentCounts: async (_gql, c) => {
+          for (const r of c) counted.push(r.nameWithOwner);
+          return c.map((r) => countsSignals(r));
+        },
+        countCommits: async (_rest, r) => {
+          commits.push(r.nameWithOwner);
+          return 0;
+        },
+      },
+    );
+    // Only the unfinished repo "b" was reprocessed; "a" and "c" were skipped.
+    expect(counted).toEqual(["acme/b"]);
+    expect(commits).toEqual(["acme/b"]);
+    // Now every repo is enriched and the run is complete.
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+  });
+
+  test("resume starts the profiled tally from the already-enriched count", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c"), discovered("d")];
+    // First run fails the final pass for two repos → 2 enriched, 2 pending.
+    await runProfile(clients, { id: "rp", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      countCommits: async (_rest, r) => {
+        if (r.name === "c" || r.name === "d") throw new Error("rate limited");
+        return 0;
+      },
+    });
+    expect(getEnrichedRepoNames("rp").size).toBe(2);
+
+    // On resume, the first persisted progress value should already include the
+    // 2 finished repos (not restart from 0).
+    let firstProfiled = -1;
+    await runProfile(
+      clients,
+      { id: "rp", org: "acme", sourceApiUrl: "u", resume: true },
+      (p) => {
+        if (firstProfiled < 0 && p.repo !== "") firstProfiled = p.profiled;
+      },
+      deps(repos),
+    );
+    // 2 already-enriched + the first reprocessed repo = 3.
+    expect(firstProfiled).toBe(3);
+    expect(getProfileRun("rp")?.profiledRepos).toBe(4);
   });
 
   test("records the org resource counts on the run", async () => {

@@ -94,6 +94,18 @@ describe("profileStore.applySchema (upgrade path)", () => {
         completed_at TEXT,
         failure_reason TEXT
       );
+      CREATE TABLE profile_repos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        name_with_owner TEXT NOT NULL,
+        signals TEXT NOT NULL DEFAULT '{}',
+        blockers INTEGER NOT NULL DEFAULT 0,
+        warnings INTEGER NOT NULL DEFAULT 0,
+        infos INTEGER NOT NULL DEFAULT 0,
+        applying_considerations TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        UNIQUE(run_id, name_with_owner)
+      );
       CREATE INDEX idx_profile_runs_state ON profile_runs(state);
     `);
 
@@ -101,9 +113,10 @@ describe("profileStore.applySchema (upgrade path)", () => {
     // enterprise index against the not-yet-added column.
     expect(() => profileStore.applySchema(db)).not.toThrow();
 
-    // The new column, table, and index are all present after the upgrade.
+    // The new columns, table, and index are all present after the upgrade.
     expect(columns(db, "profile_runs")).toContain("enterprise_run_id");
     expect(columns(db, "profile_runs")).toContain("api_calls");
+    expect(columns(db, "profile_repos")).toContain("enriched");
     expect(hasIndex(db, "profile_runs", "idx_profile_runs_enterprise")).toBe(true);
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")

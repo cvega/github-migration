@@ -17,6 +17,7 @@ import {
   createProfileRun,
   failEnterpriseRun,
   failProfileRun,
+  getEnrichedRepoNames,
   getEnterpriseChildRuns,
   getEnterpriseRun,
   getProfileRun,
@@ -25,12 +26,14 @@ import {
   listProfileRuns,
   recordRepoProfile,
   refreshEnterpriseRunAggregates,
+  resetProfileRunForResume,
   setEnterpriseRunTotalOrgs,
   setProfileRunApiCalls,
   setProfileRunOrgResources,
   setProfileRunProfiled,
   setProfileRunRulesets,
   setProfileRunTotal,
+  setRepoEnriched,
 } from "./store";
 import type { RepoSignals } from "./types";
 
@@ -164,6 +167,43 @@ describe("setProfileRunProfiled", () => {
     // A later write reflects continued progress.
     setProfileRunProfiled("r", 250);
     expect(getProfileRun("r")?.profiledRepos).toBe(250);
+  });
+});
+
+describe("resume support (enriched marker + reset)", () => {
+  test("marks a repo enriched and lists the enriched set", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/b" }), profile("acme/b"));
+
+    expect(getEnrichedRepoNames("r").size).toBe(0); // default 0
+    setRepoEnriched("r", "acme/a");
+    expect([...getEnrichedRepoNames("r")]).toEqual(["acme/a"]);
+  });
+
+  test("re-recording a repo keeps its enriched flag (upsert doesn't reset it)", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+    setRepoEnriched("r", "acme/a");
+    // A later re-record (as a resumed pass would do) must not clear `enriched`.
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a", issuesCount: 9 }), profile("acme/a"));
+    expect(getEnrichedRepoNames("r").has("acme/a")).toBe(true);
+  });
+
+  test("reset flips a failed run back to running, keeping its repos", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+    setRepoEnriched("r", "acme/a");
+    failProfileRun("r", "Server restarted during profiling");
+
+    resetProfileRunForResume("r");
+    const run = getProfileRun("r");
+    expect(run?.state).toBe("running");
+    expect(run?.failureReason).toBeNull();
+    expect(run?.completedAt).toBeNull();
+    // The recorded repo and its enriched flag survive the reset.
+    expect(getRunRepoProfiles("r").map((p) => p.nameWithOwner)).toEqual(["acme/a"]);
+    expect(getEnrichedRepoNames("r").has("acme/a")).toBe(true);
   });
 });
 

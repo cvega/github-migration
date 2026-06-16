@@ -204,6 +204,38 @@ export function recordRepoProfile(
 }
 
 /**
+ * Mark a repo as fully enriched — it finished the final per-repo pass, so a
+ * resumed run can skip it. (`recordRepoProfile` never touches this flag, so
+ * re-recording a pending repo on resume keeps it pending until it's done.)
+ */
+export function setRepoEnriched(runId: string, nameWithOwner: string): void {
+  getDb()
+    .prepare(`UPDATE profile_repos SET enriched = 1 WHERE run_id = $id AND name_with_owner = $name`)
+    .run({ $id: runId, $name: nameWithOwner });
+}
+
+/** The names of repos already fully enriched in a run (skip set for a resume). */
+export function getEnrichedRepoNames(runId: string): Set<string> {
+  const rows = getDb()
+    .prepare(`SELECT name_with_owner FROM profile_repos WHERE run_id = $id AND enriched = 1`)
+    .all({ $id: runId }) as Array<{ name_with_owner: string }>;
+  return new Set(rows.map((r) => r.name_with_owner));
+}
+
+/**
+ * Reset an interrupted run to `running` so a resume can continue it — clears the
+ * terminal fields but keeps every recorded repo (and its `enriched` flag) intact.
+ */
+export function resetProfileRunForResume(runId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE profile_runs SET state = 'running', failure_reason = NULL, completed_at = NULL
+       WHERE id = $id`,
+    )
+    .run({ $id: runId });
+}
+
+/**
  * Mark a run completed, recomputing its aggregates from the recorded repos so
  * the totals are authoritative regardless of how many times a repo was written.
  */

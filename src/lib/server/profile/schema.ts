@@ -52,7 +52,8 @@ const PROFILE_DDL = `
 
   -- One repository's consideration analysis within a run.
   -- UNIQUE(run_id, name_with_owner) makes re-recording idempotent (upsert),
-  -- which a resumed crawl relies on.
+  -- which a resumed crawl relies on. \`enriched\` marks a repo that finished the
+  -- final per-repo pass, so a resumed run can skip it.
   CREATE TABLE IF NOT EXISTS profile_repos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES profile_runs(id),
@@ -62,6 +63,7 @@ const PROFILE_DDL = `
     warnings INTEGER NOT NULL DEFAULT 0,
     infos INTEGER NOT NULL DEFAULT 0,
     applying_considerations TEXT NOT NULL DEFAULT '[]',
+    enriched INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     UNIQUE(run_id, name_with_owner)
   );
@@ -117,6 +119,7 @@ export const profileStore: DomainStore = {
     addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
     addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "enterprise_run_id", "TEXT");
+    addColumnIfMissing(db, "profile_repos", "enriched", "INTEGER NOT NULL DEFAULT 0");
     // Index the new column AFTER it's guaranteed to exist (a pre-existing DB
     // adds it via addColumnIfMissing above; the CREATE TABLE only covers fresh
     // DBs), so an upgrade doesn't fail building an index on a missing column.

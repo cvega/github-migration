@@ -26,13 +26,17 @@ import {
   completeProfileRun,
   createProfileRun,
   failProfileRun,
+  getEnrichedRepoNames,
   getProfileRun,
+  getRunRepoProfiles,
   recordRepoProfile,
+  resetProfileRunForResume,
   setProfileRunApiCalls,
   setProfileRunOrgResources,
   setProfileRunProfiled,
   setProfileRunRulesets,
   setProfileRunTotal,
+  setRepoEnriched,
 } from "./store";
 import {
   type OrgResources,
@@ -158,19 +162,37 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
  */
 export async function runProfile(
   clients: ProfileClients,
-  input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId?: string },
+  input: {
+    id: string;
+    org: string;
+    sourceApiUrl: string;
+    enterpriseRunId?: string;
+    resume?: boolean;
+  },
   onProgress?: (progress: ProfileProgress) => void,
   deps: Partial<ProfileRunnerDeps> = {},
 ): Promise<ProfileRun> {
   const d = { ...DEFAULT_DEPS, ...deps };
   const startedMs = Date.now();
-  createProfileRun({
-    id: input.id,
-    sourceApiUrl: input.sourceApiUrl,
-    org: input.org,
-    enterpriseRunId: input.enterpriseRunId,
-  });
-  console.log(`[profile] run ${input.id} started — org=${input.org}, source=${input.sourceApiUrl}`);
+  if (input.resume) {
+    // Resume an interrupted run: keep its recorded repos (and their `enriched`
+    // flags) and just flip it back to `running`. The passes below skip repos
+    // already enriched, so only the unfinished work is redone.
+    resetProfileRunForResume(input.id);
+    console.log(
+      `[profile] run ${input.id} resuming — org=${input.org}, source=${input.sourceApiUrl}`,
+    );
+  } else {
+    createProfileRun({
+      id: input.id,
+      sourceApiUrl: input.sourceApiUrl,
+      org: input.org,
+      enterpriseRunId: input.enterpriseRunId,
+    });
+    console.log(
+      `[profile] run ${input.id} started — org=${input.org}, source=${input.sourceApiUrl}`,
+    );
+  }
 
   try {
     // REST discovery lists the whole org cheaply. It doesn't report an org total
@@ -214,13 +236,33 @@ export async function runProfile(
     // before any enrichment. The two passes below fill each repo in place and
     // are best-effort: a transient GraphQL 502 in either enriches fewer repos
     // but can never empty the list or fail the run.
+    //
+    // On resume, repos already fully enriched are skipped entirely (their stored
+    // data is preserved); only the unfinished `pending` set is (re)processed.
+    const enriched = input.resume ? getEnrichedRepoNames(input.id) : new Set<string>();
+    const pending = input.resume
+      ? discovery.repos.filter((r) => !enriched.has(r.nameWithOwner))
+      : discovery.repos;
+
     const signalsByRepo = new Map<string, RepoSignals>();
-    for (const repo of discovery.repos) {
-      const base = baseSignals(repo);
-      signalsByRepo.set(repo.nameWithOwner, base);
-      recordRepoProfile(input.id, base, analyzeRepo(base));
+    if (input.resume) {
+      // Seed the working set from stored signals so a pass that fails to re-fetch
+      // keeps the repo's partial data; only record base for genuinely new repos
+      // (avoids zeroing a row that's already listed).
+      const stored = new Map(getRunRepoProfiles(input.id).map((p) => [p.nameWithOwner, p.signals]));
+      for (const repo of pending) {
+        const seed = stored.get(repo.nameWithOwner) ?? baseSignals(repo);
+        signalsByRepo.set(repo.nameWithOwner, seed);
+        if (!stored.has(repo.nameWithOwner)) recordRepoProfile(input.id, seed, analyzeRepo(seed));
+      }
+    } else {
+      for (const repo of pending) {
+        const base = baseSignals(repo);
+        signalsByRepo.set(repo.nameWithOwner, base);
+        recordRepoProfile(input.id, base, analyzeRepo(base));
+      }
     }
-    if (discovery.repos.length > 0) {
+    if (pending.length > 0) {
       // Nudge any live watcher to render the freshly-listed repos.
       onProgress?.({
         runId: input.id,
@@ -238,13 +280,11 @@ export async function runProfile(
     // chunk reaching this catch failed for some other reason — we log it and
     // move on, leaving those repos at their base signals rather than failing the
     // whole run.
-    let profiled = 0;
+    let profiled = enriched.size;
     {
       // Before counts land, disk usage (from REST discovery) is the only size
       // vector — chunk biggest-first so heavy repos are counted earliest.
-      const ordered = [...discovery.repos].sort(
-        (a, b) => (b.diskUsageKb ?? 0) - (a.diskUsageKb ?? 0),
-      );
+      const ordered = [...pending].sort((a, b) => (b.diskUsageKb ?? 0) - (a.diskUsageKb ?? 0));
       const chunks = chunk(ordered, COUNTS_CHUNK);
       let next = 0;
       const worker = async (): Promise<void> => {
@@ -297,7 +337,7 @@ export async function runProfile(
     // the size-vector risk score, so a run cut short still covered the riskiest
     // repos. Partition that ordered list by releases for the scan/no-scan batches.
     const signalsOf = (nameWithOwner: string) => signalsByRepo.get(nameWithOwner);
-    const byRisk = [...discovery.repos].sort(
+    const byRisk = [...pending].sort(
       (a, b) =>
         riskScore(signalsOf(b.nameWithOwner) ?? baseSignals(b)) -
         riskScore(signalsOf(a.nameWithOwner) ?? baseSignals(a)),
@@ -404,6 +444,9 @@ export async function runProfile(
             };
             signalsByRepo.set(r.nameWithOwner, merged);
             recordRepoProfile(input.id, merged, analyzeRepo(merged));
+            // This was the final per-repo pass — mark the repo enriched so a
+            // future resume skips it.
+            setRepoEnriched(input.id, r.nameWithOwner);
           } catch (err) {
             console.error(
               `[profile] run ${input.id} REST signals failed for ${r.nameWithOwner}:`,
