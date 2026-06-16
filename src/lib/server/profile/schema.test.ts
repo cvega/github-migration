@@ -9,7 +9,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { getDb, initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import { profileStore, recoverInterruptedProfiles } from "./schema";
-import { completeProfileRun, createProfileRun, failProfileRun, getProfileRun } from "./store";
+import {
+  completeProfileRun,
+  createEnterpriseRun,
+  createProfileRun,
+  failProfileRun,
+  getEnterpriseRun,
+  getProfileRun,
+} from "./store";
 
 const NOW = Date.parse("2026-06-14T00:00:00Z");
 
@@ -60,6 +67,20 @@ describe("recoverInterruptedProfiles", () => {
 
   test("is a no-op when nothing is running", () => {
     expect(() => recoverInterruptedProfiles(getDb(), NOW)).not.toThrow();
+  });
+
+  test("leaveStandaloneOrgRuns keeps standalone runs running, fails children", () => {
+    // A standalone org run and an enterprise run with a child org run.
+    createProfileRun({ id: "solo", sourceApiUrl: "u", org: "acme" });
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "child", sourceApiUrl: "u", org: "team", enterpriseRunId: "ent" });
+
+    recoverInterruptedProfiles(getDb(), NOW, { leaveStandaloneOrgRuns: true });
+
+    // Standalone is left for the service to resume; the child + enterprise fail.
+    expect(getProfileRun("solo")?.state).toBe("running");
+    expect(getProfileRun("child")?.state).toBe("failed");
+    expect(getEnterpriseRun("ent")?.state).toBe("failed");
   });
 });
 

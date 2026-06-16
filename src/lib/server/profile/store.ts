@@ -287,6 +287,22 @@ export function listProfileRuns(limit = 50): ProfileRun[] {
   return rows.map(rowToRun);
 }
 
+/**
+ * Standalone org runs still marked `running` — interrupted by a restart and
+ * eligible for the service to resume. Excludes child runs (those are driven by
+ * their enterprise run's resume).
+ */
+export function listStandaloneRunningProfileRuns(): ProfileRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${RUN_COLS} FROM profile_runs
+       WHERE state = 'running' AND enterprise_run_id IS NULL
+       ORDER BY started_at ASC`,
+    )
+    .all() as ProfileRunRow[];
+  return rows.map(rowToRun);
+}
+
 /** All per-repo profiles for a run, ordered by repository name. */
 export function getRunRepoProfiles(runId: string): StoredRepoProfile[] {
   const rows = getDb()

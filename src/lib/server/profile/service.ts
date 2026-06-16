@@ -7,7 +7,7 @@
  * injectable so the orchestration is testable against a real in-memory store
  * with no network.
  */
-import { getSourceClients } from "$lib/server/core/auth";
+import { getSourceClients, isSourceAuthAvailable } from "$lib/server/core/auth";
 import type { GitHubClient } from "$lib/server/core/github";
 import { runEnterpriseProfile } from "./enterprise-runner";
 import { type DurationEstimate, estimateDuration } from "./estimate";
@@ -17,10 +17,12 @@ import { getOrgResources } from "./org-resources";
 import { getOrgRulesetCount } from "./rulesets";
 import { type ProfileClients, runProfile } from "./runner";
 import {
+  failProfileRun,
   getEnterpriseChildRuns,
   getEnterpriseRun,
   getProfileRun,
   getRunRepoProfiles,
+  listStandaloneRunningProfileRuns,
 } from "./store";
 import { buildPreparationSummary, type PreparationSummary } from "./summary";
 import type { EnterpriseRun, ProfileRun, StoredRepoProfile } from "./types";
@@ -107,7 +109,13 @@ function runOrgWithSse(
   deps: ProfileServiceDeps,
   clients: ProfileClients,
   rest: GitHubClient,
-  input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId?: string },
+  input: {
+    id: string;
+    org: string;
+    sourceApiUrl: string;
+    enterpriseRunId?: string;
+    resume?: boolean;
+  },
 ): Promise<ProfileRun> {
   return deps
     .run(
@@ -207,6 +215,49 @@ export function startEnterpriseProfile(
   const run = getEnterpriseRun(id);
   if (!run) throw new Error("enterprise run was not created");
   return run;
+}
+
+/**
+ * Resume standalone org profiles interrupted by a restart. Called once at
+ * startup (after the store's `onInit` has left these runs `running`). Each
+ * resumed crawl reloads its recorded repos and reprocesses only the unfinished
+ * ones, then publishes SSE again so a watching page goes live.
+ *
+ * When no source credentials are configured the interrupted runs can't be
+ * resumed, so they're failed instead (freeing their detail page from polling a
+ * run that will never settle).
+ */
+export function resumeInterruptedProfiles(
+  deps: ProfileServiceDeps = DEFAULT_DEPS,
+  sourceAuthAvailable: () => boolean = isSourceAuthAvailable,
+): void {
+  const running = listStandaloneRunningProfileRuns();
+  if (running.length === 0) return;
+
+  if (!sourceAuthAvailable()) {
+    for (const r of running) {
+      failProfileRun(r.id, "Server restarted during profiling; no source credentials to resume");
+    }
+    console.log(
+      `[profile] failed ${running.length} interrupted run(s) — no source credentials to resume`,
+    );
+    return;
+  }
+
+  const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
+  const clients: ProfileClients = { gql, rest, getApiCalls };
+  for (const r of running) {
+    runOrgWithSse(deps, clients, rest, {
+      id: r.id,
+      org: r.org,
+      sourceApiUrl,
+      resume: true,
+    }).catch((err) => {
+      console.error(`[profile] resume of run ${r.id} crashed:`, err);
+      publishProfileEvent(r.id, { type: "done", state: "failed" });
+    });
+  }
+  console.log(`[profile] resuming ${running.length} interrupted profile run(s)`);
 }
 
 /** Assemble a run and its per-repo results, or null if the run is unknown. */

@@ -15,10 +15,19 @@ import { runProfile } from "./runner";
 import {
   getProfileDetail,
   type ProfileServiceDeps,
+  resumeInterruptedProfiles,
   startEnterpriseProfile,
   startOrgProfile,
 } from "./service";
-import { createProfileRun, getEnterpriseChildRuns, recordRepoProfile } from "./store";
+import {
+  createEnterpriseRun,
+  createProfileRun,
+  getEnrichedRepoNames,
+  getEnterpriseChildRuns,
+  getProfileRun,
+  recordRepoProfile,
+  setRepoEnriched,
+} from "./store";
 import type { DiscoveredRepo, OrgDiscovery, RepoSignals } from "./types";
 
 function discovered(name: string): DiscoveredRepo {
@@ -295,6 +304,60 @@ describe("startEnterpriseProfile", () => {
       "beta",
     ]);
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+});
+
+describe("resumeInterruptedProfiles", () => {
+  const emptyProfile = (nameWithOwner: string): RepoProfile => ({
+    nameWithOwner,
+    findings: [],
+    summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+  });
+
+  test("resumes a standalone running run, reprocessing only unfinished repos", async () => {
+    // An interrupted run: two repos recorded, one already enriched.
+    createProfileRun({ id: "rz", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("rz", signalsFor(discovered("a")), emptyProfile("acme/a"));
+    recordRepoProfile("rz", signalsFor(discovered("b")), emptyProfile("acme/b"));
+    setRepoEnriched("rz", "acme/a");
+
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")]);
+    resumeInterruptedProfiles(deps, () => true);
+    await state.runPromise;
+
+    // The unfinished repo is enriched and the run completes.
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/b"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+  });
+
+  test("fails interrupted runs when no source credentials are available", () => {
+    createProfileRun({ id: "rz", sourceApiUrl: "u", org: "acme" });
+    const { deps, state } = serviceDeps([]);
+
+    resumeInterruptedProfiles(deps, () => false);
+
+    expect(getProfileRun("rz")?.state).toBe("failed");
+    expect(getProfileRun("rz")?.failureReason).toMatch(/no source credentials/i);
+    // It never built a client when it can't resume.
+    expect(state.gqlBuilt).toBe(0);
+  });
+
+  test("is a no-op when nothing is running", () => {
+    const { deps } = serviceDeps([]);
+    expect(() => resumeInterruptedProfiles(deps, () => true)).not.toThrow();
+  });
+
+  test("leaves enterprise child runs alone (only standalone runs resume)", () => {
+    // A child org run (linked to an enterprise) is not a standalone run.
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "child", sourceApiUrl: "u", org: "team", enterpriseRunId: "ent" });
+    const { deps, state } = serviceDeps([discovered("a")]);
+
+    resumeInterruptedProfiles(deps, () => true);
+
+    // The child wasn't picked up — no client built, no dispatch.
+    expect(state.gqlBuilt).toBe(0);
+    expect(getProfileRun("child")?.state).toBe("running");
   });
 });
 
