@@ -9,11 +9,17 @@ import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import type { RepoDetails } from "./augment";
+import { runEnterpriseProfile } from "./enterprise-runner";
 import { type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
-import { getProfileDetail, type ProfileServiceDeps, startOrgProfile } from "./service";
-import { createProfileRun, recordRepoProfile } from "./store";
-import type { DiscoveredRepo, OrgDiscovery, ProfileRun, RepoSignals } from "./types";
+import {
+  getProfileDetail,
+  type ProfileServiceDeps,
+  startEnterpriseProfile,
+  startOrgProfile,
+} from "./service";
+import { createProfileRun, getEnterpriseChildRuns, recordRepoProfile } from "./store";
+import type { DiscoveredRepo, OrgDiscovery, RepoSignals } from "./types";
 
 function discovered(name: string): DiscoveredRepo {
   return {
@@ -85,8 +91,9 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
 function serviceDeps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
+  orgs: string[] = [],
 ) {
-  const state: { runPromise?: Promise<ProfileRun>; gqlBuilt: number; lastInput?: unknown } = {
+  const state: { runPromise?: Promise<unknown>; gqlBuilt: number; lastInput?: unknown } = {
     gqlBuilt: 0,
   };
   const deps: ProfileServiceDeps = {
@@ -101,7 +108,7 @@ function serviceDeps(
     },
     run: (clients, input, onProgress) => {
       state.lastInput = input;
-      state.runPromise = runProfile(clients, input, onProgress, {
+      const runPromise = runProfile(clients, input, onProgress, {
         discover: async (): Promise<OrgDiscovery> => ({
           org: input.org,
           total: repos.length,
@@ -119,7 +126,18 @@ function serviceDeps(
           tagProtectionCount: augmentOver[r.name]?.tagProtectionCount ?? 0,
         }),
       });
-      return state.runPromise;
+      state.runPromise = runPromise;
+      return runPromise;
+    },
+    runEnterprise: (clients, input, onProgress, edeps) => {
+      let n = 0;
+      const promise = runEnterpriseProfile(clients, input, onProgress, {
+        ...edeps,
+        discoverOrgs: async () => orgs,
+        newId: () => `child-${n++}`,
+      });
+      state.runPromise = promise;
+      return promise;
     },
     newId: () => "fixed-run-id",
   };
@@ -172,6 +190,7 @@ describe("startOrgProfile", () => {
         throw new Error("No source token provided and no source GitHub App configured");
       },
       run: () => Promise.resolve({} as never),
+      runEnterprise: () => Promise.resolve({} as never),
       newId: () => "x",
     };
 
@@ -205,6 +224,52 @@ describe("startOrgProfile", () => {
       { type: "progress", profiled: 1, total: 2, repo: "acme/a", phase: "counting" },
       { type: "progress", profiled: 2, total: 2, repo: "acme/b", phase: "counting" },
     ]);
+    expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+});
+
+describe("startEnterpriseProfile", () => {
+  test("creates the enterprise run synchronously and returns it running", () => {
+    const { deps } = serviceDeps([], {}, ["alpha", "beta"]);
+
+    const run = startEnterpriseProfile("acme-inc", deps);
+
+    expect(run.id).toBe("fixed-run-id");
+    expect(run.enterpriseSlug).toBe("acme-inc");
+    expect(run.sourceApiUrl).toBe("https://ghes.example.com/api/v3");
+    expect(run.state).toBe("running");
+  });
+
+  test("runs a child org profile per enumerated org and aggregates them", async () => {
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")], {}, ["alpha", "beta"]);
+
+    const run = startEnterpriseProfile("acme-inc", deps);
+    await state.runPromise; // let the enterprise crawl finish
+
+    const children = getEnterpriseChildRuns(run.id);
+    expect(children.map((c) => c.org)).toEqual(["alpha", "beta"]);
+    // Each child is linked to the enterprise and profiled the two repos.
+    expect(children.every((c) => c.enterpriseRunId === run.id)).toBe(true);
+    expect(children.every((c) => c.state === "completed")).toBe(true);
+    expect(children.every((c) => c.totalRepos === 2)).toBe(true);
+  });
+
+  test("publishes each child org's own SSE (child detail pages stay live)", async () => {
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["alpha"]);
+
+    startEnterpriseProfile("acme-inc", deps);
+    // The child run id is deterministic in the test harness ("child-0").
+    const frames: string[] = [];
+    subscribeProfile("child-0", {
+      enqueue: (f: string) => frames.push(f),
+    } as unknown as ReadableStreamDefaultController<string>);
+
+    await state.runPromise;
+
+    const events = frames.map(
+      (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as ProfileSseEvent,
+    );
+    // The child terminal `done` is published, so its detail page settles.
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
   });
 });

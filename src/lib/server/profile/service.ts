@@ -8,26 +8,30 @@
  * with no network.
  */
 import { getSourceClients } from "$lib/server/core/auth";
+import type { GitHubClient } from "$lib/server/core/github";
+import { runEnterpriseProfile } from "./enterprise-runner";
 import { type DurationEstimate, estimateDuration } from "./estimate";
 import { publishProfileEvent } from "./events";
 import { deriveInsights, type Insight } from "./insights";
 import { getOrgResources } from "./org-resources";
 import { getOrgRulesetCount } from "./rulesets";
-import { runProfile } from "./runner";
-import { getProfileRun, getRunRepoProfiles } from "./store";
+import { type ProfileClients, runProfile } from "./runner";
+import { getEnterpriseRun, getProfileRun, getRunRepoProfiles } from "./store";
 import { buildPreparationSummary, type PreparationSummary } from "./summary";
-import type { ProfileRun, StoredRepoProfile } from "./types";
+import type { EnterpriseRun, ProfileRun, StoredRepoProfile } from "./types";
 
 /** Injectable service dependencies (defaults use the real implementations). */
 export interface ProfileServiceDeps {
   buildSourceClients: typeof getSourceClients;
   run: typeof runProfile;
+  runEnterprise: typeof runEnterpriseProfile;
   newId: () => string;
 }
 
 const DEFAULT_DEPS: ProfileServiceDeps = {
   buildSourceClients: getSourceClients,
   run: runProfile,
+  runEnterprise: runEnterpriseProfile,
   newId: () => Bun.randomUUIDv7(),
 };
 
@@ -89,6 +93,41 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
 }
 
 /**
+ * Run one org profile that publishes its own SSE (per-repo progress + a terminal
+ * `done`) and gathers org-level resources over REST. Shared by the standalone
+ * org path and the enterprise child path, so a child org's detail page is just
+ * as live as a standalone run's. Resolves with the settled run.
+ */
+function runOrgWithSse(
+  deps: ProfileServiceDeps,
+  clients: ProfileClients,
+  rest: GitHubClient,
+  input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId?: string },
+): Promise<ProfileRun> {
+  return deps
+    .run(
+      clients,
+      input,
+      (p) =>
+        publishProfileEvent(input.id, {
+          type: "progress",
+          profiled: p.profiled,
+          total: p.total,
+          repo: p.repo,
+          phase: p.phase,
+        }),
+      {
+        getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target),
+        getOrgResources: (target) => getOrgResources(rest, target),
+      },
+    )
+    .then((run) => {
+      publishProfileEvent(input.id, { type: "done", state: run.state });
+      return run;
+    });
+}
+
+/**
  * Start profiling an organization in the background.
  *
  * The run record is created synchronously (the runner creates it before its
@@ -105,33 +144,49 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
   const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
   const id = deps.newId();
 
-  deps
-    .run(
-      { gql, rest, getApiCalls },
-      { id, org, sourceApiUrl },
-      (p) =>
-        publishProfileEvent(id, {
-          type: "progress",
-          profiled: p.profiled,
-          total: p.total,
-          repo: p.repo,
-          phase: p.phase,
-        }),
-      {
-        getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target),
-        getOrgResources: (target) => getOrgResources(rest, target),
-      },
-    )
-    .then((run) => publishProfileEvent(id, { type: "done", state: run.state }))
-    .catch((err) => {
-      // The runner already persists failures on the run; this guards against an
-      // unexpected throw escaping the background promise.
-      console.error(`[profile] run ${id} crashed:`, err);
-      publishProfileEvent(id, { type: "done", state: "failed" });
-    });
+  runOrgWithSse(deps, { gql, rest, getApiCalls }, rest, { id, org, sourceApiUrl }).catch((err) => {
+    // The runner already persists failures on the run; this guards against an
+    // unexpected throw escaping the background promise.
+    console.error(`[profile] run ${id} crashed:`, err);
+    publishProfileEvent(id, { type: "done", state: "failed" });
+  });
 
   const run = getProfileRun(id);
   if (!run) throw new Error("profile run was not created");
+  return run;
+}
+
+/**
+ * Start profiling an entire enterprise in the background: enumerate its orgs and
+ * run one child org profile per org. The enterprise run is created synchronously
+ * (so the returned run is immediately queryable), then the crawl proceeds
+ * without blocking the request. Each child org publishes its own SSE, so any
+ * org's detail page stays live; the enterprise run is the source of truth for
+ * the aggregate roll-up.
+ *
+ * @throws when no source credentials are configured (the route maps this to a
+ *         400 before the crawl starts).
+ */
+export function startEnterpriseProfile(
+  enterpriseSlug: string,
+  deps: ProfileServiceDeps = DEFAULT_DEPS,
+): EnterpriseRun {
+  const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
+  const clients: ProfileClients = { gql, rest, getApiCalls };
+  const id = deps.newId();
+
+  deps
+    .runEnterprise(clients, { id, enterpriseSlug, sourceApiUrl }, undefined, {
+      runOrg: (c, input) => runOrgWithSse(deps, c, rest, input),
+    })
+    .catch((err) => {
+      // The enterprise runner persists failures on the run; this guards against
+      // an unexpected throw escaping the background promise.
+      console.error(`[profile] enterprise run ${id} crashed:`, err);
+    });
+
+  const run = getEnterpriseRun(id);
+  if (!run) throw new Error("enterprise run was not created");
   return run;
 }
 
