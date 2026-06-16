@@ -1,0 +1,177 @@
+/**
+ * Enterprise runner — orchestrates an enterprise-scoped readiness profile:
+ *
+ *   enumerate orgs → profile each org (child run) → aggregate → persist
+ *
+ * It owns the enterprise run lifecycle: it creates the run, records the org
+ * total, spawns one child {@link runProfile} per organization (bounded so the
+ * combined API pressure stays sane), refreshes the parent's aggregates as each
+ * child settles, and marks the enterprise run completed — or, if org
+ * enumeration fails, marks it failed with the reason. Like the org runner it
+ * never throws for a profiling failure; the persisted enterprise run is the
+ * source of truth.
+ *
+ * The crawl primitives (`discoverOrgs`, `runOrg`) are injected with real
+ * defaults, so the orchestration — enumeration, bounded fan-out, aggregate
+ * refresh, progress, and failure handling — is unit-testable against a real
+ * in-memory store without a network.
+ */
+import { discoverEnterpriseOrgs } from "./enterprise";
+import type { ProfileClients } from "./runner";
+import { runProfile } from "./runner";
+import {
+  completeEnterpriseRun,
+  createEnterpriseRun,
+  failEnterpriseRun,
+  getEnterpriseRun,
+  refreshEnterpriseRunAggregates,
+  setEnterpriseRunTotalOrgs,
+} from "./store";
+import type { EnterpriseProgress, EnterpriseRun, ProfileRun } from "./types";
+
+/**
+ * How many organizations are profiled concurrently. Each org's `runProfile`
+ * already pools its own per-repo requests, so running several orgs at once
+ * multiplies API pressure; keep this low to stay well under rate limits while
+ * still overlapping wall-clock.
+ */
+const ORG_CONCURRENCY = 2;
+
+/** Injectable enterprise-crawl primitives (defaults hit the real helpers). */
+export interface EnterpriseRunnerDeps {
+  /** List the enterprise's organization logins (GraphQL). */
+  discoverOrgs: typeof discoverEnterpriseOrgs;
+  /**
+   * Profile one organization as a child of this enterprise run. The service
+   * binds this to {@link runProfile} with a child-scoped SSE publisher and the
+   * REST-backed org-resource deps; the default is a bare `runProfile`.
+   */
+  runOrg: (
+    clients: ProfileClients,
+    input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId: string },
+  ) => Promise<ProfileRun>;
+  /** Generate a child run id. */
+  newId: () => string;
+}
+
+const DEFAULT_DEPS: EnterpriseRunnerDeps = {
+  discoverOrgs: discoverEnterpriseOrgs,
+  runOrg: (clients, input) => runProfile(clients, input),
+  newId: () => Bun.randomUUIDv7(),
+};
+
+/** Concise failure reason from an enumeration error (mirrors the org runner). */
+function describeError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { status?: number; message?: string };
+    const parts: string[] = [];
+    if (typeof e.status === "number") parts.push(`HTTP ${e.status}`);
+    if (e.message) parts.push(e.message);
+    if (parts.length > 0) return parts.join(": ");
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Profile an entire enterprise: enumerate its organizations and run one child
+ * org profile per org, aggregating their results onto the enterprise run.
+ *
+ * The enterprise run is created synchronously (before the first `await`), so the
+ * caller can return it immediately while the crawl proceeds in the background.
+ *
+ * @param clients    Injected source clients (GraphQL enumeration, plus whatever
+ *                   each child org run needs).
+ * @param input      Run id, enterprise slug, and the source API URL.
+ * @param onProgress Optional enterprise-level progress callback (drives SSE).
+ * @param deps       Injectable crawl primitives (defaults to the real ones).
+ * @returns          The final persisted enterprise run — `completed` or `failed`.
+ */
+export async function runEnterpriseProfile(
+  clients: ProfileClients,
+  input: { id: string; enterpriseSlug: string; sourceApiUrl: string },
+  onProgress?: (progress: EnterpriseProgress) => void,
+  deps: Partial<EnterpriseRunnerDeps> = {},
+): Promise<EnterpriseRun> {
+  const d = { ...DEFAULT_DEPS, ...deps };
+  const startedMs = Date.now();
+  createEnterpriseRun({
+    id: input.id,
+    sourceApiUrl: input.sourceApiUrl,
+    enterpriseSlug: input.enterpriseSlug,
+  });
+  console.log(
+    `[profile] enterprise run ${input.id} started — slug=${input.enterpriseSlug}, source=${input.sourceApiUrl}`,
+  );
+
+  try {
+    onProgress?.({
+      enterpriseRunId: input.id,
+      phase: "enumerating",
+      totalOrgs: 0,
+      profiledOrgs: 0,
+      org: "",
+    });
+
+    const orgs = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+    setEnterpriseRunTotalOrgs(input.id, orgs.length);
+    console.log(
+      `[profile] enterprise run ${input.id} enumerated ${orgs.length} org(s) in ${Date.now() - startedMs}ms`,
+    );
+    onProgress?.({
+      enterpriseRunId: input.id,
+      phase: "organizations",
+      totalOrgs: orgs.length,
+      profiledOrgs: 0,
+      org: "",
+    });
+
+    // Fan out child org runs with bounded concurrency. Each child is best-effort
+    // (runProfile records its own failure on the child run and never throws), so
+    // one bad org doesn't abort the enterprise crawl. As each settles, refresh
+    // the parent's aggregates and nudge any live watcher.
+    let settled = 0;
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < orgs.length) {
+        const org = orgs[next++];
+        if (!org) break;
+        await d.runOrg(clients, {
+          id: d.newId(),
+          org,
+          sourceApiUrl: input.sourceApiUrl,
+          enterpriseRunId: input.id,
+        });
+        settled += 1;
+        refreshEnterpriseRunAggregates(input.id);
+        onProgress?.({
+          enterpriseRunId: input.id,
+          phase: "organizations",
+          totalOrgs: orgs.length,
+          profiledOrgs: settled,
+          org,
+        });
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(ORG_CONCURRENCY, orgs.length) }, () => worker()),
+    );
+
+    completeEnterpriseRun(input.id);
+    const completed = getEnterpriseRun(input.id);
+    console.log(
+      `[profile] enterprise run ${input.id} completed — ${completed?.profiledOrgs ?? 0} org(s), ` +
+        `${completed?.totalRepos ?? 0} repo(s) in ${Date.now() - startedMs}ms`,
+    );
+  } catch (err) {
+    const reason = describeError(err);
+    console.error(
+      `[profile] enterprise run ${input.id} failed after ${Date.now() - startedMs}ms — ${reason}`,
+      err,
+    );
+    failEnterpriseRun(input.id, reason);
+  }
+
+  const run = getEnterpriseRun(input.id);
+  if (!run) throw new Error(`Enterprise run '${input.id}' vanished after execution`);
+  return run;
+}

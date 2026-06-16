@@ -307,3 +307,22 @@ export interface ProfileProgress {
  *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
  */
 export type ProfilePhase = "discovering" | "organization" | "counting" | "details" | "signals";
+
+/**
+ * The enterprise crawl's coarse phases:
+ *   - `enumerating` — listing the enterprise's organizations (GraphQL).
+ *   - `organizations` — profiling each org as a child run.
+ */
+type EnterprisePhase = "enumerating" | "organizations";
+
+/** Progress emitted by the enterprise runner as orgs are enumerated and settle. */
+export interface EnterpriseProgress {
+  enterpriseRunId: string;
+  phase: EnterprisePhase;
+  /** Organizations discovered (0 until enumeration completes). */
+  totalOrgs: number;
+  /** Child org runs that have reached a terminal state so far. */
+  profiledOrgs: number;
+  /** The org just settled (`owner` login), or "" for a phase-only nudge. */
+  org: string;
+}

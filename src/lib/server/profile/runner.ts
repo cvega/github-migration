@@ -157,13 +157,18 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
  */
 export async function runProfile(
   clients: ProfileClients,
-  input: { id: string; org: string; sourceApiUrl: string },
+  input: { id: string; org: string; sourceApiUrl: string; enterpriseRunId?: string },
   onProgress?: (progress: ProfileProgress) => void,
   deps: Partial<ProfileRunnerDeps> = {},
 ): Promise<ProfileRun> {
   const d = { ...DEFAULT_DEPS, ...deps };
   const startedMs = Date.now();
-  createProfileRun({ id: input.id, sourceApiUrl: input.sourceApiUrl, org: input.org });
+  createProfileRun({
+    id: input.id,
+    sourceApiUrl: input.sourceApiUrl,
+    org: input.org,
+    enterpriseRunId: input.enterpriseRunId,
+  });
   console.log(`[profile] run ${input.id} started — org=${input.org}, source=${input.sourceApiUrl}`);
 
   try {
