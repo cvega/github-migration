@@ -234,6 +234,37 @@ export interface ProfileRun {
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;
+  /** The enterprise run this org belongs to, or null for a standalone org run. */
+  enterpriseRunId: string | null;
+}
+
+/**
+ * An enterprise-scoped profiling run: a parent that fans out to one child
+ * {@link ProfileRun} per organization in the enterprise. Its aggregate counters
+ * are recomputed from its child runs as they complete, so the enterprise view
+ * stays correct even while some orgs are still crawling.
+ */
+export interface EnterpriseRun {
+  id: string;
+  /** The enterprise URL slug (not the display name) being profiled. */
+  enterpriseSlug: string;
+  sourceApiUrl: string;
+  state: ProfileRunState;
+  /** Organizations discovered in the enterprise, set once enumeration completes. */
+  totalOrgs: number;
+  /** Child org runs that have reached a terminal state (completed or failed). */
+  profiledOrgs: number;
+  /** Repositories across all child runs (sum, recomputed as children settle). */
+  totalRepos: number;
+  /** Repositories profiled across all child runs (sum). */
+  profiledRepos: number;
+  /** Total applying blocker-severity gaps across all child runs. */
+  blockers: number;
+  /** Total applying warn-severity gaps across all child runs. */
+  warnings: number;
+  startedAt: string;
+  completedAt: string | null;
+  failureReason: string | null;
 }
 
 /** A persisted finding — applying considerations only, keyed by registry id. */

@@ -9,13 +9,34 @@ import type { Database } from "bun:sqlite";
 import { addColumnIfMissing, type DomainStore } from "$lib/server/core/db";
 
 const PROFILE_DDL = `
+  -- An enterprise-scoped readiness crawl: a parent that fans out to one child
+  -- profile_runs row per organization. Aggregate counters are recomputed from
+  -- its children as they settle.
+  CREATE TABLE IF NOT EXISTS profile_enterprise_runs (
+    id TEXT PRIMARY KEY,
+    source_api_url TEXT NOT NULL,
+    enterprise_slug TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'running',
+    total_orgs INTEGER NOT NULL DEFAULT 0,
+    profiled_orgs INTEGER NOT NULL DEFAULT 0,
+    total_repos INTEGER NOT NULL DEFAULT 0,
+    profiled_repos INTEGER NOT NULL DEFAULT 0,
+    blockers INTEGER NOT NULL DEFAULT 0,
+    warnings INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    failure_reason TEXT
+  );
+
   -- An organization-scoped readiness crawl. Aggregate counters (profiled_repos,
   -- blockers, warnings) are recomputed from profile_repos at completion, so they
-  -- stay correct even if a repo is re-recorded on a resumed run.
+  -- stay correct even if a repo is re-recorded on a resumed run. A run may belong
+  -- to an enterprise run (enterprise_run_id) or stand alone (NULL).
   CREATE TABLE IF NOT EXISTS profile_runs (
     id TEXT PRIMARY KEY,
     source_api_url TEXT NOT NULL,
     org TEXT NOT NULL,
+    enterprise_run_id TEXT REFERENCES profile_enterprise_runs(id),
     state TEXT NOT NULL DEFAULT 'running',
     total_repos INTEGER NOT NULL DEFAULT 0,
     profiled_repos INTEGER NOT NULL DEFAULT 0,
@@ -47,6 +68,8 @@ const PROFILE_DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_profile_repos_run_id ON profile_repos(run_id);
   CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state);
+  CREATE INDEX IF NOT EXISTS idx_profile_runs_enterprise ON profile_runs(enterprise_run_id);
+  CREATE INDEX IF NOT EXISTS idx_profile_enterprise_runs_state ON profile_enterprise_runs(state);
 `;
 
 /**
@@ -57,6 +80,7 @@ const PROFILE_DDL = `
  * failed frees the run-detail page from polling a run that will never settle.
  */
 export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.now()): void {
+  const isoNow = new Date(nowMs).toISOString();
   const orphaned = db
     .prepare(
       `UPDATE profile_runs
@@ -65,9 +89,23 @@ export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.no
            completed_at = ?
        WHERE state = 'running'`,
     )
-    .run(new Date(nowMs).toISOString());
+    .run(isoNow);
   if (orphaned.changes > 0) {
     console.log(`[profile] Marked ${orphaned.changes} interrupted profiling run(s) as failed`);
+  }
+  const orphanedEnterprises = db
+    .prepare(
+      `UPDATE profile_enterprise_runs
+       SET state = 'failed',
+           failure_reason = 'Server restarted during profiling',
+           completed_at = ?
+       WHERE state = 'running'`,
+    )
+    .run(isoNow);
+  if (orphanedEnterprises.changes > 0) {
+    console.log(
+      `[profile] Marked ${orphanedEnterprises.changes} interrupted enterprise run(s) as failed`,
+    );
   }
 }
 
@@ -79,6 +117,7 @@ export const profileStore: DomainStore = {
     addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
     addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(db, "profile_runs", "enterprise_run_id", "TEXT");
   },
   onInit: recoverInterruptedProfiles,
 };

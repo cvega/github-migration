@@ -12,6 +12,7 @@
 import { getDb } from "$lib/server/core/db";
 import type { RepoProfile } from "./analyze";
 import {
+  type EnterpriseRun,
   type OrgResources,
   type ProfileRun,
   type ProfileRunState,
@@ -26,6 +27,7 @@ interface ProfileRunRow {
   id: string;
   source_api_url: string;
   org: string;
+  enterprise_run_id: string | null;
   state: string;
   total_repos: number;
   profiled_repos: number;
@@ -50,7 +52,7 @@ interface ProfileRepoRow {
 }
 
 const RUN_COLS =
-  "id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
+  "id, source_api_url, org, enterprise_run_id, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
 
 /** Parse JSON from a DB column, falling back to a default on malformed data. */
 function safeParse<T>(json: string, fallback: T): T {
@@ -80,6 +82,7 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     failureReason: row.failure_reason,
+    enterpriseRunId: row.enterprise_run_id,
   };
 }
 
@@ -99,15 +102,23 @@ export function createProfileRun(input: {
   id: string;
   sourceApiUrl: string;
   org: string;
+  /** Parent enterprise run, when this org is profiled as part of one. */
+  enterpriseRunId?: string;
   nowMs?: number;
 }): ProfileRun {
   const startedAt = new Date(input.nowMs ?? Date.now()).toISOString();
   getDb()
     .prepare(
-      `INSERT INTO profile_runs (id, source_api_url, org, state, started_at)
-       VALUES ($id, $url, $org, 'running', $started_at)`,
+      `INSERT INTO profile_runs (id, source_api_url, org, enterprise_run_id, state, started_at)
+       VALUES ($id, $url, $org, $enterprise_run_id, 'running', $started_at)`,
     )
-    .run({ $id: input.id, $url: input.sourceApiUrl, $org: input.org, $started_at: startedAt });
+    .run({
+      $id: input.id,
+      $url: input.sourceApiUrl,
+      $org: input.org,
+      $enterprise_run_id: input.enterpriseRunId ?? null,
+      $started_at: startedAt,
+    });
   const run = getProfileRun(input.id);
   if (!run) throw new Error(`Failed to create profile run '${input.id}'`);
   return run;
@@ -220,10 +231,14 @@ export function getProfileRun(id: string): ProfileRun | null {
   return row ? rowToRun(row) : null;
 }
 
-/** List runs, most recent first. */
+/** List standalone runs (not part of an enterprise run), most recent first. */
 export function listProfileRuns(limit = 50): ProfileRun[] {
   const rows = getDb()
-    .prepare(`SELECT ${RUN_COLS} FROM profile_runs ORDER BY started_at DESC LIMIT $limit`)
+    .prepare(
+      `SELECT ${RUN_COLS} FROM profile_runs
+       WHERE enterprise_run_id IS NULL
+       ORDER BY started_at DESC LIMIT $limit`,
+    )
     .all({ $limit: limit }) as ProfileRunRow[];
   return rows.map(rowToRun);
 }
@@ -237,4 +252,148 @@ export function getRunRepoProfiles(runId: string): StoredRepoProfile[] {
     )
     .all({ $id: runId }) as ProfileRepoRow[];
   return rows.map(rowToRepoProfile);
+}
+
+// ── Enterprise runs ─────────────────────────────────────────────────────────
+
+/** Raw `profile_enterprise_runs` row shape. */
+interface EnterpriseRunRow {
+  id: string;
+  source_api_url: string;
+  enterprise_slug: string;
+  state: string;
+  total_orgs: number;
+  profiled_orgs: number;
+  total_repos: number;
+  profiled_repos: number;
+  blockers: number;
+  warnings: number;
+  started_at: string;
+  completed_at: string | null;
+  failure_reason: string | null;
+}
+
+const ENTERPRISE_COLS =
+  "id, source_api_url, enterprise_slug, state, total_orgs, profiled_orgs, total_repos, profiled_repos, blockers, warnings, started_at, completed_at, failure_reason";
+
+function rowToEnterpriseRun(row: EnterpriseRunRow): EnterpriseRun {
+  return {
+    id: row.id,
+    sourceApiUrl: row.source_api_url,
+    enterpriseSlug: row.enterprise_slug,
+    state: row.state as ProfileRunState,
+    totalOrgs: row.total_orgs,
+    profiledOrgs: row.profiled_orgs,
+    totalRepos: row.total_repos,
+    profiledRepos: row.profiled_repos,
+    blockers: row.blockers,
+    warnings: row.warnings,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    failureReason: row.failure_reason,
+  };
+}
+
+/** Create a new enterprise run in the `running` state. */
+export function createEnterpriseRun(input: {
+  id: string;
+  sourceApiUrl: string;
+  enterpriseSlug: string;
+  nowMs?: number;
+}): EnterpriseRun {
+  const startedAt = new Date(input.nowMs ?? Date.now()).toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO profile_enterprise_runs (id, source_api_url, enterprise_slug, state, started_at)
+       VALUES ($id, $url, $slug, 'running', $started_at)`,
+    )
+    .run({
+      $id: input.id,
+      $url: input.sourceApiUrl,
+      $slug: input.enterpriseSlug,
+      $started_at: startedAt,
+    });
+  const run = getEnterpriseRun(input.id);
+  if (!run) throw new Error(`Failed to create enterprise run '${input.id}'`);
+  return run;
+}
+
+/** Record the enterprise's organization total once enumeration reports it. */
+export function setEnterpriseRunTotalOrgs(runId: string, total: number): void {
+  getDb()
+    .prepare(`UPDATE profile_enterprise_runs SET total_orgs = $total WHERE id = $id`)
+    .run({ $total: total, $id: runId });
+}
+
+/**
+ * Recompute an enterprise run's aggregate counters from its child org runs:
+ * how many have settled, and the summed repo/blocker/warning totals. Called as
+ * each child completes so the enterprise view stays live.
+ */
+export function refreshEnterpriseRunAggregates(runId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE profile_enterprise_runs SET
+         profiled_orgs = (SELECT COUNT(*) FROM profile_runs
+                          WHERE enterprise_run_id = $id AND state IN ('completed', 'failed')),
+         total_repos = (SELECT COALESCE(SUM(total_repos), 0) FROM profile_runs WHERE enterprise_run_id = $id),
+         profiled_repos = (SELECT COALESCE(SUM(profiled_repos), 0) FROM profile_runs WHERE enterprise_run_id = $id),
+         blockers = (SELECT COALESCE(SUM(blockers), 0) FROM profile_runs WHERE enterprise_run_id = $id),
+         warnings = (SELECT COALESCE(SUM(warnings), 0) FROM profile_runs WHERE enterprise_run_id = $id)
+       WHERE id = $id`,
+    )
+    .run({ $id: runId });
+}
+
+/** Mark an enterprise run completed, refreshing its aggregates first. */
+export function completeEnterpriseRun(runId: string, nowMs?: number): void {
+  refreshEnterpriseRunAggregates(runId);
+  getDb()
+    .prepare(
+      `UPDATE profile_enterprise_runs SET state = 'completed', completed_at = $completed_at WHERE id = $id`,
+    )
+    .run({ $id: runId, $completed_at: new Date(nowMs ?? Date.now()).toISOString() });
+}
+
+/** Mark an enterprise run failed with a reason (e.g. org enumeration threw). */
+export function failEnterpriseRun(runId: string, reason: string, nowMs?: number): void {
+  getDb()
+    .prepare(
+      `UPDATE profile_enterprise_runs SET state = 'failed', failure_reason = $reason, completed_at = $completed_at
+       WHERE id = $id`,
+    )
+    .run({
+      $id: runId,
+      $reason: reason,
+      $completed_at: new Date(nowMs ?? Date.now()).toISOString(),
+    });
+}
+
+/** Fetch an enterprise run by id, or null if it doesn't exist. */
+export function getEnterpriseRun(id: string): EnterpriseRun | null {
+  const row = getDb()
+    .prepare(`SELECT ${ENTERPRISE_COLS} FROM profile_enterprise_runs WHERE id = $id`)
+    .get({ $id: id }) as EnterpriseRunRow | null;
+  return row ? rowToEnterpriseRun(row) : null;
+}
+
+/** List enterprise runs, most recent first. */
+export function listEnterpriseRuns(limit = 50): EnterpriseRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${ENTERPRISE_COLS} FROM profile_enterprise_runs ORDER BY started_at DESC LIMIT $limit`,
+    )
+    .all({ $limit: limit }) as EnterpriseRunRow[];
+  return rows.map(rowToEnterpriseRun);
+}
+
+/** All child org runs of an enterprise run, most recent first. */
+export function getEnterpriseChildRuns(enterpriseRunId: string): ProfileRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT ${RUN_COLS} FROM profile_runs
+       WHERE enterprise_run_id = $id ORDER BY org ASC`,
+    )
+    .all({ $id: enterpriseRunId }) as ProfileRunRow[];
+  return rows.map(rowToRun);
 }

@@ -11,13 +11,21 @@ import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import {
+  completeEnterpriseRun,
   completeProfileRun,
+  createEnterpriseRun,
   createProfileRun,
+  failEnterpriseRun,
   failProfileRun,
+  getEnterpriseChildRuns,
+  getEnterpriseRun,
   getProfileRun,
   getRunRepoProfiles,
+  listEnterpriseRuns,
   listProfileRuns,
   recordRepoProfile,
+  refreshEnterpriseRunAggregates,
+  setEnterpriseRunTotalOrgs,
   setProfileRunApiCalls,
   setProfileRunOrgResources,
   setProfileRunRulesets,
@@ -339,5 +347,113 @@ describe("listProfileRuns", () => {
 
   test("is empty when no runs exist", () => {
     expect(listProfileRuns()).toEqual([]);
+  });
+});
+
+describe("enterprise runs", () => {
+  test("creates an enterprise run in the running state", () => {
+    const run = createEnterpriseRun({
+      id: "ent-1",
+      sourceApiUrl: "https://api.github.com",
+      enterpriseSlug: "acme-inc",
+      nowMs: Date.parse("2026-06-15T10:00:00Z"),
+    });
+    expect(run).toMatchObject({
+      id: "ent-1",
+      enterpriseSlug: "acme-inc",
+      state: "running",
+      totalOrgs: 0,
+      profiledOrgs: 0,
+      totalRepos: 0,
+      blockers: 0,
+      warnings: 0,
+      completedAt: null,
+    });
+    expect(run.startedAt).toBe("2026-06-15T10:00:00.000Z");
+    expect(getEnterpriseRun("ent-1")).toEqual(run);
+    expect(getEnterpriseRun("nope")).toBeNull();
+  });
+
+  test("links child org runs and lists them by org", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    createProfileRun({ id: "c-zeta", sourceApiUrl: "u", org: "zeta", enterpriseRunId: "ent" });
+    createProfileRun({ id: "c-alpha", sourceApiUrl: "u", org: "alpha", enterpriseRunId: "ent" });
+    createProfileRun({ id: "standalone", sourceApiUrl: "u", org: "solo" });
+
+    expect(getEnterpriseChildRuns("ent").map((r) => r.org)).toEqual(["alpha", "zeta"]);
+    // Standalone runs carry no enterprise link and stay out of the child list.
+    expect(getProfileRun("standalone")?.enterpriseRunId).toBeNull();
+    expect(getProfileRun("c-alpha")?.enterpriseRunId).toBe("ent");
+  });
+
+  test("excludes child runs from the standalone listing", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    createProfileRun({ id: "child", sourceApiUrl: "u", org: "a", enterpriseRunId: "ent" });
+    createProfileRun({ id: "solo", sourceApiUrl: "u", org: "b" });
+
+    expect(listProfileRuns().map((r) => r.id)).toEqual(["solo"]);
+  });
+
+  test("refreshes aggregates from settled child runs", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    setEnterpriseRunTotalOrgs("ent", 2);
+    // Child A completes with 1 blocker, 2 warnings across 3 repos.
+    createProfileRun({ id: "a", sourceApiUrl: "u", org: "a", enterpriseRunId: "ent" });
+    recordRepoProfile("a", signals({ nameWithOwner: "a/r1" }), profile("a/r1", { blockers: 1 }));
+    recordRepoProfile("a", signals({ nameWithOwner: "a/r2" }), profile("a/r2", { warnings: 2 }));
+    recordRepoProfile("a", signals({ nameWithOwner: "a/r3" }), profile("a/r3"));
+    setProfileRunTotal("a", 3);
+    completeProfileRun("a");
+    // Child B still running (not yet settled).
+    createProfileRun({ id: "b", sourceApiUrl: "u", org: "b", enterpriseRunId: "ent" });
+    setProfileRunTotal("b", 5);
+
+    refreshEnterpriseRunAggregates("ent");
+    const ent = getEnterpriseRun("ent");
+    expect(ent?.totalOrgs).toBe(2);
+    expect(ent?.profiledOrgs).toBe(1); // only A has settled
+    expect(ent?.totalRepos).toBe(8); // 3 + 5
+    expect(ent?.profiledRepos).toBe(3); // only A recorded repos
+    expect(ent?.blockers).toBe(1);
+    expect(ent?.warnings).toBe(2);
+  });
+
+  test("completing an enterprise run refreshes aggregates and marks completed", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    createProfileRun({ id: "a", sourceApiUrl: "u", org: "a", enterpriseRunId: "ent" });
+    recordRepoProfile("a", signals({ nameWithOwner: "a/r1" }), profile("a/r1", { blockers: 1 }));
+    completeProfileRun("a");
+
+    completeEnterpriseRun("ent", Date.parse("2026-06-15T11:00:00Z"));
+    const ent = getEnterpriseRun("ent");
+    expect(ent?.state).toBe("completed");
+    expect(ent?.profiledOrgs).toBe(1);
+    expect(ent?.blockers).toBe(1);
+    expect(ent?.completedAt).toBe("2026-06-15T11:00:00.000Z");
+  });
+
+  test("failing an enterprise run records the reason", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    failEnterpriseRun("ent", "enterprise not found", Date.parse("2026-06-15T11:00:00Z"));
+    const ent = getEnterpriseRun("ent");
+    expect(ent?.state).toBe("failed");
+    expect(ent?.failureReason).toBe("enterprise not found");
+    expect(ent?.completedAt).toBe("2026-06-15T11:00:00.000Z");
+  });
+
+  test("lists enterprise runs most-recent-first", () => {
+    createEnterpriseRun({
+      id: "old",
+      sourceApiUrl: "u",
+      enterpriseSlug: "a",
+      nowMs: Date.parse("2026-06-15T10:00:00Z"),
+    });
+    createEnterpriseRun({
+      id: "new",
+      sourceApiUrl: "u",
+      enterpriseSlug: "b",
+      nowMs: Date.parse("2026-06-15T12:00:00Z"),
+    });
+    expect(listEnterpriseRuns().map((r) => r.id)).toEqual(["new", "old"]);
   });
 });
