@@ -69,11 +69,12 @@ describe("buildPreparationSummary", () => {
     const { notYetCrawled } = buildPreparationSummary([]);
     const ids = notYetCrawled.map((c) => c.considerationId);
     expect(ids).toContain("commit-size-limit"); // needs git-sizer — not gathered yet
-    expect(ids).toContain("repo-collaborators"); // recognized but not gathered yet
     expect(ids).not.toContain("discussions"); // detected
     expect(ids).not.toContain("packages"); // detected
     expect(ids).not.toContain("git-lfs"); // detected
     expect(ids).not.toContain("webhooks"); // detected (REST signals pass)
+    expect(ids).not.toContain("repo-collaborators"); // detected (REST signals pass)
+    expect(ids).not.toContain("tag-protection"); // detected (REST signals pass)
     expect(ids).not.toContain("actions-secrets"); // org-level evaluated
     expect(ids).not.toContain("teams"); // org-level evaluated
     expect(ids).not.toContain("mannequins"); // migration-scope — reported as always-lost

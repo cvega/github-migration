@@ -140,6 +140,12 @@ export interface RepoSignals extends DiscoveredRepo {
   /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
    *  Scanning history is not migrated. False when scanning is off or unreadable. */
   hasCodeScanningAlerts: boolean;
+  /** Direct collaborators (`GET …/collaborators?affiliation=direct`); per-repo
+   *  user/team access is not migrated and must be re-granted. 0 when unreadable. */
+  collaboratorsCount: number;
+  /** Tag protection rules (`GET …/tags/protection`); not migrated. 0 when none
+   *  or unreadable. GitHub now recommends expressing these as rulesets. */
+  tagProtectionCount: number;
   // ── Content-volume counts (migration scale) ──────────────────────────────
   // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
   // here, not on the REST discovery spine, because REST doesn't expose the

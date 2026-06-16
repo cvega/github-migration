@@ -236,6 +236,8 @@ function countsToSignals(repo: DiscoveredRepo, node: RepoCountsNode | null): Rep
     releaseAssetBytes: 0,
     webhooksCount: 0,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     // Cheap counts.
     issuesCount: node?.issues.totalCount ?? 0,
     pullRequestsCount: node?.pullRequests.totalCount ?? 0,

@@ -195,7 +195,9 @@
 			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
 			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
+			{ label: 'Tag protection', value: s.tagProtectionCount.toLocaleString(), icon: 'shield-lock' },
 			{ label: 'Webhooks', value: s.webhooksCount.toLocaleString(), icon: 'webhook' },
+			{ label: 'Collaborators', value: s.collaboratorsCount.toLocaleString(), icon: 'people' },
 			{ label: 'Pages', value: s.hasPages ? 'Yes' : '—', icon: 'browser' },
 			{ label: 'Code scanning', value: s.hasCodeScanningAlerts ? 'Yes' : '—', icon: 'codescan' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }

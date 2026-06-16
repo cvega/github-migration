@@ -55,6 +55,8 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     webhooksCount: 0,
     hasPages: false,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -113,6 +115,8 @@ function serviceDeps(
         gatherRestSignals: async (_rest, r) => ({
           webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
           hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+          collaboratorsCount: augmentOver[r.name]?.collaboratorsCount ?? 0,
+          tagProtectionCount: augmentOver[r.name]?.tagProtectionCount ?? 0,
         }),
       });
       return state.runPromise;

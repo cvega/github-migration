@@ -100,7 +100,15 @@ const DETECTORS: Record<string, Detector> = {
       ? `${count(s.branchProtectionRulesUsingUnmigratedFeatures, "rule")} using unmigrated features`
       : null,
   rulesets: (s) => (s.rulesetCount > 0 ? count(s.rulesetCount, "ruleset") : null),
+  "tag-protection": (s) =>
+    s.tagProtectionCount > 0
+      ? `${count(s.tagProtectionCount, "tag protection rule")} (recreate as rulesets)`
+      : null,
   webhooks: (s) => (s.webhooksCount > 0 ? count(s.webhooksCount, "webhook") : null),
+  "repo-collaborators": (s) =>
+    s.collaboratorsCount > 0
+      ? `${count(s.collaboratorsCount, "direct collaborator")} (access not migrated)`
+      : null,
   pages: (s) => (s.hasPages ? "GitHub Pages enabled (reconfigure on the target)" : null),
   "code-scanning-history": (s) =>
     s.hasCodeScanningAlerts ? "code scanning alerts present (history & states not migrated)" : null,

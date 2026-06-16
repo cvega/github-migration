@@ -69,6 +69,8 @@ function signals(over: Partial<RepoSignals> = {}): RepoSignals {
     workflowFileCount: 0,
     webhooksCount: 0,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     ...over,
   };
 }

@@ -324,9 +324,10 @@ export async function runProfile(
 
     // ── Pass 3: per-repo REST signals (best-effort) ────────────────────────
     // Commit count (the `rel="last"` Link-header trick — no commit-graph walk)
-    // plus webhooks / Pages / code-scanning presence, gathered per repo in one
-    // worker. Runs riskiest-first and wider than the GraphQL passes since each
-    // call is tiny. Non-fatal: a repo that can't be read keeps its defaults.
+    // plus webhooks / code-scanning / direct-collaborator / tag-protection
+    // presence, gathered per repo in one worker. Runs riskiest-first and wider
+    // than the GraphQL passes since each call is tiny. Non-fatal: a repo that
+    // can't be read keeps its defaults.
     {
       let next = 0;
       const worker = async (): Promise<void> => {
@@ -345,6 +346,8 @@ export async function runProfile(
               commitsCount,
               webhooksCount: rest.webhooksCount,
               hasCodeScanningAlerts: rest.hasCodeScanningAlerts,
+              collaboratorsCount: rest.collaboratorsCount,
+              tagProtectionCount: rest.tagProtectionCount,
             };
             signalsByRepo.set(r.nameWithOwner, merged);
             recordRepoProfile(input.id, merged, analyzeRepo(merged));
