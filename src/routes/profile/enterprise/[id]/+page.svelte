@@ -1,12 +1,21 @@
 <!-- One enterprise profiling run: aggregate rollup + its child organization runs. Streams live progress while running. -->
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import Pagination from '$lib/components/Pagination.svelte';
+	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { timeAgo } from '$lib/format';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
 
 	type RunState = 'running' | 'completed' | 'failed';
+
+	// Live source rate-limit, shared from the layout (same pill the Migrate and
+	// org pages show). An enterprise crawl spends source API quota across every
+	// org, so remaining quota is the relevant "are we close to the limit?" signal.
+	const authPill = getContext<AuthPillContext>(AUTH_PILL_KEY);
 
 	// Prefer freshly-polled data, but only when it's for the run currently shown.
 	let polled = $state<typeof data | null>(null);
@@ -64,6 +73,25 @@
 		{ label: 'Blockers', value: run.blockers.toLocaleString(), icon: 'stop' as const, tone: 'text-red-400' },
 		{ label: 'Warnings', value: run.warnings.toLocaleString(), icon: 'alert' as const, tone: 'text-yellow-400' }
 	]);
+
+	// ── Organization list: client-side search + pagination ─────────────────────
+	// Every child org is already loaded (and live-refreshed), so filtering and
+	// paging run on the client for instant feedback. Search matches the org login.
+	const ORGS_PER_PAGE = 25;
+	let orgSearch = $state('');
+	let orgPage = $state(1);
+
+	const filteredOrgs = $derived.by(() => {
+		const q = orgSearch.trim().toLowerCase();
+		return q ? orgs.filter((o) => o.org.toLowerCase().includes(q)) : orgs;
+	});
+	// Clamp the shown page when the filtered set shrinks: the Pagination control
+	// sets `orgPage`, and `orgPageSafe` keeps it in range.
+	const orgTotalPages = $derived(Math.max(1, Math.ceil(filteredOrgs.length / ORGS_PER_PAGE)));
+	const orgPageSafe = $derived(Math.min(orgPage, orgTotalPages));
+	const pagedOrgs = $derived(
+		filteredOrgs.slice((orgPageSafe - 1) * ORGS_PER_PAGE, orgPageSafe * ORGS_PER_PAGE)
+	);
 </script>
 
 <svelte:head><title>{run.enterpriseSlug} — Enterprise Profile</title></svelte:head>
@@ -81,7 +109,19 @@
 			</h1>
 			<p class="mt-1 font-mono text-xs text-gray-500">{run.sourceApiUrl} · started {timeAgo(run.startedAt)}</p>
 		</div>
-		<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		<div class="flex items-center gap-3">
+			{#if authPill}
+				<AuthPill
+					label="Source"
+					isApp={authPill.sourceApp}
+					rateText={authPill.sourceRateText}
+					ratePct={authPill.sourceRatePct}
+					migrating={run.state === 'running'}
+				/>
+				<span class="h-4 w-px bg-gray-700" aria-hidden="true"></span>
+			{/if}
+			<a href="/profile" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← All runs</a>
+		</div>
 	</header>
 
 	{#if run.failureReason}
@@ -118,11 +158,30 @@
 
 	<!-- Child organizations -->
 	<section>
-		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-			<Octicon name="organization" size={16} />
-			Organizations
-			{#if orgs.length > 0}<span class="text-sm font-normal text-gray-500">({orgs.length.toLocaleString()})</span>{/if}
-		</h2>
+		<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
+				<Octicon name="organization" size={16} />
+				Organizations
+				{#if orgs.length > 0}<span class="text-sm font-normal text-gray-500">({filteredOrgs.length.toLocaleString()})</span>{/if}
+			</h2>
+			{#if orgs.length > 0}
+				<div class="relative">
+					<Octicon
+						name="search"
+						size={16}
+						class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"
+					/>
+					<input
+						type="search"
+						bind:value={orgSearch}
+						oninput={() => (orgPage = 1)}
+						placeholder="Filter organizations…"
+						aria-label="Filter organizations"
+						class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pl-9 pr-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none"
+					/>
+				</div>
+			{/if}
+		</div>
 
 		{#if orgs.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12">
@@ -131,9 +190,14 @@
 					{run.state === 'running' ? 'Enumerating organizations…' : 'No organizations found'}
 				</p>
 			</div>
+		{:else if filteredOrgs.length === 0}
+			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
+				<Octicon name="search" size={24} class="h-10 w-10 text-gray-500" />
+				<p class="mt-3">No organizations match <span class="font-medium text-gray-300">“{orgSearch}”</span></p>
+			</div>
 		{:else}
 			<div class="space-y-2">
-				{#each orgs as org (org.id)}
+				{#each pagedOrgs as org (org.id)}
 					{@const ob = stateBadge[org.state]}
 					<a
 						href="/profile/{org.id}"
@@ -155,6 +219,13 @@
 					</a>
 				{/each}
 			</div>
+			<Pagination
+				page={orgPageSafe}
+				totalPages={orgTotalPages}
+				total={filteredOrgs.length}
+				limit={ORGS_PER_PAGE}
+				onPageChange={(p) => (orgPage = p)}
+			/>
 		{/if}
 	</section>
 </div>
