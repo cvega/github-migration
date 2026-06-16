@@ -131,6 +131,18 @@ export function setProfileRunTotal(runId: string, total: number): void {
     .run({ $total: total, $id: runId });
 }
 
+/**
+ * Record how many repos have been enriched so far (the counts pass's running
+ * tally). Persisted live during a run so the detail page's progress reflects
+ * real work instead of sitting at 0 until completion, when {@link
+ * completeProfileRun} recomputes the authoritative total.
+ */
+export function setProfileRunProfiled(runId: string, profiled: number): void {
+  getDb()
+    .prepare(`UPDATE profile_runs SET profiled_repos = $profiled WHERE id = $id`)
+    .run({ $profiled: profiled, $id: runId });
+}
+
 /** Record the organization's ruleset count (gathered once per run). */
 export function setProfileRunRulesets(runId: string, count: number): void {
   getDb()

@@ -30,6 +30,7 @@ import {
   recordRepoProfile,
   setProfileRunApiCalls,
   setProfileRunOrgResources,
+  setProfileRunProfiled,
   setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
@@ -264,6 +265,9 @@ export async function runProfile(
                 phase: "counting",
               });
             }
+            // Persist the running tally so the detail page's "Repositories
+            // profiled" reflects live progress (completeProfileRun finalizes it).
+            setProfileRunProfiled(input.id, profiled);
           } catch (err) {
             console.error(
               `[profile] run ${input.id} counts chunk failed — ${c.length} repo(s) kept at base signals:`,

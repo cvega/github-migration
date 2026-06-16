@@ -28,6 +28,7 @@ import {
   setEnterpriseRunTotalOrgs,
   setProfileRunApiCalls,
   setProfileRunOrgResources,
+  setProfileRunProfiled,
   setProfileRunRulesets,
   setProfileRunTotal,
 } from "./store";
@@ -151,6 +152,18 @@ describe("setProfileRunTotal", () => {
     createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
     setProfileRunTotal("r", 42);
     expect(getProfileRun("r")?.totalRepos).toBe(42);
+  });
+});
+
+describe("setProfileRunProfiled", () => {
+  test("records the live profiled tally before completion", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    expect(getProfileRun("r")?.profiledRepos).toBe(0);
+    setProfileRunProfiled("r", 137);
+    expect(getProfileRun("r")?.profiledRepos).toBe(137);
+    // A later write reflects continued progress.
+    setProfileRunProfiled("r", 250);
+    expect(getProfileRun("r")?.profiledRepos).toBe(250);
   });
 });
 

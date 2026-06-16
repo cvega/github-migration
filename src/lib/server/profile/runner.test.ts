@@ -171,6 +171,27 @@ describe("runProfile", () => {
     expect(run.orgRulesetCount).toBe(3);
   });
 
+  test("persists the profiled tally live during the counts pass, before completion", async () => {
+    // The details pass runs after counts but before completeProfileRun, so it's
+    // a window where we can observe the live-persisted profiled count. Without
+    // the live persist this would read 0 (the create default).
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    let profiledDuringDetails = -1;
+    const base = deps(repos);
+    await runProfile(clients, { id: "live", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...base,
+      augmentDetails: async (gql, c, opts) => {
+        if (profiledDuringDetails < 0) {
+          profiledDuringDetails = getProfileRun("live")?.profiledRepos ?? -1;
+        }
+        return base.augmentDetails(gql, c, opts);
+      },
+    });
+    // All three repos were counted (one chunk) and persisted before the details
+    // pass ran — so the live value is already 3, not the 0 create-default.
+    expect(profiledDuringDetails).toBe(3);
+  });
+
   test("records the org resource counts on the run", async () => {
     const run = await runProfile(
       clients,
