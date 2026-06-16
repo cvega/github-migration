@@ -16,6 +16,7 @@
  * refresh, progress, and failure handling — is unit-testable against a real
  * in-memory store without a network.
  */
+import { clearPause, isPauseRequested } from "./control";
 import { discoverEnterpriseOrgs } from "./enterprise";
 import type { ProfileClients } from "./runner";
 import { runProfile } from "./runner";
@@ -25,6 +26,7 @@ import {
   failEnterpriseRun,
   getEnterpriseChildRuns,
   getEnterpriseRun,
+  pauseEnterpriseRun,
   refreshEnterpriseRunAggregates,
   resetEnterpriseRunForResume,
   setEnterpriseRunTotalOrgs,
@@ -60,12 +62,20 @@ export interface EnterpriseRunnerDeps {
   ) => Promise<ProfileRun>;
   /** Generate a child run id. */
   newId: () => string;
+  /**
+   * Whether a pause has been requested for this enterprise run id. Checked
+   * before starting each org so a paused enterprise stops fanning out; the
+   * in-flight children are paused independently (by their own run id). Default
+   * reads the in-memory pause registry; tests inject a deterministic predicate.
+   */
+  shouldPause: (runId: string) => boolean;
 }
 
 const DEFAULT_DEPS: EnterpriseRunnerDeps = {
   discoverOrgs: discoverEnterpriseOrgs,
   runOrg: (clients, input) => runProfile(clients, input),
   newId: () => Bun.randomUUIDv7(),
+  shouldPause: isPauseRequested,
 };
 
 /** Concise failure reason from an enumeration error (mirrors the org runner). */
@@ -160,6 +170,9 @@ export async function runEnterpriseProfile(
     let next = 0;
     const worker = async (): Promise<void> => {
       while (next < orgs.length) {
+        // Honor a pause: stop starting new orgs. In-flight children are paused
+        // independently (by their own run id) and settle as `paused`.
+        if (d.shouldPause(input.id)) break;
         const org = orgs[next++];
         if (!org) break;
         const child = existingChild.get(org);
@@ -187,12 +200,22 @@ export async function runEnterpriseProfile(
       Array.from({ length: Math.min(ORG_CONCURRENCY, orgs.length) }, () => worker()),
     );
 
-    completeEnterpriseRun(input.id);
-    const completed = getEnterpriseRun(input.id);
-    console.log(
-      `[profile] enterprise run ${input.id} completed — ${completed?.profiledOrgs ?? 0} org(s), ` +
-        `${completed?.totalRepos ?? 0} repo(s) in ${Date.now() - startedMs}ms`,
-    );
+    if (d.shouldPause(input.id)) {
+      // Honored a pause: leave the enterprise (and its children) resumable.
+      pauseEnterpriseRun(input.id);
+      const paused = getEnterpriseRun(input.id);
+      console.log(
+        `[profile] enterprise run ${input.id} paused — ${paused?.profiledOrgs ?? 0} org(s) done ` +
+          `in ${Date.now() - startedMs}ms`,
+      );
+    } else {
+      completeEnterpriseRun(input.id);
+      const completed = getEnterpriseRun(input.id);
+      console.log(
+        `[profile] enterprise run ${input.id} completed — ${completed?.profiledOrgs ?? 0} org(s), ` +
+          `${completed?.totalRepos ?? 0} repo(s) in ${Date.now() - startedMs}ms`,
+      );
+    }
   } catch (err) {
     const reason = describeError(err);
     console.error(
@@ -202,6 +225,8 @@ export async function runEnterpriseProfile(
     failEnterpriseRun(input.id, reason);
   }
 
+  // Drop any pause request now the enterprise run has settled.
+  clearPause(input.id);
   const run = getEnterpriseRun(input.id);
   if (!run) throw new Error(`Enterprise run '${input.id}' vanished after execution`);
   return run;

@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
+import { clearPause, requestPause } from "./control";
 import { type EnterpriseRunnerDeps, runEnterpriseProfile } from "./enterprise-runner";
 import type { ProfileClients } from "./runner";
 import {
@@ -18,6 +19,8 @@ import {
   failProfileRun,
   getEnterpriseChildRuns,
   getProfileRun,
+  pauseEnterpriseRun,
+  pauseProfileRun,
   resetProfileRunForResume,
   setProfileRunTotal,
 } from "./store";
@@ -246,5 +249,61 @@ describe("runEnterpriseProfile", () => {
     expect(inputs).toEqual([]); // alpha already completed — nothing dispatched
     expect(run.state).toBe("completed");
     expect(run.profiledOrgs).toBe(1);
+  });
+
+  test("a pause request halts the org fan-out and settles the enterprise paused", async () => {
+    const started: string[] = [];
+    // The first org to run requests a pause (as the user clicking Pause would),
+    // so the runner stops before starting any further orgs.
+    const runOrg: EnterpriseRunnerDeps["runOrg"] = async (_c, input) => {
+      started.push(input.org);
+      createProfileRun({
+        id: input.id,
+        sourceApiUrl: input.sourceApiUrl,
+        org: input.org,
+        enterpriseRunId: input.enterpriseRunId,
+      });
+      completeProfileRun(input.id);
+      requestPause(input.enterpriseRunId);
+      const run = getProfileRun(input.id);
+      if (!run) throw new Error("missing child");
+      return run;
+    };
+
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" },
+      undefined,
+      deps(["alpha", "beta", "gamma", "delta"], { runOrg }),
+    );
+    expect(run.state).toBe("paused");
+    // Only the first org ran before the pause was observed; the rest never start.
+    expect(started).toEqual(["alpha"]);
+    expect(getEnterpriseChildRuns("ent").map((c) => c.org)).toEqual(["alpha"]);
+    clearPause("ent"); // tidy the shared registry for later tests
+  });
+
+  test("resume continues a paused enterprise: skip done, resume paused, start new", async () => {
+    createEnterpriseRun({ id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" });
+    createProfileRun({ id: "c-alpha", sourceApiUrl: "u", org: "alpha", enterpriseRunId: "ent" });
+    completeProfileRun("c-alpha");
+    createProfileRun({ id: "c-beta", sourceApiUrl: "u", org: "beta", enterpriseRunId: "ent" });
+    pauseProfileRun("c-beta"); // a child paused when the enterprise was paused
+    pauseEnterpriseRun("ent");
+
+    const { runOrg, inputs } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps(["alpha", "beta", "gamma"], { runOrg }),
+    );
+    // alpha skipped (completed); beta resumed on its existing id; gamma fresh.
+    expect(inputs.map((i) => i.org).sort()).toEqual(["beta", "gamma"]);
+    const beta = inputs.find((i) => i.org === "beta");
+    expect(beta?.id).toBe("c-beta");
+    expect(beta?.resume).toBe(true);
+    expect(inputs.find((i) => i.org === "gamma")?.resume).toBe(false);
+    expect(run.state).toBe("completed");
   });
 });

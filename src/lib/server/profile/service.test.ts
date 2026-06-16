@@ -16,13 +16,16 @@ import { runProfile } from "./runner";
 import {
   getProfileDetail,
   type ProfileServiceDeps,
+  requestEnterprisePause,
   requestProfilePause,
+  resumeEnterpriseRun,
   resumeInterruptedProfiles,
   resumeProfileRun,
   startEnterpriseProfile,
   startOrgProfile,
 } from "./service";
 import {
+  completeEnterpriseRun,
   completeProfileRun,
   createEnterpriseRun,
   createProfileRun,
@@ -30,6 +33,7 @@ import {
   getEnterpriseChildRuns,
   getEnterpriseRun,
   getProfileRun,
+  pauseEnterpriseRun,
   pauseProfileRun,
   recordRepoProfile,
   setRepoEnriched,
@@ -420,6 +424,60 @@ describe("requestProfilePause / resumeProfileRun", () => {
     expect(resumeProfileRun("done", deps)?.state).toBe("completed");
     expect(state.gqlBuilt).toBe(0); // nothing was re-dispatched
     expect(resumeProfileRun("missing", deps)).toBeNull();
+  });
+});
+
+describe("requestEnterprisePause / resumeEnterpriseRun", () => {
+  test("requestEnterprisePause flags the enterprise and its running children", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "c-run", sourceApiUrl: "u", org: "run", enterpriseRunId: "ent" });
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
+
+    const run = requestEnterprisePause("ent");
+    expect(run?.id).toBe("ent");
+    expect(isPauseRequested("ent")).toBe(true);
+    expect(isPauseRequested("c-run")).toBe(true); // the running child is paused too
+    expect(isPauseRequested("c-done")).toBe(false); // a settled child is left alone
+    clearPause("ent");
+    clearPause("c-run");
+  });
+
+  test("requestEnterprisePause is a no-op for a settled run and null for unknown", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    completeEnterpriseRun("ent");
+    expect(requestEnterprisePause("ent")?.state).toBe("completed");
+    expect(isPauseRequested("ent")).toBe(false);
+    expect(requestEnterprisePause("missing")).toBeNull();
+  });
+
+  test("resumeEnterpriseRun continues a paused enterprise to completion", async () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
+    createProfileRun({ id: "c-stop", sourceApiUrl: "u", org: "stop", enterpriseRunId: "ent" });
+    pauseProfileRun("c-stop");
+    pauseEnterpriseRun("ent");
+
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["done", "stop"]);
+    const resumed = resumeEnterpriseRun("ent", deps);
+    expect(resumed?.state).toBe("running"); // the reset runs synchronously
+    await state.runPromise;
+
+    expect(getEnterpriseRun("ent")?.state).toBe("completed");
+    const children = getEnterpriseChildRuns("ent");
+    expect(children.map((c) => c.org).sort()).toEqual(["done", "stop"]);
+    expect(children.find((c) => c.org === "done")?.id).toBe("c-done"); // not re-run
+    expect(children.find((c) => c.org === "stop")?.state).toBe("completed"); // resumed
+  });
+
+  test("resumeEnterpriseRun leaves a completed run alone and returns null for unknown", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    completeEnterpriseRun("ent");
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["x"]);
+    expect(resumeEnterpriseRun("ent", deps)?.state).toBe("completed");
+    expect(state.gqlBuilt).toBe(0); // nothing was re-dispatched
+    expect(resumeEnterpriseRun("missing", deps)).toBeNull();
   });
 });
 

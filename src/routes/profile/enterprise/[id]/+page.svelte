@@ -1,6 +1,7 @@
 <!-- One enterprise profiling run: aggregate rollup + its child organization runs. Streams live progress while running. -->
 <script lang="ts">
 	import { getContext } from 'svelte';
+	import { invalidateAll } from '$app/navigation';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
@@ -44,6 +45,47 @@
 			if (res.ok) polled = await res.json();
 		} catch {
 			// Non-fatal — keep the last good snapshot.
+		}
+	}
+
+	// ── Pause / resume ──────────────────────────────────────────────────────────
+	// Pause is cooperative: the POST stops the org fan-out and pauses in-flight
+	// child crawls; the enterprise flips to `paused`, delivered over SSE (which
+	// refreshes and swaps the button). `pausing` derives "Pausing…" — true once
+	// requested and while still running. Resume re-dispatches and re-opens the live
+	// stream via invalidateAll, which updates the loader prop the SSE effect keys on.
+	let pauseRequested = $state(false);
+	let resuming = $state(false);
+	const pausing = $derived(pauseRequested && run.state === 'running');
+
+	async function pauseRun() {
+		if (pausing) return;
+		pauseRequested = true;
+		try {
+			await fetch(`/api/profile/enterprise/${run.id}/pause`, { method: 'POST' });
+			await refresh(run.id);
+		} catch {
+			// Non-fatal — the crawl keeps running; let the user retry.
+			pauseRequested = false;
+		}
+	}
+
+	async function resumeRun() {
+		if (resuming) return;
+		resuming = true;
+		pauseRequested = false; // a fresh run cycle — drop any stale pause flag
+		try {
+			const res = await fetch(`/api/profile/enterprise/${run.id}/resume`, { method: 'POST' });
+			if (res.ok) {
+				// Re-open the live stream: clear the stale paused snapshot, then reload the
+				// loader data (data.run.state → running) so the SSE effect re-subscribes.
+				polled = null;
+				await invalidateAll();
+			}
+		} catch {
+			// Non-fatal — the run stays paused/failed; the user can retry.
+		} finally {
+			resuming = false;
 		}
 	}
 
@@ -111,6 +153,27 @@
 			<p class="mt-1 font-mono text-xs text-gray-500">{run.sourceApiUrl} · started {timeAgo(run.startedAt)}</p>
 		</div>
 		<div class="flex items-center gap-3">
+			{#if run.state === 'running'}
+				<button
+					type="button"
+					onclick={pauseRun}
+					disabled={pausing}
+					class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+				>
+					<Octicon name="pause" size={16} />
+					{pausing ? 'Pausing…' : 'Pause'}
+				</button>
+			{:else if run.state === 'paused' || run.state === 'failed'}
+				<button
+					type="button"
+					onclick={resumeRun}
+					disabled={resuming}
+					class="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/15 px-3 py-1.5 text-sm font-medium text-blue-200 transition-colors hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+				>
+					<Octicon name="play" size={16} />
+					{resuming ? 'Resuming…' : 'Resume'}
+				</button>
+			{/if}
 			{#if authPill}
 				<AuthPill
 					label="Source"

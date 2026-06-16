@@ -444,6 +444,22 @@ export function failEnterpriseRun(runId: string, reason: string, nowMs?: number)
     });
 }
 
+/**
+ * Mark an enterprise run `paused` — a deliberate, non-terminal stop. Refreshes
+ * its aggregates first (so the roll-up reflects the children settled so far),
+ * clears any failure reason, and leaves it resumable: a resume re-enumerates the
+ * orgs, skips completed children, and continues the paused/unfinished ones.
+ */
+export function pauseEnterpriseRun(runId: string): void {
+  refreshEnterpriseRunAggregates(runId);
+  getDb()
+    .prepare(
+      `UPDATE profile_enterprise_runs SET state = 'paused', failure_reason = NULL, completed_at = NULL
+       WHERE id = $id`,
+    )
+    .run({ $id: runId });
+}
+
 /** Fetch an enterprise run by id, or null if it doesn't exist. */
 export function getEnterpriseRun(id: string): EnterpriseRun | null {
   const row = getDb()

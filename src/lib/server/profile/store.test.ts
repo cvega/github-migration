@@ -24,6 +24,7 @@ import {
   getRunRepoProfiles,
   listEnterpriseRuns,
   listProfileRuns,
+  pauseEnterpriseRun,
   pauseProfileRun,
   recordRepoProfile,
   refreshEnterpriseRunAggregates,
@@ -519,6 +520,26 @@ describe("enterprise runs", () => {
     expect(ent?.state).toBe("failed");
     expect(ent?.failureReason).toBe("enterprise not found");
     expect(ent?.completedAt).toBe("2026-06-15T11:00:00.000Z");
+  });
+
+  test("pausing an enterprise run refreshes aggregates and clears failure", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme" });
+    setEnterpriseRunTotalOrgs("ent", 2);
+    // One child completed, one still running when the enterprise is paused.
+    createProfileRun({ id: "a", sourceApiUrl: "u", org: "a", enterpriseRunId: "ent" });
+    recordRepoProfile("a", signals({ nameWithOwner: "a/r1" }), profile("a/r1", { blockers: 1 }));
+    setProfileRunTotal("a", 1);
+    completeProfileRun("a");
+    createProfileRun({ id: "b", sourceApiUrl: "u", org: "b", enterpriseRunId: "ent" });
+
+    pauseEnterpriseRun("ent");
+    const ent = getEnterpriseRun("ent");
+    expect(ent?.state).toBe("paused");
+    expect(ent?.failureReason).toBeNull();
+    expect(ent?.completedAt).toBeNull();
+    // Aggregates reflect the work settled so far (child A only).
+    expect(ent?.profiledOrgs).toBe(1);
+    expect(ent?.blockers).toBe(1);
   });
 
   test("lists enterprise runs most-recent-first", () => {

@@ -283,6 +283,91 @@ export function resumeProfileRun(
 }
 
 /**
+ * Re-dispatch an enterprise run with `resume=true`, wiring its progress + a
+ * terminal `done` onto the enterprise SSE bus and binding each child org to the
+ * shared {@link runOrgWithSse}. Shared by the startup resume and the on-demand
+ * {@link resumeEnterpriseRun}.
+ */
+function dispatchEnterpriseResume(
+  deps: ProfileServiceDeps,
+  clients: ProfileClients,
+  rest: GitHubClient,
+  sourceApiUrl: string,
+  run: EnterpriseRun,
+): void {
+  deps
+    .runEnterprise(
+      clients,
+      { id: run.id, enterpriseSlug: run.enterpriseSlug, sourceApiUrl, resume: true },
+      (p) =>
+        publishEnterpriseEvent(run.id, {
+          type: "progress",
+          phase: p.phase,
+          totalOrgs: p.totalOrgs,
+          profiledOrgs: p.profiledOrgs,
+          org: p.org,
+        }),
+      { runOrg: (c, runInput) => runOrgWithSse(deps, c, rest, runInput) },
+    )
+    .then((settled) => publishEnterpriseEvent(run.id, { type: "done", state: settled.state }))
+    .catch((err) => {
+      console.error(`[profile] resume of enterprise run ${run.id} crashed:`, err);
+      publishEnterpriseEvent(run.id, { type: "done", state: "failed" });
+    });
+}
+
+/**
+ * Request that a running enterprise profile pause: stop fanning out to new orgs,
+ * and pause any in-flight child org crawls so they stop at their next checkpoint.
+ *
+ * Cooperative — the returned run is still `running` until the crawl observes the
+ * request and settles as `paused`. A run that isn't running is returned
+ * unchanged; null if no such run exists.
+ */
+export function requestEnterprisePause(id: string): EnterpriseRun | null {
+  const run = getEnterpriseRun(id);
+  if (!run) return null;
+  if (run.state === "running") {
+    requestPause(id);
+    // Pause the in-flight children too so their crawls stop promptly; a settled
+    // or already-paused child is left as-is.
+    for (const child of getEnterpriseChildRuns(id)) {
+      if (child.state === "running") requestPause(child.id);
+    }
+  }
+  return getEnterpriseRun(id);
+}
+
+/**
+ * Resume a paused or failed enterprise profile run. Re-enumerates the orgs, skips
+ * children that already completed, resumes the paused/unfinished ones, and starts
+ * any new orgs — republishing enterprise SSE so a watching page goes live.
+ *
+ * Returns the run flipped back to `running` (the reset runs synchronously), the
+ * unchanged run when it's already running/completed (nothing to resume), or null
+ * when no such run exists.
+ *
+ * @throws when no source credentials are configured (the route maps this to 400).
+ */
+export function resumeEnterpriseRun(
+  id: string,
+  deps: ProfileServiceDeps = DEFAULT_DEPS,
+): EnterpriseRun | null {
+  const run = getEnterpriseRun(id);
+  if (!run) return null;
+  if (run.state === "running" || run.state === "completed") return run;
+
+  // Drop any stale pause requests (enterprise + children) so the resumed crawl
+  // doesn't immediately re-pause.
+  clearPause(id);
+  for (const child of getEnterpriseChildRuns(id)) clearPause(child.id);
+
+  const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
+  dispatchEnterpriseResume(deps, { gql, rest, getApiCalls }, rest, sourceApiUrl, run);
+  return getEnterpriseRun(id);
+}
+
+/**
  * Resume profiling runs interrupted by a restart. Called once at startup (the
  * store leaves interrupted runs `running`). Each resumed crawl reloads its
  * recorded data and reprocesses only the unfinished work, then republishes SSE
@@ -324,25 +409,7 @@ export function resumeInterruptedProfiles(
   }
 
   for (const e of enterpriseRuns) {
-    deps
-      .runEnterprise(
-        clients,
-        { id: e.id, enterpriseSlug: e.enterpriseSlug, sourceApiUrl, resume: true },
-        (p) =>
-          publishEnterpriseEvent(e.id, {
-            type: "progress",
-            phase: p.phase,
-            totalOrgs: p.totalOrgs,
-            profiledOrgs: p.profiledOrgs,
-            org: p.org,
-          }),
-        { runOrg: (c, runInput) => runOrgWithSse(deps, c, rest, runInput) },
-      )
-      .then((run) => publishEnterpriseEvent(e.id, { type: "done", state: run.state }))
-      .catch((err) => {
-        console.error(`[profile] resume of enterprise run ${e.id} crashed:`, err);
-        publishEnterpriseEvent(e.id, { type: "done", state: "failed" });
-      });
+    dispatchEnterpriseResume(deps, clients, rest, sourceApiUrl, e);
   }
 
   console.log(
