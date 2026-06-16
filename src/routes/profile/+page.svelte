@@ -137,11 +137,6 @@
 							{#each data.sourceOrgs as o (o)}<option value={o}></option>{/each}
 						</datalist>
 					{/if}
-					{#if scope === 'enterprise'}
-						<p class="mt-1 text-xs text-gray-500">
-							The enterprise URL slug (github.com/enterprises/<span class="text-gray-400">slug</span>). Your token must be an enterprise member or owner.
-						</p>
-					{/if}
 				</div>
 				<button
 					type="submit"
@@ -152,6 +147,11 @@
 					{submitting ? 'Starting…' : scope === 'enterprise' ? 'Start enterprise profile' : 'Start profile'}
 				</button>
 			</form>
+			{#if scope === 'enterprise'}
+				<p class="mt-2 text-xs text-gray-500">
+					The enterprise URL slug (github.com/enterprises/<span class="text-gray-400">slug</span>). Your token must be an enterprise member or owner.
+				</p>
+			{/if}
 			{#if error}
 				<p class="mt-3 flex items-center gap-1.5 text-sm text-red-400">
 					<Octicon name="alert" size={16} />{error}
