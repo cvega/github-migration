@@ -16,7 +16,12 @@ import { deriveInsights, type Insight } from "./insights";
 import { getOrgResources } from "./org-resources";
 import { getOrgRulesetCount } from "./rulesets";
 import { type ProfileClients, runProfile } from "./runner";
-import { getEnterpriseRun, getProfileRun, getRunRepoProfiles } from "./store";
+import {
+  getEnterpriseChildRuns,
+  getEnterpriseRun,
+  getProfileRun,
+  getRunRepoProfiles,
+} from "./store";
 import { buildPreparationSummary, type PreparationSummary } from "./summary";
 import type { EnterpriseRun, ProfileRun, StoredRepoProfile } from "./types";
 
@@ -205,4 +210,17 @@ export function getProfileDetail(id: string): ProfileDetail | null {
     summary: buildPreparationSummary(repos),
     estimate: estimateDuration(repos),
   };
+}
+
+/** An enterprise run plus its child org runs (for the enterprise detail page). */
+export interface EnterpriseDetail {
+  run: EnterpriseRun;
+  orgs: ProfileRun[];
+}
+
+/** Assemble an enterprise run and its child org runs, or null if unknown. */
+export function getEnterpriseDetail(id: string): EnterpriseDetail | null {
+  const run = getEnterpriseRun(id);
+  if (!run) return null;
+  return { run, orgs: getEnterpriseChildRuns(id) };
 }
