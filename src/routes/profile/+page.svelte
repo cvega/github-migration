@@ -6,7 +6,7 @@
 
 	let { data } = $props();
 
-	type RunState = 'running' | 'completed' | 'failed';
+	type RunState = 'running' | 'paused' | 'completed' | 'failed';
 	type Scope = 'org' | 'enterprise';
 
 	let scope = $state<Scope>('org');
@@ -14,8 +14,9 @@
 	let submitting = $state(false);
 	let error = $state('');
 
-	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
+	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'pause' | 'check-circle-fill' | 'x-circle-fill' }> = {
 		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
+		paused: { label: 'Paused', cls: 'bg-amber-500/15 text-amber-300', icon: 'pause' },
 		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
 		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
 	};

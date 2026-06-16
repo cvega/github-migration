@@ -129,6 +129,7 @@ function deps(
     }),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
+    shouldPause: () => false,
   };
 }
 
@@ -259,6 +260,67 @@ describe("runProfile", () => {
     // 2 already-enriched + the first reprocessed repo = 3.
     expect(firstProfiled).toBe(3);
     expect(getProfileRun("rp")?.profiledRepos).toBe(4);
+  });
+
+  test("a pause request settles the run as paused with its repos listed", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    const run = await runProfile(
+      clients,
+      { id: "rpause", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      { ...deps(repos), shouldPause: () => true },
+    );
+    expect(run.state).toBe("paused");
+    expect(run.failureReason).toBeNull();
+    // The repo list was recorded up front; the per-repo passes never ran, so
+    // nothing finished enrichment.
+    expect(getRunRepoProfiles("rpause").map((p) => p.nameWithOwner)).toEqual(["acme/a", "acme/b"]);
+    expect(getEnrichedRepoNames("rpause").size).toBe(0);
+  });
+
+  test("a pause requested during the counts pass still records those counts", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    let counted = false;
+    const run = await runProfile(
+      clients,
+      { id: "rpc", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      {
+        ...deps(repos),
+        augmentCounts: async (_gql, c) => {
+          const out = c.map((r) => countsSignals(r, { issuesCount: 7 }));
+          counted = true; // pause from the next checkpoint onward
+          return out;
+        },
+        shouldPause: () => counted,
+      },
+    );
+    expect(run.state).toBe("paused");
+    // Counts recorded before the pause survive; the enrichment pass never ran.
+    const profiles = getRunRepoProfiles("rpc");
+    expect(profiles.every((p) => p.signals.issuesCount === 7)).toBe(true);
+    expect(getEnrichedRepoNames("rpc").size).toBe(0);
+  });
+
+  test("a paused run resumes and completes the remaining repos", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    // Pause immediately — nothing gets enriched.
+    await runProfile(clients, { id: "rpr", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      shouldPause: () => true,
+    });
+    expect(getProfileRun("rpr")?.state).toBe("paused");
+    expect(getEnrichedRepoNames("rpr").size).toBe(0);
+
+    // Resume with no pause pending → the crawl finishes every repo.
+    const resumed = await runProfile(
+      clients,
+      { id: "rpr", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps(repos),
+    );
+    expect(resumed.state).toBe("completed");
+    expect([...getEnrichedRepoNames("rpr")].sort()).toEqual(["acme/a", "acme/b"]);
   });
 
   test("records the org resource counts on the run", async () => {

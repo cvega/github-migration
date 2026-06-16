@@ -9,13 +9,16 @@ import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import type { RepoDetails } from "./augment";
+import { clearPause, isPauseRequested } from "./control";
 import { runEnterpriseProfile } from "./enterprise-runner";
 import { type EnterpriseSseEvent, type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
 import {
   getProfileDetail,
   type ProfileServiceDeps,
+  requestProfilePause,
   resumeInterruptedProfiles,
+  resumeProfileRun,
   startEnterpriseProfile,
   startOrgProfile,
 } from "./service";
@@ -27,6 +30,7 @@ import {
   getEnterpriseChildRuns,
   getEnterpriseRun,
   getProfileRun,
+  pauseProfileRun,
   recordRepoProfile,
   setRepoEnriched,
 } from "./store";
@@ -366,6 +370,56 @@ describe("resumeInterruptedProfiles", () => {
     expect(children.map((c) => c.org).sort()).toEqual(["done", "team"]);
     expect(children.find((c) => c.org === "done")?.id).toBe("c-done"); // not re-run
     expect(state.gqlBuilt).toBeGreaterThan(0); // a source client was built to resume
+  });
+});
+
+describe("requestProfilePause / resumeProfileRun", () => {
+  const emptyProfile = (nameWithOwner: string): RepoProfile => ({
+    nameWithOwner,
+    findings: [],
+    summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+  });
+
+  test("requestProfilePause flags a running run for the crawl to observe", () => {
+    createProfileRun({ id: "rp", sourceApiUrl: "u", org: "acme" });
+    const run = requestProfilePause("rp");
+    expect(run?.id).toBe("rp");
+    expect(isPauseRequested("rp")).toBe(true);
+    clearPause("rp"); // don't leak the request into later tests
+  });
+
+  test("requestProfilePause is a no-op for a settled run and null for an unknown one", () => {
+    createProfileRun({ id: "done", sourceApiUrl: "u", org: "acme" });
+    completeProfileRun("done");
+    expect(requestProfilePause("done")?.state).toBe("completed");
+    expect(isPauseRequested("done")).toBe(false);
+    expect(requestProfilePause("missing")).toBeNull();
+  });
+
+  test("resumeProfileRun re-dispatches a paused run to completion", async () => {
+    // A paused run with one repo already enriched, one still pending.
+    createProfileRun({ id: "rp", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("rp", signalsFor(discovered("a")), emptyProfile("acme/a"));
+    recordRepoProfile("rp", signalsFor(discovered("b")), emptyProfile("acme/b"));
+    setRepoEnriched("rp", "acme/a");
+    pauseProfileRun("rp");
+
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")]);
+    const resumed = resumeProfileRun("rp", deps);
+    expect(resumed?.state).toBe("running"); // the reset runs synchronously
+    await state.runPromise;
+
+    expect(getProfileRun("rp")?.state).toBe("completed");
+    expect([...getEnrichedRepoNames("rp")].sort()).toEqual(["acme/a", "acme/b"]);
+  });
+
+  test("resumeProfileRun leaves a completed run alone and returns null for unknown", () => {
+    createProfileRun({ id: "done", sourceApiUrl: "u", org: "acme" });
+    completeProfileRun("done");
+    const { deps, state } = serviceDeps([discovered("a")]);
+    expect(resumeProfileRun("done", deps)?.state).toBe("completed");
+    expect(state.gqlBuilt).toBe(0); // nothing was re-dispatched
+    expect(resumeProfileRun("missing", deps)).toBeNull();
   });
 });
 

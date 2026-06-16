@@ -24,6 +24,7 @@ import {
   getRunRepoProfiles,
   listEnterpriseRuns,
   listProfileRuns,
+  pauseProfileRun,
   recordRepoProfile,
   refreshEnterpriseRunAggregates,
   resetProfileRunForResume,
@@ -370,6 +371,32 @@ describe("failProfileRun", () => {
     expect(run?.state).toBe("failed");
     expect(run?.failureReason).toBe("discovery failed: org not found");
     expect(run?.completedAt).toBe("2026-06-13T13:00:00.000Z");
+  });
+});
+
+describe("pauseProfileRun", () => {
+  test("marks a running run paused, keeping its repos and clearing failure", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+    setRepoEnriched("r", "acme/a");
+
+    pauseProfileRun("r");
+    const run = getProfileRun("r");
+    expect(run?.state).toBe("paused");
+    expect(run?.failureReason).toBeNull();
+    expect(run?.completedAt).toBeNull();
+    // Recorded work (and its enriched marker) survives so a resume can continue.
+    expect(getRunRepoProfiles("r").map((p) => p.nameWithOwner)).toEqual(["acme/a"]);
+    expect(getEnrichedRepoNames("r").has("acme/a")).toBe(true);
+  });
+
+  test("clears a prior failure reason when re-pausing a failed run", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    failProfileRun("r", "rate limited");
+    pauseProfileRun("r");
+    const run = getProfileRun("r");
+    expect(run?.state).toBe("paused");
+    expect(run?.failureReason).toBeNull();
   });
 });
 

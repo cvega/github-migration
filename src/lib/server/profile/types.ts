@@ -168,8 +168,15 @@ export interface RepoSignals extends DiscoveredRepo {
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-/** Lifecycle state of a profiling run. */
-export type ProfileRunState = "running" | "completed" | "failed";
+/**
+ * Lifecycle state of a profiling run.
+ *
+ * `paused` is a non-terminal rest state: the user stopped the crawl on purpose,
+ * its recorded repos (and their `enriched` flags) are intact, and a resume
+ * continues only the unfinished work. It is deliberately distinct from `failed`
+ * (an error) and from `running` (so a paused run isn't auto-resumed on restart).
+ */
+export type ProfileRunState = "running" | "paused" | "completed" | "failed";
 
 /**
  * Organization-level resources gathered once per run (REST). These are scoped

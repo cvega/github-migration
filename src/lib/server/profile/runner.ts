@@ -20,6 +20,7 @@ import type { GitHubClient } from "$lib/server/core/github";
 import { analyzeRepo } from "./analyze";
 import { augmentRepoCounts, augmentRepoDetails, baseSignals } from "./augment";
 import { countRepoCommits } from "./commits";
+import { clearPause, isPauseRequested } from "./control";
 import { discoverOrgRepos } from "./discover";
 import { gatherRepoRestSignals } from "./rest-signals";
 import {
@@ -29,6 +30,7 @@ import {
   getEnrichedRepoNames,
   getProfileRun,
   getRunRepoProfiles,
+  pauseProfileRun,
   recordRepoProfile,
   resetProfileRunForResume,
   setProfileRunApiCalls,
@@ -139,6 +141,13 @@ export interface ProfileRunnerDeps {
   /** Gather org-level resource counts. Default is zeros; the service binds the
    *  real REST-backed implementation. */
   getOrgResources: (org: string) => Promise<OrgResources>;
+  /**
+   * Whether a pause has been requested for this run id. Checked at safe
+   * checkpoints (between augment chunks and per-repo passes) so the crawl stops
+   * cleanly, persisting `state='paused'` with progress intact. Default reads the
+   * in-memory pause registry; tests inject a deterministic predicate.
+   */
+  shouldPause: (runId: string) => boolean;
 }
 
 const DEFAULT_DEPS: ProfileRunnerDeps = {
@@ -149,6 +158,7 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
   gatherRestSignals: gatherRepoRestSignals,
   getOrgRulesetCount: async () => 0,
   getOrgResources: async () => ZERO_ORG_RESOURCES,
+  shouldPause: isPauseRequested,
 };
 
 /**
@@ -273,6 +283,18 @@ export async function runProfile(
       });
     }
 
+    // ── Cooperative pause ──────────────────────────────────────────────────
+    // A pause request is honored at safe checkpoints: before each pass, and
+    // before each chunk/repo a worker would pull. Once observed, `isPaused`
+    // latches so the remaining passes are skipped and the run settles as
+    // `paused` with its progress (and per-repo `enriched` flags) intact, ready
+    // for a later resume to finish only the unprocessed repos.
+    let isPaused = false;
+    const checkPause = (): boolean => {
+      if (!isPaused && d.shouldPause(input.id)) isPaused = true;
+      return isPaused;
+    };
+
     // ── Pass 1: cheap counts (best-effort) ────────────────────────────────
     // One aliased request per chunk of cheap `{ totalCount }`/scalar fields, run
     // with bounded concurrency; each repo's counts are recorded as they arrive.
@@ -281,7 +303,7 @@ export async function runProfile(
     // move on, leaving those repos at their base signals rather than failing the
     // whole run.
     let profiled = enriched.size;
-    {
+    if (!checkPause()) {
       // Before counts land, disk usage (from REST discovery) is the only size
       // vector — chunk biggest-first so heavy repos are counted earliest.
       const ordered = [...pending].sort((a, b) => (b.diskUsageKb ?? 0) - (a.diskUsageKb ?? 0));
@@ -289,6 +311,7 @@ export async function runProfile(
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < chunks.length) {
+          if (checkPause()) break;
           const c = chunks[next++];
           if (!c) break;
           try {
@@ -352,7 +375,7 @@ export async function runProfile(
       })),
       ...chunk(withReleases, DETAILS_CHUNK_FULL).map((repos) => ({ repos, scanReleases: true })),
     ];
-    if (tasks.length > 0) {
+    if (!checkPause() && tasks.length > 0) {
       onProgress?.({
         runId: input.id,
         profiled,
@@ -361,10 +384,11 @@ export async function runProfile(
         phase: "details",
       });
     }
-    {
+    if (!checkPause()) {
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < tasks.length) {
+          if (checkPause()) break;
           const task = tasks[next++];
           if (!task) break;
           try {
@@ -412,7 +436,7 @@ export async function runProfile(
     // presence, gathered per repo in one worker. Runs riskiest-first and wider
     // than the GraphQL passes since each call is tiny. Non-fatal: a repo that
     // can't be read keeps its defaults.
-    if (byRisk.length > 0) {
+    if (!checkPause() && byRisk.length > 0) {
       onProgress?.({
         runId: input.id,
         profiled,
@@ -421,10 +445,11 @@ export async function runProfile(
         phase: "signals",
       });
     }
-    {
+    if (!checkPause()) {
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < byRisk.length) {
+          if (checkPause()) break;
           const r = byRisk[next++];
           if (!r) break;
           const base = signalsByRepo.get(r.nameWithOwner);
@@ -469,15 +494,25 @@ export async function runProfile(
       }
     }
 
-    // Persist the run's total API cost before marking it complete.
+    // Persist the run's total API cost before it settles.
     setProfileRunApiCalls(input.id, clients.getApiCalls());
-    completeProfileRun(input.id);
-    const completed = getProfileRun(input.id);
-    console.log(
-      `[profile] run ${input.id} completed — ${profiled} repo(s) profiled, ` +
-        `${completed?.blockers ?? 0} blocker(s), ${completed?.warnings ?? 0} warning(s) ` +
-        `in ${Date.now() - startedMs}ms`,
-    );
+    if (checkPause()) {
+      // Honored a pause: keep the recorded repos (and their `enriched` flags)
+      // intact so a resume continues only the unfinished work.
+      pauseProfileRun(input.id);
+      console.log(
+        `[profile] run ${input.id} paused — ${profiled} repo(s) profiled so far ` +
+          `in ${Date.now() - startedMs}ms`,
+      );
+    } else {
+      completeProfileRun(input.id);
+      const completed = getProfileRun(input.id);
+      console.log(
+        `[profile] run ${input.id} completed — ${profiled} repo(s) profiled, ` +
+          `${completed?.blockers ?? 0} blocker(s), ${completed?.warnings ?? 0} warning(s) ` +
+          `in ${Date.now() - startedMs}ms`,
+      );
+    }
   } catch (err) {
     const reason = describeError(err);
     console.error(
@@ -487,6 +522,9 @@ export async function runProfile(
     failProfileRun(input.id, reason);
   }
 
+  // Drop any pause request now the run has settled, so a too-late click can't
+  // linger in the registry (resume also clears it before re-dispatching).
+  clearPause(input.id);
   const run = getProfileRun(input.id);
   if (!run) throw new Error(`Profile run '${input.id}' vanished after execution`);
   return run;

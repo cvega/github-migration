@@ -267,6 +267,21 @@ export function failProfileRun(runId: string, reason: string, nowMs?: number): v
     });
 }
 
+/**
+ * Mark a run `paused` — a deliberate, non-terminal stop. Keeps every recorded
+ * repo (and its `enriched` flag) so a resume continues only the unfinished work;
+ * clears any failure reason and leaves `completed_at` null (the run isn't done).
+ * The live `profiled_repos` tally is left as-is, reflecting work done so far.
+ */
+export function pauseProfileRun(runId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE profile_runs SET state = 'paused', failure_reason = NULL, completed_at = NULL
+       WHERE id = $id`,
+    )
+    .run({ $id: runId });
+}
+
 /** Fetch a run by id, or null if it doesn't exist. */
 export function getProfileRun(id: string): ProfileRun | null {
   const row = getDb()

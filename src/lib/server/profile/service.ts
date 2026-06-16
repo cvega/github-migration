@@ -10,6 +10,7 @@
 import { getSourceClients, isSourceAuthAvailable } from "$lib/server/core/auth";
 import { getDb } from "$lib/server/core/db";
 import type { GitHubClient } from "$lib/server/core/github";
+import { clearPause, requestPause } from "./control";
 import { runEnterpriseProfile } from "./enterprise-runner";
 import { type DurationEstimate, estimateDuration } from "./estimate";
 import { publishEnterpriseEvent, publishProfileEvent } from "./events";
@@ -25,6 +26,7 @@ import {
   getRunRepoProfiles,
   listRunningEnterpriseRuns,
   listStandaloneRunningProfileRuns,
+  refreshEnterpriseRunAggregates,
 } from "./store";
 import { buildPreparationSummary, type PreparationSummary } from "./summary";
 import type { EnterpriseRun, ProfileRun, StoredRepoProfile } from "./types";
@@ -217,6 +219,67 @@ export function startEnterpriseProfile(
   const run = getEnterpriseRun(id);
   if (!run) throw new Error("enterprise run was not created");
   return run;
+}
+
+/**
+ * Request that a running org profile pause at its next safe checkpoint.
+ *
+ * Cooperative: this only flags the request, so the returned run is still
+ * `running` until the crawl observes it (between augment chunks/passes), persists
+ * `state='paused'` with its progress intact, and publishes a terminal `done`.
+ * A run that isn't running is returned unchanged (nothing to pause); returns null
+ * if no such run exists.
+ */
+export function requestProfilePause(id: string): ProfileRun | null {
+  const run = getProfileRun(id);
+  if (!run) return null;
+  if (run.state === "running") requestPause(id);
+  return getProfileRun(id);
+}
+
+/**
+ * Resume a paused or failed org profile run, re-dispatching its crawl in the
+ * background. Reloads the run's recorded repos and reprocesses only the
+ * unfinished ones (see {@link runProfile}'s resume path), republishing SSE so a
+ * watching page goes live again. A child run (one belonging to an enterprise)
+ * refreshes its parent's aggregates as it settles.
+ *
+ * Returns the run flipped back to `running` (the reset runs synchronously), the
+ * unchanged run when it's already running/completed (nothing to resume), or null
+ * when no such run exists.
+ *
+ * @throws when no source credentials are configured (the route maps this to 400).
+ */
+export function resumeProfileRun(
+  id: string,
+  deps: ProfileServiceDeps = DEFAULT_DEPS,
+): ProfileRun | null {
+  const run = getProfileRun(id);
+  if (!run) return null;
+  if (run.state === "running" || run.state === "completed") return run;
+
+  // Drop any stale pause request so the freshly-resumed crawl doesn't immediately
+  // re-pause, then re-dispatch with resume=true.
+  clearPause(id);
+  const { gql, rest, sourceApiUrl, getApiCalls } = deps.buildSourceClients();
+  const enterpriseRunId = run.enterpriseRunId ?? undefined;
+  runOrgWithSse(deps, { gql, rest, getApiCalls }, rest, {
+    id,
+    org: run.org,
+    sourceApiUrl,
+    enterpriseRunId,
+    resume: true,
+  })
+    .then((settled) => {
+      // A resumed child run must refresh its enterprise parent's roll-up.
+      if (enterpriseRunId) refreshEnterpriseRunAggregates(enterpriseRunId);
+      return settled;
+    })
+    .catch((err) => {
+      console.error(`[profile] resume of run ${id} crashed:`, err);
+      publishProfileEvent(id, { type: "done", state: "failed" });
+    });
+  return getProfileRun(id);
 }
 
 /**
