@@ -68,7 +68,6 @@ const PROFILE_DDL = `
 
   CREATE INDEX IF NOT EXISTS idx_profile_repos_run_id ON profile_repos(run_id);
   CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state);
-  CREATE INDEX IF NOT EXISTS idx_profile_runs_enterprise ON profile_runs(enterprise_run_id);
   CREATE INDEX IF NOT EXISTS idx_profile_enterprise_runs_state ON profile_enterprise_runs(state);
 `;
 
@@ -118,6 +117,12 @@ export const profileStore: DomainStore = {
     addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
     addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "enterprise_run_id", "TEXT");
+    // Index the new column AFTER it's guaranteed to exist (a pre-existing DB
+    // adds it via addColumnIfMissing above; the CREATE TABLE only covers fresh
+    // DBs), so an upgrade doesn't fail building an index on a missing column.
+    db.run(
+      "CREATE INDEX IF NOT EXISTS idx_profile_runs_enterprise ON profile_runs(enterprise_run_id)",
+    );
   },
   onInit: recoverInterruptedProfiles,
 };
