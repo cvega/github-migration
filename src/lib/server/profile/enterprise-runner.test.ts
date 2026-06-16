@@ -79,7 +79,7 @@ function deps(
   over: Partial<EnterpriseRunnerDeps> = {},
 ): Partial<EnterpriseRunnerDeps> {
   return {
-    discoverOrgs: async () => orgs,
+    discoverOrgs: async () => ({ orgs, inaccessible: 0 }),
     newId: seqIds(),
     ...over,
   };
@@ -102,6 +102,23 @@ describe("runEnterpriseProfile", () => {
     expect(run.totalRepos).toBe(8); // 3 + 5 rolled up from children
     // Children are linked to the enterprise run.
     expect(getEnterpriseChildRuns("ent").map((r) => r.org)).toEqual(["alpha", "beta"]);
+  });
+
+  test("records how many orgs the token couldn't access", async () => {
+    const { runOrg } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" },
+      undefined,
+      {
+        runOrg,
+        newId: seqIds(),
+        // Two accessible orgs; seven forbid the token (e.g. classic-PAT policy).
+        discoverOrgs: async () => ({ orgs: ["alpha", "beta"], inaccessible: 7 }),
+      },
+    );
+    expect(run.totalOrgs).toBe(2); // only accessible orgs are profiled
+    expect(run.inaccessibleOrgs).toBe(7); // surfaced so the UI can explain the gap
   });
 
   test("creates the enterprise run synchronously (queryable immediately)", async () => {

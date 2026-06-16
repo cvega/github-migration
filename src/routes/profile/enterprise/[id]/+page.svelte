@@ -195,6 +195,20 @@
 		</div>
 	{/if}
 
+	{#if run.inaccessibleOrgs > 0}
+		<div class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+			<Octicon name="alert" size={16} class="mt-0.5 shrink-0" />
+			<span>
+				<strong>{run.inaccessibleOrgs.toLocaleString()}</strong> organization{run.inaccessibleOrgs === 1 ? '' : 's'}
+				in this enterprise {run.inaccessibleOrgs === 1 ? 'is' : 'are'} not accessible to the source token and
+				{run.inaccessibleOrgs === 1 ? 'was' : 'were'} skipped — so the counts below cover the
+				{run.totalOrgs.toLocaleString()} accessible org{run.totalOrgs === 1 ? '' : 's'} only. This usually means an
+				org policy blocks classic personal access tokens; use a fine-grained PAT or a GitHub App with access to
+				those organizations to include them.
+			</span>
+		</div>
+	{/if}
+
 	<!-- Aggregate tiles -->
 	<section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">

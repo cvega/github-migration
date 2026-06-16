@@ -31,6 +31,19 @@ interface OrgsPage {
   } | null;
 }
 
+/** Result of enumerating an enterprise's organizations. */
+export interface EnterpriseOrgDiscovery {
+  /** Logins of the organizations the token can access (and will profile). */
+  orgs: string[];
+  /**
+   * How many organizations the token could NOT read — they came back as `null`
+   * nodes (e.g. an org policy blocking classic PATs) and were skipped. Surfaced
+   * so the enterprise view can explain why its org count looks short, rather
+   * than silently dropping ~⅔ of a large enterprise.
+   */
+  inaccessible: number;
+}
+
 const ENTERPRISE_ORGS_QUERY = `
   query($slug: String!, $cursor: String) {
     enterprise(slug: $slug) {
@@ -48,13 +61,18 @@ const ENTERPRISE_ORGS_QUERY = `
  *
  * @param gql  Authenticated source GraphQL client.
  * @param slug The enterprise URL slug (not the display name).
- * @returns    Organization logins the token can access. Organizations that
- *             forbid the token are skipped (logged). Throws only if the
- *             enterprise itself can't be read (unknown slug, or the token can't
- *             see the enterprise at all).
+ * @returns    The accessible organization logins plus a count of the ones the
+ *             token can't access (skipped). Organizations that forbid the token
+ *             come back as null nodes and are counted as `inaccessible`. Throws
+ *             only if the enterprise itself can't be read (unknown slug, or the
+ *             token can't see the enterprise at all).
  */
-export async function discoverEnterpriseOrgs(gql: typeof graphql, slug: string): Promise<string[]> {
+export async function discoverEnterpriseOrgs(
+  gql: typeof graphql,
+  slug: string,
+): Promise<EnterpriseOrgDiscovery> {
   const logins: string[] = [];
+  let inaccessible = 0;
   let cursor: string | null = null;
 
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -81,12 +99,20 @@ export async function discoverEnterpriseOrgs(gql: typeof graphql, slug: string):
       throw new Error(`Enterprise '${slug}' not found or not accessible`);
     }
     for (const node of connection.nodes) {
+      // A null node is an org the token can't read (forbidden by policy). Count
+      // it so the total org figure reflects the enterprise's real size.
       if (node?.login) logins.push(node.login);
+      else inaccessible += 1;
     }
     if (!connection.pageInfo.hasNextPage) break;
     cursor = connection.pageInfo.endCursor;
     if (!cursor) break;
   }
 
-  return logins;
+  if (inaccessible > 0) {
+    console.warn(
+      `[profile] enterprise '${slug}': ${logins.length} org(s) accessible, ${inaccessible} inaccessible to the token (skipped)`,
+    );
+  }
+  return { orgs: logins, inaccessible };
 }

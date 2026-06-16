@@ -261,6 +261,13 @@ export interface EnterpriseRun {
   totalOrgs: number;
   /** Child org runs that have reached a terminal state (completed or failed). */
   profiledOrgs: number;
+  /**
+   * Organizations in the enterprise the source token can't access (e.g. an org
+   * policy blocking classic PATs). They're skipped during enumeration, so the
+   * profiled/total org counts only cover accessible orgs; this surfaces how many
+   * were left out (and hints the token needs broader access).
+   */
+  inaccessibleOrgs: number;
   /** Repositories across all child runs (sum, recomputed as children settle). */
   totalRepos: number;
   /** Repositories profiled across all child runs (sum). */

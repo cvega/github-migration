@@ -19,6 +19,7 @@ const PROFILE_DDL = `
     state TEXT NOT NULL DEFAULT 'running',
     total_orgs INTEGER NOT NULL DEFAULT 0,
     profiled_orgs INTEGER NOT NULL DEFAULT 0,
+    inaccessible_orgs INTEGER NOT NULL DEFAULT 0,
     total_repos INTEGER NOT NULL DEFAULT 0,
     profiled_repos INTEGER NOT NULL DEFAULT 0,
     blockers INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +121,12 @@ export const profileStore: DomainStore = {
     addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "enterprise_run_id", "TEXT");
     addColumnIfMissing(db, "profile_repos", "enriched", "INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(
+      db,
+      "profile_enterprise_runs",
+      "inaccessible_orgs",
+      "INTEGER NOT NULL DEFAULT 0",
+    );
     // Index the new column AFTER it's guaranteed to exist (a pre-existing DB
     // adds it via addColumnIfMissing above; the CREATE TABLE only covers fresh
     // DBs), so an upgrade doesn't fail building an index on a missing column.

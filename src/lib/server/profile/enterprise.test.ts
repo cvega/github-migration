@@ -37,7 +37,10 @@ function page(logins: Array<string | null>, hasNextPage = false, endCursor: stri
 describe("discoverEnterpriseOrgs", () => {
   test("returns every org login from a single page", async () => {
     const { fn, calls } = mockGql([page(["alpha", "beta", "gamma"])]);
-    expect(await discoverEnterpriseOrgs(fn, "acme-inc")).toEqual(["alpha", "beta", "gamma"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme-inc")).toEqual({
+      orgs: ["alpha", "beta", "gamma"],
+      inaccessible: 0,
+    });
     // First page is requested with a null cursor and the given slug.
     expect(calls).toEqual([{ slug: "acme-inc", cursor: null }]);
   });
@@ -48,7 +51,10 @@ describe("discoverEnterpriseOrgs", () => {
       page(["c", "d"], true, "CURSOR2"),
       page(["e"]),
     ]);
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["a", "b", "c", "d", "e"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({
+      orgs: ["a", "b", "c", "d", "e"],
+      inaccessible: 0,
+    });
     expect(calls).toEqual([
       { slug: "acme", cursor: null },
       { slug: "acme", cursor: "CURSOR1" },
@@ -56,21 +62,21 @@ describe("discoverEnterpriseOrgs", () => {
     ]);
   });
 
-  test("skips null nodes (orgs the viewer can't see)", async () => {
+  test("skips null nodes and counts them as inaccessible", async () => {
     const { fn } = mockGql([page(["a", null, "b"])]);
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["a", "b"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({ orgs: ["a", "b"], inaccessible: 1 });
   });
 
   test("stops paging when hasNextPage is true but the cursor is null", async () => {
     // A defensive guard: a malformed page that claims more but gives no cursor.
     const { fn, calls } = mockGql([page(["a"], true, null)]);
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["a"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({ orgs: ["a"], inaccessible: 0 });
     expect(calls).toHaveLength(1);
   });
 
   test("returns an empty list for an enterprise with no orgs", async () => {
     const { fn } = mockGql([page([])]);
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual([]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({ orgs: [], inaccessible: 0 });
   });
 
   test("throws when the enterprise is unreadable (null enterprise)", async () => {
@@ -94,7 +100,10 @@ describe("discoverEnterpriseOrgs", () => {
       throw err;
     }) as unknown as typeof graphql;
 
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["alpha", "gamma"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({
+      orgs: ["alpha", "gamma"],
+      inaccessible: 1,
+    });
   });
 
   test("recovers a partial page mid-pagination and keeps going", async () => {
@@ -109,7 +118,10 @@ describe("discoverEnterpriseOrgs", () => {
       return page(["delta", null, "epsilon"]); // second page resolves cleanly
     }) as unknown as typeof graphql;
 
-    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["alpha", "delta", "epsilon"]);
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual({
+      orgs: ["alpha", "delta", "epsilon"],
+      inaccessible: 2,
+    });
     // It threaded the recovered page's cursor into the next request.
     expect(calls[1]).toEqual({ slug: "acme", cursor: "CURSOR1" });
   });

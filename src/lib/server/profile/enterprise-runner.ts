@@ -29,6 +29,7 @@ import {
   pauseEnterpriseRun,
   refreshEnterpriseRunAggregates,
   resetEnterpriseRunForResume,
+  setEnterpriseRunInaccessibleOrgs,
   setEnterpriseRunTotalOrgs,
 } from "./store";
 import type { EnterpriseProgress, EnterpriseRun, ProfileRun } from "./types";
@@ -152,10 +153,13 @@ export async function runEnterpriseProfile(
       : new Map<string, ProfileRun>();
 
     let orgs: string[];
+    let inaccessibleOrgs = 0;
     if (input.resume) {
       let enumerated: string[] = [];
       try {
-        enumerated = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+        const discovered = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+        enumerated = discovered.orgs;
+        inaccessibleOrgs = discovered.inaccessible;
       } catch (err) {
         if (existingChild.size === 0) throw err; // nothing recorded to fall back to
         console.warn(
@@ -168,12 +172,17 @@ export async function runEnterpriseProfile(
       // when enumeration succeeds.
       orgs = [...new Set<string>([...existingChild.keys(), ...enumerated])];
     } else {
-      orgs = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+      const discovered = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+      orgs = discovered.orgs;
+      inaccessibleOrgs = discovered.inaccessible;
     }
 
     setEnterpriseRunTotalOrgs(input.id, orgs.length);
+    setEnterpriseRunInaccessibleOrgs(input.id, inaccessibleOrgs);
     console.log(
-      `[profile] enterprise run ${input.id} enumerated ${orgs.length} org(s) in ${Date.now() - startedMs}ms`,
+      `[profile] enterprise run ${input.id} enumerated ${orgs.length} org(s)` +
+        (inaccessibleOrgs > 0 ? ` (${inaccessibleOrgs} inaccessible, skipped)` : "") +
+        ` in ${Date.now() - startedMs}ms`,
     );
     onProgress?.({
       enterpriseRunId: input.id,

@@ -152,7 +152,7 @@ function serviceDeps(
       let n = 0;
       const promise = runEnterpriseProfile(clients, input, onProgress, {
         ...edeps,
-        discoverOrgs: async () => orgs,
+        discoverOrgs: async () => ({ orgs, inaccessible: 0 }),
         newId: () => `child-${n++}`,
       });
       state.runPromise = promise;

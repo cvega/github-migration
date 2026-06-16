@@ -343,6 +343,7 @@ interface EnterpriseRunRow {
   state: string;
   total_orgs: number;
   profiled_orgs: number;
+  inaccessible_orgs: number;
   total_repos: number;
   profiled_repos: number;
   blockers: number;
@@ -353,7 +354,7 @@ interface EnterpriseRunRow {
 }
 
 const ENTERPRISE_COLS =
-  "id, source_api_url, enterprise_slug, state, total_orgs, profiled_orgs, total_repos, profiled_repos, blockers, warnings, started_at, completed_at, failure_reason";
+  "id, source_api_url, enterprise_slug, state, total_orgs, profiled_orgs, inaccessible_orgs, total_repos, profiled_repos, blockers, warnings, started_at, completed_at, failure_reason";
 
 function rowToEnterpriseRun(row: EnterpriseRunRow): EnterpriseRun {
   return {
@@ -363,6 +364,7 @@ function rowToEnterpriseRun(row: EnterpriseRunRow): EnterpriseRun {
     state: row.state as ProfileRunState,
     totalOrgs: row.total_orgs,
     profiledOrgs: row.profiled_orgs,
+    inaccessibleOrgs: row.inaccessible_orgs,
     totalRepos: row.total_repos,
     profiledRepos: row.profiled_repos,
     blockers: row.blockers,
@@ -402,6 +404,13 @@ export function setEnterpriseRunTotalOrgs(runId: string, total: number): void {
   getDb()
     .prepare(`UPDATE profile_enterprise_runs SET total_orgs = $total WHERE id = $id`)
     .run({ $total: total, $id: runId });
+}
+
+/** Record how many enterprise orgs the token couldn't access (skipped). */
+export function setEnterpriseRunInaccessibleOrgs(runId: string, count: number): void {
+  getDb()
+    .prepare(`UPDATE profile_enterprise_runs SET inaccessible_orgs = $count WHERE id = $id`)
+    .run({ $count: count, $id: runId });
 }
 
 /**
