@@ -11,7 +11,7 @@ import { getSourceClients } from "$lib/server/core/auth";
 import type { GitHubClient } from "$lib/server/core/github";
 import { runEnterpriseProfile } from "./enterprise-runner";
 import { type DurationEstimate, estimateDuration } from "./estimate";
-import { publishProfileEvent } from "./events";
+import { publishEnterpriseEvent, publishProfileEvent } from "./events";
 import { deriveInsights, type Insight } from "./insights";
 import { getOrgResources } from "./org-resources";
 import { getOrgRulesetCount } from "./rulesets";
@@ -181,13 +181,27 @@ export function startEnterpriseProfile(
   const id = deps.newId();
 
   deps
-    .runEnterprise(clients, { id, enterpriseSlug, sourceApiUrl }, undefined, {
-      runOrg: (c, input) => runOrgWithSse(deps, c, rest, input),
-    })
+    .runEnterprise(
+      clients,
+      { id, enterpriseSlug, sourceApiUrl },
+      (p) =>
+        publishEnterpriseEvent(id, {
+          type: "progress",
+          phase: p.phase,
+          totalOrgs: p.totalOrgs,
+          profiledOrgs: p.profiledOrgs,
+          org: p.org,
+        }),
+      {
+        runOrg: (c, input) => runOrgWithSse(deps, c, rest, input),
+      },
+    )
+    .then((run) => publishEnterpriseEvent(id, { type: "done", state: run.state }))
     .catch((err) => {
       // The enterprise runner persists failures on the run; this guards against
       // an unexpected throw escaping the background promise.
       console.error(`[profile] enterprise run ${id} crashed:`, err);
+      publishEnterpriseEvent(id, { type: "done", state: "failed" });
     });
 
   const run = getEnterpriseRun(id);

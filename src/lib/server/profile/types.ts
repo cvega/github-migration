@@ -313,7 +313,7 @@ export type ProfilePhase = "discovering" | "organization" | "counting" | "detail
  *   - `enumerating` — listing the enterprise's organizations (GraphQL).
  *   - `organizations` — profiling each org as a child run.
  */
-type EnterprisePhase = "enumerating" | "organizations";
+export type EnterprisePhase = "enumerating" | "organizations";
 
 /** Progress emitted by the enterprise runner as orgs are enumerated and settle. */
 export interface EnterpriseProgress {

@@ -1,7 +1,8 @@
-<!-- One enterprise profiling run: aggregate rollup + its child organization runs. Polls while running. -->
+<!-- One enterprise profiling run: aggregate rollup + its child organization runs. Streams live progress while running. -->
 <script lang="ts">
 	import Octicon from '$lib/components/Octicon.svelte';
 	import { timeAgo } from '$lib/format';
+	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
 
@@ -36,14 +37,26 @@
 		}
 	}
 
-	// Poll while the enterprise run is in progress. Keyed on the loaded run id so
-	// navigating between runs resets the loop; reads only the loader prop so a
-	// refresh can't restart it.
+	// Live updates over SSE while the run is in progress. Keyed on the loaded run
+	// id so navigating between runs tears down the old stream and re-subscribes;
+	// reads only the loader prop (never `polled`) so a refresh can't re-subscribe.
 	$effect(() => {
-		if (data.run.state !== 'running') return;
 		const id = data.run.id;
-		const timer = setInterval(() => refresh(id), 3000);
-		return () => clearInterval(timer);
+		if (data.run.state !== 'running') return;
+		const conn = createReconnectingEventSource({
+			url: () => `/api/profile/enterprise/${id}/events`,
+			onMessage: (e, controls) => {
+				let msg: { type?: string };
+				try {
+					msg = JSON.parse(e.data);
+				} catch {
+					return;
+				}
+				refresh(id);
+				if (msg.type === 'done') controls.destroy();
+			}
+		});
+		return () => conn.destroy();
 	});
 
 	const tiles = $derived([

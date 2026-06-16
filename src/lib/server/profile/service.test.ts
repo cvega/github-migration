@@ -10,7 +10,7 @@ import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
 import type { RepoDetails } from "./augment";
 import { runEnterpriseProfile } from "./enterprise-runner";
-import { type ProfileSseEvent, subscribeProfile } from "./events";
+import { type EnterpriseSseEvent, type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
 import {
   getProfileDetail,
@@ -270,6 +270,30 @@ describe("startEnterpriseProfile", () => {
       (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as ProfileSseEvent,
     );
     // The child terminal `done` is published, so its detail page settles.
+    expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+
+  test("publishes enterprise-level SSE (per-org progress + terminal done)", async () => {
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["alpha", "beta"]);
+
+    startEnterpriseProfile("acme-inc", deps);
+    // Subscribe to the enterprise channel (id is the fixed harness id).
+    const frames: string[] = [];
+    subscribeProfile("fixed-run-id", {
+      enqueue: (f: string) => frames.push(f),
+    } as unknown as ReadableStreamDefaultController<string>);
+
+    await state.runPromise;
+
+    const events = frames.map(
+      (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as EnterpriseSseEvent,
+    );
+    // One settle nudge per org (rising profiledOrgs), then a terminal done.
+    const settles = events.filter((e) => e.type === "progress" && e.org !== "");
+    expect(settles.map((e) => (e.type === "progress" ? e.org : "")).sort()).toEqual([
+      "alpha",
+      "beta",
+    ]);
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
   });
 });
