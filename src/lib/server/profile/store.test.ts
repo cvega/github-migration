@@ -361,6 +361,34 @@ describe("completeProfileRun", () => {
     expect(run?.profiledRepos).toBe(1);
     expect(run?.blockers).toBe(1);
   });
+
+  test("clamps total_repos up to the recorded count (never profiled > total)", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    // A rate-limited re-discovery left total_repos too low (2)…
+    setProfileRunTotal("r", 2);
+    // …but three repos were actually recorded.
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/b" }), profile("acme/b"));
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/c" }), profile("acme/c"));
+
+    completeProfileRun("r");
+
+    const run = getProfileRun("r");
+    expect(run?.profiledRepos).toBe(3);
+    expect(run?.totalRepos).toBe(3); // clamped up from 2, so the page shows 3/3
+  });
+
+  test("leaves total_repos untouched when it already exceeds the recorded count", () => {
+    createProfileRun({ id: "r", sourceApiUrl: "u", org: "acme" });
+    setProfileRunTotal("r", 10); // org has 10 repos; only some profiled so far
+    recordRepoProfile("r", signals({ nameWithOwner: "acme/a" }), profile("acme/a"));
+
+    completeProfileRun("r");
+
+    const run = getProfileRun("r");
+    expect(run?.profiledRepos).toBe(1);
+    expect(run?.totalRepos).toBe(10); // unchanged — a real total above the count
+  });
 });
 
 describe("failProfileRun", () => {

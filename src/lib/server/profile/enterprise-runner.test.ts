@@ -16,6 +16,7 @@ import {
   completeProfileRun,
   createEnterpriseRun,
   createProfileRun,
+  failEnterpriseRun,
   failProfileRun,
   getEnterpriseChildRuns,
   getProfileRun,
@@ -305,5 +306,59 @@ describe("runEnterpriseProfile", () => {
     expect(beta?.resume).toBe(true);
     expect(inputs.find((i) => i.org === "gamma")?.resume).toBe(false);
     expect(run.state).toBe("completed");
+  });
+
+  test("resume falls back to known children when re-enumeration fails", async () => {
+    // A paused enterprise with two children — one done, one still pending. The
+    // fresh enumeration throws (e.g. the enterprise transiently resolves to null
+    // on resume), but the recorded children must still be resumable.
+    createEnterpriseRun({ id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u" });
+    createProfileRun({ id: "c-alpha", sourceApiUrl: "u", org: "alpha", enterpriseRunId: "ent" });
+    completeProfileRun("c-alpha");
+    createProfileRun({ id: "c-beta", sourceApiUrl: "u", org: "beta", enterpriseRunId: "ent" });
+    pauseProfileRun("c-beta");
+    pauseEnterpriseRun("ent");
+
+    const { runOrg, inputs } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps([], {
+        runOrg,
+        discoverOrgs: async () => {
+          throw new Error("Enterprise 'acme' not found or not accessible");
+        },
+      }),
+    );
+    // The enumeration failure was tolerated: the known unfinished child resumed,
+    // the completed one was skipped, and the run finished rather than failing.
+    expect(run.state).toBe("completed");
+    expect(inputs.map((i) => i.org)).toEqual(["beta"]);
+    expect(inputs[0]?.id).toBe("c-beta");
+    expect(inputs[0]?.resume).toBe(true);
+  });
+
+  test("resume still fails when enumeration throws and there are no children", async () => {
+    // An enterprise run that failed before recording any child — there's nothing
+    // to fall back to, so a resume that can't enumerate fails again (correctly).
+    createEnterpriseRun({ id: "ent", enterpriseSlug: "ghost", sourceApiUrl: "u" });
+    failEnterpriseRun("ent", "Enterprise 'ghost' not found or not accessible");
+
+    const { runOrg, inputs } = fakeRunOrg();
+    const run = await runEnterpriseProfile(
+      clients,
+      { id: "ent", enterpriseSlug: "ghost", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps([], {
+        runOrg,
+        discoverOrgs: async () => {
+          throw new Error("Enterprise 'ghost' not found or not accessible");
+        },
+      }),
+    );
+    expect(run.state).toBe("failed");
+    expect(run.failureReason).toContain("not found or not accessible");
+    expect(inputs).toEqual([]); // nothing was dispatched
   });
 });

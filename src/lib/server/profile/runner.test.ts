@@ -323,6 +323,48 @@ describe("runProfile", () => {
     expect([...getEnrichedRepoNames("rpr")].sort()).toEqual(["acme/a", "acme/b"]);
   });
 
+  test("resume keeps repos a short re-discovery omits and never shrinks the total", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    // First run pauses immediately, so all three repos are recorded but none
+    // finish enrichment.
+    await runProfile(clients, { id: "rt", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      shouldPause: () => true,
+    });
+    expect(getProfileRun("rt")?.totalRepos).toBe(3);
+    expect(getEnrichedRepoNames("rt").size).toBe(0);
+
+    // Resume, but re-discovery comes back short (only "a") — a rate-limited REST
+    // listing returning fewer repos than the org actually has. This is exactly
+    // the case that produced "10123/92": without the union the total would drop
+    // to 1 and "b"/"c" would never be reprocessed.
+    const counted: string[] = [];
+    const resumed = await runProfile(
+      clients,
+      { id: "rt", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      {
+        ...deps(repos),
+        discover: async (): Promise<OrgDiscovery> => ({
+          org: "acme",
+          total: 1,
+          repos: [discovered("a")],
+        }),
+        augmentCounts: async (_gql, c) => {
+          for (const r of c) counted.push(r.nameWithOwner);
+          return c.map((r) => countsSignals(r));
+        },
+      },
+    );
+    // The total must NOT shrink to 1 — all three recorded repos are still known.
+    expect(resumed.totalRepos).toBe(3);
+    expect(resumed.profiledRepos).toBe(3);
+    // And the repos the short re-discovery omitted were still reprocessed.
+    expect(counted.sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect([...getEnrichedRepoNames("rt")].sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect(resumed.state).toBe("completed");
+  });
+
   test("records the org resource counts on the run", async () => {
     const run = await runProfile(
       clients,

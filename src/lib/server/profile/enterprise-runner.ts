@@ -140,7 +140,37 @@ export async function runEnterpriseProfile(
       org: "",
     });
 
-    const orgs = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+    // On resume, the child runs the original crawl recorded already define the
+    // resumable work; re-enumerating only adds orgs joined to the enterprise
+    // since. So a resume tolerates an enumeration failure — it falls back to the
+    // orgs it already knows rather than throwing away partial progress (the
+    // enterprise GraphQL connection can transiently resolve to null on a token
+    // change, rate-limit, or hiccup). A fresh run has no children to fall back
+    // to, so its enumeration failure stays fatal.
+    const existingChild = input.resume
+      ? new Map(getEnterpriseChildRuns(input.id).map((c) => [c.org, c]))
+      : new Map<string, ProfileRun>();
+
+    let orgs: string[];
+    if (input.resume) {
+      let enumerated: string[] = [];
+      try {
+        enumerated = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+      } catch (err) {
+        if (existingChild.size === 0) throw err; // nothing recorded to fall back to
+        console.warn(
+          `[profile] enterprise run ${input.id} resume: re-enumeration failed ` +
+            `(${describeError(err)}); resuming the ${existingChild.size} known org(s)`,
+        );
+      }
+      // Union the known children (stable, name-ordered) with any newly-found
+      // orgs, so resume always covers what was started and picks up new orgs
+      // when enumeration succeeds.
+      orgs = [...new Set<string>([...existingChild.keys(), ...enumerated])];
+    } else {
+      orgs = await d.discoverOrgs(clients.gql, input.enterpriseSlug);
+    }
+
     setEnterpriseRunTotalOrgs(input.id, orgs.length);
     console.log(
       `[profile] enterprise run ${input.id} enumerated ${orgs.length} org(s) in ${Date.now() - startedMs}ms`,
@@ -161,9 +191,6 @@ export async function runEnterpriseProfile(
     // On resume, an org whose child run already completed is skipped; one with an
     // existing (unfinished) child is resumed on that same child; a brand-new org
     // is started fresh.
-    const existingChild = input.resume
-      ? new Map(getEnterpriseChildRuns(input.id).map((c) => [c.org, c]))
-      : new Map<string, ProfileRun>();
     let settled = input.resume
       ? [...existingChild.values()].filter((c) => c.state === "completed").length
       : 0;

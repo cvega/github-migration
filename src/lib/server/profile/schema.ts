@@ -126,7 +126,35 @@ export const profileStore: DomainStore = {
     db.run(
       "CREATE INDEX IF NOT EXISTS idx_profile_runs_enterprise ON profile_runs(enterprise_run_id)",
     );
+    healRepoTotals(db);
   },
   // No onInit recovery: interrupted runs are left `running` for the service's
   // `resumeInterruptedProfiles` to resume (or fail, when it can't) at startup.
 };
+
+/**
+ * Clamp every run's `total_repos` up to the number of repos it actually
+ * recorded, then re-roll enterprise repo aggregates from the corrected children.
+ *
+ * Idempotent — a no-op once totals are consistent. Heals data written before the
+ * resume "union" fix, where a rate-limited re-discovery on resume could persist a
+ * `total_repos` below `profiled_repos` (the page showing e.g. "10123/92"). The
+ * enterprise totals are sums of their children, so they're re-rolled to follow.
+ */
+function healRepoTotals(db: Database): void {
+  db.run(
+    `UPDATE profile_runs SET total_repos = (
+       SELECT COUNT(*) FROM profile_repos WHERE profile_repos.run_id = profile_runs.id
+     )
+     WHERE total_repos < (
+       SELECT COUNT(*) FROM profile_repos WHERE profile_repos.run_id = profile_runs.id
+     )`,
+  );
+  db.run(
+    `UPDATE profile_enterprise_runs SET
+       total_repos = (SELECT COALESCE(SUM(total_repos), 0) FROM profile_runs
+                      WHERE enterprise_run_id = profile_enterprise_runs.id),
+       profiled_repos = (SELECT COALESCE(SUM(profiled_repos), 0) FROM profile_runs
+                         WHERE enterprise_run_id = profile_enterprise_runs.id)`,
+  );
+}

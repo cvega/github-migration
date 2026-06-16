@@ -238,12 +238,16 @@ export function resetProfileRunForResume(runId: string): void {
 /**
  * Mark a run completed, recomputing its aggregates from the recorded repos so
  * the totals are authoritative regardless of how many times a repo was written.
+ * `total_repos` is clamped up to the recorded count: a run can never have
+ * profiled more repos than it has (e.g. a rate-limited re-discovery that came
+ * back short must not leave the denominator below the numerator).
  */
 export function completeProfileRun(runId: string, nowMs?: number): void {
   getDb()
     .prepare(
       `UPDATE profile_runs SET
          profiled_repos = (SELECT COUNT(*) FROM profile_repos WHERE run_id = $id),
+         total_repos = MAX(total_repos, (SELECT COUNT(*) FROM profile_repos WHERE run_id = $id)),
          blockers = (SELECT COALESCE(SUM(blockers), 0) FROM profile_repos WHERE run_id = $id),
          warnings = (SELECT COALESCE(SUM(warnings), 0) FROM profile_repos WHERE run_id = $id),
          state = 'completed',

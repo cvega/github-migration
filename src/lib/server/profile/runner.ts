@@ -41,6 +41,7 @@ import {
   setRepoEnriched,
 } from "./store";
 import {
+  type DiscoveredRepo,
   type OrgResources,
   type ProfileProgress,
   type ProfileRun,
@@ -75,6 +76,20 @@ function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+/**
+ * Union two repo lists by `nameWithOwner`, preferring entries from `primary`
+ * (a fresh discovery) over `fallback` (already-recorded repos) when both carry
+ * one. Used on resume so a re-discovery that comes back short — a rate-limited
+ * REST listing can return fewer repos than the org actually has — can neither
+ * drop repos we already recorded nor shrink the run below what we know.
+ */
+function unionByName(primary: DiscoveredRepo[], fallback: DiscoveredRepo[]): DiscoveredRepo[] {
+  const byName = new Map<string, DiscoveredRepo>();
+  for (const repo of fallback) byName.set(repo.nameWithOwner, repo);
+  for (const repo of primary) byName.set(repo.nameWithOwner, repo);
+  return [...byName.values()];
 }
 
 /**
@@ -250,20 +265,41 @@ export async function runProfile(
     // On resume, repos already fully enriched are skipped entirely (their stored
     // data is preserved); only the unfinished `pending` set is (re)processed.
     const enriched = input.resume ? getEnrichedRepoNames(input.id) : new Set<string>();
-    const pending = input.resume
-      ? discovery.repos.filter((r) => !enriched.has(r.nameWithOwner))
+
+    // On resume the repos already recorded in the DB are ground truth: a flaky
+    // re-discovery that returns fewer repos (a rate-limited REST listing can come
+    // back short) must neither shrink the run nor drop unfinished work. Union the
+    // freshly-discovered repos with everything already recorded — each stored
+    // `signals` carries the full discovery spine (RepoSignals extends
+    // DiscoveredRepo) — and drive the passes off that union.
+    const storedSignals = input.resume
+      ? new Map(getRunRepoProfiles(input.id).map((p) => [p.nameWithOwner, p.signals]))
+      : new Map<string, RepoSignals>();
+    const workingSet: DiscoveredRepo[] = input.resume
+      ? unionByName(discovery.repos, [...storedSignals.values()])
       : discovery.repos;
+
+    // total_repos counts every repo we know about — never fewer than already
+    // recorded, even when re-discovery came back short (which would otherwise
+    // make the page show e.g. "10123/92").
+    if (input.resume) {
+      setProfileRunTotal(input.id, Math.max(discovery.total, workingSet.length));
+    }
+
+    const pending = input.resume
+      ? workingSet.filter((r) => !enriched.has(r.nameWithOwner))
+      : workingSet;
 
     const signalsByRepo = new Map<string, RepoSignals>();
     if (input.resume) {
       // Seed the working set from stored signals so a pass that fails to re-fetch
       // keeps the repo's partial data; only record base for genuinely new repos
       // (avoids zeroing a row that's already listed).
-      const stored = new Map(getRunRepoProfiles(input.id).map((p) => [p.nameWithOwner, p.signals]));
       for (const repo of pending) {
-        const seed = stored.get(repo.nameWithOwner) ?? baseSignals(repo);
+        const seed = storedSignals.get(repo.nameWithOwner) ?? baseSignals(repo);
         signalsByRepo.set(repo.nameWithOwner, seed);
-        if (!stored.has(repo.nameWithOwner)) recordRepoProfile(input.id, seed, analyzeRepo(seed));
+        if (!storedSignals.has(repo.nameWithOwner))
+          recordRepoProfile(input.id, seed, analyzeRepo(seed));
       }
     } else {
       for (const repo of pending) {

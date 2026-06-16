@@ -150,4 +150,61 @@ describe("profileStore.applySchema (upgrade path)", () => {
     expect(hasIndex(db, "profile_runs", "idx_profile_runs_enterprise")).toBe(true);
     db.close();
   });
+
+  test("heals runs whose total_repos drifted below the recorded count", () => {
+    const db = new Database(":memory:", { create: true });
+    profileStore.applySchema(db);
+
+    // An enterprise with a child whose total_repos (2) is below the repos it
+    // actually recorded (3) — the "10123/92" corruption in miniature.
+    db.run(
+      `INSERT INTO profile_enterprise_runs (id, source_api_url, enterprise_slug, state, total_repos, profiled_repos, started_at)
+       VALUES ('ent', 'u', 'acme', 'completed', 2, 3, '2026-06-15T00:00:00Z')`,
+    );
+    db.run(
+      `INSERT INTO profile_runs (id, source_api_url, org, enterprise_run_id, state, total_repos, profiled_repos, started_at)
+       VALUES ('child', 'u', 'big', 'ent', 'completed', 2, 3, '2026-06-15T00:00:00Z')`,
+    );
+    for (const name of ["big/a", "big/b", "big/c"]) {
+      db.run(
+        `INSERT INTO profile_repos (run_id, name_with_owner, created_at) VALUES ('child', ?, '2026-06-15T00:00:00Z')`,
+        [name],
+      );
+    }
+
+    // Re-applying the schema heals the drift.
+    profileStore.applySchema(db);
+
+    const child = db.prepare("SELECT total_repos FROM profile_runs WHERE id = 'child'").get() as {
+      total_repos: number;
+    };
+    expect(child.total_repos).toBe(3); // clamped up from 2
+    const ent = db
+      .prepare("SELECT total_repos, profiled_repos FROM profile_enterprise_runs WHERE id = 'ent'")
+      .get() as { total_repos: number; profiled_repos: number };
+    expect(ent.total_repos).toBe(3); // re-rolled from the healed child
+    expect(ent.profiled_repos).toBe(3);
+    db.close();
+  });
+
+  test("leaves correct totals untouched (heal is idempotent)", () => {
+    const db = new Database(":memory:", { create: true });
+    profileStore.applySchema(db);
+    db.run(
+      `INSERT INTO profile_runs (id, source_api_url, org, state, total_repos, profiled_repos, started_at)
+       VALUES ('ok', 'u', 'acme', 'completed', 5, 2, '2026-06-15T00:00:00Z')`,
+    );
+    for (const name of ["acme/a", "acme/b"]) {
+      db.run(
+        `INSERT INTO profile_repos (run_id, name_with_owner, created_at) VALUES ('ok', ?, '2026-06-15T00:00:00Z')`,
+        [name],
+      );
+    }
+    profileStore.applySchema(db);
+    const run = db.prepare("SELECT total_repos FROM profile_runs WHERE id = 'ok'").get() as {
+      total_repos: number;
+    };
+    expect(run.total_repos).toBe(5); // 5 > 2 recorded → left as-is
+    db.close();
+  });
 });
