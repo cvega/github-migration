@@ -79,4 +79,47 @@ describe("discoverEnterpriseOrgs", () => {
       "Enterprise 'ghost' not found or not accessible",
     );
   });
+
+  test("recovers the accessible orgs when a partial error skips forbidden ones", async () => {
+    // GitHub throws a GraphqlResponseError that still carries `data`: the
+    // forbidden orgs (e.g. an org policy blocking classic PATs) resolve to null
+    // nodes while the accessible ones come back.
+    const err = Object.assign(
+      new Error(
+        "Request failed due to following response errors:\n - `sumil-sandbox` forbids access via a personal access token (classic).",
+      ),
+      { data: page(["alpha", null, "gamma"]) },
+    );
+    const fn = (async () => {
+      throw err;
+    }) as unknown as typeof graphql;
+
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["alpha", "gamma"]);
+  });
+
+  test("recovers a partial page mid-pagination and keeps going", async () => {
+    const firstErr = Object.assign(new Error("`forbidden-1` forbids access"), {
+      data: page(["alpha", null], true, "CURSOR1"),
+    });
+    let call = 0;
+    const calls: Array<Record<string, unknown>> = [];
+    const fn = (async (_query: string, vars: Record<string, unknown>) => {
+      calls.push(vars);
+      if (call++ === 0) throw firstErr;
+      return page(["delta", null, "epsilon"]); // second page resolves cleanly
+    }) as unknown as typeof graphql;
+
+    expect(await discoverEnterpriseOrgs(fn, "acme")).toEqual(["alpha", "delta", "epsilon"]);
+    // It threaded the recovered page's cursor into the next request.
+    expect(calls[1]).toEqual({ slug: "acme", cursor: "CURSOR1" });
+  });
+
+  test("re-throws an error that carries no recoverable data", async () => {
+    const err = new Error("HTTP 401: Bad credentials");
+    const fn = (async () => {
+      throw err;
+    }) as unknown as typeof graphql;
+
+    await expect(discoverEnterpriseOrgs(fn, "acme")).rejects.toThrow("Bad credentials");
+  });
 });

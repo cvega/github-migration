@@ -24,3 +24,22 @@ export function isTimeoutError(err: unknown): boolean {
     /timeout|timed out|executing your query|respond to your request in time/i.test(e.message)
   );
 }
+
+/**
+ * Recover the partial `data` from a GraphQL error that carries it, else null.
+ *
+ * Octokit throws a `GraphqlResponseError` whenever a response has any `errors`,
+ * even when it also returned usable `data` — e.g. a field the token can't read
+ * resolves to `null` and adds an error, but its siblings come back fine. The
+ * crawl prefers that partial data over failing the whole request, so this
+ * duck-types the carried `data` off the thrown error. Used by `augment.ts`
+ * (a repo alias the token can't read) and `enterprise.ts` (an org in the
+ * enterprise that forbids the token).
+ */
+export function partialDataFromError(err: unknown): Record<string, unknown> | null {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data?: unknown }).data;
+    if (data && typeof data === "object") return data as Record<string, unknown>;
+  }
+  return null;
+}
