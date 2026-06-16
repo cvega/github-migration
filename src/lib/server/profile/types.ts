@@ -262,4 +262,17 @@ export interface ProfileProgress {
   total: number;
   /** The repository just profiled (`owner/name`). */
   repo: string;
+  /** Which crawl phase emitted this nudge (drives the live phase label). */
+  phase: ProfilePhase;
 }
+
+/**
+ * The crawl's coarse phases, in order. Each emits progress nudges so the live
+ * UI can show what the run is doing right now:
+ *   - `discovering` — listing the org's repositories (REST).
+ *   - `organization` — gathering org-level resources (rulesets, secrets, teams…).
+ *   - `counting` — the cheap per-repo `totalCount` pass.
+ *   - `details` — the expensive per-repo pass (LFS, workflows, release assets).
+ *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
+ */
+export type ProfilePhase = "discovering" | "organization" | "counting" | "details" | "signals";

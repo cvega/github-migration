@@ -172,7 +172,13 @@ export async function runProfile(
     // live watcher with it); the exact total lands once discovery completes.
     const discovery = await d.discover(clients.rest, input.org, (p) => {
       setProfileRunTotal(input.id, p.total);
-      onProgress?.({ runId: input.id, profiled: 0, total: p.total, repo: "" });
+      onProgress?.({
+        runId: input.id,
+        profiled: 0,
+        total: p.total,
+        repo: "",
+        phase: "discovering",
+      });
     });
     setProfileRunTotal(input.id, discovery.total);
     console.log(
@@ -181,6 +187,13 @@ export async function runProfile(
 
     // Org-level signals are gathered once per run (best-effort, never fatal) —
     // they're org-scoped, not per-repo. Run the two REST passes concurrently.
+    onProgress?.({
+      runId: input.id,
+      profiled: 0,
+      total: discovery.total,
+      repo: "",
+      phase: "organization",
+    });
     const [rulesetCount, orgResources] = await Promise.all([
       d.getOrgRulesetCount(input.org),
       d.getOrgResources(input.org),
@@ -203,7 +216,13 @@ export async function runProfile(
     }
     if (discovery.repos.length > 0) {
       // Nudge any live watcher to render the freshly-listed repos.
-      onProgress?.({ runId: input.id, profiled: 0, total: discovery.total, repo: "" });
+      onProgress?.({
+        runId: input.id,
+        profiled: 0,
+        total: discovery.total,
+        repo: "",
+        phase: "counting",
+      });
     }
 
     // ── Pass 1: cheap counts (best-effort) ────────────────────────────────
@@ -237,6 +256,7 @@ export async function runProfile(
                 profiled,
                 total: discovery.total,
                 repo: signals.nameWithOwner,
+                phase: "counting",
               });
             }
           } catch (err) {
@@ -283,6 +303,15 @@ export async function runProfile(
       })),
       ...chunk(withReleases, DETAILS_CHUNK_FULL).map((repos) => ({ repos, scanReleases: true })),
     ];
+    if (tasks.length > 0) {
+      onProgress?.({
+        runId: input.id,
+        profiled,
+        total: discovery.total,
+        repo: "",
+        phase: "details",
+      });
+    }
     {
       let next = 0;
       const worker = async (): Promise<void> => {
@@ -308,7 +337,13 @@ export async function runProfile(
               recordRepoProfile(input.id, merged, analyzeRepo(merged));
             }
             // Nudge any live watcher to refetch the now-enriched data.
-            onProgress?.({ runId: input.id, profiled, total: discovery.total, repo: "" });
+            onProgress?.({
+              runId: input.id,
+              profiled,
+              total: discovery.total,
+              repo: "",
+              phase: "details",
+            });
           } catch (err) {
             console.error(
               `[profile] run ${input.id} details chunk failed — ${task.repos.length} repo(s), scanReleases=${task.scanReleases} (counts kept):`,
@@ -328,6 +363,15 @@ export async function runProfile(
     // presence, gathered per repo in one worker. Runs riskiest-first and wider
     // than the GraphQL passes since each call is tiny. Non-fatal: a repo that
     // can't be read keeps its defaults.
+    if (byRisk.length > 0) {
+      onProgress?.({
+        runId: input.id,
+        profiled,
+        total: discovery.total,
+        repo: "",
+        phase: "signals",
+      });
+    }
     {
       let next = 0;
       const worker = async (): Promise<void> => {
@@ -363,7 +407,13 @@ export async function runProfile(
         Array.from({ length: Math.min(COMMIT_CONCURRENCY, byRisk.length) }, () => worker()),
       );
       if (byRisk.length > 0) {
-        onProgress?.({ runId: input.id, profiled, total: discovery.total, repo: "" });
+        onProgress?.({
+          runId: input.id,
+          profiled,
+          total: discovery.total,
+          repo: "",
+          phase: "signals",
+        });
       }
     }
 

@@ -7,11 +7,11 @@
  * replay here. The bus just nudges connected clients (keyed by run id) to
  * refetch, and signals a terminal `done` so they can stop streaming.
  */
-import type { ProfileRunState } from "./types";
+import type { ProfilePhase, ProfileRunState } from "./types";
 
 /** An event pushed to a run's subscribers. */
 export type ProfileSseEvent =
-  | { type: "progress"; profiled: number; total: number; repo: string }
+  | { type: "progress"; profiled: number; total: number; repo: string; phase: ProfilePhase }
   | { type: "done"; state: ProfileRunState };
 
 /** Live stream controllers, keyed by run id. */

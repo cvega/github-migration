@@ -225,6 +225,18 @@
 
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
+	// Human label for the crawl phase the run is currently in, streamed over SSE.
+	// Keyed by the runner's ProfilePhase; unknown/absent → no caption.
+	const PHASE_LABELS: Record<string, string> = {
+		discovering: 'Discovering repositories…',
+		organization: 'Scanning organization resources…',
+		counting: 'Counting issues, PRs & branches…',
+		details: 'Scanning details — LFS, workflows, releases…',
+		signals: 'Checking commits, webhooks & collaborators…'
+	};
+	// The latest phase from the SSE stream (null until the first nudge / after done).
+	let livePhase = $state<string | null>(null);
+
 	async function refresh() {
 		try {
 			const res = await fetch(`/api/profile/${data.run.id}`);
@@ -243,14 +255,18 @@
 		const conn = createReconnectingEventSource({
 			url: () => `/api/profile/${id}/events`,
 			onMessage: (e, controls) => {
-				let msg: { type?: string };
+				let msg: { type?: string; phase?: string };
 				try {
 					msg = JSON.parse(e.data);
 				} catch {
 					return;
 				}
+				if (msg.type === 'progress' && msg.phase) livePhase = msg.phase;
 				refresh();
-				if (msg.type === 'done') controls.destroy();
+				if (msg.type === 'done') {
+					livePhase = null;
+					controls.destroy();
+				}
 			}
 		});
 		return () => conn.destroy();
@@ -309,6 +325,12 @@
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
 					<div class="h-full bg-violet-500 transition-all" style="width: {pct}%"></div>
 				</div>
+				{#if livePhase && PHASE_LABELS[livePhase]}
+					<div class="mt-1.5 flex items-center gap-1 text-[11px] text-gray-500">
+						<Octicon name="sync" size={12} class="animate-spin" />
+						{PHASE_LABELS[livePhase]}
+					</div>
+				{/if}
 			{/if}
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">

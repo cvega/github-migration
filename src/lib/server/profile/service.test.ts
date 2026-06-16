@@ -202,8 +202,8 @@ describe("startOrgProfile", () => {
     // refetch nudges, filtered out here.
     const progress = events.filter((e) => e.type === "progress" && e.repo !== "");
     expect(progress).toEqual([
-      { type: "progress", profiled: 1, total: 2, repo: "acme/a" },
-      { type: "progress", profiled: 2, total: 2, repo: "acme/b" },
+      { type: "progress", profiled: 1, total: 2, repo: "acme/a", phase: "counting" },
+      { type: "progress", profiled: 2, total: 2, repo: "acme/b", phase: "counting" },
     ]);
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
   });
