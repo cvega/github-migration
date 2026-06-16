@@ -29,6 +29,8 @@ const noCommits: ProfileRunnerDeps["countCommits"] = async () => 0;
 const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
   webhooksCount: 0,
   hasCodeScanningAlerts: false,
+  collaboratorsCount: 0,
+  tagProtectionCount: 0,
 });
 
 function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
@@ -72,6 +74,8 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     webhooksCount: 0,
     hasPages: false,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -120,6 +124,8 @@ function deps(
     gatherRestSignals: async (_rest, r) => ({
       webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
       hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+      collaboratorsCount: augmentOver[r.name]?.collaboratorsCount ?? 0,
+      tagProtectionCount: augmentOver[r.name]?.tagProtectionCount ?? 0,
     }),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
@@ -203,7 +209,13 @@ describe("runProfile", () => {
 
     // The first nudge is the discovery one (profiled 0), before any per-repo
     // progress, and the run total is set from it.
-    expect(progress[0]).toEqual({ runId: "disc", profiled: 0, total: 2, repo: "" });
+    expect(progress[0]).toEqual({
+      runId: "disc",
+      profiled: 0,
+      total: 2,
+      repo: "",
+      phase: "discovering",
+    });
     expect(getProfileRun("disc")?.totalRepos).toBe(2);
   });
 
@@ -242,9 +254,9 @@ describe("runProfile", () => {
     // Pass 1 emits one per-repo frame as each repo's counts are recorded. (The
     // details pass adds repo-less nudges, filtered out here.)
     expect(progress.filter((p) => p.repo !== "")).toEqual([
-      { runId: "r", profiled: 1, total: 3, repo: "acme/a" },
-      { runId: "r", profiled: 2, total: 3, repo: "acme/b" },
-      { runId: "r", profiled: 3, total: 3, repo: "acme/c" },
+      { runId: "r", profiled: 1, total: 3, repo: "acme/a", phase: "counting" },
+      { runId: "r", profiled: 2, total: 3, repo: "acme/b", phase: "counting" },
+      { runId: "r", profiled: 3, total: 3, repo: "acme/c", phase: "counting" },
     ]);
   });
 

@@ -26,7 +26,14 @@ function parse(frame: string): ProfileSseEvent {
 }
 
 const progress = (over: Partial<{ profiled: number; total: number; repo: string }> = {}) =>
-  ({ type: "progress", profiled: 1, total: 3, repo: "acme/widget", ...over }) as const;
+  ({
+    type: "progress",
+    profiled: 1,
+    total: 3,
+    repo: "acme/widget",
+    phase: "counting",
+    ...over,
+  }) as const;
 
 describe("subscribeProfile / publishProfileEvent", () => {
   test("delivers published events to a subscriber as SSE frames", () => {
@@ -37,7 +44,7 @@ describe("subscribeProfile / publishProfileEvent", () => {
 
     expect(sink).toHaveLength(1);
     expect(sink[0]).toBe(
-      'data: {"type":"progress","profiled":1,"total":3,"repo":"acme/widget"}\n\n',
+      'data: {"type":"progress","profiled":1,"total":3,"repo":"acme/widget","phase":"counting"}\n\n',
     );
     expect(parse(sink[0] as string)).toEqual(progress());
   });

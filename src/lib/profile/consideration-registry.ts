@@ -20,7 +20,17 @@ export const MIGRATION_DOC_URL =
   "https://docs.github.com/en/migrations/using-github-enterprise-importer/migrating-between-github-products/about-migrations-between-github-products";
 
 /** Date the registry was last reconciled with the migration docs (YYYY-MM-DD). */
-export const MIGRATION_DOCS_VERIFIED = "2026-06-13";
+export const MIGRATION_DOCS_VERIFIED = "2026-06-15";
+
+/**
+ * Where a consideration's data lives — which determines how the Profiler
+ * evaluates and surfaces it:
+ * - `repo`      — per repository; detected in the per-repo crawl and shown in the matrix.
+ * - `org`       — once per organization (secrets, runners, teams…); shown in the org panel.
+ * - `migration` — a whole-migration fact that always applies (mannequins, audit logs…);
+ *                 there's nothing to count, so it's listed as an always-present loss.
+ */
+type ConsiderationScope = "repo" | "org" | "migration";
 
 /**
  * What kind of remediation a consideration needs:
@@ -50,6 +60,11 @@ export interface Consideration {
   label: string;
   kind: ConsiderationKind;
   severity: ConsiderationSeverity;
+  /**
+   * Where the data lives. Defaults to `repo` (the common case) when omitted, so
+   * only org- and migration-scoped entries need to state it.
+   */
+  scope?: ConsiderationScope;
   /**
    * Identifier of the profiler check that detects this consideration. The
    * detection function itself lives server-side and keys off this string.
@@ -130,6 +145,7 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     label: "Actions secrets & variables",
     kind: "recreate",
     severity: "warn",
+    scope: "org",
     detector: "actions-secrets-count",
     confidence: "exact",
     routesTo: "Re-create secrets/variables on the target",
@@ -153,6 +169,7 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     label: "Self-hosted runners",
     kind: "recreate",
     severity: "warn",
+    scope: "org",
     detector: "actions-runners-count",
     confidence: "exact",
     routesTo: "Re-register runners on the target",
@@ -164,6 +181,7 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     label: "Dependabot secrets",
     kind: "recreate",
     severity: "warn",
+    scope: "org",
     detector: "dependabot-secrets-count",
     confidence: "exact",
     routesTo: "Re-create Dependabot secrets",
@@ -175,10 +193,49 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     label: "Codespaces secrets",
     kind: "recreate",
     severity: "warn",
+    scope: "org",
     detector: "codespaces-secrets-count",
     confidence: "exact",
     routesTo: "Re-create Codespaces secrets",
     summary: "Codespaces secrets are not migrated.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "teams",
+    label: "Teams & team membership",
+    kind: "recreate",
+    severity: "warn",
+    scope: "org",
+    detector: "org-teams-count",
+    confidence: "exact",
+    routesTo: "Recreate teams and re-add members on the target",
+    summary:
+      "On a direct repository migration teams are not migrated; even on an organization migration, team membership is not carried over and members must be re-added.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "github-apps",
+    label: "GitHub Apps & installations",
+    kind: "recreate",
+    severity: "warn",
+    scope: "org",
+    detector: "org-app-installations",
+    confidence: "exact",
+    routesTo: "Reinstall and reconfigure GitHub Apps on the target",
+    summary:
+      "GitHub Apps and their installations are not migrated; each must be reinstalled and reconfigured on the destination.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "repo-collaborators",
+    label: "Repository access (collaborators & teams)",
+    kind: "recreate",
+    severity: "warn",
+    detector: "repo-collaborators-count",
+    confidence: "exact",
+    routesTo: "Re-grant collaborator and team access on the target",
+    summary:
+      "Direct user access and team access to a repository are not migrated — collaborators and their permissions must be re-granted after migrating.",
     docAnchor: NOT_MIGRATED,
   },
 
@@ -246,10 +303,23 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     label: "Custom properties",
     kind: "reconfigure",
     severity: "info",
+    scope: "org",
     detector: "custom-properties-api",
     confidence: "exact",
     routesTo: "Re-apply custom properties",
     summary: "Repository custom properties are not migrated.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "tag-protection",
+    label: "Tag protection rules",
+    kind: "reconfigure",
+    severity: "info",
+    detector: "tag-protection-rules",
+    confidence: "exact",
+    routesTo: "Recreate tag protection (or move it to rulesets)",
+    summary:
+      "Tag protection rules are not migrated; recreate them on the target — GitHub now recommends expressing them as rulesets.",
     docAnchor: NOT_MIGRATED,
   },
 
@@ -368,6 +438,124 @@ export const MIGRATION_CONSIDERATIONS: readonly Consideration[] = [
     confidence: "exact",
     routesTo: null,
     summary: "Fork relationships between repositories are not preserved.",
+    docAnchor: NOT_MIGRATED,
+  },
+
+  // ── Always lost: whole-migration facts that apply to every run ──────────────
+  // Nothing to count per repo — these are intrinsic to how the Importer works,
+  // so they're surfaced as always-present losses rather than detected signals.
+  {
+    id: "mannequins",
+    label: "User attribution (mannequins)",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Imported issues, PRs, and comments are attributed to placeholder “mannequin” users until an admin reclaims each one to a real account on the target.",
+    docAnchor: LIMITS,
+  },
+  {
+    id: "audit-log",
+    label: "Audit logs",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary: "Audit log history is not migrated.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "commit-status-checks",
+    label: "Commit status checks",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Historical commit status checks — the pass/fail marks CI posts on commits — are not migrated.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "comment-edit-history",
+    label: "Comment edit history",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Only the latest version of each issue and pull request comment migrates — prior edit history is not carried over.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "sub-issues",
+    label: "Sub-issue relationships",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary: "Parent/child sub-issue relationships are not preserved by the migration.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "cross-repo-references",
+    label: "Cross-repository references",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Autolinked references between pull requests and issues in different repositories are not migrated and will not resolve.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "mention-relinking",
+    label: "@mention re-linking",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Mentions of users, teams, and organizations keep their original text but are not re-linked to accounts on the target.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "secret-scanning-states",
+    label: "Secret-scanning remediation states",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary:
+      "Remediation states of secret-scanning results (resolved, false-positive, …) are not migrated.",
+    docAnchor: NOT_MIGRATED,
+  },
+  {
+    id: "activity-feed",
+    label: "Repository activity feed",
+    kind: "accepted-loss",
+    severity: "info",
+    scope: "migration",
+    detector: "always",
+    confidence: "exact",
+    routesTo: null,
+    summary: "The repository activity feed is not migrated.",
     docAnchor: NOT_MIGRATED,
   },
 ];

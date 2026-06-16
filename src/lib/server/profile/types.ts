@@ -140,6 +140,12 @@ export interface RepoSignals extends DiscoveredRepo {
   /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
    *  Scanning history is not migrated. False when scanning is off or unreadable. */
   hasCodeScanningAlerts: boolean;
+  /** Direct collaborators (`GET …/collaborators?affiliation=direct`); per-repo
+   *  user/team access is not migrated and must be re-granted. 0 when unreadable. */
+  collaboratorsCount: number;
+  /** Tag protection rules (`GET …/tags/protection`); not migrated. 0 when none
+   *  or unreadable. GitHub now recommends expressing these as rulesets. */
+  tagProtectionCount: number;
   // ── Content-volume counts (migration scale) ──────────────────────────────
   // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
   // here, not on the REST discovery spine, because REST doesn't expose the
@@ -183,6 +189,10 @@ export interface OrgResources {
   selfHostedRunners: number;
   /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
   customProperties: number;
+  /** Org teams (`/orgs/{org}/teams`) — neither teams nor membership migrate. */
+  teams: number;
+  /** Installed GitHub Apps (`/orgs/{org}/installations`) — not migrated. */
+  appInstallations: number;
 }
 
 /** All-zero org resources — the default before gathering (and on total failure). */
@@ -193,6 +203,8 @@ export const ZERO_ORG_RESOURCES: OrgResources = {
   codespacesSecrets: 0,
   selfHostedRunners: 0,
   customProperties: 0,
+  teams: 0,
+  appInstallations: 0,
 };
 
 /**
@@ -250,4 +262,17 @@ export interface ProfileProgress {
   total: number;
   /** The repository just profiled (`owner/name`). */
   repo: string;
+  /** Which crawl phase emitted this nudge (drives the live phase label). */
+  phase: ProfilePhase;
 }
+
+/**
+ * The crawl's coarse phases, in order. Each emits progress nudges so the live
+ * UI can show what the run is doing right now:
+ *   - `discovering` — listing the org's repositories (REST).
+ *   - `organization` — gathering org-level resources (rulesets, secrets, teams…).
+ *   - `counting` — the cheap per-repo `totalCount` pass.
+ *   - `details` — the expensive per-repo pass (LFS, workflows, release assets).
+ *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
+ */
+export type ProfilePhase = "discovering" | "organization" | "counting" | "details" | "signals";

@@ -48,6 +48,8 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     workflowFileCount: 0,
     webhooksCount: 0,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     ...over,
   };
 }
@@ -101,6 +103,8 @@ describe("analyzeRepo", () => {
         webhooksCount: 2,
         hasPages: true,
         hasCodeScanningAlerts: true,
+        collaboratorsCount: 5,
+        tagProtectionCount: 2,
       }),
     );
 
@@ -127,6 +131,12 @@ describe("analyzeRepo", () => {
     expect(finding(profile, "webhooks")?.evidence).toBe("2 webhooks");
     expect(finding(profile, "pages")?.status).toBe("applies");
     expect(finding(profile, "code-scanning-history")?.status).toBe("applies");
+    expect(finding(profile, "repo-collaborators")?.evidence).toBe(
+      "5 direct collaborators (access not migrated)",
+    );
+    expect(finding(profile, "tag-protection")?.evidence).toBe(
+      "2 tag protection rules (recreate as rulesets)",
+    );
   });
 
   test("rolls up applying considerations by severity", () => {

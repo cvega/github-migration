@@ -55,6 +55,8 @@ function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
     webhooksCount: 0,
     hasPages: false,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
     issuesCount: 0,
     pullRequestsCount: 0,
     branchesCount: 0,
@@ -113,6 +115,8 @@ function serviceDeps(
         gatherRestSignals: async (_rest, r) => ({
           webhooksCount: augmentOver[r.name]?.webhooksCount ?? 0,
           hasCodeScanningAlerts: augmentOver[r.name]?.hasCodeScanningAlerts ?? false,
+          collaboratorsCount: augmentOver[r.name]?.collaboratorsCount ?? 0,
+          tagProtectionCount: augmentOver[r.name]?.tagProtectionCount ?? 0,
         }),
       });
       return state.runPromise;
@@ -198,8 +202,8 @@ describe("startOrgProfile", () => {
     // refetch nudges, filtered out here.
     const progress = events.filter((e) => e.type === "progress" && e.repo !== "");
     expect(progress).toEqual([
-      { type: "progress", profiled: 1, total: 2, repo: "acme/a" },
-      { type: "progress", profiled: 2, total: 2, repo: "acme/b" },
+      { type: "progress", profiled: 1, total: 2, repo: "acme/a", phase: "counting" },
+      { type: "progress", profiled: 2, total: 2, repo: "acme/b", phase: "counting" },
     ]);
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
   });

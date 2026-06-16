@@ -73,7 +73,23 @@ describe("buildPreparationSummary", () => {
     expect(ids).not.toContain("packages"); // detected
     expect(ids).not.toContain("git-lfs"); // detected
     expect(ids).not.toContain("webhooks"); // detected (REST signals pass)
+    expect(ids).not.toContain("repo-collaborators"); // detected (REST signals pass)
+    expect(ids).not.toContain("tag-protection"); // detected (REST signals pass)
     expect(ids).not.toContain("actions-secrets"); // org-level evaluated
+    expect(ids).not.toContain("teams"); // org-level evaluated
+    expect(ids).not.toContain("mannequins"); // migration-scope — reported as always-lost
+  });
+
+  test("reports whole-migration losses as always-lost, not as coverage gaps", () => {
+    const { alwaysLost, notYetCrawled } = buildPreparationSummary([]);
+    const lostIds = alwaysLost.map((c) => c.considerationId);
+    expect(lostIds).toContain("mannequins");
+    expect(lostIds).toContain("audit-log");
+    // Every always-lost entry carries a human summary for the UI.
+    expect(alwaysLost.every((c) => c.summary.length > 0)).toBe(true);
+    // No overlap between the two lists.
+    const crawlIds = new Set(notYetCrawled.map((c) => c.considerationId));
+    expect(lostIds.some((id) => crawlIds.has(id))).toBe(false);
   });
 
   test("ignores a stale considerationId that is no longer in the registry", () => {

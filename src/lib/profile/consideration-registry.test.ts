@@ -54,6 +54,21 @@ describe("consideration registry integrity", () => {
     }
   });
 
+  test("scope, when set, is one of the allowed values", () => {
+    const scopes = ["repo", "org", "migration"];
+    for (const g of MIGRATION_CONSIDERATIONS) {
+      if (g.scope !== undefined) expect(scopes, g.id).toContain(g.scope);
+    }
+  });
+
+  test("migration-scope considerations are accepted losses that route nowhere", () => {
+    for (const g of MIGRATION_CONSIDERATIONS.filter((x) => x.scope === "migration")) {
+      expect(g.kind, g.id).toBe("accepted-loss");
+      expect(g.routesTo, g.id).toBeNull();
+      expect(g.detector, g.id).toBe("always");
+    }
+  });
+
   test("accepted-loss considerations are informational and route nowhere", () => {
     for (const g of MIGRATION_CONSIDERATIONS.filter((x) => x.kind === "accepted-loss")) {
       expect(g.severity, g.id).toBe("info");

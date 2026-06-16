@@ -115,6 +115,7 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
           profiled: p.profiled,
           total: p.total,
           repo: p.repo,
+          phase: p.phase,
         }),
       {
         getOrgRulesetCount: (target) => getOrgRulesetCount(rest, target),

@@ -83,7 +83,9 @@
 				{ label: 'Dependabot secrets', value: run.orgResources.dependabotSecrets, icon: 'dependabot' },
 				{ label: 'Codespaces secrets', value: run.orgResources.codespacesSecrets, icon: 'codespaces' },
 				{ label: 'Self-hosted runners', value: run.orgResources.selfHostedRunners, icon: 'server' },
-				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' }
+				{ label: 'Custom properties', value: run.orgResources.customProperties, icon: 'list-unordered' },
+				{ label: 'Teams', value: run.orgResources.teams, icon: 'people' },
+				{ label: 'GitHub Apps', value: run.orgResources.appInstallations, icon: 'apps' }
 			] satisfies Array<{
 				label: string;
 				value: number;
@@ -193,7 +195,9 @@
 			{ label: 'Forks', value: s.forkCount.toLocaleString(), icon: 'repo-forked' },
 			{ label: 'Protection rules', value: s.branchProtectionRuleCount.toLocaleString(), icon: 'shield' },
 			{ label: 'Rulesets', value: s.rulesetCount.toLocaleString(), icon: 'law' },
+			{ label: 'Tag protection', value: s.tagProtectionCount.toLocaleString(), icon: 'shield-lock' },
 			{ label: 'Webhooks', value: s.webhooksCount.toLocaleString(), icon: 'webhook' },
+			{ label: 'Collaborators', value: s.collaboratorsCount.toLocaleString(), icon: 'people' },
 			{ label: 'Pages', value: s.hasPages ? 'Yes' : '—', icon: 'browser' },
 			{ label: 'Code scanning', value: s.hasCodeScanningAlerts ? 'Yes' : '—', icon: 'codescan' },
 			{ label: 'Size', value: formatRepoSize(s.diskUsageKb), icon: 'database' }
@@ -221,6 +225,18 @@
 
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
+	// Human label for the crawl phase the run is currently in, streamed over SSE.
+	// Keyed by the runner's ProfilePhase; unknown/absent → no caption.
+	const PHASE_LABELS: Record<string, string> = {
+		discovering: 'Discovering repositories…',
+		organization: 'Scanning organization resources…',
+		counting: 'Counting issues, PRs & branches…',
+		details: 'Scanning details — LFS, workflows, releases…',
+		signals: 'Checking commits, webhooks & collaborators…'
+	};
+	// The latest phase from the SSE stream (null until the first nudge / after done).
+	let livePhase = $state<string | null>(null);
+
 	async function refresh() {
 		try {
 			const res = await fetch(`/api/profile/${data.run.id}`);
@@ -239,14 +255,18 @@
 		const conn = createReconnectingEventSource({
 			url: () => `/api/profile/${id}/events`,
 			onMessage: (e, controls) => {
-				let msg: { type?: string };
+				let msg: { type?: string; phase?: string };
 				try {
 					msg = JSON.parse(e.data);
 				} catch {
 					return;
 				}
+				if (msg.type === 'progress' && msg.phase) livePhase = msg.phase;
 				refresh();
-				if (msg.type === 'done') controls.destroy();
+				if (msg.type === 'done') {
+					livePhase = null;
+					controls.destroy();
+				}
 			}
 		});
 		return () => conn.destroy();
@@ -305,6 +325,12 @@
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
 					<div class="h-full bg-violet-500 transition-all" style="width: {pct}%"></div>
 				</div>
+				{#if livePhase && PHASE_LABELS[livePhase]}
+					<div class="mt-1.5 flex items-center gap-1 text-[11px] text-gray-500">
+						<Octicon name="sync" size={12} class="animate-spin" />
+						{PHASE_LABELS[livePhase]}
+					</div>
+				{/if}
 			{/if}
 		</div>
 		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
@@ -482,6 +508,28 @@
 							{/each}
 						</tbody>
 					</table>
+				</div>
+			{/if}
+
+			<!-- Always lost: whole-migration facts that apply to every run -->
+			{#if summary.alwaysLost.length > 0}
+				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+					<div class="mb-1 flex items-center gap-1.5 text-sm font-medium text-gray-300">
+						<Octicon name="circle-slash" size={16} class="text-gray-500" />
+						Always lost in every migration
+						<span class="rounded-full bg-gray-800 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-gray-400">{summary.alwaysLost.length}</span>
+					</div>
+					<p class="mb-3 text-[11px] text-gray-500">
+						Not tied to any repo — the Importer never carries these over, so plan to recreate or accept them.
+					</p>
+					<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+						{#each summary.alwaysLost as c (c.considerationId)}
+							<div class="rounded-md border border-gray-700/60 bg-gray-950/40 p-3">
+								<div class="text-xs font-semibold text-gray-200">{c.label}</div>
+								<p class="mt-1 text-[11px] leading-relaxed text-gray-500">{c.summary}</p>
+							</div>
+						{/each}
+					</div>
 				</div>
 			{/if}
 

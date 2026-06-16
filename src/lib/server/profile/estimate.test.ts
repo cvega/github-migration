@@ -46,6 +46,8 @@ function signals(diskUsageKb: number | null): RepoSignals {
     workflowFileCount: 0,
     webhooksCount: 0,
     hasCodeScanningAlerts: false,
+    collaboratorsCount: 0,
+    tagProtectionCount: 0,
   };
 }
 
