@@ -92,6 +92,7 @@
 	// Live updates over SSE while the run is in progress. Keyed on the loaded run
 	// id so navigating between runs tears down the old stream and re-subscribes;
 	// reads only the loader prop (never `polled`) so a refresh can't re-subscribe.
+	let refreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
 		const id = data.run.id;
 		if (data.run.state !== 'running') return;
@@ -104,11 +105,17 @@
 				} catch {
 					return;
 				}
-				refresh(id);
+				// Debounce refresh: wait 500ms after last event before fetching.
+				// This prevents hammering the API when many orgs complete rapidly.
+				if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
+				refreshTimeoutId = setTimeout(() => refresh(id), 500);
 				if (msg.type === 'done') controls.destroy();
 			}
 		});
-		return () => conn.destroy();
+		return () => {
+			conn.destroy();
+			if (refreshTimeoutId) clearTimeout(refreshTimeoutId);
+		};
 	});
 
 	const tiles = $derived([

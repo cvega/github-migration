@@ -333,6 +333,28 @@ export function getRunRepoProfiles(runId: string): StoredRepoProfile[] {
   return rows.map(rowToRepoProfile);
 }
 
+/** Paginated per-repo profiles for a run (name + basic counts only). */
+export function getRunRepoSummaries(runId: string, limit: number, offset: number): StoredRepoProfile[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT name_with_owner, signals, blockers, warnings, infos, applying_considerations
+       FROM profile_repos WHERE run_id = $id ORDER BY name_with_owner ASC LIMIT $limit OFFSET $offset`,
+    )
+    .all({ $id: runId, $limit: limit, $offset: offset }) as ProfileRepoRow[];
+  return rows.map(rowToRepoProfile);
+}
+
+/** A single repo's full profile including signals and findings. */
+export function getRunRepoProfile(runId: string, nameWithOwner: string): StoredRepoProfile | null {
+  const row = getDb()
+    .prepare(
+      `SELECT name_with_owner, signals, blockers, warnings, infos, applying_considerations
+       FROM profile_repos WHERE run_id = $id AND name_with_owner = $name ORDER BY name_with_owner ASC LIMIT 1`,
+    )
+    .get({ $id: runId, $name: nameWithOwner }) as ProfileRepoRow | undefined;
+  return row ? rowToRepoProfile(row) : null;
+}
+
 // ── Enterprise runs ─────────────────────────────────────────────────────────
 
 /** Raw `profile_enterprise_runs` row shape. */

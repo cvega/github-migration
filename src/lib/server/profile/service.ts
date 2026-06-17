@@ -23,7 +23,9 @@ import {
   getEnterpriseChildRuns,
   getEnterpriseRun,
   getProfileRun,
+  getRunRepoProfile,
   getRunRepoProfiles,
+  getRunRepoSummaries,
   listRunningEnterpriseRuns,
   listStandaloneRunningProfileRuns,
   refreshEnterpriseRunAggregates,
@@ -431,6 +433,69 @@ export function getProfileDetail(id: string): ProfileDetail | null {
     scale: computeScale(repos),
     summary: buildPreparationSummary(repos),
     estimate: estimateDuration(repos),
+  };
+}
+
+/** Paginated profile detail: run + aggregates + a slice of repos (without signals). */
+export interface PaginatedProfileDetail {
+  run: ProfileRun;
+  repos: StoredRepoProfile[];
+  totalRepos: number;
+  scale: MigrationScale;
+  summary: PreparationSummary;
+  estimate: DurationEstimate;
+}
+
+/**
+ * Assemble a run, its aggregates (from all repos), and a paginated slice of repos.
+ * Server-side only: loads all repos to compute aggregates, but only returns a page
+ * to the client. Expanded rows fetch full signals on demand via getRepoDetail.
+ */
+export function getProfileDetailPaginated(
+  id: string,
+  limit: number = 25,
+  offset: number = 0,
+): PaginatedProfileDetail | null {
+  const run = getProfileRun(id);
+  if (!run) return null;
+
+  // Load all repos to compute org-level aggregates (scale, summary, estimate).
+  // We need the full signals for this, but we won't return them to the client.
+  const allRepos = getRunRepoProfiles(id);
+  const allReposWithInsights = allRepos.map((repo) => ({
+    ...repo,
+    insights: deriveInsights(repo.signals),
+  }));
+
+  // Return only a page of repos (with all their fields for the table),
+  // plus the aggregates computed from all repos.
+  const pagedRepos = getRunRepoSummaries(id, limit, offset);
+
+  return {
+    run,
+    repos: pagedRepos,
+    totalRepos: run.totalRepos,
+    scale: computeScale(allReposWithInsights),
+    summary: buildPreparationSummary(allReposWithInsights),
+    estimate: estimateDuration(allReposWithInsights),
+  };
+}
+
+/** Full detail for a single repo: used when drilling into a specific repository. */
+export interface RepoDetail extends StoredRepoProfile {
+  insights: Insight[];
+}
+
+/**
+ * Load a single repo's full details including insights.
+ * Used when the user clicks into a specific repo for detailed analysis.
+ */
+export function getRepoDetail(runId: string, nameWithOwner: string): RepoDetail | null {
+  const repo = getRunRepoProfile(runId, nameWithOwner);
+  if (!repo) return null;
+  return {
+    ...repo,
+    insights: deriveInsights(repo.signals),
   };
 }
 

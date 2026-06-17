@@ -13,6 +13,7 @@
  * network or a live Octokit.
  */
 import type { graphql } from "@octokit/graphql";
+import { logger } from "../logger";
 import { partialDataFromError } from "./graphql-errors";
 
 /** GraphQL caps a connection page at 100. */
@@ -71,9 +72,12 @@ export async function discoverEnterpriseOrgs(
   gql: typeof graphql,
   slug: string,
 ): Promise<EnterpriseOrgDiscovery> {
+  const startMs = Date.now();
   const logins: string[] = [];
   let inaccessible = 0;
   let cursor: string | null = null;
+
+  logger.info({ event: "enterprise.enum.start", slug }, `Starting enterprise enumeration`);
 
   for (let page = 0; page < MAX_PAGES; page++) {
     let result: OrgsPage;
@@ -88,8 +92,10 @@ export async function discoverEnterpriseOrgs(
       // enterprise itself is inaccessible).
       const partial = partialDataFromError(err);
       if (!partial) throw err;
-      console.warn(
-        `[profile] enterprise '${slug}' enumeration: some organizations are not accessible to the token and were skipped — ${err instanceof Error ? err.message : String(err)}`,
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        { event: "enterprise.enum.partial_error", slug, error: errMsg },
+        `Enumeration hit inaccessible orgs; continuing with accessible ones`,
       );
       result = partial as unknown as OrgsPage;
     }
@@ -98,21 +104,42 @@ export async function discoverEnterpriseOrgs(
     if (!connection) {
       throw new Error(`Enterprise '${slug}' not found or not accessible`);
     }
+    const pageOrgsCount = connection.nodes.filter((n) => n?.login).length;
+    const pageInaccessibleCount = connection.nodes.filter((n) => !n?.login).length;
     for (const node of connection.nodes) {
       // A null node is an org the token can't read (forbidden by policy). Count
       // it so the total org figure reflects the enterprise's real size.
       if (node?.login) logins.push(node.login);
       else inaccessible += 1;
     }
+
+    logger.debug(
+      {
+        event: "enterprise.enum.page",
+        slug,
+        page: page + 1,
+        orgsThisPage: pageOrgsCount,
+        inaccessibleThisPage: pageInaccessibleCount,
+      },
+      `Enumerated page ${page + 1}: ${pageOrgsCount} accessible, ${pageInaccessibleCount} inaccessible`,
+    );
+
     if (!connection.pageInfo.hasNextPage) break;
     cursor = connection.pageInfo.endCursor;
     if (!cursor) break;
   }
 
-  if (inaccessible > 0) {
-    console.warn(
-      `[profile] enterprise '${slug}': ${logins.length} org(s) accessible, ${inaccessible} inaccessible to the token (skipped)`,
-    );
-  }
+  const durationMs = Date.now() - startMs;
+  logger.info(
+    {
+      event: "enterprise.enum.complete",
+      slug,
+      totalOrgs: logins.length,
+      totalInaccessible: inaccessible,
+      durationMs,
+    },
+    `Enterprise enumeration complete: ${logins.length} accessible, ${inaccessible} inaccessible in ${durationMs}ms`,
+  );
+
   return { orgs: logins, inaccessible };
 }

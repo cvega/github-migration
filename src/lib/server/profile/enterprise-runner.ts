@@ -18,6 +18,7 @@
  */
 import { clearPause, isPauseRequested } from "./control";
 import { discoverEnterpriseOrgs } from "./enterprise";
+import { logger } from "../logger";
 import type { ProfileClients } from "./runner";
 import { runProfile } from "./runner";
 import {
@@ -179,10 +180,19 @@ export async function runEnterpriseProfile(
 
     setEnterpriseRunTotalOrgs(input.id, orgs.length);
     setEnterpriseRunInaccessibleOrgs(input.id, inaccessibleOrgs);
-    console.log(
-      `[profile] enterprise run ${input.id} enumerated ${orgs.length} org(s)` +
-        (inaccessibleOrgs > 0 ? ` (${inaccessibleOrgs} inaccessible, skipped)` : "") +
-        ` in ${Date.now() - startedMs}ms`,
+    const enumDurationMs = Date.now() - startedMs;
+    logger.info(
+      {
+        event: "enterprise.run.enumeration.complete",
+        runId: input.id,
+        slug: input.enterpriseSlug,
+        totalOrgs: orgs.length,
+        inaccessibleOrgs,
+        durationMs: enumDurationMs,
+      },
+      `Enumerated ${orgs.length} accessible org(s)` +
+        (inaccessibleOrgs > 0 ? `, ${inaccessibleOrgs} inaccessible` : "") +
+        ` in ${enumDurationMs}ms`,
     );
     onProgress?.({
       enterpriseRunId: input.id,
@@ -240,23 +250,45 @@ export async function runEnterpriseProfile(
       // Honored a pause: leave the enterprise (and its children) resumable.
       pauseEnterpriseRun(input.id);
       const paused = getEnterpriseRun(input.id);
-      console.log(
-        `[profile] enterprise run ${input.id} paused — ${paused?.profiledOrgs ?? 0} org(s) done ` +
-          `in ${Date.now() - startedMs}ms`,
+      const durationMs = Date.now() - startedMs;
+      logger.info(
+        {
+          event: "enterprise.run.paused",
+          runId: input.id,
+          slug: input.enterpriseSlug,
+          profiledOrgs: paused?.profiledOrgs ?? 0,
+          durationMs,
+        },
+        `Enterprise run paused after ${durationMs}ms with ${paused?.profiledOrgs ?? 0} org(s) complete`,
       );
     } else {
       completeEnterpriseRun(input.id);
       const completed = getEnterpriseRun(input.id);
-      console.log(
-        `[profile] enterprise run ${input.id} completed — ${completed?.profiledOrgs ?? 0} org(s), ` +
-          `${completed?.totalRepos ?? 0} repo(s) in ${Date.now() - startedMs}ms`,
+      const durationMs = Date.now() - startedMs;
+      logger.info(
+        {
+          event: "enterprise.run.completed",
+          runId: input.id,
+          slug: input.enterpriseSlug,
+          profiledOrgs: completed?.profiledOrgs ?? 0,
+          totalRepos: completed?.totalRepos ?? 0,
+          durationMs,
+        },
+        `Enterprise run completed: ${completed?.profiledOrgs ?? 0} org(s), ${completed?.totalRepos ?? 0} repo(s) in ${durationMs}ms`,
       );
     }
   } catch (err) {
     const reason = describeError(err);
-    console.error(
-      `[profile] enterprise run ${input.id} failed after ${Date.now() - startedMs}ms — ${reason}`,
-      err,
+    const durationMs = Date.now() - startedMs;
+    logger.error(
+      {
+        event: "enterprise.run.failed",
+        runId: input.id,
+        slug: input.enterpriseSlug,
+        reason,
+        durationMs,
+      },
+      `Enterprise run failed after ${durationMs}ms: ${reason}`,
     );
     failEnterpriseRun(input.id, reason);
   }
