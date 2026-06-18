@@ -37,6 +37,28 @@ export function parsePaginationParams(searchParams: URLSearchParams): Pagination
   return { page, limit };
 }
 
+export interface LimitOffset {
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Parse `?limit=` and `?offset=` from a URLSearchParams into safe, clamped
+ * values (1 ≤ limit ≤ MAX_PAGE_SIZE; offset ≥ 0). The offset-based companion to
+ * {@link parsePaginationParams}, used by the profile run-detail endpoints.
+ */
+export function parseLimitOffset(searchParams: URLSearchParams): LimitOffset {
+  const limit = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(
+      1,
+      parseInt(searchParams.get("limit") ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE,
+    ),
+  );
+  const offset = Math.max(0, parseInt(searchParams.get("offset") ?? "0", 10) || 0);
+  return { limit, offset };
+}
+
 // ── Migration types ────────────────────────────────────────────────────────
 
 export type MigrationState =

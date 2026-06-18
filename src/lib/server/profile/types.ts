@@ -168,8 +168,15 @@ export interface RepoSignals extends DiscoveredRepo {
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-/** Lifecycle state of a profiling run. */
-export type ProfileRunState = "running" | "completed" | "failed";
+/**
+ * Lifecycle state of a profiling run.
+ *
+ * `paused` is a non-terminal rest state: the user stopped the crawl on purpose,
+ * its recorded repos (and their `enriched` flags) are intact, and a resume
+ * continues only the unfinished work. It is deliberately distinct from `failed`
+ * (an error) and from `running` (so a paused run isn't auto-resumed on restart).
+ */
+export type ProfileRunState = "running" | "paused" | "completed" | "failed";
 
 /**
  * Organization-level resources gathered once per run (REST). These are scoped
@@ -234,6 +241,44 @@ export interface ProfileRun {
   startedAt: string;
   completedAt: string | null;
   failureReason: string | null;
+  /** The enterprise run this org belongs to, or null for a standalone org run. */
+  enterpriseRunId: string | null;
+}
+
+/**
+ * An enterprise-scoped profiling run: a parent that fans out to one child
+ * {@link ProfileRun} per organization in the enterprise. Its aggregate counters
+ * are recomputed from its child runs as they complete, so the enterprise view
+ * stays correct even while some orgs are still crawling.
+ */
+export interface EnterpriseRun {
+  id: string;
+  /** The enterprise URL slug (not the display name) being profiled. */
+  enterpriseSlug: string;
+  sourceApiUrl: string;
+  state: ProfileRunState;
+  /** Organizations discovered in the enterprise, set once enumeration completes. */
+  totalOrgs: number;
+  /** Child org runs that have reached a terminal state (completed or failed). */
+  profiledOrgs: number;
+  /**
+   * Organizations in the enterprise the source token can't access (e.g. an org
+   * policy blocking classic PATs). They're skipped during enumeration, so the
+   * profiled/total org counts only cover accessible orgs; this surfaces how many
+   * were left out (and hints the token needs broader access).
+   */
+  inaccessibleOrgs: number;
+  /** Repositories across all child runs (sum, recomputed as children settle). */
+  totalRepos: number;
+  /** Repositories profiled across all child runs (sum). */
+  profiledRepos: number;
+  /** Total applying blocker-severity gaps across all child runs. */
+  blockers: number;
+  /** Total applying warn-severity gaps across all child runs. */
+  warnings: number;
+  startedAt: string;
+  completedAt: string | null;
+  failureReason: string | null;
 }
 
 /** A persisted finding — applying considerations only, keyed by registry id. */
@@ -276,3 +321,22 @@ export interface ProfileProgress {
  *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
  */
 export type ProfilePhase = "discovering" | "organization" | "counting" | "details" | "signals";
+
+/**
+ * The enterprise crawl's coarse phases:
+ *   - `enumerating` — listing the enterprise's organizations (GraphQL).
+ *   - `organizations` — profiling each org as a child run.
+ */
+export type EnterprisePhase = "enumerating" | "organizations";
+
+/** Progress emitted by the enterprise runner as orgs are enumerated and settle. */
+export interface EnterpriseProgress {
+  enterpriseRunId: string;
+  phase: EnterprisePhase;
+  /** Organizations discovered (0 until enumeration completes). */
+  totalOrgs: number;
+  /** Child org runs that have reached a terminal state so far. */
+  profiledOrgs: number;
+  /** The org just settled (`owner` login), or "" for a phase-only nudge. */
+  org: string;
+}

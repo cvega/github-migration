@@ -8,75 +8,44 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
-import type { RepoDetails } from "./augment";
-import { type ProfileSseEvent, subscribeProfile } from "./events";
+import { clearPause, isPauseRequested } from "./control";
+import { runEnterpriseProfile } from "./enterprise-runner";
+import { type EnterpriseSseEvent, type ProfileSseEvent, subscribeProfile } from "./events";
 import { runProfile } from "./runner";
-import { getProfileDetail, type ProfileServiceDeps, startOrgProfile } from "./service";
-import { createProfileRun, recordRepoProfile } from "./store";
-import type { DiscoveredRepo, OrgDiscovery, ProfileRun, RepoSignals } from "./types";
+import {
+  getProfileDetail,
+  type ProfileServiceDeps,
+  requestEnterprisePause,
+  requestProfilePause,
+  resumeEnterpriseRun,
+  resumeInterruptedProfiles,
+  resumeProfileRun,
+  startEnterpriseProfile,
+  startOrgProfile,
+} from "./service";
+import {
+  completeEnterpriseRun,
+  completeProfileRun,
+  createEnterpriseRun,
+  createProfileRun,
+  getEnrichedRepoNames,
+  getEnterpriseChildRuns,
+  getEnterpriseRun,
+  getProfileRun,
+  pauseEnterpriseRun,
+  pauseProfileRun,
+  recordRepoProfile,
+  setRepoEnriched,
+} from "./store";
+import { makeDiscoveredRepo, makeRepoDetails, makeRepoSignals } from "./test-factories";
+import type { DiscoveredRepo, OrgDiscovery, RepoSignals } from "./types";
 
-function discovered(name: string): DiscoveredRepo {
-  return {
-    name,
-    nameWithOwner: `acme/${name}`,
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-  };
-}
+const discovered = makeDiscoveredRepo;
 
-function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...repo,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasPages: false,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
-    ...over,
-  };
-}
+const signalsFor = makeRepoSignals;
 
 /** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
-function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
-  const s = signalsFor(repo, over);
-  return {
-    nameWithOwner: repo.nameWithOwner,
-    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
-    usesLfs: s.usesLfs,
-    workflowFileCount: s.workflowFileCount,
-    releaseAssetBytes: s.releaseAssetBytes,
-  };
-}
+const detailsFor = makeRepoDetails;
 
 /**
  * Service deps whose runner uses fake crawl primitives. Captures the run promise
@@ -85,8 +54,9 @@ function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): Repo
 function serviceDeps(
   repos: DiscoveredRepo[],
   augmentOver: Record<string, Partial<RepoSignals>> = {},
+  orgs: string[] = [],
 ) {
-  const state: { runPromise?: Promise<ProfileRun>; gqlBuilt: number; lastInput?: unknown } = {
+  const state: { runPromise?: Promise<unknown>; gqlBuilt: number; lastInput?: unknown } = {
     gqlBuilt: 0,
   };
   const deps: ProfileServiceDeps = {
@@ -101,7 +71,7 @@ function serviceDeps(
     },
     run: (clients, input, onProgress) => {
       state.lastInput = input;
-      state.runPromise = runProfile(clients, input, onProgress, {
+      const runPromise = runProfile(clients, input, onProgress, {
         discover: async (): Promise<OrgDiscovery> => ({
           org: input.org,
           total: repos.length,
@@ -119,7 +89,18 @@ function serviceDeps(
           tagProtectionCount: augmentOver[r.name]?.tagProtectionCount ?? 0,
         }),
       });
-      return state.runPromise;
+      state.runPromise = runPromise;
+      return runPromise;
+    },
+    runEnterprise: (clients, input, onProgress, edeps) => {
+      let n = 0;
+      const promise = runEnterpriseProfile(clients, input, onProgress, {
+        ...edeps,
+        discoverOrgs: async () => ({ orgs, inaccessible: 0 }),
+        newId: () => `child-${n++}`,
+      });
+      state.runPromise = promise;
+      return promise;
     },
     newId: () => "fixed-run-id",
   };
@@ -172,6 +153,7 @@ describe("startOrgProfile", () => {
         throw new Error("No source token provided and no source GitHub App configured");
       },
       run: () => Promise.resolve({} as never),
+      runEnterprise: () => Promise.resolve({} as never),
       newId: () => "x",
     };
 
@@ -206,6 +188,240 @@ describe("startOrgProfile", () => {
       { type: "progress", profiled: 2, total: 2, repo: "acme/b", phase: "counting" },
     ]);
     expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+});
+
+describe("startEnterpriseProfile", () => {
+  test("creates the enterprise run synchronously and returns it running", () => {
+    const { deps } = serviceDeps([], {}, ["alpha", "beta"]);
+
+    const run = startEnterpriseProfile("acme-inc", deps);
+
+    expect(run.id).toBe("fixed-run-id");
+    expect(run.enterpriseSlug).toBe("acme-inc");
+    expect(run.sourceApiUrl).toBe("https://ghes.example.com/api/v3");
+    expect(run.state).toBe("running");
+  });
+
+  test("runs a child org profile per enumerated org and aggregates them", async () => {
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")], {}, ["alpha", "beta"]);
+
+    const run = startEnterpriseProfile("acme-inc", deps);
+    await state.runPromise; // let the enterprise crawl finish
+
+    const children = getEnterpriseChildRuns(run.id);
+    expect(children.map((c) => c.org)).toEqual(["alpha", "beta"]);
+    // Each child is linked to the enterprise and profiled the two repos.
+    expect(children.every((c) => c.enterpriseRunId === run.id)).toBe(true);
+    expect(children.every((c) => c.state === "completed")).toBe(true);
+    expect(children.every((c) => c.totalRepos === 2)).toBe(true);
+  });
+
+  test("publishes each child org's own SSE (child detail pages stay live)", async () => {
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["alpha"]);
+
+    startEnterpriseProfile("acme-inc", deps);
+    // The child run id is deterministic in the test harness ("child-0").
+    const frames: string[] = [];
+    subscribeProfile("child-0", {
+      enqueue: (f: string) => frames.push(f),
+    } as unknown as ReadableStreamDefaultController<string>);
+
+    await state.runPromise;
+
+    const events = frames.map(
+      (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as ProfileSseEvent,
+    );
+    // The child terminal `done` is published, so its detail page settles.
+    expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+
+  test("publishes enterprise-level SSE (per-org progress + terminal done)", async () => {
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["alpha", "beta"]);
+
+    startEnterpriseProfile("acme-inc", deps);
+    // Subscribe to the enterprise channel (id is the fixed harness id).
+    const frames: string[] = [];
+    subscribeProfile("fixed-run-id", {
+      enqueue: (f: string) => frames.push(f),
+    } as unknown as ReadableStreamDefaultController<string>);
+
+    await state.runPromise;
+
+    const events = frames.map(
+      (f) => JSON.parse(f.replace(/^data: /, "").trimEnd()) as EnterpriseSseEvent,
+    );
+    // One settle nudge per org (rising profiledOrgs), then a terminal done.
+    const settles = events.filter((e) => e.type === "progress" && e.org !== "");
+    expect(settles.map((e) => (e.type === "progress" ? e.org : "")).sort()).toEqual([
+      "alpha",
+      "beta",
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done", state: "completed" });
+  });
+});
+
+describe("resumeInterruptedProfiles", () => {
+  const emptyProfile = (nameWithOwner: string): RepoProfile => ({
+    nameWithOwner,
+    findings: [],
+    summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+  });
+
+  test("resumes a standalone running run, reprocessing only unfinished repos", async () => {
+    // An interrupted run: two repos recorded, one already enriched.
+    createProfileRun({ id: "rz", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("rz", signalsFor(discovered("a")), emptyProfile("acme/a"));
+    recordRepoProfile("rz", signalsFor(discovered("b")), emptyProfile("acme/b"));
+    setRepoEnriched("rz", "acme/a");
+
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")]);
+    resumeInterruptedProfiles(deps, () => true);
+    await state.runPromise;
+
+    // The unfinished repo is enriched and the run completes.
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/b"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+  });
+
+  test("fails interrupted runs when no source credentials are available", () => {
+    createProfileRun({ id: "rz", sourceApiUrl: "u", org: "acme" });
+    const { deps, state } = serviceDeps([]);
+
+    resumeInterruptedProfiles(deps, () => false);
+
+    expect(getProfileRun("rz")?.state).toBe("failed");
+    expect(getProfileRun("rz")?.failureReason).toMatch(/restarted/i);
+    // It never built a client when it can't resume.
+    expect(state.gqlBuilt).toBe(0);
+  });
+
+  test("is a no-op when nothing is running", () => {
+    const { deps } = serviceDeps([]);
+    expect(() => resumeInterruptedProfiles(deps, () => true)).not.toThrow();
+  });
+
+  test("resumes an interrupted enterprise run, skipping finished child orgs", async () => {
+    // An interrupted enterprise: org "done" already finished, org "team" pending.
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
+
+    // The fresh enumeration returns both orgs; only "team" still needs profiling.
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["done", "team"]);
+    resumeInterruptedProfiles(deps, () => true);
+    await state.runPromise;
+
+    // The enterprise completes; "done" is untouched, "team" gets a fresh child run.
+    expect(getEnterpriseRun("ent")?.state).toBe("completed");
+    const children = getEnterpriseChildRuns("ent");
+    expect(children.map((c) => c.org).sort()).toEqual(["done", "team"]);
+    expect(children.find((c) => c.org === "done")?.id).toBe("c-done"); // not re-run
+    expect(state.gqlBuilt).toBeGreaterThan(0); // a source client was built to resume
+  });
+});
+
+describe("requestProfilePause / resumeProfileRun", () => {
+  const emptyProfile = (nameWithOwner: string): RepoProfile => ({
+    nameWithOwner,
+    findings: [],
+    summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 0, indeterminate: 0 },
+  });
+
+  test("requestProfilePause flags a running run for the crawl to observe", () => {
+    createProfileRun({ id: "rp", sourceApiUrl: "u", org: "acme" });
+    const run = requestProfilePause("rp");
+    expect(run?.id).toBe("rp");
+    expect(isPauseRequested("rp")).toBe(true);
+    clearPause("rp"); // don't leak the request into later tests
+  });
+
+  test("requestProfilePause is a no-op for a settled run and null for an unknown one", () => {
+    createProfileRun({ id: "done", sourceApiUrl: "u", org: "acme" });
+    completeProfileRun("done");
+    expect(requestProfilePause("done")?.state).toBe("completed");
+    expect(isPauseRequested("done")).toBe(false);
+    expect(requestProfilePause("missing")).toBeNull();
+  });
+
+  test("resumeProfileRun re-dispatches a paused run to completion", async () => {
+    // A paused run with one repo already enriched, one still pending.
+    createProfileRun({ id: "rp", sourceApiUrl: "u", org: "acme" });
+    recordRepoProfile("rp", signalsFor(discovered("a")), emptyProfile("acme/a"));
+    recordRepoProfile("rp", signalsFor(discovered("b")), emptyProfile("acme/b"));
+    setRepoEnriched("rp", "acme/a");
+    pauseProfileRun("rp");
+
+    const { deps, state } = serviceDeps([discovered("a"), discovered("b")]);
+    const resumed = resumeProfileRun("rp", deps);
+    expect(resumed?.state).toBe("running"); // the reset runs synchronously
+    await state.runPromise;
+
+    expect(getProfileRun("rp")?.state).toBe("completed");
+    expect([...getEnrichedRepoNames("rp")].sort()).toEqual(["acme/a", "acme/b"]);
+  });
+
+  test("resumeProfileRun leaves a completed run alone and returns null for unknown", () => {
+    createProfileRun({ id: "done", sourceApiUrl: "u", org: "acme" });
+    completeProfileRun("done");
+    const { deps, state } = serviceDeps([discovered("a")]);
+    expect(resumeProfileRun("done", deps)?.state).toBe("completed");
+    expect(state.gqlBuilt).toBe(0); // nothing was re-dispatched
+    expect(resumeProfileRun("missing", deps)).toBeNull();
+  });
+});
+
+describe("requestEnterprisePause / resumeEnterpriseRun", () => {
+  test("requestEnterprisePause flags the enterprise and its running children", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "c-run", sourceApiUrl: "u", org: "run", enterpriseRunId: "ent" });
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
+
+    const run = requestEnterprisePause("ent");
+    expect(run?.id).toBe("ent");
+    expect(isPauseRequested("ent")).toBe(true);
+    expect(isPauseRequested("c-run")).toBe(true); // the running child is paused too
+    expect(isPauseRequested("c-done")).toBe(false); // a settled child is left alone
+    clearPause("ent");
+    clearPause("c-run");
+  });
+
+  test("requestEnterprisePause is a no-op for a settled run and null for unknown", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    completeEnterpriseRun("ent");
+    expect(requestEnterprisePause("ent")?.state).toBe("completed");
+    expect(isPauseRequested("ent")).toBe(false);
+    expect(requestEnterprisePause("missing")).toBeNull();
+  });
+
+  test("resumeEnterpriseRun continues a paused enterprise to completion", async () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    createProfileRun({ id: "c-done", sourceApiUrl: "u", org: "done", enterpriseRunId: "ent" });
+    completeProfileRun("c-done");
+    createProfileRun({ id: "c-stop", sourceApiUrl: "u", org: "stop", enterpriseRunId: "ent" });
+    pauseProfileRun("c-stop");
+    pauseEnterpriseRun("ent");
+
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["done", "stop"]);
+    const resumed = resumeEnterpriseRun("ent", deps);
+    expect(resumed?.state).toBe("running"); // the reset runs synchronously
+    await state.runPromise;
+
+    expect(getEnterpriseRun("ent")?.state).toBe("completed");
+    const children = getEnterpriseChildRuns("ent");
+    expect(children.map((c) => c.org).sort()).toEqual(["done", "stop"]);
+    expect(children.find((c) => c.org === "done")?.id).toBe("c-done"); // not re-run
+    expect(children.find((c) => c.org === "stop")?.state).toBe("completed"); // resumed
+  });
+
+  test("resumeEnterpriseRun leaves a completed run alone and returns null for unknown", () => {
+    createEnterpriseRun({ id: "ent", sourceApiUrl: "u", enterpriseSlug: "acme-inc" });
+    completeEnterpriseRun("ent");
+    const { deps, state } = serviceDeps([discovered("a")], {}, ["x"]);
+    expect(resumeEnterpriseRun("ent", deps)?.state).toBe("completed");
+    expect(state.gqlBuilt).toBe(0); // nothing was re-dispatched
+    expect(resumeEnterpriseRun("missing", deps)).toBeNull();
   });
 });
 

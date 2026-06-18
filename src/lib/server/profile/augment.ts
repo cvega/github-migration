@@ -22,7 +22,7 @@
  * branch-protection derivation are unit-testable without a network.
  */
 import type { graphql } from "@octokit/graphql";
-import { isTimeoutError } from "./graphql-errors";
+import { isTimeoutError, partialDataFromError } from "./graphql-errors";
 import type { DiscoveredRepo, RepoSignals } from "./types";
 
 /** GraphQL caps `branchProtectionRules(first:)` at 100; most repos have <10, so
@@ -277,15 +277,6 @@ function toDetails(repo: DiscoveredRepo, node: RepoDetailsNode | null): RepoDeta
     workflowFileCount: countWorkflowFiles(node?.workflows ?? null),
     releaseAssetBytes: sumReleaseAssetBytes(node?.releases),
   };
-}
-
-/** Recover partial `data` from a GraphQL error that carries it, else null. */
-function partialDataFromError(err: unknown): Record<string, unknown> | null {
-  if (err && typeof err === "object" && "data" in err) {
-    const data = (err as { data?: unknown }).data;
-    if (data && typeof data === "object") return data as Record<string, unknown>;
-  }
-  return null;
 }
 
 /** Options controlling how wide/deep a single augment request reaches. */

@@ -1,10 +1,13 @@
-/** A single profiling run with its per-repo readiness results. */
+/** A single profiling run with paginated per-repo results. */
 import { error } from "@sveltejs/kit";
-import { getProfileDetail } from "$lib/server/profile/service";
+import { getProfileDetailPaginated } from "$lib/server/profile/service";
+import { parseLimitOffset } from "$lib/types";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ params }) => {
-  const detail = getProfileDetail(params.id);
+export const load: PageServerLoad = async ({ params, url }) => {
+  const { limit, offset } = parseLimitOffset(url.searchParams);
+
+  const detail = getProfileDetailPaginated(params.id, limit, offset);
   if (!detail) {
     error(404, "Profile run not found");
   }

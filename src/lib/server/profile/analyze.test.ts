@@ -7,51 +7,18 @@
 import { describe, expect, test } from "bun:test";
 import { MIGRATION_CONSIDERATIONS } from "$lib/profile/consideration-registry";
 import { analyzeRepo, DETECTED_CONSIDERATION_IDS, type RepoProfile } from "./analyze";
+import { makeDiscoveredRepo, makeRepoSignals } from "./test-factories";
 import type { RepoSignals } from "./types";
 
 /** A repo with every gathered signal at its "clean" value. */
 function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    name: "widget",
-    nameWithOwner: "acme/widget",
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-02T00:00:00Z",
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    releasesCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    ...over,
-  };
+  return makeRepoSignals(
+    makeDiscoveredRepo("widget", {
+      pushedAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-02T00:00:00Z",
+    }),
+    over,
+  );
 }
 
 /** Look up a finding by consideration id. */

@@ -7,9 +7,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
-import type { RepoDetails } from "./augment";
 import { type ProfileClients, type ProfileRunnerDeps, runProfile } from "./runner";
-import { getProfileRun, getRunRepoProfiles } from "./store";
+import { getEnrichedRepoNames, getProfileRun, getRunRepoProfiles } from "./store";
+import { makeCountsSignals, makeDiscoveredRepo, makeRepoDetails } from "./test-factories";
 import {
   type DiscoveredRepo,
   type OrgDiscovery,
@@ -33,81 +33,13 @@ const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
   tagProtectionCount: 0,
 });
 
-function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
-  return {
-    name,
-    nameWithOwner: `acme/${name}`,
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-    ...over,
-  };
-}
-
-function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...repo,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasPages: false,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
-    ...over,
-  };
-}
+const discovered = makeDiscoveredRepo;
 
 /** Counts-pass signals (verification fields defaulted, as pass 1 produces). */
-function countsSignals(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...signalsFor(repo, over),
-    commitsCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    usesLfs: false,
-    workflowFileCount: 0,
-    releaseAssetBytes: 0,
-  };
-}
+const countsSignals = makeCountsSignals;
 
 /** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
-function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
-  const s = signalsFor(repo, over);
-  return {
-    nameWithOwner: repo.nameWithOwner,
-    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
-    usesLfs: s.usesLfs,
-    workflowFileCount: s.workflowFileCount,
-    releaseAssetBytes: s.releaseAssetBytes,
-  };
-}
+const detailsFor = makeRepoDetails;
 
 /** Deps whose discover returns the given repos and the two passes map by name. */
 function deps(
@@ -129,6 +61,7 @@ function deps(
     }),
     getOrgRulesetCount: async () => rulesetCount,
     getOrgResources: async () => ({ ...ZERO_ORG_RESOURCES, ...orgResources }),
+    shouldPause: () => false,
   };
 }
 
@@ -169,6 +102,199 @@ describe("runProfile", () => {
       deps([discovered("alpha")], {}, 3),
     );
     expect(run.orgRulesetCount).toBe(3);
+  });
+
+  test("persists the profiled tally live during the counts pass, before completion", async () => {
+    // The details pass runs after counts but before completeProfileRun, so it's
+    // a window where we can observe the live-persisted profiled count. Without
+    // the live persist this would read 0 (the create default).
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    let profiledDuringDetails = -1;
+    const base = deps(repos);
+    await runProfile(clients, { id: "live", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...base,
+      augmentDetails: async (gql, c, opts) => {
+        if (profiledDuringDetails < 0) {
+          profiledDuringDetails = getProfileRun("live")?.profiledRepos ?? -1;
+        }
+        return base.augmentDetails(gql, c, opts);
+      },
+    });
+    // All three repos were counted (one chunk) and persisted before the details
+    // pass ran — so the live value is already 3, not the 0 create-default.
+    expect(profiledDuringDetails).toBe(3);
+  });
+
+  test("resume reprocesses only the repos that didn't finish enrichment", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    // First run: the final per-repo pass (countCommits) throws for "b", so it
+    // never gets marked enriched while "a" and "c" do.
+    await runProfile(clients, { id: "rz", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      countCommits: async (_rest, r) => {
+        if (r.name === "b") throw new Error("rate limited");
+        return 0;
+      },
+    });
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/c"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+
+    // Resume: track which repos each pass actually touches.
+    const counted: string[] = [];
+    const commits: string[] = [];
+    await runProfile(
+      clients,
+      { id: "rz", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      {
+        ...deps(repos),
+        augmentCounts: async (_gql, c) => {
+          for (const r of c) counted.push(r.nameWithOwner);
+          return c.map((r) => countsSignals(r));
+        },
+        countCommits: async (_rest, r) => {
+          commits.push(r.nameWithOwner);
+          return 0;
+        },
+      },
+    );
+    // Only the unfinished repo "b" was reprocessed; "a" and "c" were skipped.
+    expect(counted).toEqual(["acme/b"]);
+    expect(commits).toEqual(["acme/b"]);
+    // Now every repo is enriched and the run is complete.
+    expect([...getEnrichedRepoNames("rz")].sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect(getProfileRun("rz")?.state).toBe("completed");
+  });
+
+  test("resume starts the profiled tally from the already-enriched count", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c"), discovered("d")];
+    // First run fails the final pass for two repos → 2 enriched, 2 pending.
+    await runProfile(clients, { id: "rp", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      countCommits: async (_rest, r) => {
+        if (r.name === "c" || r.name === "d") throw new Error("rate limited");
+        return 0;
+      },
+    });
+    expect(getEnrichedRepoNames("rp").size).toBe(2);
+
+    // On resume, the first persisted progress value should already include the
+    // 2 finished repos (not restart from 0).
+    let firstProfiled = -1;
+    await runProfile(
+      clients,
+      { id: "rp", org: "acme", sourceApiUrl: "u", resume: true },
+      (p) => {
+        if (firstProfiled < 0 && p.repo !== "") firstProfiled = p.profiled;
+      },
+      deps(repos),
+    );
+    // 2 already-enriched + the first reprocessed repo = 3.
+    expect(firstProfiled).toBe(3);
+    expect(getProfileRun("rp")?.profiledRepos).toBe(4);
+  });
+
+  test("a pause request settles the run as paused with its repos listed", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    const run = await runProfile(
+      clients,
+      { id: "rpause", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      { ...deps(repos), shouldPause: () => true },
+    );
+    expect(run.state).toBe("paused");
+    expect(run.failureReason).toBeNull();
+    // The repo list was recorded up front; the per-repo passes never ran, so
+    // nothing finished enrichment.
+    expect(getRunRepoProfiles("rpause").map((p) => p.nameWithOwner)).toEqual(["acme/a", "acme/b"]);
+    expect(getEnrichedRepoNames("rpause").size).toBe(0);
+  });
+
+  test("a pause requested during the counts pass still records those counts", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    let counted = false;
+    const run = await runProfile(
+      clients,
+      { id: "rpc", org: "acme", sourceApiUrl: "u" },
+      undefined,
+      {
+        ...deps(repos),
+        augmentCounts: async (_gql, c) => {
+          const out = c.map((r) => countsSignals(r, { issuesCount: 7 }));
+          counted = true; // pause from the next checkpoint onward
+          return out;
+        },
+        shouldPause: () => counted,
+      },
+    );
+    expect(run.state).toBe("paused");
+    // Counts recorded before the pause survive; the enrichment pass never ran.
+    const profiles = getRunRepoProfiles("rpc");
+    expect(profiles.every((p) => p.signals.issuesCount === 7)).toBe(true);
+    expect(getEnrichedRepoNames("rpc").size).toBe(0);
+  });
+
+  test("a paused run resumes and completes the remaining repos", async () => {
+    const repos = [discovered("a"), discovered("b")];
+    // Pause immediately — nothing gets enriched.
+    await runProfile(clients, { id: "rpr", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      shouldPause: () => true,
+    });
+    expect(getProfileRun("rpr")?.state).toBe("paused");
+    expect(getEnrichedRepoNames("rpr").size).toBe(0);
+
+    // Resume with no pause pending → the crawl finishes every repo.
+    const resumed = await runProfile(
+      clients,
+      { id: "rpr", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      deps(repos),
+    );
+    expect(resumed.state).toBe("completed");
+    expect([...getEnrichedRepoNames("rpr")].sort()).toEqual(["acme/a", "acme/b"]);
+  });
+
+  test("resume keeps repos a short re-discovery omits and never shrinks the total", async () => {
+    const repos = [discovered("a"), discovered("b"), discovered("c")];
+    // First run pauses immediately, so all three repos are recorded but none
+    // finish enrichment.
+    await runProfile(clients, { id: "rt", org: "acme", sourceApiUrl: "u" }, undefined, {
+      ...deps(repos),
+      shouldPause: () => true,
+    });
+    expect(getProfileRun("rt")?.totalRepos).toBe(3);
+    expect(getEnrichedRepoNames("rt").size).toBe(0);
+
+    // Resume, but re-discovery comes back short (only "a") — a rate-limited REST
+    // listing returning fewer repos than the org actually has. This is exactly
+    // the case that produced "10123/92": without the union the total would drop
+    // to 1 and "b"/"c" would never be reprocessed.
+    const counted: string[] = [];
+    const resumed = await runProfile(
+      clients,
+      { id: "rt", org: "acme", sourceApiUrl: "u", resume: true },
+      undefined,
+      {
+        ...deps(repos),
+        discover: async (): Promise<OrgDiscovery> => ({
+          org: "acme",
+          total: 1,
+          repos: [discovered("a")],
+        }),
+        augmentCounts: async (_gql, c) => {
+          for (const r of c) counted.push(r.nameWithOwner);
+          return c.map((r) => countsSignals(r));
+        },
+      },
+    );
+    // The total must NOT shrink to 1 — all three recorded repos are still known.
+    expect(resumed.totalRepos).toBe(3);
+    expect(resumed.profiledRepos).toBe(3);
+    // And the repos the short re-discovery omitted were still reprocessed.
+    expect(counted.sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect([...getEnrichedRepoNames("rt")].sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
+    expect(resumed.state).toBe("completed");
   });
 
   test("records the org resource counts on the run", async () => {

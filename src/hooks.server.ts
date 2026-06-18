@@ -8,6 +8,7 @@ import { env } from "$env/dynamic/private";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
 import { recoverOrphans } from "$lib/server/migrate/manager";
+import { resumeInterruptedProfiles } from "$lib/server/profile/service";
 import { DOMAIN_STORES } from "$lib/server/registry";
 
 // Initialize SQLite on server startup.
@@ -16,6 +17,10 @@ initStore(`${dataDir}/gh-migrate.db`, DOMAIN_STORES);
 
 // Reconnect to any in-flight env-app migrations that survived the restart.
 recoverOrphans();
+
+// Resume any standalone org profiles interrupted by the restart (or fail them
+// if no source credentials are configured to continue).
+resumeInterruptedProfiles();
 
 if (!authEnabled) {
   console.warn(

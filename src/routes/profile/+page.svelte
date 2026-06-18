@@ -1,42 +1,73 @@
-<!-- Profile workspace — start an organization readiness crawl and view past runs. -->
+<!-- Profile workspace — start an organization or enterprise readiness crawl and view past runs. -->
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import RunStateBadge from '$lib/components/RunStateBadge.svelte';
 	import { timeAgo } from '$lib/format';
 
 	let { data } = $props();
 
-	type RunState = 'running' | 'completed' | 'failed';
+	type RunState = 'running' | 'paused' | 'completed' | 'failed';
+	type Scope = 'org' | 'enterprise';
 
-	let org = $state('');
+	let scope = $state<Scope>('org');
+	let target = $state('');
 	let submitting = $state(false);
 	let error = $state('');
 
-	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
-		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
-		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
-		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
-	};
+	// Unified, time-ordered feed of enterprise and org runs for the list below.
+	const feed = $derived(
+		[
+			...data.enterpriseRuns.map((r) => ({
+				kind: 'enterprise' as const,
+				id: r.id,
+				href: `/profile/enterprise/${r.id}`,
+				name: r.enterpriseSlug,
+				state: r.state as RunState,
+				profiled: r.profiledOrgs,
+				total: r.totalOrgs,
+				unit: 'orgs',
+				blockers: r.blockers,
+				warnings: r.warnings,
+				startedAt: r.startedAt
+			})),
+			...data.runs.map((r) => ({
+				kind: 'org' as const,
+				id: r.id,
+				href: `/profile/${r.id}`,
+				name: r.org,
+				state: r.state as RunState,
+				profiled: r.profiledRepos,
+				total: r.totalRepos,
+				unit: 'repos',
+				blockers: r.blockers,
+				warnings: r.warnings,
+				startedAt: r.startedAt
+			}))
+		].sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+	);
 
 	async function startProfile(e: Event) {
 		e.preventDefault();
-		const value = org.trim();
+		const value = target.trim();
 		if (!value) return;
 		submitting = true;
 		error = '';
 		try {
+			const body =
+				scope === 'enterprise' ? { scope, enterprise: value } : { scope, org: value };
 			const res = await fetch('/api/profile', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ org: value })
+				body: JSON.stringify(body)
 			});
 			if (!res.ok) {
-				const body = await res.json().catch(() => ({}));
-				error = body.error || `HTTP ${res.status}`;
+				const errBody = await res.json().catch(() => ({}));
+				error = errBody.error || `HTTP ${res.status}`;
 				return;
 			}
 			const run = (await res.json()) as { id: string };
-			goto(`/profile/${run.id}`);
+			goto(scope === 'enterprise' ? `/profile/enterprise/${run.id}` : `/profile/${run.id}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to start profile';
 		} finally {
@@ -55,7 +86,7 @@
 				Profile
 			</h1>
 			<p class="mt-1 text-sm text-gray-400">
-				Crawl a source organization and surface what the GitHub export won't carry cleanly.
+				Crawl a source organization or enterprise and surface what the GitHub export won't carry cleanly.
 			</p>
 		</div>
 		<a href="/" class="text-sm text-gray-400 transition-colors hover:text-gray-50">← Workspaces</a>
@@ -64,18 +95,39 @@
 	<!-- Start a run -->
 	<section class="rounded-lg border border-gray-700 bg-gray-900 p-5">
 		{#if data.sourceAuthAvailable}
+			<!-- Scope toggle: profile a whole enterprise or a single organization. -->
+			<div class="mb-4 inline-flex rounded-md border border-gray-700 bg-gray-950 p-0.5 text-sm">
+				<button
+					type="button"
+					onclick={() => (scope = 'org')}
+					class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 font-medium transition-colors {scope === 'org' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
+				>
+					<Octicon name="organization" size={16} />
+					Organization
+				</button>
+				<button
+					type="button"
+					onclick={() => (scope = 'enterprise')}
+					class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 font-medium transition-colors {scope === 'enterprise' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:text-gray-200'}"
+				>
+					<Octicon name="stack" size={16} />
+					Enterprise
+				</button>
+			</div>
 			<form onsubmit={startProfile} class="flex flex-wrap items-end gap-3">
 				<div class="flex-1">
-					<label for="org" class="mb-1 block text-sm font-medium text-gray-300">Source organization</label>
+					<label for="target" class="mb-1 block text-sm font-medium text-gray-300">
+						{scope === 'enterprise' ? 'Source enterprise slug' : 'Source organization'}
+					</label>
 					<input
-						id="org"
-						list="source-orgs"
-						bind:value={org}
-						placeholder="octo-org"
+						id="target"
+						list={scope === 'org' ? 'source-orgs' : undefined}
+						bind:value={target}
+						placeholder={scope === 'enterprise' ? 'octo-enterprise' : 'octo-org'}
 						autocomplete="off"
 						class="w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-50 placeholder-gray-600 focus:border-violet-500 focus:outline-none"
 					/>
-					{#if data.sourceOrgs.length > 0}
+					{#if scope === 'org' && data.sourceOrgs.length > 0}
 						<datalist id="source-orgs">
 							{#each data.sourceOrgs as o (o)}<option value={o}></option>{/each}
 						</datalist>
@@ -83,13 +135,18 @@
 				</div>
 				<button
 					type="submit"
-					disabled={submitting || !org.trim()}
+					disabled={submitting || !target.trim()}
 					class="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
 				>
 					<Octicon name={submitting ? 'sync' : 'play'} size={16} class={submitting ? 'animate-spin' : ''} />
-					{submitting ? 'Starting…' : 'Start profile'}
+					{submitting ? 'Starting…' : scope === 'enterprise' ? 'Start enterprise profile' : 'Start profile'}
 				</button>
 			</form>
+			{#if scope === 'enterprise'}
+				<p class="mt-2 text-xs text-gray-500">
+					The enterprise URL slug (github.com/enterprises/<span class="text-gray-400">slug</span>). Your token must be an enterprise member or owner.
+				</p>
+			{/if}
 			{#if error}
 				<p class="mt-3 flex items-center gap-1.5 text-sm text-red-400">
 					<Octicon name="alert" size={16} />{error}
@@ -120,32 +177,31 @@
 			</button>
 		</div>
 
-		{#if data.runs.length === 0}
+		{#if feed.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-16">
 				<Octicon name="telescope" size={24} class="h-12 w-12 text-gray-500" />
 				<p class="mt-4 text-gray-400">No profiling runs yet</p>
 			</div>
 		{:else}
 			<div class="space-y-2">
-				{#each data.runs as run (run.id)}
-					{@const badge = stateBadge[run.state]}
+				{#each feed as item (item.kind + item.id)}
 					<a
-						href="/profile/{run.id}"
+						href={item.href}
 						class="flex items-center justify-between rounded-md border border-gray-700 bg-gray-900 p-4 transition-all hover:border-gray-600 hover:bg-gray-800"
 					>
 						<div class="flex min-w-0 items-center gap-3">
-							<Octicon name="organization" size={16} class="text-gray-500" />
-							<span class="font-medium text-gray-50">{run.org}</span>
-							<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {badge.cls}">
-								<Octicon name={badge.icon} size={12} class={run.state === 'running' ? 'animate-spin' : ''} />
-								{badge.label}
-							</span>
+							<Octicon name={item.kind === 'enterprise' ? 'stack' : 'organization'} size={16} class="text-gray-500" />
+							<span class="font-medium text-gray-50">{item.name}</span>
+							{#if item.kind === 'enterprise'}
+								<span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[11px] font-medium text-violet-300">Enterprise</span>
+							{/if}
+							<RunStateBadge state={item.state} compact />
 						</div>
 						<div class="flex shrink-0 items-center gap-4 text-xs text-gray-400">
-							<span>{run.profiledRepos}/{run.totalRepos} repos</span>
-							{#if run.blockers > 0}<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="stop" size={12} />{run.blockers}</span>{/if}
-							{#if run.warnings > 0}<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} />{run.warnings}</span>{/if}
-							<span class="inline-flex items-center gap-1"><Octicon name="clock" size={12} />{timeAgo(run.startedAt)}</span>
+							<span>{item.profiled}/{item.total} {item.unit}</span>
+							{#if item.blockers > 0}<span class="inline-flex items-center gap-1 text-red-400"><Octicon name="stop" size={12} />{item.blockers}</span>{/if}
+							{#if item.warnings > 0}<span class="inline-flex items-center gap-1 text-yellow-400"><Octicon name="alert" size={12} />{item.warnings}</span>{/if}
+							<span class="inline-flex items-center gap-1"><Octicon name="clock" size={12} />{timeAgo(item.startedAt)}</span>
 						</div>
 					</a>
 				{/each}

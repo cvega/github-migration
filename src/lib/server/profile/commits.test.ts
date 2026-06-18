@@ -6,28 +6,11 @@
 import { describe, expect, test } from "bun:test";
 import type { GitHubClient } from "$lib/server/core/github";
 import { countRepoCommits } from "./commits";
+import { makeDiscoveredRepo } from "./test-factories";
 import type { DiscoveredRepo } from "./types";
 
-function repo(over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
-  return {
-    name: "widget",
-    nameWithOwner: "acme/widget",
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-    ...over,
-  };
-}
+const repo = (over: Partial<DiscoveredRepo> = {}): DiscoveredRepo =>
+  makeDiscoveredRepo("widget", over);
 
 /** A `rest` double whose `request` returns a queued response and records args. */
 function mockRest(response: { headers?: Record<string, string>; data?: unknown }) {

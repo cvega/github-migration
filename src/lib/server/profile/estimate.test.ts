@@ -5,50 +5,12 @@
  */
 import { describe, expect, test } from "bun:test";
 import { estimateDuration } from "./estimate";
+import { makeDiscoveredRepo, makeRepoSignals } from "./test-factories";
 import type { RepoSignals, StoredRepoProfile } from "./types";
 
 /** A full RepoSignals where only disk usage matters for the estimate. */
 function signals(diskUsageKb: number | null): RepoSignals {
-  return {
-    name: "r",
-    nameWithOwner: "o/r",
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    releasesCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-  };
+  return makeRepoSignals(makeDiscoveredRepo("r", { nameWithOwner: "o/r", diskUsageKb }));
 }
 
 function repo(diskUsageKb: number | null): StoredRepoProfile {

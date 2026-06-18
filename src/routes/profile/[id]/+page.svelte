@@ -3,9 +3,13 @@
 	import type { IconName } from '@primer/octicons';
 	import { getContext } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import RunControls from '$lib/components/RunControls.svelte';
+	import RunStateBadge from '$lib/components/RunStateBadge.svelte';
 	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
@@ -96,8 +100,6 @@
 		).filter((t) => t.value > 0)
 	);
 
-	type RunState = 'running' | 'completed' | 'failed';
-
 	// Registry lookup for consideration labels + severity (client-safe, pure data).
 	const considerationMeta = new Map(
 		MIGRATION_CONSIDERATIONS.map((c) => [c.id, { label: c.label, severity: c.severity }])
@@ -126,41 +128,10 @@
 	};
 
 	// Organization composition — what kind of repos make up the org, as a share
-	// of the evaluated set. Counts reuse the per-repo insight ids (one source of
-	// truth for the staleness rule), which are mutually exclusive per repo:
-	// empty short-circuits, archived suppresses stale. So the buckets never
-	// overlap and partition the org — `active` is the remainder (not empty, not
-	// archived, pushed within the staleness window), so the four sum to 100%.
-	const composition = $derived.by(() => {
-		let empty = 0;
-		let archived = 0;
-		let stale = 0;
-		for (const repo of repos) {
-			for (const ins of repo.insights ?? []) {
-				if (ins.id === 'empty-repo') empty += 1;
-				else if (ins.id === 'archived-move-now') archived += 1;
-				else if (ins.id === 'stale-confirm') stale += 1;
-			}
-		}
-		const total = repos.length;
-		const active = Math.max(0, total - empty - archived - stale);
-		const pctOf = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
-		return {
-			total,
-			active: { count: active, pct: pctOf(active) },
-			stale: { count: stale, pct: pctOf(stale) },
-			empty: { count: empty, pct: pctOf(empty) },
-			archived: { count: archived, pct: pctOf(archived) }
-		};
-	});
-
-	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'check-circle-fill' | 'x-circle-fill' }> = {
-		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
-		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
-		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
-	};
-
-	const badge = $derived(stateBadge[run.state]);
+	// of the evaluated set. Computed server-side over ALL repos (not just the
+	// current page), so it stays correct under pagination. Prefer the live-polled
+	// value when it's for the shown run.
+	const composition = $derived(fresh?.composition ?? data.composition);
 
 	// Per-repo drill-down: which repo rows are expanded to reveal their counts.
 	// Keyed on the stable `nameWithOwner`, so expansion survives a live refresh.
@@ -204,24 +175,18 @@
 		];
 	}
 
-	// ── Repository list: client-side search + pagination ───────────────────────
-	// Every repo is already loaded (and live-refreshed), so filtering and paging
-	// run on the client for instant feedback. Search matches the owner/name.
+	// ── Repository list: server-side pagination ────────────────────────────────
+	// Repos are paginated server-side via URL params. Page changes trigger new
+	// server loads with updated offset, keeping responses tiny (25 repos per page).
 	const REPOS_PER_PAGE = 25;
-	let repoSearch = $state('');
-	let repoPage = $state(1);
+	const repoTotalPages = $derived(Math.max(1, Math.ceil(data.totalRepos / REPOS_PER_PAGE)));
+	const currentOffset = $derived(parseInt($page.url.searchParams.get('offset') ?? '0', 10));
+	const currentPage = $derived(Math.floor(currentOffset / REPOS_PER_PAGE) + 1);
 
-	const filteredRepos = $derived.by(() => {
-		const q = repoSearch.trim().toLowerCase();
-		return q ? repos.filter((r) => r.nameWithOwner.toLowerCase().includes(q)) : repos;
-	});
-	// Clamp the shown page when the filtered set shrinks (no effect needed): the
-	// Pagination control sets `repoPage`, and `repoPageSafe` keeps it in range.
-	const repoTotalPages = $derived(Math.max(1, Math.ceil(filteredRepos.length / REPOS_PER_PAGE)));
-	const repoPageSafe = $derived(Math.min(repoPage, repoTotalPages));
-	const pagedRepos = $derived(
-		filteredRepos.slice((repoPageSafe - 1) * REPOS_PER_PAGE, repoPageSafe * REPOS_PER_PAGE)
-	);
+	function onRepoPageChange(pageNum: number) {
+		const offset = (pageNum - 1) * REPOS_PER_PAGE;
+		goto(`?limit=${REPOS_PER_PAGE}&offset=${offset}`, { replaceState: true });
+	}
 
 	const pct = $derived(run.totalRepos > 0 ? Math.round((run.profiledRepos / run.totalRepos) * 100) : 0);
 
@@ -281,10 +246,7 @@
 			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50">
 				<Octicon name="organization" size={24} class="text-gray-500" />
 				{run.org}
-				<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {badge.cls}">
-					<Octicon name={badge.icon} size={12} class={run.state === 'running' ? 'animate-spin' : ''} />
-					{badge.label}
-				</span>
+				<RunStateBadge state={run.state} />
 			</h1>
 			<p class="mt-1 font-mono text-xs text-gray-500">
 				{run.sourceApiUrl} · started {timeAgo(run.startedAt)}
@@ -292,6 +254,14 @@
 			</p>
 		</div>
 		<div class="flex items-center gap-3">
+			{#if !run.enterpriseRunId}
+				<RunControls
+					runState={run.state}
+					endpoint={`/api/profile/${run.id}`}
+					onRefresh={refresh}
+					onResumed={() => (polled = null)}
+				/>
+			{/if}
 			{#if authPill}
 				<AuthPill
 					label="Source"
@@ -555,30 +525,13 @@
 			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
 				<Octicon name="repo" size={16} />
 				Repositories
-				{#if repos.length > 0}<span class="text-sm font-normal text-gray-500">({filteredRepos.length.toLocaleString()})</span>{/if}
+				{#if data.totalRepos > 0}<span class="text-sm font-normal text-gray-500">({data.totalRepos.toLocaleString()})</span>{/if}
 			</h2>
-			{#if repos.length > 0}
-				<div class="relative">
-					<Octicon
-						name="search"
-						size={16}
-						class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500"
-					/>
-					<input
-						type="search"
-						bind:value={repoSearch}
-						oninput={() => (repoPage = 1)}
-						placeholder="Filter repositories…"
-						aria-label="Filter repositories"
-						class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pl-9 pr-3 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none"
-					/>
-				</div>
-			{/if}
 		</div>
 
 		{#if repos.length === 0}
 			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
-				<Octicon name={run.state === 'running' ? 'sync' : 'inbox'} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />
+				<Octicon name={run.state === 'running' ? 'sync' : 'inbox'} size={24} class={run.state === 'running' ? 'h-10 w-10 text-gray-500 animate-spin' : 'h-10 w-10 text-gray-500'} />
 				<p class="mt-3">
 					{#if run.state !== 'running'}
 						No repositories profiled
@@ -588,11 +541,6 @@
 						Discovering repositories…
 					{/if}
 				</p>
-			</div>
-		{:else if filteredRepos.length === 0}
-			<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
-				<Octicon name="search" size={24} class="h-10 w-10 text-gray-500" />
-				<p class="mt-3">No repositories match <span class="font-medium text-gray-300">“{repoSearch}”</span></p>
 			</div>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-gray-700">
@@ -606,7 +554,7 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-800">
-						{#each pagedRepos as repo (repo.nameWithOwner)}
+						{#each repos as repo (repo.nameWithOwner)}
 							<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
 								<td class="px-4 py-3">
 									<button
@@ -693,11 +641,11 @@
 				</table>
 			</div>
 			<Pagination
-				page={repoPageSafe}
+				page={currentPage}
 				totalPages={repoTotalPages}
-				total={filteredRepos.length}
+				total={data.totalRepos}
 				limit={REPOS_PER_PAGE}
-				onPageChange={(p) => (repoPage = p)}
+				onPageChange={onRepoPageChange}
 			/>
 		{/if}
 	</section>

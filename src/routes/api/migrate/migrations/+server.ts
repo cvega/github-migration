@@ -2,31 +2,20 @@
  *  GET  /api/migrate/migrations — list migrations (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
+import { parseAuthenticatedBody } from "$lib/server/core/validate";
 import { listPaginated, searchPaginated, start } from "$lib/server/migrate/manager";
 import { createMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
-  const parsed = await parseJsonBody(request);
-  if ("error" in parsed) {
-    return json({ error: parsed.error }, { status: 400 });
-  }
-
-  const result = validateBody(createMigrationSchema, parsed.data);
-  if (!result.ok) {
-    return json({ error: result.error }, { status: 400 });
-  }
-  const body = result.value;
-
-  const authError = validateAuthAvailable(body);
-  if (authError) {
-    return json({ error: authError }, { status: 400 });
-  }
+  const parsed = await parseAuthenticatedBody(request, (d) =>
+    validateBody(createMigrationSchema, d),
+  );
+  if ("errorResponse" in parsed) return parsed.errorResponse;
 
   try {
-    const migration = start(body);
+    const migration = start(parsed.body);
     return json(migration, { status: 201 });
   } catch (err) {
     // Capacity is no longer an error — over-cap migrations queue automatically.
