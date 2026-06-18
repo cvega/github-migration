@@ -2,31 +2,20 @@
  *  GET  /api/migrate/batches — list batches (paginated via ?page=&limit=).
  */
 import { json } from "@sveltejs/kit";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/core/validate";
+import { parseAuthenticatedBody } from "$lib/server/core/validate";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { parsePaginationParams } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
-  const parsed = await parseJsonBody(request);
-  if ("error" in parsed) {
-    return json({ error: parsed.error }, { status: 400 });
-  }
-
-  const result = validateBody(batchMigrationSchema, parsed.data);
-  if (!result.ok) {
-    return json({ error: result.error }, { status: 400 });
-  }
-  const body = result.value;
-
-  const authError = validateAuthAvailable(body);
-  if (authError) {
-    return json({ error: authError }, { status: 400 });
-  }
+  const parsed = await parseAuthenticatedBody(request, (d) =>
+    validateBody(batchMigrationSchema, d),
+  );
+  if ("errorResponse" in parsed) return parsed.errorResponse;
 
   try {
-    const batch = startBatch(body);
+    const batch = startBatch(parsed.body);
     return json(batch, { status: 201 });
   } catch (err) {
     // Over-cap requests queue (never throw), so a throw is an unexpected internal

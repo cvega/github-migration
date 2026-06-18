@@ -1,14 +1,14 @@
 /** GET /api/profile/[id] — a profiling run and its per-repo results (paginated). */
 import { json } from "@sveltejs/kit";
 import { getProfileDetail, getProfileDetailPaginated } from "$lib/server/profile/service";
+import { parseLimitOffset } from "$lib/types";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "25", 10), 1), 100);
-  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
+  const { limit, offset } = parseLimitOffset(url.searchParams);
 
-  // If both limit and offset are provided (or just limit=anything), use pagination.
-  // Otherwise, fall back to full detail (for backward compat with existing clients).
+  // If limit/offset are provided, use pagination. Otherwise fall back to full
+  // detail (for backward compat with existing clients).
   const usePagination = url.searchParams.has("limit") || url.searchParams.has("offset");
 
   if (usePagination) {

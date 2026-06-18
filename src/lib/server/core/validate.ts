@@ -4,6 +4,7 @@
  * in schemas.ts (Zod).
  */
 
+import { json } from "@sveltejs/kit";
 import { isSourceAuthAvailable, isTargetAuthAvailable } from "./auth";
 
 /**
@@ -41,4 +42,43 @@ export function validateAuthAvailable(creds: {
     return "Missing target auth — provide a PAT, app credentials, or configure auth via env vars";
   }
   return null;
+}
+
+/** The per-request credential fields a write route's body may carry. */
+type AuthCredentials = {
+  sourceToken?: unknown;
+  sourceApp?: unknown;
+  targetToken?: unknown;
+  targetApp?: unknown;
+};
+
+/**
+ * The common preamble for the migrate write routes: parse the JSON body,
+ * shape-validate it with the given validator, and confirm both sides have
+ * usable auth. Returns the typed body, or a ready 400 `Response` describing the
+ * first failure (invalid JSON, a schema error, or missing auth) — so the caller
+ * is just `if ("errorResponse" in r) return r.errorResponse;`.
+ *
+ * The validator is passed in (rather than a Zod schema) so this core helper
+ * stays free of any domain-schema import.
+ */
+export async function parseAuthenticatedBody<T extends AuthCredentials>(
+  request: Request,
+  validate: (
+    data: Record<string, unknown>,
+  ) => { ok: true; value: T } | { ok: false; error: string },
+): Promise<{ body: T } | { errorResponse: Response }> {
+  const parsed = await parseJsonBody(request);
+  if ("error" in parsed) {
+    return { errorResponse: json({ error: parsed.error }, { status: 400 }) };
+  }
+  const result = validate(parsed.data);
+  if (!result.ok) {
+    return { errorResponse: json({ error: result.error }, { status: 400 }) };
+  }
+  const authError = validateAuthAvailable(result.value);
+  if (authError) {
+    return { errorResponse: json({ error: authError }, { status: 400 }) };
+  }
+  return { body: result.value };
 }
