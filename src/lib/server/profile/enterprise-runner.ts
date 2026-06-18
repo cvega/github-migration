@@ -16,9 +16,10 @@
  * refresh, progress, and failure handling — is unit-testable against a real
  * in-memory store without a network.
  */
+
+import { logger } from "../logger";
 import { clearPause, isPauseRequested } from "./control";
 import { discoverEnterpriseOrgs } from "./enterprise";
-import { logger } from "../logger";
 import type { ProfileClients } from "./runner";
 import { runProfile } from "./runner";
 import {

@@ -4,8 +4,8 @@ import { getProfileDetail, getProfileDetailPaginated } from "$lib/server/profile
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ params, url }) => {
-  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "25"), 1), 100);
-  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0"), 0);
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "25", 10), 1), 100);
+  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
 
   // If both limit and offset are provided (or just limit=anything), use pagination.
   // Otherwise, fall back to full detail (for backward compat with existing clients).

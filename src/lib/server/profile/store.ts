@@ -334,7 +334,11 @@ export function getRunRepoProfiles(runId: string): StoredRepoProfile[] {
 }
 
 /** Paginated per-repo profiles for a run (name + basic counts only). */
-export function getRunRepoSummaries(runId: string, limit: number, offset: number): StoredRepoProfile[] {
+export function getRunRepoSummaries(
+  runId: string,
+  limit: number,
+  offset: number,
+): StoredRepoProfile[] {
   const rows = getDb()
     .prepare(
       `SELECT name_with_owner, signals, blockers, warnings, infos, applying_considerations

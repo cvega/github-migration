@@ -105,6 +105,52 @@ function computeScale(repos: RepoProfileView[]): MigrationScale {
   return scale;
 }
 
+/** One composition bucket: how many repos fall in it and its share of the org. */
+interface CompositionBucket {
+  count: number;
+  pct: number;
+}
+
+/**
+ * Organization composition — what kind of repos make up the org, as a share of
+ * the evaluated set. Computed server-side over ALL repos (not a page slice) so
+ * the rollup stays correct under pagination. Counts reuse the per-repo insight
+ * ids, which are mutually exclusive per repo (empty short-circuits, archived
+ * suppresses stale), so the buckets partition the org and `active` is the
+ * remainder — the four sum to 100%.
+ */
+interface MigrationComposition {
+  total: number;
+  active: CompositionBucket;
+  stale: CompositionBucket;
+  empty: CompositionBucket;
+  archived: CompositionBucket;
+}
+
+/** Bucket the run's repos into the org-composition rollup from their insights. */
+function computeComposition(repos: RepoProfileView[]): MigrationComposition {
+  let empty = 0;
+  let archived = 0;
+  let stale = 0;
+  for (const repo of repos) {
+    for (const ins of repo.insights ?? []) {
+      if (ins.id === "empty-repo") empty += 1;
+      else if (ins.id === "archived-move-now") archived += 1;
+      else if (ins.id === "stale-confirm") stale += 1;
+    }
+  }
+  const total = repos.length;
+  const active = Math.max(0, total - empty - archived - stale);
+  const pctOf = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return {
+    total,
+    active: { count: active, pct: pctOf(active) },
+    stale: { count: stale, pct: pctOf(stale) },
+    empty: { count: empty, pct: pctOf(empty) },
+    archived: { count: archived, pct: pctOf(archived) },
+  };
+}
+
 /**
  * Run one org profile that publishes its own SSE (per-repo progress + a terminal
  * `done`) and gathers org-level resources over REST. Shared by the standalone
@@ -436,12 +482,15 @@ export function getProfileDetail(id: string): ProfileDetail | null {
   };
 }
 
-/** Paginated profile detail: run + aggregates + a slice of repos (without signals). */
+/** Paginated profile detail: run + aggregates + a slice of repos (with insights). */
 export interface PaginatedProfileDetail {
   run: ProfileRun;
-  repos: StoredRepoProfile[];
+  /** The current page of repos, each with its derived insights for the table. */
+  repos: RepoProfileView[];
   totalRepos: number;
   scale: MigrationScale;
+  /** Org composition rollup (computed over all repos, not just the page). */
+  composition: MigrationComposition;
   summary: PreparationSummary;
   estimate: DurationEstimate;
 }
@@ -467,15 +516,19 @@ export function getProfileDetailPaginated(
     insights: deriveInsights(repo.signals),
   }));
 
-  // Return only a page of repos (with all their fields for the table),
-  // plus the aggregates computed from all repos.
-  const pagedRepos = getRunRepoSummaries(id, limit, offset);
+  // Return only a page of repos (with all their fields for the table), each
+  // enriched with its derived insights — cheap, since it's just the page slice.
+  const pagedRepos = getRunRepoSummaries(id, limit, offset).map((repo) => ({
+    ...repo,
+    insights: deriveInsights(repo.signals),
+  }));
 
   return {
     run,
     repos: pagedRepos,
     totalRepos: run.totalRepos,
     scale: computeScale(allReposWithInsights),
+    composition: computeComposition(allReposWithInsights),
     summary: buildPreparationSummary(allReposWithInsights),
     estimate: estimateDuration(allReposWithInsights),
   };
