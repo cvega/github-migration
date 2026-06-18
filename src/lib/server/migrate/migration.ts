@@ -45,7 +45,7 @@ import {
   startMetadataArchiveExport,
   waitForArchive,
 } from "./github-ops";
-import { type EventEmitter, runMonitor } from "./monitor";
+import { type EventEmitter, type MonitorResult, runMonitor } from "./monitor";
 import { updateCheckpoint, updateMigrationProvenance, updateMigrationSourceSize } from "./store";
 import { uploadArchive } from "./upload";
 
@@ -192,67 +192,25 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
     emitStep(`Migration started (${githubMigrationId})`);
 
     // ── Step 5: Monitor until terminal state ───────────────────────
-    const { phase: terminalPhase, finalCounts } = await runMonitor({
+    const monitorResult = await monitorMigration(
       clients,
-      migrationId,
+      migration,
       githubMigrationId,
-      targetOrg: migration.targetOrg,
-      targetRepo: migration.targetRepo,
-      sourceOrg: migration.sourceOrg,
-      sourceRepo: migration.sourceRepo,
-      sourceCounts: migration.sourceCounts,
-      signal: opts.signal,
+      opts.signal,
       emit,
-    });
+    );
 
-    // If GHEC reported failure, don't mark as succeeded.
-    if (terminalPhase === "FAILED") {
-      // The repo may have been created before the import failed — capture its
-      // identity so a guarded cleanup/restart can later prove provenance.
-      await captureTargetNodeId(clients, migration);
-      migration.state = "failed";
-      migration.failureReason = "Migration failed on GHEC";
-      migration.completedAt = new Date().toISOString();
-      migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
-      return migration;
-    }
-
-    // If the monitor didn't reach SUCCEEDED, something went wrong — either
-    // GHEC never reported success, the signal was aborted during a poll()
-    // network call (not during sleep, which throws), or the monitor exited
-    // with UNKNOWN.  Re-throw so the catch block handles it properly
-    // instead of falling through to "succeeded".
-    if (terminalPhase !== "SUCCEEDED") {
-      throw new Error(
-        opts.signal?.aborted ? "Migration cancelled" : `Monitor exited in phase ${terminalPhase}`,
-      );
-    }
-
-    // Final target counts: prefer the monitor's final snapshot (taken when
-    // GHEC reported SUCCEEDED). A fresh re-fetch here can race GHEC's
-    // post-migration indexing lag and report transient zeros for issues/PRs,
-    // so only re-fetch when the snapshot didn't capture counts.
-    if (finalCounts) {
-      migration.targetCounts = finalCounts;
-    } else {
-      try {
-        migration.targetCounts = await getRepoCounts(
-          clients.target,
-          clients.targetGraphql,
-          migration.targetOrg,
-          migration.targetRepo,
-        );
-      } catch {
-        // Non-fatal
-      }
-    }
-
-    // Capture the created repo's immutable identity for provenance.
-    await captureTargetNodeId(clients, migration);
-
-    migration.state = "succeeded";
-    migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
+    // Settle the terminal result. The pipeline captures the new repo's node id
+    // (for guarded cleanup) before recording either terminal state.
+    const failed = await settleMonitorResult(
+      migration,
+      monitorResult,
+      clients,
+      startedAt,
+      opts.signal,
+      () => captureTargetNodeId(clients, migration),
+    );
+    if (failed) return migration;
 
     // ── Post-migration: Archive source repo if requested ───────────
     updateCheckpoint(migrationId, "post_migration");
@@ -273,40 +231,21 @@ export async function runMigrationPipeline(opts: MigrationPipelineOpts): Promise
 
     return migration;
   } catch (err) {
-    if (opts.signal?.aborted) {
-      // User-initiated cancellation — try to abort on GHEC if it was started.
-      if (migration.githubMigrationId) {
-        try {
-          const cancelClients = createClients({
-            sourceApiUrl: migration.sourceApiUrl,
-            sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
-            targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
-          });
-          await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
-        } catch {
-          // Best-effort
-        }
+    // User-initiated cancellation — best-effort abort on GHEC if it was started.
+    if (opts.signal?.aborted && migration.githubMigrationId) {
+      try {
+        const cancelClients = createClients({
+          sourceApiUrl: migration.sourceApiUrl,
+          sourceAuth: resolveSourceAuth(opts.sourceToken, opts.sourceApp),
+          targetAuth: resolveTargetAuth(opts.targetToken, opts.targetApp),
+        });
+        await abortMigration(cancelClients.targetGraphql, migration.githubMigrationId);
+      } catch {
+        // Best-effort
       }
-      migration.state = "cancelled";
-    } else {
-      migration.state = "failed";
-      migration.failureReason = err instanceof Error ? err.message : String(err);
     }
 
-    migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
-
-    // Only emit a failure event for genuine errors, not user cancellations.
-    if (migration.state !== "cancelled") {
-      emit({
-        migrationId,
-        eventType: "failure",
-        phase: "FAILED",
-        payload: { error: migration.failureReason ?? undefined },
-        createdAt: new Date().toISOString(),
-      });
-    }
-
+    finalizeMigrationError(migration, err, startedAt, opts.signal, emit);
     return migration;
   }
 }
@@ -365,6 +304,140 @@ async function captureTargetNodeId(clients: GitHubClients, migration: Migration)
     updateMigrationProvenance(migration.id, { targetRepoNodeId: nodeId });
   } catch {
     // Repo not present (e.g. migration failed before creation) — leave null.
+  }
+}
+
+/**
+ * Monitor a started GHEC migration until it reaches a terminal phase. Thin
+ * wrapper over {@link runMonitor} that binds the per-migration arguments, shared
+ * by the initial pipeline and resume so the call shape stays in one place.
+ */
+function monitorMigration(
+  clients: GitHubClients,
+  migration: Migration,
+  githubMigrationId: string,
+  signal: AbortSignal | undefined,
+  emit: EventEmitter,
+): Promise<MonitorResult> {
+  return runMonitor({
+    clients,
+    migrationId: migration.id,
+    githubMigrationId,
+    targetOrg: migration.targetOrg,
+    targetRepo: migration.targetRepo,
+    sourceOrg: migration.sourceOrg,
+    sourceRepo: migration.sourceRepo,
+    sourceCounts: migration.sourceCounts,
+    signal,
+    emit,
+  });
+}
+
+/**
+ * Apply a monitor's terminal result to the migration record. Handles a FAILED
+ * import, guards a non-SUCCEEDED exit (throws so the caller's catch runs), and
+ * on success records the final target counts — preferring the monitor's
+ * snapshot over a re-fetch that can race GHEC's post-migration indexing lag —
+ * and marks the run succeeded. Shared by `runMigrationPipeline` and
+ * `resumeMigration`.
+ *
+ * `captureProvenance` runs before each terminal state is recorded: the initial
+ * pipeline captures the new repo's node id (for guarded cleanup); resume, a
+ * reconnect to an existing migration, passes nothing.
+ *
+ * @returns true when the import FAILED (the caller should return the migration),
+ *          false when it succeeded and the caller continues.
+ */
+async function settleMonitorResult(
+  migration: Migration,
+  result: MonitorResult,
+  clients: GitHubClients,
+  startedAt: string,
+  signal: AbortSignal | undefined,
+  captureProvenance?: () => Promise<void>,
+): Promise<boolean> {
+  const { phase: terminalPhase, finalCounts } = result;
+
+  // If GHEC reported failure, don't mark as succeeded.
+  if (terminalPhase === "FAILED") {
+    await captureProvenance?.();
+    migration.state = "failed";
+    migration.failureReason = "Migration failed on GHEC";
+    migration.completedAt = new Date().toISOString();
+    migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
+    return true;
+  }
+
+  // A non-SUCCEEDED terminal phase means something went wrong (GHEC never
+  // reported success, the signal aborted during a poll network call, or an
+  // UNKNOWN exit). Throw so the caller's catch handles it instead of falling
+  // through to "succeeded".
+  if (terminalPhase !== "SUCCEEDED") {
+    throw new Error(
+      signal?.aborted ? "Migration cancelled" : `Monitor exited in phase ${terminalPhase}`,
+    );
+  }
+
+  // Final target counts: prefer the monitor's final snapshot (taken when GHEC
+  // reported SUCCEEDED). A fresh re-fetch here can race GHEC's post-migration
+  // indexing lag and report transient zeros for issues/PRs, so only re-fetch
+  // when the snapshot didn't capture counts.
+  if (finalCounts) {
+    migration.targetCounts = finalCounts;
+  } else {
+    try {
+      migration.targetCounts = await getRepoCounts(
+        clients.target,
+        clients.targetGraphql,
+        migration.targetOrg,
+        migration.targetRepo,
+      );
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  await captureProvenance?.();
+
+  migration.state = "succeeded";
+  migration.completedAt = new Date().toISOString();
+  migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
+  return false;
+}
+
+/**
+ * Resolve a thrown error onto the migration record: a user-aborted signal
+ * becomes `cancelled` (no failure event), anything else becomes `failed` with
+ * the error message plus a terminal failure event. Shared by the pipeline and
+ * resume catch blocks (the pipeline additionally best-effort aborts the GHEC
+ * migration before calling this).
+ */
+function finalizeMigrationError(
+  migration: Migration,
+  err: unknown,
+  startedAt: string,
+  signal: AbortSignal | undefined,
+  emit: EventEmitter,
+): void {
+  if (signal?.aborted) {
+    migration.state = "cancelled";
+  } else {
+    migration.state = "failed";
+    migration.failureReason = err instanceof Error ? err.message : String(err);
+  }
+
+  migration.completedAt = new Date().toISOString();
+  migration.elapsedSeconds = (Date.now() - new Date(startedAt).getTime()) / 1000;
+
+  // Only emit a failure event for genuine errors, not user cancellations.
+  if (migration.state !== "cancelled") {
+    emit({
+      migrationId: migration.id,
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { error: migration.failureReason ?? undefined },
+      createdAt: new Date().toISOString(),
+    });
   }
 }
 
@@ -594,82 +667,20 @@ export async function resumeMigration(
       targetAuth,
     });
 
-    // Resume monitoring the existing GHEC migration.
-    const { phase: terminalPhase, finalCounts } = await runMonitor({
+    // Resume monitoring the existing GHEC migration, then settle its result.
+    // Unlike the initial pipeline this is a reconnect, so it captures no new
+    // provenance and has no post-migration archive step.
+    const monitorResult = await monitorMigration(
       clients,
-      migrationId,
+      migration,
       githubMigrationId,
-      targetOrg: migration.targetOrg,
-      targetRepo: migration.targetRepo,
-      sourceOrg: migration.sourceOrg,
-      sourceRepo: migration.sourceRepo,
-      sourceCounts: migration.sourceCounts,
       signal,
       emit,
-    });
-
-    if (terminalPhase === "FAILED") {
-      migration.state = "failed";
-      migration.failureReason = "Migration failed on GHEC";
-      migration.completedAt = new Date().toISOString();
-      migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
-      return migration;
-    }
-
-    // Guard against monitor exiting without reaching SUCCEEDED (e.g. signal
-    // aborted during a poll network call, or UNKNOWN exit).
-    if (terminalPhase !== "SUCCEEDED") {
-      throw new Error(
-        signal?.aborted ? "Migration cancelled" : `Monitor exited in phase ${terminalPhase}`,
-      );
-    }
-
-    // Final target counts: prefer the monitor's final snapshot over a re-fetch
-    // to avoid GHEC's post-migration indexing lag (see runMigrationPipeline).
-    if (finalCounts) {
-      migration.targetCounts = finalCounts;
-    } else {
-      try {
-        migration.targetCounts = await getRepoCounts(
-          clients.target,
-          clients.targetGraphql,
-          migration.targetOrg,
-          migration.targetRepo,
-        );
-      } catch {
-        // Non-fatal
-      }
-    }
-
-    migration.state = "succeeded";
-    migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
-
+    );
+    await settleMonitorResult(migration, monitorResult, clients, migration.startedAt, signal);
     return migration;
   } catch (err) {
-    // Mirror the cancellation logic from runMigrationPipeline: if the signal
-    // was aborted, treat as cancellation rather than failure.
-    if (signal?.aborted) {
-      migration.state = "cancelled";
-    } else {
-      migration.state = "failed";
-      migration.failureReason = err instanceof Error ? err.message : String(err);
-    }
-
-    migration.completedAt = new Date().toISOString();
-    migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1000;
-
-    // Only emit failure events for genuine errors, not user cancellations.
-    if (migration.state !== "cancelled") {
-      emit({
-        migrationId,
-        eventType: "failure",
-        phase: "FAILED",
-        payload: { error: migration.failureReason ?? undefined },
-        createdAt: new Date().toISOString(),
-      });
-    }
-
+    finalizeMigrationError(migration, err, migration.startedAt, signal, emit);
     return migration;
   }
 }
