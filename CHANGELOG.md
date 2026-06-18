@@ -2,10 +2,15 @@
 
 All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
-## [0.2.0] - 2026-06-15
+## [0.2.0] - 2026-06-18
 
 ### ♻️ Refactoring
 
+- **profile:** Share SSE events route via createRunEventsRoute
+- **api:** Share body-validation, pagination, and error helpers
+- **migrate:** Share monitor-settle logic between pipeline and resume
+- **profile:** Extract RunStateBadge and RunControls components
+- **profile:** Compute org composition server-side for paginated detail
 - **profile:** Merge org rulesets into the resources-to-recreate box
 - **profile:** Dedup summary tiles, add org composition (stale/empty/archived %)
 - **profile:** Count commits via REST Link header, not a graph walk
@@ -16,17 +21,50 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 
 ### 🎨 Styling
 
+- **profile:** Redesign the always-lost panel as a card grid
 - **profile:** Refine the rate-limit pill and header spacing
 
 ### 🐛 Bug Fixes
 
+- **tooling:** Correct jscpd ignore key so test files are excluded
+- **profile:** Keep repo totals correct across a resume
+- **profile:** Persist the profiled count live so it isn't stuck at 0
+- **profile:** Skip orgs that forbid the token during enterprise enumeration
+- **profile:** Align the start button with the input on the enterprise form
+- **profile:** Build enterprise index after adding its column
 - **profile:** Keep repo chips on one line (no mid-label wrap)
 - **profile:** Clean repo table — drop owner prefix, fix metadata separators
 
 ### 🚀 Features
 
+- **profile:** Implement server-side pagination to reduce API payload size
+- **profile:** Surface enterprise orgs inaccessible to the token
+- **profile:** Add pause and resume controls for enterprise profiles
+- **profile:** Add pause and resume controls for org profiling runs
+- **profile:** Resume interrupted enterprise profiles on restart
+- **profile:** Resume interrupted org profiles on restart
+- **profile:** Make runProfile resumable, skipping finished repos
+- **profile:** Add search, pagination, and rate-limit pill to enterprise page
+- **profile:** Stream live enterprise progress over SSE
+- **profile:** Enterprise UI — scope toggle, detail page, feed
+- **profile:** Start enterprise profiles via the service and API
+- **profile:** Orchestrate per-org child runs for an enterprise
+- **profile:** Enumerate an enterprise's organizations
+- **profile:** Persist enterprise runs and child org links
+- **profile:** Label the live crawl phase in progress UI
+- **profile:** Detect repo collaborators and tag protection
+- **profile:** Gather org teams and GitHub App installs
+- **profile:** Map the entirety of non-migrated data
 - **profile:** Add Active % to the org composition row
 - **profile:** Webhooks/Pages/code-scanning signals, API-call counting, risk ordering
+
+### 🧪 Testing
+
+- **profile:** Extract shared repo/signals factories
+
+### 🧹 Chores
+
+- **tooling:** Ratchet jscpd threshold 3% -> 1.5%
 ## [0.1.0] - 2026-06-15
 
 ### ♻️ Refactoring
