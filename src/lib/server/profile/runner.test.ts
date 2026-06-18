@@ -7,9 +7,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
-import type { RepoDetails } from "./augment";
 import { type ProfileClients, type ProfileRunnerDeps, runProfile } from "./runner";
 import { getEnrichedRepoNames, getProfileRun, getRunRepoProfiles } from "./store";
+import { makeCountsSignals, makeDiscoveredRepo, makeRepoDetails } from "./test-factories";
 import {
   type DiscoveredRepo,
   type OrgDiscovery,
@@ -33,81 +33,13 @@ const noRestSignals: ProfileRunnerDeps["gatherRestSignals"] = async () => ({
   tagProtectionCount: 0,
 });
 
-function discovered(name: string, over: Partial<DiscoveredRepo> = {}): DiscoveredRepo {
-  return {
-    name,
-    nameWithOwner: `acme/${name}`,
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-    ...over,
-  };
-}
-
-function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...repo,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasPages: false,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
-    ...over,
-  };
-}
+const discovered = makeDiscoveredRepo;
 
 /** Counts-pass signals (verification fields defaulted, as pass 1 produces). */
-function countsSignals(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...signalsFor(repo, over),
-    commitsCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    usesLfs: false,
-    workflowFileCount: 0,
-    releaseAssetBytes: 0,
-  };
-}
+const countsSignals = makeCountsSignals;
 
 /** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
-function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
-  const s = signalsFor(repo, over);
-  return {
-    nameWithOwner: repo.nameWithOwner,
-    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
-    usesLfs: s.usesLfs,
-    workflowFileCount: s.workflowFileCount,
-    releaseAssetBytes: s.releaseAssetBytes,
-  };
-}
+const detailsFor = makeRepoDetails;
 
 /** Deps whose discover returns the given repos and the two passes map by name. */
 function deps(

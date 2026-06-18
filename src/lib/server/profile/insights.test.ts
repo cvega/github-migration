@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { deriveInsights, STALE_MONTHS } from "./insights";
+import { makeDiscoveredRepo, makeRepoSignals } from "./test-factories";
 import type { RepoSignals } from "./types";
 
 const NOW = Date.parse("2026-06-13T00:00:00Z");
@@ -14,47 +15,10 @@ function monthsAgo(n: number): string {
 }
 
 function signals(over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    name: "widget",
-    nameWithOwner: "acme/widget",
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: monthsAgo(1),
-    updatedAt: monthsAgo(1),
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    releasesCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    ...over,
-  };
+  return makeRepoSignals(
+    makeDiscoveredRepo("widget", { pushedAt: monthsAgo(1), updatedAt: monthsAgo(1) }),
+    over,
+  );
 }
 
 const ids = (s: RepoSignals) => deriveInsights(s, NOW).map((i) => i.id);

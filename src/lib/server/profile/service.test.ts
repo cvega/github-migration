@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { initStore } from "$lib/server/core/db";
 import { DOMAIN_STORES } from "$lib/server/registry";
 import type { RepoProfile } from "./analyze";
-import type { RepoDetails } from "./augment";
 import { clearPause, isPauseRequested } from "./control";
 import { runEnterpriseProfile } from "./enterprise-runner";
 import { type EnterpriseSseEvent, type ProfileSseEvent, subscribeProfile } from "./events";
@@ -38,70 +37,15 @@ import {
   recordRepoProfile,
   setRepoEnriched,
 } from "./store";
+import { makeDiscoveredRepo, makeRepoDetails, makeRepoSignals } from "./test-factories";
 import type { DiscoveredRepo, OrgDiscovery, RepoSignals } from "./types";
 
-function discovered(name: string): DiscoveredRepo {
-  return {
-    name,
-    nameWithOwner: `acme/${name}`,
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-  };
-}
+const discovered = makeDiscoveredRepo;
 
-function signalsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    ...repo,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasPages: false,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    releasesCount: 0,
-    ...over,
-  };
-}
+const signalsFor = makeRepoSignals;
 
 /** Verification details for a repo (the pass-2 fake), derived from `signalsFor`. */
-function detailsFor(repo: DiscoveredRepo, over: Partial<RepoSignals> = {}): RepoDetails {
-  const s = signalsFor(repo, over);
-  return {
-    nameWithOwner: repo.nameWithOwner,
-    branchProtectionRulesUsingUnmigratedFeatures: s.branchProtectionRulesUsingUnmigratedFeatures,
-    usesLfs: s.usesLfs,
-    workflowFileCount: s.workflowFileCount,
-    releaseAssetBytes: s.releaseAssetBytes,
-  };
-}
+const detailsFor = makeRepoDetails;
 
 /**
  * Service deps whose runner uses fake crawl primitives. Captures the run promise

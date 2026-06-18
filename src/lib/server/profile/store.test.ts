@@ -37,6 +37,7 @@ import {
   setProfileRunTotal,
   setRepoEnriched,
 } from "./store";
+import { makeDiscoveredRepo, makeRepoSignals } from "./test-factories";
 import type { RepoSignals } from "./types";
 
 const considerationById = (id: string): Consideration => {
@@ -46,47 +47,7 @@ const considerationById = (id: string): Consideration => {
 };
 
 function signals(over: Partial<RepoSignals> = {}): RepoSignals {
-  return {
-    name: "widget",
-    nameWithOwner: "acme/widget",
-    visibility: "PRIVATE",
-    isArchived: false,
-    isFork: false,
-    isEmpty: false,
-    diskUsageKb: 100,
-    hasWiki: false,
-    hasIssues: true,
-    hasProjects: false,
-    hasDiscussions: false,
-    hasPages: false,
-    defaultBranch: "main",
-    pushedAt: null,
-    updatedAt: null,
-    issuesCount: 0,
-    pullRequestsCount: 0,
-    branchesCount: 0,
-    tagsCount: 0,
-    commitsCount: 0,
-    discussionsCount: 0,
-    projectsV2Count: 0,
-    environmentsCount: 0,
-    releasesCount: 0,
-    stargazerCount: 0,
-    watcherCount: 0,
-    forkCount: 0,
-    rulesetCount: 0,
-    branchProtectionRuleCount: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    packagesCount: 0,
-    usesLfs: false,
-    releaseAssetBytes: 0,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    ...over,
-  };
+  return makeRepoSignals(makeDiscoveredRepo("widget"), over);
 }
 
 /** Hand-build a RepoProfile with explicit severity counts and applying considerations. */
