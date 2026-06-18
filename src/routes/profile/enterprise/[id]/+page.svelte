@@ -1,17 +1,16 @@
 <!-- One enterprise profiling run: aggregate rollup + its child organization runs. Streams live progress while running. -->
 <script lang="ts">
 	import { getContext } from 'svelte';
-	import { invalidateAll } from '$app/navigation';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import RunControls from '$lib/components/RunControls.svelte';
+	import RunStateBadge from '$lib/components/RunStateBadge.svelte';
 	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { timeAgo } from '$lib/format';
 	import { createReconnectingEventSource } from '$lib/stores/sse-client';
 
 	let { data } = $props();
-
-	type RunState = 'running' | 'paused' | 'completed' | 'failed';
 
 	// Live source rate-limit, shared from the layout (same pill the Migrate and
 	// org pages show). An enterprise crawl spends source API quota across every
@@ -24,17 +23,6 @@
 	const run = $derived(fresh?.run ?? data.run);
 	const orgs = $derived(fresh?.orgs ?? data.orgs);
 
-	const stateBadge: Record<
-		RunState,
-		{ label: string; cls: string; icon: 'sync' | 'pause' | 'check-circle-fill' | 'x-circle-fill' }
-	> = {
-		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
-		paused: { label: 'Paused', cls: 'bg-amber-500/15 text-amber-300', icon: 'pause' },
-		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
-		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
-	};
-
-	const badge = $derived(stateBadge[run.state]);
 	const orgPct = $derived(
 		run.totalOrgs > 0 ? Math.round((run.profiledOrgs / run.totalOrgs) * 100) : 0
 	);
@@ -45,47 +33,6 @@
 			if (res.ok) polled = await res.json();
 		} catch {
 			// Non-fatal — keep the last good snapshot.
-		}
-	}
-
-	// ── Pause / resume ──────────────────────────────────────────────────────────
-	// Pause is cooperative: the POST stops the org fan-out and pauses in-flight
-	// child crawls; the enterprise flips to `paused`, delivered over SSE (which
-	// refreshes and swaps the button). `pausing` derives "Pausing…" — true once
-	// requested and while still running. Resume re-dispatches and re-opens the live
-	// stream via invalidateAll, which updates the loader prop the SSE effect keys on.
-	let pauseRequested = $state(false);
-	let resuming = $state(false);
-	const pausing = $derived(pauseRequested && run.state === 'running');
-
-	async function pauseRun() {
-		if (pausing) return;
-		pauseRequested = true;
-		try {
-			await fetch(`/api/profile/enterprise/${run.id}/pause`, { method: 'POST' });
-			await refresh(run.id);
-		} catch {
-			// Non-fatal — the crawl keeps running; let the user retry.
-			pauseRequested = false;
-		}
-	}
-
-	async function resumeRun() {
-		if (resuming) return;
-		resuming = true;
-		pauseRequested = false; // a fresh run cycle — drop any stale pause flag
-		try {
-			const res = await fetch(`/api/profile/enterprise/${run.id}/resume`, { method: 'POST' });
-			if (res.ok) {
-				// Re-open the live stream: clear the stale paused snapshot, then reload the
-				// loader data (data.run.state → running) so the SSE effect re-subscribes.
-				polled = null;
-				await invalidateAll();
-			}
-		} catch {
-			// Non-fatal — the run stays paused/failed; the user can retry.
-		} finally {
-			resuming = false;
 		}
 	}
 
@@ -152,35 +99,17 @@
 			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50">
 				<Octicon name="stack" size={24} class="text-violet-400" />
 				{run.enterpriseSlug}
-				<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {badge.cls}">
-					<Octicon name={badge.icon} size={12} class={run.state === 'running' ? 'animate-spin' : ''} />
-					{badge.label}
-				</span>
+				<RunStateBadge state={run.state} />
 			</h1>
 			<p class="mt-1 font-mono text-xs text-gray-500">{run.sourceApiUrl} · started {timeAgo(run.startedAt)}</p>
 		</div>
 		<div class="flex items-center gap-3">
-			{#if run.state === 'running'}
-				<button
-					type="button"
-					onclick={pauseRun}
-					disabled={pausing}
-					class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-				>
-					<Octicon name="pause" size={16} />
-					{pausing ? 'Pausing…' : 'Pause'}
-				</button>
-			{:else if run.state === 'paused' || run.state === 'failed'}
-				<button
-					type="button"
-					onclick={resumeRun}
-					disabled={resuming}
-					class="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/15 px-3 py-1.5 text-sm font-medium text-blue-200 transition-colors hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-				>
-					<Octicon name="play" size={16} />
-					{resuming ? 'Resuming…' : 'Resume'}
-				</button>
-			{/if}
+			<RunControls
+				runState={run.state}
+				endpoint={`/api/profile/enterprise/${run.id}`}
+				onRefresh={() => refresh(run.id)}
+				onResumed={() => (polled = null)}
+			/>
 			{#if authPill}
 				<AuthPill
 					label="Source"
@@ -283,7 +212,6 @@
 		{:else}
 			<div class="space-y-2">
 				{#each pagedOrgs as org (org.id)}
-					{@const ob = stateBadge[org.state]}
 					<a
 						href="/profile/{org.id}"
 						class="flex items-center justify-between rounded-md border border-gray-700 bg-gray-900 p-4 transition-all hover:border-gray-600 hover:bg-gray-800"
@@ -291,10 +219,7 @@
 						<div class="flex min-w-0 items-center gap-3">
 							<Octicon name="organization" size={16} class="text-gray-500" />
 							<span class="font-medium text-gray-50">{org.org}</span>
-							<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {ob.cls}">
-								<Octicon name={ob.icon} size={12} class={org.state === 'running' ? 'animate-spin' : ''} />
-								{ob.label}
-							</span>
+							<RunStateBadge state={org.state} compact />
 						</div>
 						<div class="flex shrink-0 items-center gap-4 text-xs text-gray-400">
 							<span>{org.profiledRepos}/{org.totalRepos} repos</span>

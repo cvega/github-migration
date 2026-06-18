@@ -3,11 +3,13 @@
 	import type { IconName } from '@primer/octicons';
 	import { getContext } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import AuthPill from '$lib/components/AuthPill.svelte';
 	import Octicon from '$lib/components/Octicon.svelte';
 	import Pagination from '$lib/components/Pagination.svelte';
+	import RunControls from '$lib/components/RunControls.svelte';
+	import RunStateBadge from '$lib/components/RunStateBadge.svelte';
 	import { AUTH_PILL_KEY, type AuthPillContext } from '$lib/context-keys';
 	import { formatHours, formatRepoSize, timeAgo } from '$lib/format';
 	import { MIGRATION_CONSIDERATIONS } from '$lib/profile/consideration-registry';
@@ -98,8 +100,6 @@
 		).filter((t) => t.value > 0)
 	);
 
-	type RunState = 'running' | 'paused' | 'completed' | 'failed';
-
 	// Registry lookup for consideration labels + severity (client-safe, pure data).
 	const considerationMeta = new Map(
 		MIGRATION_CONSIDERATIONS.map((c) => [c.id, { label: c.label, severity: c.severity }])
@@ -132,15 +132,6 @@
 	// current page), so it stays correct under pagination. Prefer the live-polled
 	// value when it's for the shown run.
 	const composition = $derived(fresh?.composition ?? data.composition);
-
-	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'pause' | 'check-circle-fill' | 'x-circle-fill' }> = {
-		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
-		paused: { label: 'Paused', cls: 'bg-amber-500/15 text-amber-300', icon: 'pause' },
-		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
-		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
-	};
-
-	const badge = $derived(stateBadge[run.state]);
 
 	// Per-repo drill-down: which repo rows are expanded to reveal their counts.
 	// Keyed on the stable `nameWithOwner`, so expansion survives a live refresh.
@@ -220,49 +211,6 @@
 		}
 	}
 
-	// ── Pause / resume ──────────────────────────────────────────────────────────
-	// Pause is cooperative: the POST only flags the request; the crawl stops at its
-	// next checkpoint and flips to `paused`, delivered over SSE (which refreshes and
-	// swaps the button). `pausing` derives "Pausing…" — true once requested and
-	// while the run is still running, so it clears itself the moment the run leaves
-	// the running state (and a resume resets the request flag). Resume re-dispatches
-	// the crawl and re-opens the live stream via invalidateAll, which updates the
-	// loader prop the SSE effect keys on.
-	let pauseRequested = $state(false);
-	let resuming = $state(false);
-	const pausing = $derived(pauseRequested && run.state === 'running');
-
-	async function pauseRun() {
-		if (pausing) return;
-		pauseRequested = true;
-		try {
-			await fetch(`/api/profile/${run.id}/pause`, { method: 'POST' });
-			await refresh();
-		} catch {
-			// Non-fatal — the crawl keeps running; let the user retry.
-			pauseRequested = false;
-		}
-	}
-
-	async function resumeRun() {
-		if (resuming) return;
-		resuming = true;
-		pauseRequested = false; // a fresh run cycle — drop any stale pause flag
-		try {
-			const res = await fetch(`/api/profile/${run.id}/resume`, { method: 'POST' });
-			if (res.ok) {
-				// Re-open the live stream: clear the stale paused snapshot, then reload the
-				// loader data (data.run.state → running) so the SSE effect re-subscribes.
-				polled = null;
-				await invalidateAll();
-			}
-		} catch {
-			// Non-fatal — the run stays paused/failed; the user can retry.
-		} finally {
-			resuming = false;
-		}
-	}
-
 	// Live updates over SSE while the run is in progress. Keyed on the loaded run
 	// id so navigating between runs tears down the old stream and re-subscribes;
 	// reads only the loader prop (never `polled`) so a refresh can't re-subscribe.
@@ -298,10 +246,7 @@
 			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50">
 				<Octicon name="organization" size={24} class="text-gray-500" />
 				{run.org}
-				<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium {badge.cls}">
-					<Octicon name={badge.icon} size={12} class={run.state === 'running' ? 'animate-spin' : ''} />
-					{badge.label}
-				</span>
+				<RunStateBadge state={run.state} />
 			</h1>
 			<p class="mt-1 font-mono text-xs text-gray-500">
 				{run.sourceApiUrl} · started {timeAgo(run.startedAt)}
@@ -310,27 +255,12 @@
 		</div>
 		<div class="flex items-center gap-3">
 			{#if !run.enterpriseRunId}
-				{#if run.state === 'running'}
-					<button
-						type="button"
-						onclick={pauseRun}
-						disabled={pausing}
-						class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-200 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-					>
-						<Octicon name="pause" size={16} />
-						{pausing ? 'Pausing…' : 'Pause'}
-					</button>
-				{:else if run.state === 'paused' || run.state === 'failed'}
-					<button
-						type="button"
-						onclick={resumeRun}
-						disabled={resuming}
-						class="inline-flex items-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/15 px-3 py-1.5 text-sm font-medium text-blue-200 transition-colors hover:bg-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-					>
-						<Octicon name="play" size={16} />
-						{resuming ? 'Resuming…' : 'Resume'}
-					</button>
-				{/if}
+				<RunControls
+					runState={run.state}
+					endpoint={`/api/profile/${run.id}`}
+					onRefresh={refresh}
+					onResumed={() => (polled = null)}
+				/>
 			{/if}
 			{#if authPill}
 				<AuthPill

@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import Octicon from '$lib/components/Octicon.svelte';
+	import RunStateBadge from '$lib/components/RunStateBadge.svelte';
 	import { timeAgo } from '$lib/format';
 
 	let { data } = $props();
@@ -13,13 +14,6 @@
 	let target = $state('');
 	let submitting = $state(false);
 	let error = $state('');
-
-	const stateBadge: Record<RunState, { label: string; cls: string; icon: 'sync' | 'pause' | 'check-circle-fill' | 'x-circle-fill' }> = {
-		running: { label: 'Running', cls: 'bg-blue-500/15 text-blue-300', icon: 'sync' },
-		paused: { label: 'Paused', cls: 'bg-amber-500/15 text-amber-300', icon: 'pause' },
-		completed: { label: 'Completed', cls: 'bg-green-500/15 text-green-300', icon: 'check-circle-fill' },
-		failed: { label: 'Failed', cls: 'bg-red-500/15 text-red-300', icon: 'x-circle-fill' }
-	};
 
 	// Unified, time-ordered feed of enterprise and org runs for the list below.
 	const feed = $derived(
@@ -191,7 +185,6 @@
 		{:else}
 			<div class="space-y-2">
 				{#each feed as item (item.kind + item.id)}
-					{@const badge = stateBadge[item.state]}
 					<a
 						href={item.href}
 						class="flex items-center justify-between rounded-md border border-gray-700 bg-gray-900 p-4 transition-all hover:border-gray-600 hover:bg-gray-800"
@@ -202,10 +195,7 @@
 							{#if item.kind === 'enterprise'}
 								<span class="rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[11px] font-medium text-violet-300">Enterprise</span>
 							{/if}
-							<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium {badge.cls}">
-								<Octicon name={badge.icon} size={12} class={item.state === 'running' ? 'animate-spin' : ''} />
-								{badge.label}
-							</span>
+							<RunStateBadge state={item.state} compact />
 						</div>
 						<div class="flex shrink-0 items-center gap-4 text-xs text-gray-400">
 							<span>{item.profiled}/{item.total} {item.unit}</span>
