@@ -1,7 +1,7 @@
 # Reusable quality-gate workflow. Called by pr.yml, main.yml, and release.yml so
 # the gate definition lives in exactly one place and can never drift between
-# them — the CI counterpart to the local `bun run verify`.
-name: Verify
+# them — the CI counterpart to the local `bun run gates`.
+name: Gates
 
 on:
   workflow_call:

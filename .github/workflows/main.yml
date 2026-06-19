@@ -14,13 +14,13 @@ permissions:
   contents: read
 
 jobs:
-  verify:
-    name: Verify
-    uses: ./.github/workflows/verify.yml
+  gates:
+    name: Gates
+    uses: ./.github/workflows/gates.yml
 
   docker:
     name: Docker (dev image)
-    needs: [verify]
+    needs: [gates]
     runs-on: ubuntu-latest
     permissions:
       contents: read

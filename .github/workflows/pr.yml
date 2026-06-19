@@ -39,6 +39,6 @@ jobs:
             chore
             revert
 
-  verify:
-    name: Verify
-    uses: ./.github/workflows/verify.yml
+  gates:
+    name: Gates
+    uses: ./.github/workflows/gates.yml

@@ -1,6 +1,6 @@
 # Tag-driven release pipeline (triggered by pushing a v* tag). In order:
 #   1. guard            — the tag must match package.json's version
-#   2. verify           — the full quality-gate suite
+#   2. gates            — the full quality-gate suite
 #   3. release          — build the image once, scan it with Trivy, push the
 #                         versioned tags, then draft a GitHub Release whose
 #                         notes are generated from Conventional Commits
@@ -33,13 +33,13 @@ jobs:
             exit 1
           fi
 
-  verify:
-    name: Verify
-    uses: ./.github/workflows/verify.yml
+  gates:
+    name: Gates
+    uses: ./.github/workflows/gates.yml
 
   release:
     name: Build, scan & draft release
-    needs: [guard, verify]
+    needs: [guard, gates]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub Release
