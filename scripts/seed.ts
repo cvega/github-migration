@@ -1,18 +1,29 @@
 /**
  * Seed script — generates a large, realistic dataset for stress-testing the UI.
  *
- * Targets:
+ * Migrate workspace:
  *   • ~2,500 individual migrations
  *   • ~150 batches (5–40 repos each)
  *   • 10 currently running migrations (5 individual + 5 inside an active batch)
  *   • Realistic distribution: ~92% succeeded, ~5% failed, ~3% cancelled, plus running/pending
+ *
+ * Profile workspace:
+ *   • Standalone org runs across every state (completed, running, paused, failed)
+ *   • Two enterprise runs (one completed, one still crawling) with child org runs
+ *   • Per-repo signals run through the real `analyzeRepo` engine, so the seeded
+ *     considerations / blockers / warnings are genuine (not hand-faked)
+ *
+ * All seed rows use a `seed-` id prefix and are deleted+regenerated on each run.
  *
  * Run: bun seed.ts
  */
 /// <reference types="bun" />
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
+import { analyzeRepo } from "../src/lib/server/profile/analyze";
+import type { OrgResources, RepoSignals } from "../src/lib/server/profile/types";
 import { DOMAIN_STORES } from "../src/lib/server/registry";
+
 
 mkdirSync("data", { recursive: true });
 const db = new Database("data/gh-migrate.db", { create: true });
@@ -21,6 +32,12 @@ for (const domain of DOMAIN_STORES) domain.applySchema(db);
 // ── Clean previous seed data ───────────────────────────────────────────────
 db.run("DELETE FROM events WHERE migration_id LIKE 'seed-%'");
 db.run("DELETE FROM migrations WHERE id LIKE 'seed-%'");
+// Profile rows, deleted child-first so the FK references stay satisfied.
+db.run(
+  "DELETE FROM profile_repos WHERE run_id IN (SELECT id FROM profile_runs WHERE id LIKE 'seed-%')",
+);
+db.run("DELETE FROM profile_runs WHERE id LIKE 'seed-%'");
+db.run("DELETE FROM profile_enterprise_runs WHERE id LIKE 'seed-%'");
 console.log("✓ Cleaned previous seed data\n");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -551,6 +568,351 @@ function createMigration(opts: MigrationOpts) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// Profile workspace — org / enterprise readiness crawls
+// ══════════════════════════════════════════════════════════════════════════
+
+const insertProfileRun = db.prepare(`
+  INSERT INTO profile_runs (id, source_api_url, org, enterprise_run_id, state,
+    total_repos, profiled_repos, blockers, warnings, org_ruleset_count,
+    org_resources, api_calls, started_at, completed_at, failure_reason)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertProfileRepo = db.prepare(`
+  INSERT INTO profile_repos (run_id, name_with_owner, signals, blockers, warnings,
+    infos, applying_considerations, enriched, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const insertEnterpriseRun = db.prepare(`
+  INSERT INTO profile_enterprise_runs (id, source_api_url, enterprise_slug, state,
+    total_orgs, profiled_orgs, inaccessible_orgs, total_repos, profiled_repos,
+    blockers, warnings, started_at, completed_at, failure_reason)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+const profileFailureReasons = [
+  "HTTP 401: Bad credentials",
+  "Enterprise 'ghost-co' not found or not accessible",
+  "HTTP 403: API rate limit exceeded for the source token",
+  "GraphQL error: organization 'restricted-org' forbids access via a personal access token (classic)",
+  "Server restarted during profiling",
+];
+
+/** A random org-level resource roll-up (secrets, runners, teams, …). */
+function randomOrgResources(): OrgResources {
+  const some = (p: number, max: number) => (Math.random() < p ? rand(1, max) : 0);
+  return {
+    actionsSecrets: some(0.7, 40),
+    actionsVariables: some(0.6, 30),
+    dependabotSecrets: some(0.4, 15),
+    codespacesSecrets: some(0.25, 10),
+    selfHostedRunners: some(0.3, 12),
+    customProperties: some(0.35, 8),
+    teams: some(0.8, 60),
+    appInstallations: some(0.5, 20),
+  };
+}
+
+/**
+ * Build a complete, varied `RepoSignals` for one repo. Ranges are picked so the
+ * real `analyzeRepo` engine produces a realistic mix: occasional big repos /
+ * release payloads trip the size blockers, while LFS / packages / webhooks /
+ * rulesets etc. trip the warning- and info-level considerations.
+ */
+function randomSignals(name: string, org: string): RepoSignals {
+  const some = (p: number, max: number) => (Math.random() < p ? rand(1, max) : 0);
+  const isEmpty = Math.random() < 0.04;
+  const isFork = Math.random() < 0.12;
+  const pushedDaysAgo = rand(1, 900);
+  const pushedAt = isEmpty ? null : isoTs(new Date(), -pushedDaysAgo * 86400);
+  // ~6% carry a giant release payload (10–45 GiB) that trips the 10/40 GiB
+  // blockers; most others have a modest amount or none.
+  const releaseAssetBytes =
+    Math.random() < 0.06
+      ? rand(10, 45) * 1024 ** 3
+      : Math.random() < 0.3
+        ? rand(1, 5000) * 1024 ** 2
+        : 0;
+
+  return {
+    name,
+    nameWithOwner: `${org}/${name}`,
+    visibility: pick(["PUBLIC", "PRIVATE", "INTERNAL"] as const),
+    isArchived: Math.random() < 0.1,
+    isFork,
+    isEmpty,
+    diskUsageKb: isEmpty ? 0 : randomRepoSizeKb(),
+    hasWiki: Math.random() < 0.35,
+    hasIssues: Math.random() < 0.85,
+    hasProjects: Math.random() < 0.2,
+    hasDiscussions: Math.random() < 0.15,
+    hasPages: Math.random() < 0.18,
+    defaultBranch: isEmpty ? null : pick(["main", "master", "develop"] as const),
+    pushedAt,
+    updatedAt: pushedAt,
+    commitsCount: isEmpty ? 0 : rand(1, 60000),
+    discussionsCount: some(0.15, 400),
+    projectsV2Count: some(0.12, 8),
+    environmentsCount: some(0.2, 6),
+    releaseAssetBytes,
+    stargazerCount: some(0.4, 5000),
+    watcherCount: some(0.4, 800),
+    forkCount: some(0.3, 200),
+    rulesetCount: some(0.25, 6),
+    branchProtectionRuleCount: some(0.4, 8),
+    branchProtectionRulesUsingUnmigratedFeatures: some(0.2, 4),
+    packagesCount: some(0.18, 40),
+    usesLfs: Math.random() < 0.14,
+    workflowFileCount: some(0.55, 25),
+    webhooksCount: some(0.3, 12),
+    hasCodeScanningAlerts: Math.random() < 0.22,
+    collaboratorsCount: some(0.5, 30),
+    tagProtectionCount: some(0.1, 5),
+    issuesCount: isEmpty ? 0 : rand(0, 4000),
+    pullRequestsCount: isEmpty ? 0 : rand(0, 2500),
+    branchesCount: isEmpty ? 0 : rand(1, 80),
+    tagsCount: isEmpty ? 0 : rand(0, 150),
+    releasesCount: some(0.5, 60),
+  };
+}
+
+type ProfileRunState = "running" | "paused" | "completed" | "failed";
+
+interface ProfileRunOpts {
+  id: string;
+  org: string;
+  sourceApiUrl: string;
+  state: ProfileRunState;
+  startedAt: Date;
+  /** The org's repository total (discovery result). */
+  repoCount: number;
+  enterpriseRunId?: string;
+  failureReason?: string;
+}
+
+/** Aggregate roll-up a child run contributes to its enterprise parent. */
+interface ProfileRollup {
+  totalRepos: number;
+  profiledRepos: number;
+  blockers: number;
+  warnings: number;
+  settled: boolean;
+}
+
+/**
+ * Seed one org profiling run plus its per-repo rows. Each repo's signals run
+ * through the real `analyzeRepo`, so the stored considerations/severities match
+ * what a live crawl would record. `failed` runs fail at discovery (no repos);
+ * `running`/`paused` runs have only a fraction of their repos profiled so far.
+ */
+function createProfileRunSeed(opts: ProfileRunOpts): ProfileRollup {
+  const { id, org, sourceApiUrl, state, startedAt, repoCount } = opts;
+
+  // A failed run died during discovery: no repos, total unknown (0).
+  const totalRepos = state === "failed" ? 0 : repoCount;
+  const profiledRepos =
+    state === "completed"
+      ? totalRepos
+      : state === "failed"
+        ? 0
+        : Math.max(1, Math.floor((totalRepos * rand(25, 80)) / 100)); // running / paused: partial
+
+  let blockers = 0;
+  let warnings = 0;
+  const createdIso = startedAt.toISOString();
+
+  for (let i = 0; i < profiledRepos; i++) {
+    const repoName = `${pick(repoNames)}-${i}`; // unique within the run
+    const signals = randomSignals(repoName, org);
+    const profile = analyzeRepo(signals);
+    blockers += profile.summary.blockers;
+    warnings += profile.summary.warnings;
+    const applying = profile.findings
+      .filter((f) => f.status === "applies")
+      .map((f) => ({ considerationId: f.consideration.id, evidence: f.evidence ?? "" }));
+    insertProfileRepo.run(
+      id,
+      signals.nameWithOwner,
+      JSON.stringify(signals),
+      profile.summary.blockers,
+      profile.summary.warnings,
+      profile.summary.infos,
+      JSON.stringify(applying),
+      1, // recorded repos finished their final pass
+      createdIso,
+    );
+  }
+
+  const elapsedSec = rand(60, 5400);
+  // Only terminal runs have a completion time; running/paused are still open.
+  const completedAt =
+    state === "completed" || state === "failed" ? isoTs(startedAt, elapsedSec) : null;
+  const failureReason =
+    state === "failed" ? (opts.failureReason ?? pick(profileFailureReasons)) : null;
+
+  insertProfileRun.run(
+    id,
+    sourceApiUrl,
+    org,
+    opts.enterpriseRunId ?? null,
+    state,
+    totalRepos,
+    profiledRepos,
+    blockers,
+    warnings,
+    rand(0, 8), // org_ruleset_count
+    JSON.stringify(randomOrgResources()),
+    rand(repoCount * 3 + 5, repoCount * 12 + 20), // api_calls
+    startedAt.toISOString(),
+    completedAt,
+    failureReason,
+  );
+
+  return {
+    totalRepos,
+    profiledRepos,
+    blockers,
+    warnings,
+    settled: state === "completed" || state === "failed",
+  };
+}
+
+interface EnterpriseOpts {
+  id: string;
+  slug: string;
+  sourceApiUrl: string;
+  startedAt: Date;
+  /** Accessible orgs enumerated (each becomes a child run). */
+  orgCount: number;
+  state: "running" | "completed";
+}
+
+/**
+ * Seed one enterprise run that fans out to `orgCount` child org runs, then
+ * records the aggregate roll-up. A `running` enterprise leaves its last child
+ * still crawling; a `completed` one settles every child.
+ */
+function createEnterpriseProfileSeed(opts: EnterpriseOpts): void {
+  const { id, slug, sourceApiUrl, startedAt, orgCount, state } = opts;
+  let totalRepos = 0;
+  let profiledRepos = 0;
+  let blockers = 0;
+  let warnings = 0;
+  let profiledOrgs = 0;
+
+  for (let i = 0; i < orgCount; i++) {
+    // A running enterprise keeps its final org in-flight; the rest are done.
+    const childState: ProfileRunState =
+      state === "completed" ? "completed" : i === orgCount - 1 ? "running" : "completed";
+    const r = createProfileRunSeed({
+      id: `${id}-org-${String(i).padStart(2, "0")}`,
+      org: `${slug}-${sourceOrgs[i % sourceOrgs.length] ?? pick(sourceOrgs)}`,
+      sourceApiUrl,
+      state: childState,
+      startedAt: new Date(startedAt.getTime() + i * 45_000),
+      repoCount: rand(15, 120),
+      enterpriseRunId: id,
+    });
+    totalRepos += r.totalRepos;
+    profiledRepos += r.profiledRepos;
+    blockers += r.blockers;
+    warnings += r.warnings;
+    if (r.settled) profiledOrgs += 1;
+  }
+
+  const elapsedSec = rand(600, 14400);
+  const completedAt = state === "completed" ? isoTs(startedAt, elapsedSec) : null;
+
+  insertEnterpriseRun.run(
+    id,
+    sourceApiUrl,
+    slug,
+    state,
+    orgCount,
+    profiledOrgs,
+    rand(0, 3), // inaccessible_orgs (forbade the token, skipped)
+    totalRepos,
+    profiledRepos,
+    blockers,
+    warnings,
+    startedAt.toISOString(),
+    completedAt,
+    null,
+  );
+}
+
+// Generate all profile data in one transaction.
+const seedProfiles = db.transaction(() => {
+  const profileApiUrl = pick(sourceApiUrls);
+  let runCount = 0;
+  let entCount = 0;
+
+  // ── Standalone completed org runs (varied scale) ─────────────────────
+  const completedSizes = [28, 64, 95, 140, 210, 305];
+  for (const [i, size] of completedSizes.entries()) {
+    createProfileRunSeed({
+      id: `seed-profile-org-${String(i).padStart(3, "0")}`,
+      org: sourceOrgs[i % sourceOrgs.length] ?? pick(sourceOrgs),
+      sourceApiUrl: i === 0 ? "https://api.github.com" : profileApiUrl,
+      state: "completed",
+      startedAt: new Date(Date.now() - rand(2, 45) * 86400 * 1000),
+      repoCount: size,
+    });
+    runCount++;
+  }
+
+  // ── A live one of each non-terminal / terminal state ─────────────────
+  createProfileRunSeed({
+    id: "seed-profile-running",
+    org: "vortex-ai",
+    sourceApiUrl: profileApiUrl,
+    state: "running",
+    startedAt: new Date(Date.now() - rand(120, 1800) * 1000),
+    repoCount: 180,
+  });
+  createProfileRunSeed({
+    id: "seed-profile-paused",
+    org: "skybridge-net",
+    sourceApiUrl: profileApiUrl,
+    state: "paused",
+    startedAt: new Date(Date.now() - rand(1, 6) * 3600 * 1000),
+    repoCount: 90,
+  });
+  createProfileRunSeed({
+    id: "seed-profile-failed",
+    org: "ironclad-sec",
+    sourceApiUrl: profileApiUrl,
+    state: "failed",
+    startedAt: new Date(Date.now() - rand(1, 10) * 86400 * 1000),
+    repoCount: 0,
+  });
+  runCount += 3;
+
+  // ── Enterprise runs (one completed, one still crawling) ──────────────
+  createEnterpriseProfileSeed({
+    id: "seed-profile-ent-globex",
+    slug: "globex-enterprise",
+    sourceApiUrl: "https://api.github.com",
+    startedAt: new Date(Date.now() - rand(3, 20) * 86400 * 1000),
+    orgCount: 8,
+    state: "completed",
+  });
+  createEnterpriseProfileSeed({
+    id: "seed-profile-ent-initech",
+    slug: "initech-enterprise",
+    sourceApiUrl: profileApiUrl,
+    startedAt: new Date(Date.now() - rand(300, 5400) * 1000),
+    orgCount: 5,
+    state: "running",
+  });
+  entCount += 2;
+
+  console.log(`✓ ${runCount} standalone org runs (completed, running, paused, failed)`);
+  console.log(`✓ ${entCount} enterprise runs (1 completed, 1 running) with child org runs`);
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 // Generate data inside a transaction for speed
 // ══════════════════════════════════════════════════════════════════════════
 const transaction = db.transaction(() => {
@@ -689,6 +1051,7 @@ const transaction = db.transaction(() => {
 console.log("\nInserting data (this may take a few seconds)...\n");
 const startTime = performance.now();
 transaction();
+seedProfiles();
 const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
 console.log(`\nDone in ${elapsed}s! Restart the dev server or refresh the page.`);
 

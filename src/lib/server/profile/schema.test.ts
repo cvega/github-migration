@@ -78,6 +78,20 @@ describe("recoverInterruptedProfiles", () => {
     expect(getEnterpriseRun("ent")?.state).toBe("failed");
     expect(getProfileRun("child")?.state).toBe("failed");
   });
+
+  test("leaves seeded running runs intact (seed-% are excluded)", () => {
+    // Seeded demo data uses a `seed-` id prefix and must survive a reboot, so
+    // recovery skips it (mirrors the Migrate domain).
+    createProfileRun({ id: "seed-profile-running", sourceApiUrl: "u", org: "acme" });
+    createEnterpriseRun({ id: "seed-profile-ent", sourceApiUrl: "u", enterpriseSlug: "globex" });
+    createProfileRun({ id: "real", sourceApiUrl: "u", org: "acme" });
+
+    recoverInterruptedProfiles(getDb(), NOW);
+
+    expect(getProfileRun("seed-profile-running")?.state).toBe("running");
+    expect(getEnterpriseRun("seed-profile-ent")?.state).toBe("running");
+    expect(getProfileRun("real")?.state).toBe("failed"); // non-seed still recovered
+  });
 });
 
 describe("profileStore.applySchema (upgrade path)", () => {

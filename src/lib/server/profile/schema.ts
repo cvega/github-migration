@@ -83,13 +83,15 @@ const PROFILE_DDL = `
  */
 export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.now()): void {
   const isoNow = new Date(nowMs).toISOString();
+  // `seed-%` rows are excluded so a dev reboot leaves seeded running runs intact
+  // (mirrors the Migrate domain's recovery).
   const orphaned = db
     .prepare(
       `UPDATE profile_runs
        SET state = 'failed',
            failure_reason = 'Server restarted during profiling',
            completed_at = ?
-       WHERE state = 'running'`,
+       WHERE state = 'running' AND id NOT LIKE 'seed-%'`,
     )
     .run(isoNow);
   if (orphaned.changes > 0) {
@@ -101,7 +103,7 @@ export function recoverInterruptedProfiles(db: Database, nowMs: number = Date.no
        SET state = 'failed',
            failure_reason = 'Server restarted during profiling',
            completed_at = ?
-       WHERE state = 'running'`,
+       WHERE state = 'running' AND id NOT LIKE 'seed-%'`,
     )
     .run(isoNow);
   if (orphanedEnterprises.changes > 0) {
