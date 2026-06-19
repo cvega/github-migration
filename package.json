@@ -16,7 +16,7 @@
     "test": "bun test",
     "coverage:check": "bun scripts/coverage-check.ts",
     "audit": "bun audit",
-    "dup": "jscpd",
+    "dup": "jscpd src",
     "deadcode": "knip",
     "cycles": "madge --circular --extensions ts,svelte --ts-config tsconfig.json src",
     "boundaries": "bun scripts/boundaries.ts",
