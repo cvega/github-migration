@@ -1,9 +1,7 @@
 {
-  "path": ["src"],
   "ignore": ["**/*.test.ts", "**/*.spec.ts", "**/test-*.ts", "**/*.d.ts", "src/app.css"],
   "minTokens": 50,
   "reporters": ["console"],
-  "absolute": true,
   "gitignore": true,
   "noTips": true,
   "threshold": 1.5
