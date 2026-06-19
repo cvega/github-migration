@@ -309,13 +309,14 @@ export function listProfileRuns(limit = 50): ProfileRun[] {
 /**
  * Standalone org runs still marked `running` — interrupted by a restart and
  * eligible for the service to resume. Excludes child runs (those are driven by
- * their enterprise run's resume).
+ * their enterprise run's resume) and `seed-%` rows (so seeded running data
+ * survives a dev reboot, mirroring the Migrate domain).
  */
 export function listStandaloneRunningProfileRuns(): ProfileRun[] {
   const rows = getDb()
     .prepare(
       `SELECT ${RUN_COLS} FROM profile_runs
-       WHERE state = 'running' AND enterprise_run_id IS NULL
+       WHERE state = 'running' AND enterprise_run_id IS NULL AND id NOT LIKE 'seed-%'
        ORDER BY started_at ASC`,
     )
     .all() as ProfileRunRow[];
@@ -517,12 +518,13 @@ export function listEnterpriseRuns(limit = 50): EnterpriseRun[] {
   return rows.map(rowToEnterpriseRun);
 }
 
-/** Enterprise runs still marked `running` — interrupted by a restart. */
+/** Enterprise runs still marked `running` — interrupted by a restart. Excludes
+ *  `seed-%` rows so seeded running data survives a dev reboot. */
 export function listRunningEnterpriseRuns(): EnterpriseRun[] {
   const rows = getDb()
     .prepare(
       `SELECT ${ENTERPRISE_COLS} FROM profile_enterprise_runs
-       WHERE state = 'running' ORDER BY started_at ASC`,
+       WHERE state = 'running' AND id NOT LIKE 'seed-%' ORDER BY started_at ASC`,
     )
     .all() as EnterpriseRunRow[];
   return rows.map(rowToEnterpriseRun);
