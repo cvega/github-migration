@@ -5,12 +5,20 @@
 <p>Profile, migrate, and track GitHub repository migrations.</p>
 
 <p>
+  <a href="https://github.com/cvega/github-migration/actions/workflows/main.yml"><img alt="Gates" src="https://img.shields.io/github/actions/workflow/status/cvega/github-migration/main.yml?branch=main&label=gates&logo=github&labelColor=14151a" /></a>
+  <a href="https://github.com/cvega/github-migration/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/cvega/github-migration?label=release&logo=github&labelColor=14151a" /></a>
+  <img alt="Coverage" src="https://img.shields.io/badge/coverage-87%25-4c1?labelColor=14151a" />
+  <a href="https://biomejs.dev"><img alt="Checked with Biome" src="https://img.shields.io/badge/Checked_with-Biome-60a5fa?logo=biome&logoColor=white&labelColor=14151a" /></a>
+  <a href="https://knip.dev"><img alt="Maintained with Knip" src="https://img.shields.io/badge/Maintained_with-Knip-F36F23?logo=knip&logoColor=white&labelColor=14151a" /></a>
+  <a href="https://stryker-mutator.io"><img alt="Mutation tested with Stryker" src="https://img.shields.io/badge/Mutation_tested-Stryker-E74C3C?logo=stryker&logoColor=white&labelColor=14151a" /></a>
+</p>
+
+<p>
   <img alt="Bun" src="https://img.shields.io/badge/Bun-1.3.9+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a" />
   <img alt="SvelteKit" src="https://img.shields.io/badge/SvelteKit-2-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178c6?logo=typescript&logoColor=white&labelColor=14151a" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Ready-2496ed?logo=docker&logoColor=white&labelColor=14151a" />
-  <img alt="Coverage" src="https://img.shields.io/badge/coverage-85%25-4c1?labelColor=14151a" />
 </p>
 
 ---
