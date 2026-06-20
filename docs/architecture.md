@@ -4,6 +4,7 @@ How the GitHub Migration Dashboard is put together: the migration pipeline, the
 concurrency model, authentication, the GHES/GHEC classification rules, and the
 data store.
 
+- [System overview](#system-overview)
 - [Migration pipeline](#migration-pipeline)
 - [Concurrency & the queue](#concurrency--the-queue)
 - [Real-time progress (SSE)](#real-time-progress-sse)
@@ -16,10 +17,40 @@ data store.
 
 ---
 
+## System overview
+
+The request path, end to end: the browser talks to the SvelteKit server, which
+routes into one of two domains; both reach the outside world only through
+`core/`.
+
+```mermaid
+graph TD
+    A["Browser · Svelte UI"] --> B["SvelteKit server"]
+    B --> C["Migrate domain"]
+    B --> D["Profile domain"]
+    C --> E["core/ · shared services"]
+    D --> E
+    E --> F[("SQLite")]
+    E --> G["GitHub APIs"]
+```
+
+---
+
 ## Migration pipeline
 
 Each repository migration runs through a five-step pipeline, driven by a
-concurrency-limited queue. State and lifecycle:
+concurrency-limited queue:
+
+```mermaid
+graph LR
+    A["Request"] --> B["Queue"]
+    B --> C["Running"]
+    C --> D["Succeeded"]
+    C --> E["Failed"]
+    E -. restart .-> B
+```
+
+State and lifecycle:
 
 ```
 queued → pending → running → succeeded | failed | cancelled
@@ -278,6 +309,16 @@ place — it reuses the same record id, re-discovers repos, and upserts by
 duplicated. Pause and resume work at both levels: pausing an enterprise run
 pauses its in-flight children, and a `paused` run is left untouched by startup
 recovery (it isn't treated as a crash).
+
+```mermaid
+graph TD
+    A["Enterprise run"] --> B["Org A"]
+    A --> C["Org B"]
+    A --> D["Org C"]
+    B --> E["repos + considerations"]
+    C --> E
+    D --> E
+```
 
 ### Why SQLite?
 
