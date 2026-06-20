@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  Single &amp; batch migrations · Pre-migration profiling · Real-time SSE progress · Cancellation &amp; restart · Crash recovery · GitHub App &amp; PAT auth
+  Single &amp; batch migrations · Org &amp; enterprise profiling · Real-time SSE progress · Cancellation &amp; restart · Crash recovery · GitHub App &amp; PAT auth
 </p>
 
 ---
@@ -25,7 +25,7 @@
 ## Capabilities
 
 - Migrates repositories GHES → GHEC and GHEC → GHEC, via archive upload or direct passthrough.
-- Profiles an organization before migrating — crawls every repository and surfaces per-repo migration *considerations* (what the GitHub export won't carry over) plus actionable insights, streamed live.
+- Profiles an organization — or an entire enterprise, fanning out to every accessible org — before migrating, crawling each repository to surface per-repo migration *considerations* (what the GitHub export won't carry over) plus actionable insights, streamed live; runs can be paused and resumed.
 - Accepts batch requests of up to 500 repositories; a FIFO queue caps execution at 10 concurrent migrations (GitHub's limit).
 - Reports progress over Server-Sent Events (SSE) — phase timeline, per-resource progress, and throughput.
 - Supports cancelling in-flight migrations and restarting failed or cancelled ones in place.
@@ -58,6 +58,16 @@
     <td align="center" width="50%">
       <img src="static/imgs/screenshots/new-migration.png" alt="New migration" /><br />
       <strong>New migration</strong> — single &amp; batch request form
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/profile.png" alt="Profile" /><br />
+      <strong>Profile</strong> — org &amp; enterprise readiness runs
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/enterprise.png" alt="Enterprise profile" /><br />
+      <strong>Enterprise profile</strong> — per-org rollup &amp; inaccessible-org warnings
     </td>
   </tr>
 </table>
