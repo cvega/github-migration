@@ -4,10 +4,10 @@
   "packageManager": "npm",
   "testRunner": "command",
   "commandRunner": {
-    "command": "bun test --env-file=/dev/null src/lib/server/session.test.ts src/lib/server/session-creds.test.ts"
+    "command": "bun test --env-file=/dev/null src/lib/server/core/session.test.ts src/lib/server/core/session-creds.test.ts src/lib/server/core/session-noauth.test.ts"
   },
   "coverageAnalysis": "off",
-  "mutate": ["src/lib/server/session.ts"],
+  "mutate": ["src/lib/server/core/session.ts"],
   "reporters": ["clear-text", "html"],
   "htmlReporter": {
     "fileName": "reports/mutation/mutation.html"

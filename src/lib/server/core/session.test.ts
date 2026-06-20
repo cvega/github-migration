@@ -36,6 +36,13 @@ describe("session expiry", () => {
   const issuedAt = 1_700_000_000_000;
   const maxAgeMs = SESSION_MAX_AGE * 1000;
 
+  test("SESSION_MAX_AGE is exactly 7 days in seconds", () => {
+    // Pin the literal so a change to the `7 * 24 * 60 * 60` arithmetic is caught
+    // here (the expiry tests below derive their bounds from the constant, so on
+    // their own they can't detect the constant itself drifting).
+    expect(SESSION_MAX_AGE).toBe(604_800);
+  });
+
   test("validates a token within its lifetime", () => {
     const token = createSessionToken(issuedAt);
     expect(isValidSession(token, issuedAt + 60_000)).toBe(true);
