@@ -4,6 +4,7 @@ How the GitHub Migration Dashboard is put together: the migration pipeline, the
 concurrency model, authentication, the GHES/GHEC classification rules, and the
 data store.
 
+- [System overview](#system-overview)
 - [Migration pipeline](#migration-pipeline)
 - [Concurrency & the queue](#concurrency--the-queue)
 - [Real-time progress (SSE)](#real-time-progress-sse)
@@ -16,10 +17,40 @@ data store.
 
 ---
 
+## System overview
+
+The request path, end to end: the browser talks to the SvelteKit server, which
+routes into one of two domains; both reach the outside world only through
+`core/`.
+
+```mermaid
+graph TD
+    A["Browser · Svelte UI"] --> B["SvelteKit server"]
+    B --> C["Migrate domain"]
+    B --> D["Profile domain"]
+    C --> E["core/ · shared services"]
+    D --> E
+    E --> F[("SQLite")]
+    E --> G["GitHub APIs"]
+```
+
+---
+
 ## Migration pipeline
 
 Each repository migration runs through a five-step pipeline, driven by a
-concurrency-limited queue. State and lifecycle:
+concurrency-limited queue:
+
+```mermaid
+graph LR
+    A["Request"] --> B["Queue"]
+    B --> C["Running"]
+    C --> D["Succeeded"]
+    C --> E["Failed"]
+    E -. restart .-> B
+```
+
+State and lifecycle:
 
 ```
 queued → pending → running → succeeded | failed | cancelled
@@ -173,7 +204,11 @@ be re-run manually.
 
 ## Database
 
-SQLite via `bun:sqlite` in WAL mode, with two tables.
+SQLite via `bun:sqlite` in WAL mode. The **Migrate** domain owns two tables
+(`migrations`, `events`); the **Profile** domain adds three more
+(`profile_enterprise_runs`, `profile_runs`, `profile_repos`). Each domain
+registers its own schema through `registry.ts`, so the tables below are grouped
+by the domain that owns them.
 
 ### `migrations` — one row per repository migration
 
@@ -207,6 +242,83 @@ SQLite via `bun:sqlite` in WAL mode, with two tables.
 **States:** `queued` → `pending` → `running` → `succeeded` / `failed` /
 `cancelled`. There is no separate batches table — a batch is simply a set of
 `migrations` rows sharing the same `batch_id`.
+
+### `profile_enterprise_runs` — one row per enterprise readiness crawl
+
+A parent that fans out to one `profile_runs` child per organization. Its
+aggregate counters are recomputed from those children as they settle.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | Primary key |
+| `source_api_url` | TEXT | Where the crawl reads from |
+| `enterprise_slug` | TEXT | The enterprise being profiled |
+| `state` | TEXT | `running` · `paused` · `completed` · `failed` |
+| `total_orgs` · `profiled_orgs` | INTEGER | Org fan-out progress |
+| `inaccessible_orgs` | INTEGER | Orgs the source token couldn't see (skipped) |
+| `total_repos` · `profiled_repos` | INTEGER | Repo totals rolled up from children |
+| `blockers` · `warnings` | INTEGER | Counts rolled up from children |
+| `started_at` · `completed_at` | TEXT | ISO timestamps (`completed_at` nullable) |
+| `failure_reason` | TEXT | Populated on failure (nullable) |
+
+### `profile_runs` — one row per organization readiness crawl
+
+Belongs to an enterprise run via `enterprise_run_id`, or stands alone when that
+column is `NULL`. The repo/blocker/warning aggregates are recomputed from
+`profile_repos` at completion, so they stay correct even when a repo is
+re-recorded on a resumed run.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT | Primary key |
+| `source_api_url` · `org` | TEXT | Where the repos come from |
+| `enterprise_run_id` | TEXT | FK → `profile_enterprise_runs.id` (nullable) |
+| `state` | TEXT | `running` · `paused` · `completed` · `failed` |
+| `total_repos` · `profiled_repos` | INTEGER | Crawl progress |
+| `blockers` · `warnings` | INTEGER | Aggregates recomputed from `profile_repos` |
+| `org_ruleset_count` | INTEGER | Org-level rulesets discovered |
+| `org_resources` | JSON | Org-level resource snapshot |
+| `api_calls` | INTEGER | API calls spent on the run |
+| `started_at` · `completed_at` | TEXT | ISO timestamps (`completed_at` nullable) |
+| `failure_reason` | TEXT | Populated on failure (nullable) |
+
+### `profile_repos` — one repository's consideration analysis within a run
+
+`UNIQUE(run_id, name_with_owner)` makes re-recording idempotent (an upsert),
+which a resumed crawl relies on; `enriched` marks a repo that finished the final
+per-repo pass, so a resumed run can skip it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER | Primary key (autoincrement) |
+| `run_id` | TEXT | FK → `profile_runs.id` |
+| `name_with_owner` | TEXT | `owner/name`; unique within a run |
+| `signals` | JSON | Raw per-repo signals gathered during the crawl |
+| `blockers` · `warnings` · `infos` | INTEGER | Consideration counts by severity |
+| `applying_considerations` | JSON | The considerations that apply to this repo |
+| `enriched` | INTEGER | `1` once the final per-repo pass completed |
+| `created_at` | TEXT | ISO timestamp |
+
+**Profile fan-out & resume.** Starting an enterprise run lists the enterprise's
+organizations and creates a child `profile_runs` row for each accessible one;
+orgs the source token can't reach are skipped and tallied in `inaccessible_orgs`.
+Children crawl independently, and the parent's repo/blocker/warning totals are
+re-rolled from them as each settles. A run interrupted by a restart is resumed in
+place — it reuses the same record id, re-discovers repos, and upserts by
+`(run_id, name_with_owner)` so already-`enriched` repos are skipped rather than
+duplicated. Pause and resume work at both levels: pausing an enterprise run
+pauses its in-flight children, and a `paused` run is left untouched by startup
+recovery (it isn't treated as a crash).
+
+```mermaid
+graph TD
+    A["Enterprise run"] --> B["Org A"]
+    A --> C["Org B"]
+    A --> D["Org C"]
+    B --> E["repos + considerations"]
+    C --> E
+    D --> E
+```
 
 ### Why SQLite?
 

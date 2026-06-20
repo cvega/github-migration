@@ -1,13 +1,10 @@
-<p align="center">
-  <img src="static/imgs/github-logo.png" width="80" height="80" alt="GitHub" />
-</p>
-<h1 align="center">GitHub Migration Dashboard</h1>
+<h1>
+  <img src="static/imgs/github-logo.png" width="70" align="absmiddle" alt="" />&nbsp;&nbsp;GitHub Migration Workbench
+</h1>
 
-<p align="center">
-  <strong>Web UI for migrating repositories between GitHub Enterprise Server and GitHub Enterprise Cloud</strong>
-</p>
+<p>Profile, migrate, and track GitHub repository migrations.</p>
 
-<p align="center">
+<p>
   <img alt="Bun" src="https://img.shields.io/badge/Bun-1.3.9+-f9f1e1?logo=bun&logoColor=f9f1e1&labelColor=14151a" />
   <img alt="SvelteKit" src="https://img.shields.io/badge/SvelteKit-2-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white&labelColor=14151a" />
@@ -16,51 +13,17 @@
   <img alt="Coverage" src="https://img.shields.io/badge/coverage-85%25-4c1?labelColor=14151a" />
 </p>
 
-<p align="center">
-  Single &amp; batch migrations · Pre-migration profiling · Real-time SSE progress · Cancellation &amp; restart · Crash recovery · GitHub App &amp; PAT auth
-</p>
-
 ---
 
-## Capabilities
+## Overview
 
-- Migrates repositories GHES → GHEC and GHEC → GHEC, via archive upload or direct passthrough.
-- Profiles an organization before migrating — crawls every repository and surfaces per-repo migration *considerations* (what the GitHub export won't carry over) plus actionable insights, streamed live.
-- Accepts batch requests of up to 500 repositories; a FIFO queue caps execution at 10 concurrent migrations (GitHub's limit).
-- Reports progress over Server-Sent Events (SSE) — phase timeline, per-resource progress, and throughput.
-- Supports cancelling in-flight migrations and restarting failed or cancelled ones in place.
-- Includes an optional watchdog that restarts migrations showing no progress, with size-based exclusions.
-- Resumes env-authenticated migrations (`env-app`, `env-pat`) from checkpoint after a server restart.
-- Authenticates via PAT or GitHub App, supplied per request or from the environment; App tokens auto-refresh.
-- Runs preflight checks on GHES version and target org, and warns on pre-existing target repositories.
-- Applies standard hardening: CSP headers, timing-safe credential comparison, HMAC-signed sessions, login rate limiting, and a non-root container.
-
----
-
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <img src="static/imgs/screenshots/dashboard.png" alt="Dashboard" /><br />
-      <strong>Dashboard</strong> — active &amp; completed migrations, batches
-    </td>
-    <td align="center" width="50%">
-      <img src="static/imgs/screenshots/stats.png" alt="Statistics" /><br />
-      <strong>Statistics</strong> — success rate, throughput, platform breakdown
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="static/imgs/screenshots/batch.png" alt="Batch detail" /><br />
-      <strong>Batch detail</strong> — per-repo progress &amp; controls
-    </td>
-    <td align="center" width="50%">
-      <img src="static/imgs/screenshots/new-migration.png" alt="New migration" /><br />
-      <strong>New migration</strong> — single &amp; batch request form
-    </td>
-  </tr>
-</table>
+GitHub Migration Workbench moves repositories into GitHub Enterprise Cloud, from
+GitHub Enterprise Server or another Cloud org, one at a time or in batches of up
+to 500, running 10 concurrently behind a FIFO queue. Before migrating, it can
+profile a whole organization or enterprise to surface the per-repo considerations
+an export won't carry over; during a run it streams live progress, with cancel,
+restart, and crash recovery built in. Authentication is via PAT or GitHub App,
+supplied per request or from the environment.
 
 ---
 
@@ -106,3 +69,40 @@ bun run verify               # full gate suite (CI go/no-go)
 
 A ready-to-edit [docker-compose.yml](docker-compose.yml) and
 [.env.example](.env.example) cover deployment and configuration.
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/dashboard.png" alt="Dashboard" /><br />
+      <strong>Dashboard</strong> — active &amp; completed migrations, batches
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/stats.png" alt="Statistics" /><br />
+      <strong>Statistics</strong> — success rate, throughput, platform breakdown
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/batch.png" alt="Batch detail" /><br />
+      <strong>Batch detail</strong> — per-repo progress &amp; controls
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/new-migration.png" alt="New migration" /><br />
+      <strong>New migration</strong> — single &amp; batch request form
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/profile.png" alt="Profile" /><br />
+      <strong>Profile</strong> — org &amp; enterprise readiness runs
+    </td>
+    <td align="center" width="50%">
+      <img src="static/imgs/screenshots/enterprise.png" alt="Enterprise profile" /><br />
+      <strong>Enterprise profile</strong> — per-org rollup &amp; inaccessible-org warnings
+    </td>
+  </tr>
+</table>
