@@ -4,6 +4,7 @@ import {
   isRateLimited,
   isValidSession,
   recordFailedAttempt,
+  SESSION_COOKIE,
   SESSION_MAX_AGE,
 } from "./session";
 
@@ -25,6 +26,14 @@ describe("session tokens", () => {
     expect(isValidSession(`deadbeef.${sig}`)).toBe(false);
   });
 
+  test("rejects a signature of the right length but invalid hex", () => {
+    // 64 chars passes the length pre-check, but non-hex decodes to a 0-byte
+    // buffer, so timingSafeEqual is handed mismatched lengths and throws — the
+    // catch must turn that into a rejection, not an accept.
+    const ts = createSessionToken().split(".")[0];
+    expect(isValidSession(`${ts}.${"z".repeat(64)}`)).toBe(false);
+  });
+
   test("rejects malformed tokens", () => {
     expect(isValidSession("")).toBe(false);
     expect(isValidSession("no-dot-here")).toBe(false);
@@ -41,6 +50,12 @@ describe("session expiry", () => {
     // here (the expiry tests below derive their bounds from the constant, so on
     // their own they can't detect the constant itself drifting).
     expect(SESSION_MAX_AGE).toBe(604_800);
+  });
+
+  test("SESSION_COOKIE is the expected cookie name", () => {
+    // Pin the cookie name: hooks and route handlers read/write this exact key,
+    // so a silent rename would log everyone out without any test noticing.
+    expect(SESSION_COOKIE).toBe("gh_migrate_session");
   });
 
   test("validates a token within its lifetime", () => {
@@ -103,6 +118,16 @@ describe("login rate limiting", () => {
     const ip = freshIp();
     for (let i = 0; i < 5; i++) recordFailedAttempt(ip, t0);
     // Exactly at the window edge the entry has not yet expired.
+    expect(isRateLimited(ip, t0 + WINDOW_MS)).toBe(true);
+  });
+
+  test("a failure exactly at the window boundary increments rather than resetting", () => {
+    const ip = freshIp();
+    for (let i = 0; i < 4; i++) recordFailedAttempt(ip, t0);
+    // At exactly the boundary the window has NOT elapsed (reset is strictly
+    // past it), so this 5th failure increments to the threshold instead of
+    // starting a fresh window at count 1.
+    recordFailedAttempt(ip, t0 + WINDOW_MS);
     expect(isRateLimited(ip, t0 + WINDOW_MS)).toBe(true);
   });
 

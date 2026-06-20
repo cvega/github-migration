@@ -32,4 +32,27 @@ describe("validateCredentials with auth disabled", () => {
     expect(fresh.validateCredentials("ci-test-admin", "ci-test-pass-7f3a9c")).toBe(false);
     expect(fresh.validateCredentials("", "")).toBe(false);
   });
+
+  test("a half-configured auth (only a username) is treated as disabled", async () => {
+    // Auth requires BOTH vars; a single one set must not switch auth on, and
+    // must not let validateCredentials proceed (which would hash an undefined
+    // password and throw). Covers the `user && pass` / `!user || !pass` guards.
+    mock.module("$env/dynamic/private", () => ({ env: { GH_MIGRATE_USER: "ci-test-admin" } }));
+    const fresh = (await import(`./session.ts?${"onlyuser"}`)) as typeof import("./session");
+
+    expect(fresh.authEnabled).toBe(false);
+    expect(() => fresh.validateCredentials("ci-test-admin", "")).not.toThrow();
+    expect(fresh.validateCredentials("ci-test-admin", "")).toBe(false);
+  });
+
+  test("a half-configured auth (only a password) is treated as disabled", async () => {
+    mock.module("$env/dynamic/private", () => ({
+      env: { GH_MIGRATE_PASS: "ci-test-pass-7f3a9c" },
+    }));
+    const fresh = (await import(`./session.ts?${"onlypass"}`)) as typeof import("./session");
+
+    expect(fresh.authEnabled).toBe(false);
+    expect(() => fresh.validateCredentials("", "ci-test-pass-7f3a9c")).not.toThrow();
+    expect(fresh.validateCredentials("", "ci-test-pass-7f3a9c")).toBe(false);
+  });
 });
