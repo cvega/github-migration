@@ -10,7 +10,7 @@ export type AppTab = {
 };
 
 const APP_TABS = [
-  { id: "profile", label: "Assess", href: "/profile", icon: "telescope" },
+  { id: "profile", label: "Profile", href: "/profile", icon: "telescope" },
   { id: "migrations", label: "Migrations", href: "/migrate", icon: "repo-push" },
   { id: "statistics", label: "Statistics", href: "/migrate/stats", icon: "graph" },
   { id: "setup", label: "Setup", href: "/setup", icon: "gear" },

@@ -41,6 +41,12 @@ describe("application navigation", () => {
     ]);
   });
 
+  test("labels the profile tab consistently with its route", () => {
+    expect(visibleAppTabs("/profile", true).find((tab) => tab.id === "profile")?.label).toBe(
+      "Profile",
+    );
+  });
+
   test("keeps Setup visible while viewing setup after completion", () => {
     expect(visibleAppTabs("/setup", true).map((tab) => tab.id)).toContain("setup");
   });
