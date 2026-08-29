@@ -70,13 +70,30 @@ generated output and client bundle remain current.
 
 ## Documentation
 
-Architecture tables are generated from production contracts:
+Most documentation is maintained by hand. Four sections in
+`docs/architecture.md` are generated from production contracts and schema
+metadata:
+
+- `support-matrix`
+- `migration-lifecycle`
+- `ghes-import-phases`
+- `durable-tables`
+
+Generated sections are enclosed by `BEGIN GENERATED` and `END GENERATED`
+comments. Do not edit their contents directly. Update the owning production
+contract or durable table metadata, then synchronize the document:
 
 ```bash
 bun run docs:sync
 bun run docs:check
 ```
 
-The API and configuration tables are also checked against implemented routes
-and environment reads. Missing operations, stale variables, broken links, and
-invalid package scripts fail the docs gate.
+Run `bun run docs:sync` whenever a supported migration path, lifecycle state,
+GHES phase, or durable table contract changes. Then update any surrounding
+hand-written explanation affected by the change.
+
+`bun run docs:check` verifies that generated sections match production,
+Markdown links and anchors resolve, documented API operations exist, documented
+configuration matches environment reads, and referenced package scripts are
+valid. It runs as part of `bun run verify`, so documentation drift blocks the
+release gate.

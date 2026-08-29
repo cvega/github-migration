@@ -5,11 +5,43 @@ SQLite database. Its server code is split into `core`, `source`, `profile`, and
 `migrate` domains with explicit route-level composition.
 
 - [Migration pipeline](#migration-pipeline)
+- [Assessment flow](#assessment-flow)
 - [Concurrency and recovery](#concurrency-and-recovery)
+- [Operational boundaries](#operational-boundaries)
 - [Real-time progress](#real-time-progress)
 - [Authentication](#authentication)
 - [Persistence](#persistence)
 - [Domain boundaries](#domain-boundaries)
+
+## Assessment flow
+
+Assessments gather provider inventory and repository signals, persist normalized
+results, and evaluate migration readiness. GitHub uses organization and
+repository crawls; GitLab and Bitbucket Server use their provider adapters to
+discover projects and collect project metrics. The profile domain owns the run
+lifecycle and analysis in both cases.
+
+```mermaid
+sequenceDiagram
+	actor Operator
+	participant API as Profile API
+	participant Profile as Profile service
+	participant Provider as Source provider
+	participant DB as SQLite
+	participant Events as Profile events
+
+	Operator->>API: Start assessment
+	API->>Profile: Create running profile
+	Profile->>Provider: Discover inventory and collect signals
+	loop Projects and repositories
+		Provider-->>Profile: Normalized observations
+		Profile->>DB: Persist inventory, metrics, and findings
+		Profile->>Events: Publish progress
+	end
+	Profile->>DB: Persist summary and terminal state
+	Profile->>Events: Publish terminal frame
+	Events-->>Operator: Stream progress and result
+```
 
 ## Migration pipeline
 
@@ -32,6 +64,20 @@ platform, persists the request, and submits it to an app-wide FIFO queue.
 
 **GHEC observation phases:** `QUEUED`, `PENDING_VALIDATION`, `EXPORTING`, `IMPORTING_GIT`, `IMPORTING_METADATA`, `SUCCEEDED`, `FAILED`, `UNKNOWN`.
 <!-- END GENERATED: migration-lifecycle -->
+
+```mermaid
+flowchart LR
+	Request[Request persisted] --> Capacity{Slot available?}
+	Capacity -->|No| Queued[Queued]
+	Queued -->|Slot opens| Pending[Pending]
+	Capacity -->|Yes| Pending
+	Pending --> Running[Running]
+	Running -->|Completed| Succeeded[Succeeded]
+	Running -->|Definitive failure| Failed[Failed]
+	Running -->|Cancel requested| Cancelling[Cancelling]
+	Cancelling -->|Confirmed| Cancelled[Cancelled]
+	Cancelling -->|Remote outcome unclear| Review[Needs review]
+```
 
 Every executor reports the same top-level lifecycle. All GHEC targets use
 GitHub's migration GraphQL API to create a migration source and start and monitor
@@ -73,16 +119,59 @@ settles, a transactional dequeue claims the oldest recoverable item and starts
 it. Batch migrations use the same queue; a batch is durable membership and
 identity metadata rather than a second execution mechanism.
 
-On startup, administrator-authenticated queued requests are re-enqueued.
-Running GHEC migrations resume from a persisted GitHub migration ID. Native
-exports and GHES imports resume only from durable checkpoints whose next action
-is safe to repeat. Per-request credentials are never persisted, so work that
-depends on them is not crash-recoverable.
+On startup, queued requests using server-owned environment PAT or GitHub App
+credentials are re-enqueued. Executing migrations using those credentials can
+resume from persisted GitHub, native export, or GHES import checkpoints when
+the next action is safe to repeat. Per-request credentials are never persisted,
+so work that depends on them is not crash-recoverable.
+
+```mermaid
+flowchart TD
+	Start[Process starts] --> Lock[Acquire the data-directory lock]
+	Lock --> Schema[Apply schemas and classify interrupted work]
+	Schema --> Profiles[Mark interrupted assessments failed]
+	Schema --> Migration{Interrupted migration}
+	Migration -->|Environment auth and safe checkpoint| Resume[Resume the executor]
+	Migration -->|Environment auth and queued request| Requeue[Return to the FIFO queue]
+	Migration -->|Remote outcome is ambiguous| Review[Require operator reconciliation]
+	Migration -->|No recoverable credentials or checkpoint| Fail[Mark failed]
+	Resume --> Queue[Migration capacity manager]
+	Requeue --> Queue
+```
+
+An interrupted assessment is retained as failed audit history and must be run
+again. A migration enters `reconciliation_required` when repeating a remote
+write could duplicate or corrupt work; the operator must inspect the source and
+target, confirm the remote outcome, and then start a new attempt.
 
 The process holds an exclusive lock in its data directory for its lifetime.
 This keeps in-memory queue ownership, SQLite state, and recovery decisions
 single-writer even when deployment configuration accidentally requests more
 than one process.
+
+## Operational boundaries
+
+| Boundary | Current behavior |
+|---|---|
+| Source and target support | GitHub can target GHEC. GitLab and Bitbucket Server can target GHEC or a configured GHES profile. GitHub-to-GHES is not supported. |
+| Migration capacity | At most ten migrations execute app-wide. Additional requests remain durable in FIFO order. |
+| Batch size | A batch accepts at most 500 repository mappings and uses the same queue as single migrations. |
+| Assessment capacity | One assessment per source provider can run at a time. |
+| Source inventory | GitLab and Bitbucket inventories stop at the provider-neutral 10,000-project envelope. |
+| Durable state | Migration requests, states, events, batches, and acknowledged provider, GitHub, and GHES checkpoints survive a restart. |
+| Process-local state | Active controllers, API clients, and request-scoped credentials do not survive a restart. Interrupted assessments are marked failed. |
+
+Provider-specific constraints also apply:
+
+- GitHub sources can target GHEC only.
+- GitLab exports are bounded by archive-size and download-timeout settings;
+	GitLab-to-GHES requires the configured external exporter.
+- Bitbucket Server and Data Center discovery enforces the supported server
+	version. Native GHEC exports require pinned SFTP access to shared home, while
+	GHES migrations require the configured external exporter.
+
+See [Provider Contracts](provider-contracts.md) for collection behavior and
+[Configuration](configuration.md) for operator-set bounds and prerequisites.
 
 ## Real-time progress
 
@@ -162,9 +251,3 @@ imports.
 Client-facing provider, migration, and profile contracts live outside
 `src/lib/server` so Svelte components can consume them without pulling server
 implementations into the browser bundle.
-
-`src/lib/profile/migration-catalog.ts` is the canonical migration-readiness
-catalog. Each entry describes a limitation or required follow-up, its severity
-and scope, the profiler detector that evaluates it, remediation guidance, and
-the supporting GitHub documentation. Profile analysis combines this reference
-data with collected source signals; the catalog itself performs no detection.

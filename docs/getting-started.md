@@ -18,6 +18,18 @@ Open `http://localhost:3000`. The example configuration is intentionally open
 for trusted local use. Configure login credentials before publishing it beyond
 that network; see [Configuration](configuration.md#core).
 
+## Choose Your Path
+
+| Goal | Supported path | What to do |
+|---|---|---|
+| Assess a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Assess source**, and review the completed readiness report before planning migrations. |
+| Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure the source and GHEC target credentials, assess the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
+| Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
+
+GitHub-to-GHES migration is not supported. See the generated
+[support matrix](architecture.md#migration-pipeline) for the authoritative
+source and target combinations.
+
 ## Configure Providers
 
 1. Configure one GitHub source and target credential mode: PAT or all three App values.

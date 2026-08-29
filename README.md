@@ -53,7 +53,7 @@ bun run verify
 
 | Guide | Audience |
 |---|---|
-| [Getting Started](docs/getting-started.md) | First-time operators |
+| [Getting Started](docs/getting-started.md) | First-time operators and task-oriented paths |
 | [Configuration](docs/configuration.md) | Deployment owners |
 | [Deployment](docs/deployment.md) | Container and proxy operators |
 | [Architecture](docs/architecture.md) | Developers and reviewers |
