@@ -1,0 +1,327 @@
+/**
+ * Types for the Profiler's source-discovery crawl.
+ *
+ * Discovery is the bulk, breadth-first pass: a single GraphQL query paged over
+ * an organization's repositories yields cheap, high-signal metadata for every
+ * repo (size, visibility, archived/fork/empty flags, feature toggles, activity
+ * timestamps). Later passes augment each repo with the per-feature signals the
+ * gap analysis needs (packages, secrets, webhooks, rulesets, release sizes…).
+ *
+ * Names here are deliberately distinct from `github.ts`'s `RepoFacts` (the
+ * cleanup-time identity record) — this is profile data, a different concern.
+ */
+
+import type {
+  MigrationCatalogKind,
+  MigrationCatalogSeverity,
+} from "$lib/profile/migration-catalog";
+import type { RepositorySizeBand } from "$lib/repository-size";
+import type {
+  NumericObservation,
+  SourceProjectInventory,
+  SourceProjectProviderDetails,
+  SourceProvider,
+} from "$lib/source/types";
+
+/** A repository's GraphQL `visibility` (GitHub's `RepositoryVisibility` enum). */
+export type RepoVisibility = "PUBLIC" | "PRIVATE" | "INTERNAL";
+
+/**
+ * One repository as surfaced by the bulk discovery crawl. Every field comes
+ * from the REST `GET /orgs/{org}/repos` listing (the `minimal-repository`
+ * shape) — one cheap, reliable paged call that lists the whole org without ever
+ * hitting GraphQL's 10s query timeout. This is the spine each later GraphQL
+ * augmentation (the indexed `totalCount`s) hangs off.
+ */
+export interface DiscoveredRepo {
+  /** Repo name (without owner). */
+  name: string;
+  /** `owner/name`. */
+  nameWithOwner: string;
+  visibility: RepoVisibility;
+  isArchived: boolean;
+  isFork: boolean;
+  /** Proxy for “no commits”: the REST listing reports `size === 0`. */
+  isEmpty: boolean;
+  /** REST `size` in KiB; null when the listing omits it. */
+  diskUsageKb: number | null;
+  hasWiki: boolean;
+  hasIssues: boolean;
+  hasProjects: boolean;
+  hasDiscussions: boolean;
+  /**
+   * Whether GitHub Pages is enabled (`has_pages` from the org listing — free, no
+   * per-repo call). Pages settings migrate but typically need reconfiguring.
+   */
+  hasPages: boolean;
+  /** Default branch name, or null for an empty repo with no commits. */
+  defaultBranch: string | null;
+  /** ISO timestamp of the last push, or null if never pushed. */
+  pushedAt: string | null;
+  /** ISO timestamp of the last update, or null. */
+  updatedAt: string | null;
+}
+
+/**
+ * A repository enriched with the per-repo signals the gap analysis needs,
+ * beyond the bulk discovery spine. These are the cheap GraphQL count signals
+ * gathered in a single query per repo; deeper, paging-heavy signals (release
+ * asset sizes, git-sizer, ref-name scans) are augmented separately.
+ *
+ * Derived signals (e.g. `branchProtectionRulesUsingUnmigratedFeatures`) are
+ * computed in the augmentation layer so the gap detectors stay simple — they
+ * read a number and compare, rather than re-deriving GraphQL schema details.
+ */
+export interface RepoSignals extends DiscoveredRepo {
+  /**
+   * Commits on the default branch (`history.totalCount`). Gathered in the
+   * verification pass, not the cheap counts pass: unlike the indexed
+   * `totalCount`s it walks the commit graph, so a timeout degrades it to 0 for
+   * that one repo rather than blocking the cheap counts.
+   */
+  commitsCount: number;
+  /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
+  discussionsCount: number;
+  /** Projects (new experience) (`projectsV2.totalCount`); not migrated. */
+  projectsV2Count: number;
+  /** Actions environments (`environments.totalCount`); not migrated. */
+  environmentsCount: number;
+  /**
+   * Summed byte size of release assets across the repo's releases (bounded scan:
+   * the first 100 releases × first 50 assets each). An estimate — the usual
+   * driver of the per-repo release (10 GiB) and metadata-archive (40 GiB) limits.
+   */
+  releaseAssetBytes: number;
+  /** Stars (`stargazerCount`); not migrated. */
+  stargazerCount: number;
+  /** Watchers (`watchers.totalCount`); not migrated. */
+  watcherCount: number;
+  /** Forks (`forkCount`); fork relationships are not migrated. */
+  forkCount: number;
+  /** Repository-level rulesets (`rulesets.totalCount`); not migrated. */
+  rulesetCount: number;
+  /** Branch protection rules (`branchProtectionRules.totalCount`). */
+  branchProtectionRuleCount: number;
+  /**
+   * How many branch protection rules use at least one feature the GitHub export
+   * does not carry (force-push allowance, required deployments, lock branch, block
+   * creations, require last-push approval, or bypass actors). `> 0` means the
+   * branch-protection-partial gap applies.
+   */
+  branchProtectionRulesUsingUnmigratedFeatures: number;
+  /** Packages in GitHub Packages (`packages.totalCount`); not migrated. */
+  packagesCount: number;
+  /**
+   * Whether the default branch's root `.gitattributes` configures Git LFS
+   * (`filter=lfs`). LFS objects are not carried by the export and must be pushed
+   * post-migration. A proxy: only the root file on the default branch is checked.
+   */
+  usesLfs: boolean;
+  /**
+   * Workflow files under `.github/workflows` on the default branch. Workflows
+   * themselves migrate, but their run history and artifacts do not — so `> 0`
+   * means there's run history that will be lost.
+   */
+  workflowFileCount: number;
+  // ── Per-repo REST signals (gathered in the REST signals pass) ─────────────
+  // Cheap single-count / presence checks via REST (the `Link`-header trick or a
+  // 200/404 probe). Permission-sensitive endpoints (hooks, code scanning)
+  // degrade to 0/false for a read-only token rather than failing the repo.
+  /** Webhooks (`GET …/hooks`); migrate but arrive disabled, and their secrets
+   *  are not migrated. Needs `admin:repo_hook`/`repo`; 0 when unreadable. */
+  webhooksCount: number;
+  /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
+   *  Scanning history is not migrated. False when scanning is off or unreadable. */
+  hasCodeScanningAlerts: boolean;
+  /** Direct collaborators (`GET …/collaborators?affiliation=direct`); per-repo
+   *  user/team access is not migrated and must be re-granted. 0 when unreadable. */
+  collaboratorsCount: number;
+  /** Tag protection rules (`GET …/tags/protection`); not migrated. 0 when none
+   *  or unreadable. GitHub now recommends expressing these as rulesets. */
+  tagProtectionCount: number;
+  // ── Content-volume counts (migration scale) ──────────────────────────────
+  // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
+  // here, not on the REST discovery spine, because REST doesn't expose the
+  // GraphQL-equivalent counts). Each defaults to 0 until the counts pass fills
+  // it; a counts timeout degrades a repo to 0 rather than dropping it.
+  /** Issues (`issues.totalCount`, all states; excludes PRs). */
+  issuesCount: number;
+  /** Pull requests (`pullRequests.totalCount`, all states). */
+  pullRequestsCount: number;
+  /** Branches (`refs` under `refs/heads/`). */
+  branchesCount: number;
+  /** Tags (`refs` under `refs/tags/`). */
+  tagsCount: number;
+  /**
+   * Releases (`releases.totalCount`); GHES releases don't migrate at all. Drives
+   * the details pass's release-asset-scan partition (repos with 0 skip it).
+   */
+  releasesCount: number;
+}
+
+// ── Persistence ──────────────────────────────────────────────────────────────
+
+/** Lifecycle state of a profiling run. */
+export type ProfileRunState = "running" | "completed" | "failed";
+
+/**
+ * Organization-level resources gathered once per run (REST). These are scoped
+ * to the org (not per-repo), are not migrated, and must be recreated on the
+ * target. Each degrades to 0 when its endpoint is unavailable or unauthorized.
+ */
+export interface OrgResources {
+  /** Org Actions secrets (`/orgs/{org}/actions/secrets`). */
+  actionsSecrets: number;
+  /** Org Actions variables (`/orgs/{org}/actions/variables`). */
+  actionsVariables: number;
+  /** Org Dependabot secrets (`/orgs/{org}/dependabot/secrets`). */
+  dependabotSecrets: number;
+  /** Org Codespaces secrets (`/orgs/{org}/codespaces/secrets`). */
+  codespacesSecrets: number;
+  /** Org self-hosted runners (`/orgs/{org}/actions/runners`). */
+  selfHostedRunners: number;
+  /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
+  customProperties: number;
+  /** Org teams (`/orgs/{org}/teams`) — neither teams nor membership migrate. */
+  teams: number;
+  /** Installed GitHub Apps (`/orgs/{org}/installations`) — not migrated. */
+  appInstallations: number;
+}
+
+/**
+ * An organization-scoped profiling run. Aggregate counters (`profiledRepos`,
+ * `blockers`, `warnings`) are recomputed from the run's repos at completion.
+ */
+export interface ProfileRun {
+  id: string;
+  sourceProvider: SourceProvider;
+  sourceApiUrl: string;
+  org: string;
+  state: ProfileRunState;
+  /** Org repository total, set once discovery reports it. */
+  totalRepos: number;
+  /** Repos profiled so far (authoritative after completion). */
+  profiledRepos: number;
+  /** Total applying blocker-severity gaps across the run's repos. */
+  blockers: number;
+  /** Total applying warn-severity gaps across the run's repos. */
+  warnings: number;
+  /** Organization rulesets (REST); not migrated, and can fail the migration. */
+  orgRulesetCount: number;
+  /** Organization-level resources (secrets, runners, …) gathered once per run. */
+  orgResources: OrgResources;
+  /** Total GitHub API requests the crawl made (REST + GraphQL, incl. retries and
+   *  each pagination page). Persisted at completion for cost/rate-limit visibility. */
+  apiCalls: number;
+  startedAt: string;
+  completedAt: string | null;
+  failureReason: string | null;
+}
+
+/**
+ * The crawl's coarse phases, in order. Each emits progress nudges so the live
+ * UI can show what the run is doing right now:
+ *   - `discovering` — listing the org's repositories (REST).
+ *   - `organization` — gathering org-level resources (rulesets, secrets, teams…).
+ *   - `counting` — the cheap per-repo `totalCount` pass.
+ *   - `details` — the expensive per-repo pass (LFS, workflows, release assets).
+ *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
+ */
+export type ProfileInventoryMetricKey =
+  | "issues"
+  | "mergeRequests"
+  | "pullRequests"
+  | "commits"
+  | "branches"
+  | "tags"
+  | "releases"
+  | "forks";
+
+export interface ProfileInventorySummary {
+  projectCount: NumericObservation;
+  projectsCaptured: number;
+  visibility: Record<SourceProjectInventory["visibility"], number>;
+  archivedProjects: number;
+  projectsWithoutDefaultBranch: number;
+  storage: {
+    repositorySizeBytes: NumericObservation;
+    storageSizeBytes: NumericObservation;
+    lfsObjectsSizeBytes: NumericObservation;
+    packagesSizeBytes: NumericObservation;
+    wikiSizeBytes: NumericObservation;
+    uploadsSizeBytes: NumericObservation;
+  };
+  metrics?: Partial<Record<ProfileInventoryMetricKey, NumericObservation>>;
+}
+
+export interface ProfilePlanRepo {
+  nameWithOwner: string;
+  blockers: number;
+  warnings: number;
+  providerDetails?: SourceProjectProviderDetails;
+}
+
+export interface ProfileMigrationPlan {
+  version: 3;
+  profileRunId: string;
+  sourceProvider: SourceProvider;
+  sourceApiUrl: string;
+  sourceOrg: string;
+  targetOrg: string;
+  items: Array<{ sourceRepo: string; targetRepo: string }>;
+  reposWithBlockers: number;
+  reposWithWarnings: number;
+  blockersAcceptedAt: string | null;
+  createdAt: string;
+}
+
+interface PreparationItem {
+  catalogEntryId: string;
+  label: string;
+  kind: MigrationCatalogKind;
+  severity: MigrationCatalogSeverity;
+  routesTo: string | null;
+  affectedRepos: number;
+}
+
+interface PreparationSummary {
+  items: PreparationItem[];
+  notYetCrawled: Array<{
+    catalogEntryId: string;
+    label: string;
+    severity: MigrationCatalogSeverity;
+  }>;
+  alwaysLost: Array<{ catalogEntryId: string; label: string; summary: string }>;
+  blockerRepos: number;
+  warnRepos: number;
+  cleanRepos: number;
+}
+
+interface DurationEstimate {
+  bandCounts: Record<RepositorySizeBand, number>;
+  totalRepoHoursLow: number;
+  totalRepoHoursHigh: number;
+  defaultParallelism: number;
+}
+
+export interface ProfileDetailRollup {
+  scale: {
+    repos: number;
+    issues: number;
+    pullRequests: number;
+    commits: number;
+    branches: number;
+    tags: number;
+    releases: number;
+    diskUsageKb: number;
+  };
+  composition: {
+    total: number;
+    active: { count: number; pct: number };
+    stale: { count: number; pct: number };
+    empty: { count: number; pct: number };
+    archived: { count: number; pct: number };
+  };
+  summary: PreparationSummary;
+  estimate: DurationEstimate;
+}

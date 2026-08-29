@@ -1,0 +1,144 @@
+<script lang="ts">
+	import Octicon from "$lib/components/Octicon.svelte";
+	import type { UsedIconName } from "$lib/icons.generated";
+	import type { ProfileInventoryMetricKey, ProfileInventorySummary } from "$lib/profile/types";
+	import type { NumericObservation } from "$lib/source/types";
+
+	const VISIBILITIES = ["private", "internal", "public"] as const;
+	const PROFILE_METRIC_TILES = [
+		{ key: "commits", label: "Commits", icon: "git-commit" },
+		{ key: "mergeRequests", label: "Merge requests", icon: "git-pull-request" },
+		{ key: "pullRequests", label: "Pull requests", icon: "git-pull-request" },
+		{ key: "branches", label: "Branches", icon: "git-branch" },
+		{ key: "tags", label: "Tags", icon: "tag" },
+		{ key: "releases", label: "Releases", icon: "package" },
+		{ key: "issues", label: "Visible issues", icon: "issue-opened" },
+		{ key: "forks", label: "Forks", icon: "repo-forked" },
+	] satisfies Array<{ key: ProfileInventoryMetricKey; label: string; icon: UsedIconName }>;
+
+	let {
+		providerName,
+		running,
+		progress,
+		summary,
+	}: {
+		providerName: string;
+		running: boolean;
+		progress: { discovered: number; page: number } | null;
+		summary: ProfileInventorySummary | null;
+	} = $props();
+
+	function formatBytes(bytes: number): string {
+		if (bytes === 0) return "0 B";
+		const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+		const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+		const value = bytes / 1024 ** unit;
+		return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+	}
+
+	function formatObservation(
+		observation: NumericObservation,
+		format: (value: number) => string = (value) => value.toLocaleString(),
+	): string {
+		if (observation.kind === "unavailable") return "Unavailable";
+		const value = format(observation.value);
+		return observation.kind === "at-least" ? `At least ${value}` : value;
+	}
+
+	const storageTiles = $derived(
+		summary
+			? [
+					{ label: "Repository data", value: summary.storage.repositorySizeBytes, icon: "repo" },
+					{ label: "Total storage", value: summary.storage.storageSizeBytes, icon: "database" },
+					{ label: "LFS objects", value: summary.storage.lfsObjectsSizeBytes, icon: "file-binary" },
+					{ label: "Packages", value: summary.storage.packagesSizeBytes, icon: "package" },
+					{ label: "Wikis", value: summary.storage.wikiSizeBytes, icon: "book" },
+					{ label: "Uploads", value: summary.storage.uploadsSizeBytes, icon: "upload" },
+				] satisfies Array<{ label: string; value: NumericObservation; icon: UsedIconName }>
+			: [],
+	);
+	const unavailableStorageMetrics = $derived(
+		storageTiles.filter((tile) => tile.value.kind === "unavailable").length,
+	);
+	const profileMetricTiles = $derived(
+		summary?.metrics
+			? PROFILE_METRIC_TILES.flatMap((tile) => {
+					const value = summary.metrics?.[tile.key];
+					return value ? [{ ...tile, value }] : [];
+				})
+			: [],
+	);
+</script>
+
+<section class="space-y-6" aria-label={`${providerName} source assessment`}>
+	{#if running}
+		<div class="flex items-center gap-3 rounded-md border border-blue-500/25 bg-blue-500/10 p-4 text-sm text-blue-200" role="status" aria-live="polite">
+			<Octicon name="sync" size={16} class="shrink-0 animate-spin" />
+			<div>
+				<p class="font-medium">Discovering {providerName} projects</p>
+				<p class="mt-0.5 text-xs text-blue-200/70">
+					{#if progress}
+						{progress.discovered.toLocaleString()} discovered through page {progress.page.toLocaleString()}
+					{:else}
+						Waiting for source projects...
+					{/if}
+				</p>
+			</div>
+		</div>
+	{/if}
+
+	{#if summary}
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+			<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+				<div class="text-2xl font-semibold text-gray-50">{formatObservation(summary.projectCount)}</div>
+				<div class="mt-1 text-xs text-gray-400">Projects discovered</div>
+			</div>
+			{#each VISIBILITIES as visibility}
+				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+					<div class="text-2xl font-semibold text-gray-50">{summary.visibility[visibility].toLocaleString()}</div>
+					<div class="mt-1 text-xs capitalize text-gray-400">{visibility}</div>
+				</div>
+			{/each}
+			<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+				<div class="text-2xl font-semibold {summary.archivedProjects > 0 ? 'text-amber-400' : 'text-gray-50'}">{summary.archivedProjects.toLocaleString()}</div>
+				<div class="mt-1 text-xs text-gray-400">Archived</div>
+			</div>
+		</div>
+
+		{#if profileMetricTiles.length > 0}
+			<section>
+				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="repo" size={16} />Repository contents</h2>
+				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+					{#each profileMetricTiles as tile (tile.label)}
+						<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+							<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value)}</div>
+							<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name={tile.icon} size={12} class="text-gray-500" />{tile.label}</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		<section>
+			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="database" size={16} />Source storage</h2>
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+				{#each storageTiles as tile (tile.label)}
+					<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
+						<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value, formatBytes)}</div>
+						<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name={tile.icon} size={12} class="text-gray-500" />{tile.label}</div>
+						{#if tile.value.kind === "unavailable"}<div class="mt-1 text-[11px] text-gray-500">{tile.value.reason}</div>{/if}
+					</div>
+				{/each}
+			</div>
+		</section>
+
+		<section>
+			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="alert" size={16} />Migration risks and coverage</h2>
+			<div class="grid gap-px overflow-hidden rounded-lg border border-gray-700 bg-gray-700 sm:grid-cols-3">
+				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.archivedProjects.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Archived projects to review</div></div>
+				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.projectsWithoutDefaultBranch.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Without a default branch</div></div>
+				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold {unavailableStorageMetrics > 0 ? 'text-amber-400' : 'text-green-400'}">{unavailableStorageMetrics}</div><div class="mt-1 text-xs text-gray-400">Unavailable storage metrics</div></div>
+			</div>
+		</section>
+	{/if}
+</section>

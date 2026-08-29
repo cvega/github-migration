@@ -1,0 +1,196 @@
+# Tag-driven release pipeline (triggered by pushing a v* tag). In order:
+#   1. guard            — the tag must match package.json's version
+#   2. verify           — the full quality-gate suite
+#   3. release          — build the image once, scan it with Trivy, push the
+#                         versioned tags, then draft a GitHub Release whose
+#                         notes are generated from Conventional Commits
+#   4. update-changelog — regenerate CHANGELOG.md and commit it to main
+#
+# The release is created as a DRAFT for human review before publishing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Tag ↔ version guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Tag must match package.json version
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Release tag $GITHUB_REF_NAME must be a stable Semantic Version (vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(jq -er '.version | strings' package.json)"
+          echo "tag=$tag  package.json=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME (=$tag) does not match package.json version $pkg. Bump package.json or fix the tag."
+            exit 1
+          fi
+
+      - name: Tag must belong to main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not point to a commit on main."
+            exit 1
+          fi
+          latest="$(git tag --list 'v*' --sort=-version:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -n 1)"
+          if [ "$GITHUB_REF_NAME" != "$latest" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME is older than $latest and would roll back mutable image tags."
+            exit 1
+          fi
+
+  verify:
+    name: Verify
+    uses: ./.github/workflows/verify.yml
+
+  release:
+    name: Build, scan & draft release
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # create the GitHub Release
+      packages: write # push the image to GHCR
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0 # full history so git-cliff can build the changelog
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      # Build once into the local daemon (with gha cache) so Trivy can scan the
+      # exact image before it is published.
+      - name: Build image (local, for scan)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        run: sh scripts/packaging/container-smoke.sh '${{ fromJSON(steps.meta.outputs.json).tags[0] }}'
+
+      - name: Scan image (Trivy)
+        # SHA-pinned (= v0.36.0): trivy-action has a documented tag-compromise
+        # history, so this third-party action is pinned to an immutable commit.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      # Push the exact local image objects exercised and scanned above. A second
+      # Buildx invocation could re-resolve mutable base-image or APK inputs, so
+      # cache reuse alone would not prove that the published image was scanned.
+      - name: Push image
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          test -n "$IMAGE_TAGS"
+          while IFS= read -r image; do
+            test -n "$image"
+            docker image push "$image"
+          done <<< "$IMAGE_TAGS"
+
+      - name: Generate release notes
+        id: notes
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          body: ${{ steps.notes.outputs.content }}
+
+  update-changelog:
+    name: Update CHANGELOG.md
+    needs: [release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # commit CHANGELOG.md back to main
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Generate CHANGELOG.md
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ github.ref_name }} --output CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then check the staged diff: `git diff` alone ignores
+          # untracked files, so on the first release (CHANGELOG.md not yet
+          # tracked) it reported "no change" and silently skipped the commit.
+          git add CHANGELOG.md
+          if git diff --cached --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md unchanged — nothing to commit."
+          else
+            git commit -m "docs(changelog): update for ${{ github.ref_name }} [skip ci]"
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::Could not update CHANGELOG.md after 3 attempts."
+                exit 1
+              fi
+              git fetch origin main
+              git rebase origin/main
+            done
+          fi

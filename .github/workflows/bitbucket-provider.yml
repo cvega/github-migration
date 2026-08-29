@@ -1,0 +1,57 @@
+# Slow, licensed provider contract. This runs only on a dedicated runner because
+# Bitbucket Data Center, PostgreSQL, and OpenSearch require substantial resources.
+name: Bitbucket provider contract
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 5 * * *"
+
+concurrency:
+  group: bitbucket-provider-contract
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Bitbucket 10.4 contract
+    runs-on: [self-hosted, linux, x64, bitbucket-provider]
+    timeout-minutes: 45
+    env:
+      BITBUCKET_PROVIDER_LICENSE: ${{ secrets.BITBUCKET_PROVIDER_LICENSE }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate runner capacity and license
+        run: |
+          test "$(nproc)" -ge 8
+          test "$(awk '/MemTotal/ { print int($2 / 1024 / 1024) }' /proc/meminfo)" -ge 15
+          test -n "$BITBUCKET_PROVIDER_LICENSE"
+          docker compose version
+
+      - name: Run Bitbucket provider contract
+        run: |
+          set -o pipefail
+          bun run provider:bitbucket run 2>&1 | tee bitbucket-provider.log
+
+      - name: Ensure provider cleanup
+        if: always()
+        run: bun run provider:bitbucket down
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bitbucket-provider-diagnostics
+          path: bitbucket-provider.log
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "src/**/*.ts",
+      "src/**/*.js",
+      "src/**/*.svelte",
+      "scripts/**/*.ts",
+      "tests/scripts/**/*.ts",
+      "*.ts",
+      "*.js",
+      "*.json"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "html": {
+    "experimentalFullSupportEnabled": true
+  },
+  "overrides": [
+    {
+      "includes": ["src/lib/icons.generated.ts"],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": ["**/*.svelte"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useConst": "off",
+            "useImportType": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off",
+            "noUnusedFunctionParameters": "off"
+          },
+          "suspicious": {
+            "noGlobalAssign": "off"
+          },
+          "a11y": {
+            "useValidAriaValues": "off",
+            "useKeyWithClickEvents": "off",
+            "useSemanticElements": "off",
+            "noLabelWithoutControl": "off"
+          }
+        }
+      }
+    }
+  ],
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "trailingCommas": "all",
+      "semicolons": "always"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

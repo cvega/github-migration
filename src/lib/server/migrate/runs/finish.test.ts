@@ -1,0 +1,113 @@
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import type { Migration, MigrationState } from "$lib/migrate/types";
+import { closeStore, initStore } from "$lib/server/core/db";
+import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
+import { migrateStore } from "../database/schema";
+import { activeMigrationRuns } from "./active";
+import { createMigrationRunFinisher } from "./finish";
+
+beforeEach(() => initStore(":memory:", [migrateStore]));
+afterEach(closeStore);
+
+function migration(id: string, state: MigrationState = "pending"): Migration {
+  return {
+    id,
+    batchId: null,
+    githubMigrationId: null,
+    sourceProvider: "github",
+    sourceApiUrl: "https://api.github.com",
+    targetProfileId: "ghec",
+    targetPlatform: "ghec",
+    targetApiUrl: "https://api.github.com",
+    sourceOrg: "acme",
+    sourceRepo: id,
+    targetOrg: "acme-cloud",
+    targetRepo: id,
+    state,
+    failureReason: null,
+    migrationLogUrl: null,
+    warningsCount: 0,
+    sourceCounts: null,
+    targetCounts: null,
+    sourceSizeKb: null,
+    startedAt: "2026-08-18T12:00:00.000Z",
+    completedAt: null,
+    elapsedSeconds: null,
+    authMode: null,
+    requestOptions: null,
+  };
+}
+
+function claimedRun(id: string) {
+  const registration = activeMigrationRuns.claim(id);
+  if (!registration) throw new Error("run was not claimed");
+  activeMigrationRuns.attach(id, registration.token, Promise.resolve());
+  return registration;
+}
+
+describe("migration run settlement", () => {
+  test("persists a terminal result, releases ownership, and drains the queue", () => {
+    insertMigration(migration("migration-1"));
+    const registration = claimedRun("migration-1");
+    let drains = 0;
+    createMigrationRunFinisher(() => {
+      drains += 1;
+    }).settleResult("migration-1", registration.token, {
+      ...migration("migration-1", "succeeded"),
+      completedAt: "2026-08-18T12:05:00.000Z",
+      elapsedSeconds: 300,
+    });
+
+    expect(getMigration("migration-1")).toMatchObject({ state: "succeeded", elapsedSeconds: 300 });
+    expect(activeMigrationRuns.isActive("migration-1")).toBe(false);
+    expect(drains).toBe(1);
+  });
+
+  test("preserves an event-persisted terminal state", () => {
+    insertMigration(migration("migration-1"));
+    const registration = claimedRun("migration-1");
+    updateMigrationState("migration-1", "succeeded");
+    createMigrationRunFinisher(() => {}).settleResult(
+      "migration-1",
+      registration.token,
+      migration("migration-1", "failed"),
+    );
+    expect(getMigration("migration-1")?.state).toBe("succeeded");
+  });
+
+  test("requires reconciliation for a non-cancelled result while cancellation is pending", () => {
+    insertMigration(migration("migration-1", "cancelling"));
+    const registration = claimedRun("migration-1");
+    createMigrationRunFinisher(() => {}).settleResult(
+      "migration-1",
+      registration.token,
+      migration("migration-1", "succeeded"),
+    );
+    expect(getMigration("migration-1")).toMatchObject({
+      state: "reconciliation_required",
+      failureReason: "Migration settled remotely while cancellation was pending",
+    });
+  });
+
+  test("marks a crashed run failed and ignores stale settlement", () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    insertMigration(migration("migration-1"));
+    const registration = claimedRun("migration-1");
+    const finisher = createMigrationRunFinisher(() => {});
+    try {
+      finisher.settleError("migration-1", registration.token, new Error("executor crashed"));
+      expect(getMigration("migration-1")).toMatchObject({
+        state: "failed",
+        failureReason: "executor crashed",
+      });
+      finisher.settleResult(
+        "migration-1",
+        registration.token,
+        migration("migration-1", "succeeded"),
+      );
+      expect(getMigration("migration-1")?.state).toBe("failed");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});

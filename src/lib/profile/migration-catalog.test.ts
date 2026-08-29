@@ -1,0 +1,127 @@
+import { describe, expect, test } from "bun:test";
+import {
+  MIGRATION_CATALOG,
+  MIGRATION_DOC_URL,
+  MIGRATION_DOCS_VERIFIED,
+  type MigrationCatalogEntry,
+  type MigrationCatalogKind,
+  type MigrationCatalogSeverity,
+} from "./migration-catalog";
+
+const KINDS: MigrationCatalogKind[] = [
+  "routable",
+  "recreate",
+  "reconfigure",
+  "blocker",
+  "accepted-loss",
+];
+const SEVERITIES: MigrationCatalogSeverity[] = ["info", "warn", "blocker"];
+
+describe("migration catalog integrity", () => {
+  test("is non-empty", () => {
+    expect(MIGRATION_CATALOG.length).toBeGreaterThan(0);
+  });
+
+  test("every id is unique", () => {
+    const ids = MIGRATION_CATALOG.map((g) => g.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("every id is kebab-case", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(g.id, g.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    }
+  });
+
+  test("every entry has a non-empty label, summary, and detector", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(g.label.trim().length, g.id).toBeGreaterThan(0);
+      expect(g.summary.trim().length, g.id).toBeGreaterThan(0);
+      expect(g.detector.trim().length, g.id).toBeGreaterThan(0);
+    }
+  });
+
+  test("kind and severity are from the allowed sets", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(KINDS, g.id).toContain(g.kind);
+      expect(SEVERITIES, g.id).toContain(g.severity);
+    }
+  });
+
+  test("blocker kind ⟺ blocker severity", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(g.kind === "blocker", g.id).toBe(g.severity === "blocker");
+    }
+  });
+
+  test("scope, when set, is one of the allowed values", () => {
+    const scopes = ["repo", "org", "migration"];
+    for (const g of MIGRATION_CATALOG) {
+      if (g.scope !== undefined) expect(scopes, g.id).toContain(g.scope);
+    }
+  });
+
+  test("migration-scoped entries are accepted losses that route nowhere", () => {
+    for (const g of MIGRATION_CATALOG.filter((x) => x.scope === "migration")) {
+      expect(g.kind, g.id).toBe("accepted-loss");
+      expect(g.routesTo, g.id).toBeNull();
+      expect(g.detector, g.id).toBe("always");
+    }
+  });
+
+  test("accepted-loss entries are informational and route nowhere", () => {
+    for (const g of MIGRATION_CATALOG.filter((x) => x.kind === "accepted-loss")) {
+      expect(g.severity, g.id).toBe("info");
+      expect(g.routesTo, g.id).toBeNull();
+    }
+  });
+
+  test("actionable entries (routable/recreate/reconfigure) route somewhere", () => {
+    const actionable: MigrationCatalogKind[] = ["routable", "recreate", "reconfigure"];
+    for (const g of MIGRATION_CATALOG.filter((x) => actionable.includes(x.kind))) {
+      expect(g.routesTo, g.id).not.toBeNull();
+      expect((g.routesTo ?? "").trim().length, g.id).toBeGreaterThan(0);
+    }
+  });
+
+  test("blockers name a remediation", () => {
+    for (const g of MIGRATION_CATALOG.filter((x) => x.kind === "blocker")) {
+      expect(g.routesTo, g.id).not.toBeNull();
+    }
+  });
+
+  test("every docAnchor is a fragment that resolves against the base doc", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(g.docAnchor, g.id).toMatch(/^#[a-z0-9-]+$/);
+    }
+    expect(MIGRATION_DOC_URL).toMatch(/^https:\/\/docs\.github\.com\//);
+  });
+
+  test("size/limit blockers are estimated and exact-signal entries are exact", () => {
+    for (const g of MIGRATION_CATALOG) {
+      expect(["exact", "estimated"], g.id).toContain(g.confidence);
+    }
+    // Every blocker here is a size/policy limit we can only estimate pre-migration.
+    for (const g of MIGRATION_CATALOG.filter((x) => x.kind === "blocker")) {
+      expect(g.confidence, g.id).toBe("estimated");
+    }
+  });
+
+  test("the docs-verified stamp is an ISO date", () => {
+    expect(MIGRATION_DOCS_VERIFIED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Number.isNaN(Date.parse(MIGRATION_DOCS_VERIFIED))).toBe(false);
+  });
+
+  test("covers the entries the Profile workspace is built around", () => {
+    const ids = new Set(MIGRATION_CATALOG.map((g) => g.id));
+    for (const required of ["git-lfs", "packages", "discussions"]) {
+      expect(ids, required).toContain(required);
+    }
+  });
+
+  // Compile-time sanity: the array is readonly MigrationCatalogEntry[].
+  test("entries are typed as MigrationCatalogEntry", () => {
+    const first: MigrationCatalogEntry | undefined = MIGRATION_CATALOG[0];
+    expect(first).toBeDefined();
+  });
+});

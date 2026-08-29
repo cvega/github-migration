@@ -1,0 +1,379 @@
+import type {
+  BatchListItem,
+  BatchMigrationRequest,
+  BatchSummary,
+  CreateMigrationRequest,
+  Migration,
+  MigrationEvent,
+  MigrationState,
+  MigrationStats,
+  MigrationStatsFilters,
+  PaginatedResult,
+  PaginationParams,
+  RestartMigrationRequest,
+} from "$lib/migrate/types";
+import { isCancellableMigrationState, isExecutingMigrationState } from "$lib/migration-state";
+import { supportsMigrationTarget } from "$lib/migration-target";
+import { getDb } from "$lib/server/core/db";
+import { requireMigrationTargetProfile } from "$lib/server/core/targets";
+import { resolveEffectiveSourceApiUrl, validateCredentialScope } from "$lib/server/validate";
+import { getSourceProjectIdentity, getSourceProviderAdapter } from "$lib/source-provider";
+import {
+  getBatchListItem,
+  getBatchMigrations,
+  getBatchMigrationsPaginated,
+  getBatchSourceProviderValues,
+  getBatchSummary,
+  getRestartableBatchSourceProviderValues,
+  listBatchItemsPaginated,
+  searchBatchItemsPaginated,
+} from "./database/batches";
+import { getEvents, getRecentActivity, insertEvent } from "./database/events";
+import {
+  claimMigrationCancellation,
+  claimQueuedMigrationCancellation,
+  getBatchMigrationByItem,
+  getMigration,
+  insertMigration,
+  listMigrationsPaginated,
+  resetMigration,
+  searchMigrationsPaginated,
+} from "./database/migrations";
+import { getMigrationStats, getStateCounts } from "./database/stats";
+import { getExecutorForMigration, getRegisteredMigrationExecutor } from "./executors/registry";
+import { activeMigrationRuns } from "./runs/active";
+import {
+  broadcastMigrationEvent,
+  closeMigrationEventStream,
+  createMigrationEventHandler,
+  subscribeToGlobalMigrationEvents,
+  subscribeToMigrationEvents,
+} from "./runs/events";
+import { createMigrationRunFinisher } from "./runs/finish";
+import { drainMigrationQueue, getCapacityUsage, MAX_CONCURRENT_MIGRATIONS } from "./runs/queue";
+import { recoverMigrationRuns } from "./runs/recovery";
+import {
+  determineAuthModeFromRequest,
+  requireCredentialScope,
+  serializeRequestOptions,
+} from "./validate";
+
+export { MAX_CONCURRENT_MIGRATIONS } from "./runs/queue";
+export {
+  subscribeToGlobalMigrationEvents as subscribeGlobal,
+  subscribeToMigrationEvents as subscribe,
+};
+
+function drainQueue(): void {
+  drainMigrationQueue(launchPipeline);
+}
+
+const finisher = createMigrationRunFinisher(drainQueue);
+
+function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
+  const migration = getMigration(id);
+  const executor = getRegisteredMigrationExecutor({
+    sourceProvider: request.sourceProvider,
+    targetPlatform: migration?.targetPlatform,
+  });
+  const registration = activeMigrationRuns.claim(id, migration?.state === "cancelling");
+  if (!registration) return false;
+  const promise = Promise.resolve()
+    .then(() =>
+      executor.run({
+        ...request,
+        id,
+        signal: registration.signal,
+        emit: createMigrationEventHandler(id, registration.token),
+      }),
+    )
+    .then((result) => finisher.settleResult(id, registration.token, result))
+    .catch((error) => finisher.settleError(id, registration.token, error));
+  activeMigrationRuns.attach(id, registration.token, promise);
+  return true;
+}
+
+function launchRecoveredPipeline(migration: Migration): boolean {
+  const executor = getExecutorForMigration(migration);
+  const registration = activeMigrationRuns.claim(migration.id);
+  if (!registration) return false;
+  const promise = Promise.resolve()
+    .then(() =>
+      executor.resume(
+        migration,
+        createMigrationEventHandler(migration.id, registration.token),
+        registration.signal,
+      ),
+    )
+    .then((result) => finisher.settleResult(migration.id, registration.token, result))
+    .catch((error) => finisher.settleError(migration.id, registration.token, error));
+  activeMigrationRuns.attach(migration.id, registration.token, promise);
+  return true;
+}
+
+export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+  const sourceProvider = request.sourceProvider ?? "github";
+  const target = requireMigrationTargetProfile(request.targetProfileId);
+  if (!supportsMigrationTarget(sourceProvider, target.platform)) {
+    throw new TypeError(
+      `${getSourceProviderAdapter(sourceProvider).displayName} cannot target ${target.platform.toUpperCase()}`,
+    );
+  }
+  getRegisteredMigrationExecutor({ sourceProvider, targetPlatform: target.platform });
+  requireCredentialScope(request);
+  const identity = getSourceProjectIdentity(sourceProvider, request.sourceRepo);
+  const migration: Migration = {
+    id: Bun.randomUUIDv7(),
+    batchId: batchId ?? null,
+    githubMigrationId: null,
+    sourceProvider,
+    sourceApiUrl: resolveEffectiveSourceApiUrl(request),
+    targetProfileId: target.id,
+    targetPlatform: target.platform,
+    targetApiUrl: target.apiUrl,
+    sourceOrg: identity.namespace,
+    sourceRepo: identity.name,
+    targetOrg: request.targetOrg,
+    targetRepo: request.targetRepo || identity.name,
+    state: "pending",
+    failureReason: null,
+    migrationLogUrl: null,
+    warningsCount: 0,
+    sourceCounts: null,
+    targetCounts: null,
+    sourceSizeKb: null,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    elapsedSeconds: null,
+    authMode: null,
+    requestOptions: null,
+  };
+  let queued = false;
+  let existing: Migration | null = null;
+  getDb().transaction(() => {
+    if (getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS) {
+      queued = true;
+      migration.state = "queued";
+      migration.authMode = determineAuthModeFromRequest(request);
+      migration.requestOptions = serializeRequestOptions(request);
+    }
+    try {
+      insertMigration(migration);
+    } catch (error) {
+      existing = batchId
+        ? getBatchMigrationByItem(
+            batchId,
+            migration.sourceOrg,
+            migration.sourceRepo,
+            migration.targetRepo,
+          )
+        : null;
+      if (!existing) throw error;
+    }
+  })();
+  if (existing) return existing;
+  if (queued) activeMigrationRuns.enqueue(migration.id, request);
+  else if (!launchPipeline(migration.id, request))
+    throw new Error("Migration could not be launched");
+  return migration;
+}
+
+export function cancel(migrationId: string): boolean {
+  const migration = getMigration(migrationId);
+  if (!migration) return false;
+  try {
+    getExecutorForMigration(migration);
+  } catch {
+    return false;
+  }
+  if (migration.state === "queued") {
+    if (!claimQueuedMigrationCancellation(migrationId)) return false;
+    activeMigrationRuns.dropQueued(migrationId);
+    closeMigrationEventStream(migrationId, "cancelled");
+    return true;
+  }
+  if (!isExecutingMigrationState(migration.state)) return false;
+  if (!claimMigrationCancellation(migrationId)) return false;
+  activeMigrationRuns.abort(migrationId);
+  return true;
+}
+
+function restartRequest(
+  existing: Migration,
+  credentials: RestartMigrationRequest,
+): CreateMigrationRequest {
+  return {
+    ...credentials,
+    sourceProvider: existing.sourceProvider,
+    sourceApiUrl: existing.sourceApiUrl,
+    targetProfileId: existing.targetProfileId,
+    sourceRepo: `${existing.sourceOrg}/${existing.sourceRepo}`,
+    targetOrg: existing.targetOrg,
+    targetRepo: existing.targetRepo,
+  };
+}
+
+export function restart(migrationId: string, credentials: RestartMigrationRequest): Migration {
+  const existing = getMigration(migrationId);
+  if (!existing) throw new Error("Migration not found");
+  getExecutorForMigration(existing);
+  if (activeMigrationRuns.isActive(migrationId)) {
+    throw new Error("Cannot restart migration while its previous run is still stopping");
+  }
+  if (existing.state !== "failed" && existing.state !== "cancelled") {
+    throw new Error(`Cannot restart migration in state "${existing.state}"`);
+  }
+  const request = restartRequest(existing, credentials);
+  requireCredentialScope(request);
+  const event: MigrationEvent = {
+    migrationId,
+    eventType: "restart",
+    phase: null,
+    payload: { message: `Migration restarted (previously ${existing.state})` },
+    createdAt: new Date().toISOString(),
+  };
+  let queued = false;
+  getDb().transaction(() => {
+    queued = getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS;
+    if (
+      !resetMigration(
+        migrationId,
+        queued ? "queued" : "pending",
+        determineAuthModeFromRequest(request),
+        serializeRequestOptions(request),
+      )
+    )
+      throw new Error("Migration was already claimed for restart");
+    event.id = insertEvent(event);
+  })();
+  broadcastMigrationEvent(migrationId, event);
+  if (queued) activeMigrationRuns.enqueue(migrationId, request);
+  else if (!launchPipeline(migrationId, request))
+    throw new Error("Migration restart could not be launched");
+  const updated = getMigration(migrationId);
+  if (!updated) throw new Error(`Migration ${migrationId} not found after restart`);
+  return updated;
+}
+
+export function confirmRestart(migrationId: string, confirmation: string): Migration {
+  const existing = getMigration(migrationId);
+  if (!existing) throw new Error("Migration not found");
+  getExecutorForMigration(existing);
+  const expected = `${existing.targetOrg}/${existing.targetRepo}`;
+  if (confirmation !== expected) throw new Error(`Confirmation must exactly match "${expected}"`);
+  const event: MigrationEvent = {
+    migrationId,
+    eventType: "step",
+    phase: null,
+    payload: {
+      message:
+        "Operator confirmed the remote migration is not active; migration is now eligible for restart.",
+    },
+    createdAt: new Date().toISOString(),
+  };
+  getDb().transaction(() => {
+    const result = getDb()
+      .prepare(
+        "UPDATE migrations SET state = 'failed' WHERE id = ? AND state = 'reconciliation_required'",
+      )
+      .run(migrationId);
+    if (result.changes !== 1) {
+      throw new Error(
+        `Cannot confirm restart for migration in state "${getMigration(migrationId)?.state ?? "missing"}"`,
+      );
+    }
+    event.id = insertEvent(event);
+  })();
+  broadcastMigrationEvent(migrationId, event);
+  return getMigration(migrationId) as Migration;
+}
+
+export function startBatch(
+  request: BatchMigrationRequest,
+  requestedBatchId?: string,
+): BatchSummary {
+  const sourceProvider = request.sourceProvider ?? "github";
+  const scopeError = validateCredentialScope(request);
+  if (scopeError) throw new TypeError(scopeError);
+  const batchId = requestedBatchId ?? Bun.randomUUIDv7();
+  const items =
+    request.items ??
+    request.repos?.map((sourceRepo) => ({ sourceRepo, targetRepo: undefined })) ??
+    [];
+  const existingItems = new Set(
+    (getBatchSummary(batchId)?.migrations ?? []).map((migration) =>
+      `${migration.sourceOrg}/${migration.sourceRepo}\0${migration.targetRepo}`.toLowerCase(),
+    ),
+  );
+  for (const item of items) {
+    const sourceRepo = item.sourceRepo.trim();
+    if (!sourceRepo) continue;
+    const targetRepo = item.targetRepo || getSourceProjectIdentity(sourceProvider, sourceRepo).name;
+    const key = `${sourceRepo}\0${targetRepo}`.toLowerCase();
+    if (existingItems.has(key)) continue;
+    existingItems.add(key);
+    start({ ...request, sourceProvider, sourceRepo, targetRepo }, batchId);
+  }
+  const summary = getBatchSummary(batchId);
+  if (!summary) throw new Error("Batch contains no migrations");
+  return summary;
+}
+
+export function cancelBatch(batchId: string): number {
+  let count = 0;
+  for (const migration of getBatchMigrations(batchId)) {
+    if (isCancellableMigrationState(migration.state) && cancel(migration.id)) count += 1;
+  }
+  return count;
+}
+
+export function restartBatch(batchId: string, credentials: RestartMigrationRequest) {
+  for (const provider of getRestartableBatchSourceProviderValues(batchId)) {
+    if (!getSourceProviderAdapter(provider as Migration["sourceProvider"])) {
+      throw new TypeError(`Migration restart is unavailable for source provider '${provider}'`);
+    }
+  }
+  const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
+  for (const migration of getBatchMigrations(batchId)) {
+    if (migration.state !== "failed" && migration.state !== "cancelled") continue;
+    try {
+      restart(migration.id, credentials);
+      results.restarted += 1;
+    } catch (error) {
+      results.errors.push({
+        id: migration.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
+export const get = getMigration;
+export const listPaginated = listMigrationsPaginated;
+export const searchPaginated = searchMigrationsPaginated;
+export const getBatch = getBatchSummary;
+export const listBatchesPaginated = listBatchItemsPaginated;
+export const searchBatchesPaginated = searchBatchItemsPaginated;
+export const recentActivity = getRecentActivity;
+export const events = getEvents;
+
+export function getBatchSourceProviders(batchId: string): string[] {
+  return getBatchSourceProviderValues(batchId);
+}
+export function getBatchPaginated(
+  batchId: string,
+  params: PaginationParams,
+): { summary: BatchListItem; migrations: PaginatedResult<Migration> } | null {
+  const summary = getBatchListItem(batchId);
+  return summary ? { summary, migrations: getBatchMigrationsPaginated(batchId, params) } : null;
+}
+export function stats(filters?: MigrationStatsFilters): MigrationStats {
+  return getMigrationStats(filters);
+}
+export function stateCounts(): Record<MigrationState, number> {
+  return getStateCounts();
+}
+export function recoverOrphans(): void {
+  recoverMigrationRuns({ launchRecoveredPipeline, drainQueue });
+}

@@ -1,0 +1,82 @@
+import { expect, test } from "bun:test";
+import { type DockerExporterDependencies, DockerExporterWorker } from "./docker";
+
+test("creates a sandboxed exporter and verifies its archive", async () => {
+  const calls: Array<{
+    args: string[];
+    environment?: Record<string, string>;
+  }> = [];
+  const removed: string[] = [];
+  const dependencies: DockerExporterDependencies = {
+    run: async (args, _signal, environment) => {
+      calls.push({ args, environment });
+      if (args[1] === "inspect") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({ Status: "exited", Running: false, ExitCode: 0 }),
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    hash: async () => "a".repeat(64),
+    stat: async () => ({ isFile: () => true, isSymbolicLink: () => false }),
+    remove: async (path) => {
+      removed.push(path);
+    },
+  };
+  const worker = new DockerExporterWorker(
+    {
+      exporterRuntime: "docker",
+      exporterImage: "example/exporter:1",
+      exporterArchiveVolume: "migration-archives",
+      archiveDirectory: "/archives",
+      sandbox: {
+        cpus: 2,
+        memory: "2g",
+        network: "none",
+        pidsLimit: 128,
+        tmpfsSize: "64m",
+      },
+    },
+    {
+      provider: "gitlab",
+      jobPrefix: "gh-migrate-gl",
+      displayName: "GitLab",
+      command: (_request, output) => ({
+        environment: ["EXPORT_TOKEN=secret-value"],
+        arguments: ["export", "--output", output],
+      }),
+    },
+    dependencies,
+  );
+  const request = {
+    migrationId: "Migration 1",
+    sourceProvider: "gitlab" as const,
+    sourceApiUrl: "https://gitlab.example/api/v4",
+    sourceOrg: "platform",
+    sourceRepo: "service",
+    lockSource: true,
+  };
+
+  const submission = await worker.submit(request);
+  const status = await worker.inspect(submission.jobId);
+
+  expect(submission).toEqual({ jobId: "gh-migrate-gl-migration-1" });
+  expect(removed).toEqual(["/archives/gh-migrate-gl-migration-1.tar.gz"]);
+  expect(calls.map(({ args }) => args[1])).toEqual(["create", "start", "inspect"]);
+  expect(calls[0]?.args).toContain("--read-only");
+  expect(calls[0]?.args).toContain("no-new-privileges");
+  expect(calls[0]?.args).toContain("none");
+  expect(calls[0]?.args).toContain("EXPORT_TOKEN");
+  expect(calls[0]?.args).not.toContain("secret-value");
+  expect(calls[0]?.environment).toEqual({ EXPORT_TOKEN: "secret-value" });
+  expect(status).toEqual({
+    jobId: "gh-migrate-gl-migration-1",
+    state: "succeeded",
+    archive: {
+      path: "/archives/gh-migrate-gl-migration-1.tar.gz",
+      sha256: "a".repeat(64),
+    },
+  });
+});

@@ -1,0 +1,146 @@
+@import "@primer/primitives/dist/css/functional/themes/dark.css";
+@import "tailwindcss";
+
+@font-face {
+	font-family: "Mona Sans";
+	src: url("/fonts/MonaSans-Variable.woff2") format("woff2");
+	font-weight: 200 900;
+	font-style: normal;
+	font-display: swap;
+	font-optical-sizing: auto;
+}
+
+@font-face {
+	font-family: "Mona Sans Mono";
+	src: url("/fonts/MonaSansMono-Variable.woff2") format("woff2");
+	font-weight: 200 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@theme {
+	--color-gray-50: var(--fgColor-default);
+	--color-gray-100: var(--fgColor-default);
+	--color-gray-200: var(--fgColor-default);
+	--color-gray-300: var(--fgColor-muted);
+	--color-gray-400: var(--fgColor-muted);
+	--color-gray-500: var(--fgColor-muted);
+	--color-gray-600: var(--borderColor-default);
+	--color-gray-700: var(--borderColor-default);
+	--color-gray-800: var(--control-bgColor-rest);
+	--color-gray-900: var(--bgColor-muted);
+	--color-gray-950: var(--bgColor-default);
+	--color-green-50: var(--fgColor-onEmphasis);
+	--color-green-100: var(--fgColor-success);
+	--color-green-200: var(--fgColor-success);
+	--color-green-300: var(--fgColor-success);
+	--color-green-400: var(--fgColor-success);
+	--color-green-500: var(--fgColor-success);
+	--color-green-600: var(--bgColor-success-emphasis);
+	--color-green-700: var(--borderColor-success-emphasis);
+	--color-green-800: var(--bgColor-success-muted);
+	--color-green-900: var(--bgColor-success-muted);
+	--color-green-950: var(--bgColor-success-muted);
+	--color-blue-50: var(--fgColor-onEmphasis);
+	--color-blue-100: var(--fgColor-accent);
+	--color-blue-200: var(--fgColor-accent);
+	--color-blue-300: var(--fgColor-accent);
+	--color-blue-400: var(--fgColor-accent);
+	--color-blue-500: var(--borderColor-accent-emphasis);
+	--color-blue-600: var(--bgColor-accent-emphasis);
+	--color-blue-700: var(--borderColor-accent-emphasis);
+	--color-blue-800: var(--bgColor-accent-muted);
+	--color-blue-900: var(--bgColor-accent-muted);
+	--color-blue-950: var(--bgColor-accent-muted);
+	--color-red-50: var(--fgColor-onEmphasis);
+	--color-red-100: var(--fgColor-danger);
+	--color-red-200: var(--fgColor-danger);
+	--color-red-300: var(--fgColor-danger);
+	--color-red-400: var(--fgColor-danger);
+	--color-red-500: var(--borderColor-danger-emphasis);
+	--color-red-600: var(--bgColor-danger-emphasis);
+	--color-red-700: var(--borderColor-danger-emphasis);
+	--color-red-800: var(--bgColor-danger-muted);
+	--color-red-900: var(--bgColor-danger-muted);
+	--color-red-950: var(--bgColor-danger-muted);
+	--color-yellow-50: var(--fgColor-onEmphasis);
+	--color-yellow-100: var(--fgColor-attention);
+	--color-yellow-200: var(--fgColor-attention);
+	--color-yellow-300: var(--fgColor-attention);
+	--color-yellow-400: var(--fgColor-attention);
+	--color-yellow-500: var(--borderColor-attention-emphasis);
+	--color-yellow-600: var(--bgColor-attention-emphasis);
+	--color-yellow-700: var(--borderColor-attention-emphasis);
+	--color-yellow-800: var(--bgColor-attention-muted);
+	--color-yellow-900: var(--bgColor-attention-muted);
+	--color-yellow-950: var(--bgColor-attention-muted);
+	--color-amber-300: var(--fgColor-attention);
+	--color-amber-400: var(--fgColor-attention);
+	--color-amber-500: var(--borderColor-attention-emphasis);
+	--color-amber-600: var(--bgColor-attention-emphasis);
+	--color-orange-300: var(--fgColor-severe);
+	--color-orange-400: var(--fgColor-severe);
+	--color-orange-500: var(--borderColor-severe-emphasis);
+	--color-orange-600: var(--bgColor-severe-emphasis);
+	--color-purple-400: var(--fgColor-done);
+	--color-purple-500: var(--fgColor-done);
+	--color-purple-600: var(--bgColor-done-emphasis);
+	--color-purple-700: var(--borderColor-done-emphasis);
+	--color-violet-300: var(--fgColor-done);
+	--color-violet-400: var(--fgColor-done);
+	--color-violet-500: var(--fgColor-done);
+	--color-violet-600: var(--bgColor-done-emphasis);
+	--color-violet-700: var(--borderColor-done-emphasis);
+	--color-pink-400: var(--fgColor-sponsors);
+	--color-pink-500: var(--borderColor-sponsors-emphasis);
+	--color-pink-600: var(--bgColor-sponsors-emphasis);
+	--color-teal-400: var(--data-teal-color-emphasis);
+	--color-teal-500: var(--data-teal-color-emphasis);
+	--color-teal-600: var(--data-teal-color-emphasis);
+	--color-teal-900: var(--data-teal-color-muted);
+	--color-cyan-400: var(--data-teal-color-emphasis);
+	--color-cyan-500: var(--data-teal-color-emphasis);
+	--color-sky-400: var(--data-blue-color-emphasis);
+	--font-sans: "Mona Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica,
+		Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+	--font-mono: "Mona Sans Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+		"Liberation Mono", monospace;
+}
+
+html {
+	color-scheme: dark;
+	background: var(--bgColor-default);
+}
+
+body {
+	background: var(--bgColor-default);
+	color: var(--fgColor-default);
+}
+
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--bgColor-default);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--borderColor-default);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--borderColor-emphasis);
+}
+
+::selection {
+	background: var(--selection-bgColor);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	html {
+		scroll-behavior: smooth;
+	}
+}

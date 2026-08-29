@@ -1,0 +1,137 @@
+export const SOURCE_PROVIDERS = ["github", "gitlab", "bitbucket-server"] as const;
+
+export type SourceProvider = (typeof SOURCE_PROVIDERS)[number];
+
+type ObservationUnavailableReason = "forbidden" | "not-found-or-hidden" | "not-reported";
+
+export type NumericObservation =
+  | { kind: "exact"; value: number }
+  | { kind: "at-least"; value: number }
+  | { kind: "unavailable"; reason: ObservationUnavailableReason };
+
+interface GitLabProjectDetails {
+  provider: "gitlab";
+  webUrl?: string;
+  description?: string | null;
+  topics?: string[];
+  emptyRepository?: boolean;
+  forkedFromPath?: string;
+  features?: {
+    issues?: boolean;
+    mergeRequests?: boolean;
+    wiki?: boolean;
+    snippets?: boolean;
+    containerRegistry?: boolean;
+  };
+}
+
+interface BitbucketServerProjectDetails {
+  provider: "bitbucket-server";
+  webUrl?: string;
+  description?: string | null;
+  scmId?: string;
+  forkable?: boolean;
+  forkedFromPath?: string;
+  state?: string;
+}
+
+export type SourceProjectProviderDetails = GitLabProjectDetails | BitbucketServerProjectDetails;
+
+export interface SourceProjectInventory {
+  provider: SourceProvider;
+  sourceId: string;
+  path: string;
+  name: string;
+  visibility: "public" | "private" | "internal";
+  archived: boolean;
+  defaultBranch: string | null;
+  lastActivityAt: string | null;
+  repositorySizeBytes: NumericObservation;
+  storageSizeBytes: NumericObservation;
+  lfsObjectsSizeBytes: NumericObservation;
+  packagesSizeBytes: NumericObservation;
+  wikiSizeBytes: NumericObservation;
+  uploadsSizeBytes: NumericObservation;
+  providerDetails?: SourceProjectProviderDetails;
+}
+
+export interface SourceInventoryProgress {
+  provider: SourceProvider;
+  namespace: string;
+  discovered: number;
+  page: number;
+}
+
+export interface SourceNamespaceInventory {
+  version: 1;
+  provider: SourceProvider;
+  sourceApiUrl: string;
+  namespace: string;
+  projectCount: NumericObservation;
+  projects: SourceProjectInventory[];
+}
+
+export type ProfileNumericObservation =
+  | {
+      kind: "exact";
+      value: number;
+      basis: "reported" | "enumerated";
+      scope: string;
+    }
+  | {
+      kind: "at-least";
+      value: number;
+      reason: "item-cap" | "page-cap" | "request-budget" | "pagination-uncertain";
+      scope: string;
+    }
+  | {
+      kind: "unavailable";
+      reason:
+        | "forbidden"
+        | "not-found-or-hidden"
+        | "not-reported"
+        | "unsupported"
+        | "malformed"
+        | "transient-failure";
+      scope: string;
+    };
+
+export interface ProfileNumericMetric {
+  provider: SourceProvider;
+  endpointFamily: string;
+  collectedAt: string;
+  observation: ProfileNumericObservation;
+}
+
+export interface GitLabProjectMetrics {
+  issues: ProfileNumericMetric;
+  mergeRequests: ProfileNumericMetric;
+  commits: ProfileNumericMetric;
+  branches: ProfileNumericMetric;
+  tags: ProfileNumericMetric;
+  releases: ProfileNumericMetric;
+}
+
+export interface GitLabProfileEnrichment {
+  version: 2;
+  provider: "gitlab";
+  sourceApiUrl: string;
+  namespace: string;
+  projects: Array<{ sourceId: string; path: string; metrics: GitLabProjectMetrics }>;
+}
+
+export interface BitbucketProjectMetrics {
+  commits: ProfileNumericMetric;
+  pullRequests: ProfileNumericMetric;
+  branches: ProfileNumericMetric;
+  tags: ProfileNumericMetric;
+  forks: ProfileNumericMetric;
+}
+
+export interface BitbucketProfileEnrichment {
+  version: 2;
+  provider: "bitbucket-server";
+  sourceApiUrl: string;
+  namespace: string;
+  projects: Array<{ sourceId: string; path: string; metrics: BitbucketProjectMetrics }>;
+}
