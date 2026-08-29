@@ -22,23 +22,41 @@ build. Keep the Bun image and lockfile versions synchronized.
 
 ## Authentication And Network
 
-Configure either explicit unauthenticated mode on a trusted network or all of
-`GH_MIGRATE_USER`, `GH_MIGRATE_PASS`, and `GH_MIGRATE_SESSION_SECRET`. Bind to
+Configure either explicit unauthenticated mode on a trusted network or
+`GH_MIGRATE_USER` and `GH_MIGRATE_PASS` for the first authenticated startup.
+Those values create the first administrator only while the user table is empty;
+remove them after confirming that administrator can sign in.
+`GH_MIGRATE_SESSION_SECRET` is deprecated and no longer signs sessions. Bind to
 `0.0.0.0` only when a firewall or reverse proxy provides the intended boundary.
 
 Behind TLS termination, set `ORIGIN` to the public URL. Configure forwarded
 client addressing only when all traffic must pass through one trusted proxy;
 otherwise clients could spoof their address and weaken login throttling.
 
+Administrators can add, disable, and reset users from **Manage users**. A reset
+produces a temporary password shown once and revokes the user's sessions. If no
+administrator can sign in, stop the dashboard and run:
+
+```bash
+bun run auth:reset --username <administrator>
+```
+
+The command refuses to run while another process holds the data-directory lock.
+
 ## Volumes
 
-- `/data` contains SQLite, WAL files, and the lifetime instance lock.
+- `/data` contains SQLite, WAL files, password hashes, live sessions, audit events, and the lifetime instance lock.
 - `/archives` contains transient source exports and is shared with exporter containers.
 
 Back up SQLite with an online SQLite backup or a WAL-aware snapshot. Copying
 only the main database file while the process is running can omit committed WAL
 transactions. Restore the database and associated archives with the dashboard
 stopped, then verify `/api/ready` before routing traffic.
+
+Failed sign-in rows are retained for 24 hours. Expired and revoked sessions are
+retained for 30 days; audit events are retained indefinitely. Protect database
+backups as authentication data even though plaintext passwords and raw session
+tokens are never stored.
 
 ## Promotion And Rollback
 

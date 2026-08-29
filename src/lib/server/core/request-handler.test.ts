@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Handle } from "@sveltejs/kit";
+import type { AuthPrincipal } from "./auth/model";
 import { createRequestHandler } from "./request-handler";
 
 type HandleInput = Parameters<Handle>[0];
@@ -42,10 +43,39 @@ function inputFor(
 }
 
 function handler(authEnabled = true): Handle {
+  const principal: AuthPrincipal = {
+    user: {
+      id: "user-1",
+      username: "operator",
+      displayName: null,
+      role: "operator",
+      isActive: true,
+      mustChangePassword: false,
+    },
+    sessionTokenHash: "valid-hash",
+  };
   return createRequestHandler({
     authEnabled,
     sessionCookie: "session",
-    isValidSession: (token) => token === "valid",
+    resolveSession: (token) => (token === "valid" ? principal : null),
+  });
+}
+
+function passwordChangeHandler(): Handle {
+  return createRequestHandler({
+    authEnabled: true,
+    sessionCookie: "session",
+    resolveSession: () => ({
+      user: {
+        id: "user-1",
+        username: "operator",
+        displayName: null,
+        role: "operator",
+        isActive: true,
+        mustChangePassword: true,
+      },
+      sessionTokenHash: "valid-hash",
+    }),
   });
 }
 
@@ -116,6 +146,24 @@ describe("request authentication hook", () => {
 
     expect(response.status).toBe(200);
     expect(fixture.resolved()).toBe(1);
+    expect(fixture.locals.user?.username).toBe("operator");
+    expect(fixture.locals.sessionTokenHash).toBe("valid-hash");
+  });
+
+  test("requires a password change before protected pages and APIs", async () => {
+    const pageFixture = inputFor("/migrate", { cookie: "valid" });
+    await expect(passwordChangeHandler()(pageFixture.input)).rejects.toMatchObject({
+      status: 302,
+      location: "/account/password",
+    });
+
+    const apiFixture = inputFor("/api/migrate", { cookie: "valid" });
+    const apiResponse = await passwordChangeHandler()(apiFixture.input);
+    expect(apiResponse.status).toBe(403);
+    expect(await apiResponse.json()).toEqual({ error: "Password change required" });
+
+    const passwordFixture = inputFor("/account/password", { cookie: "valid" });
+    expect((await passwordChangeHandler()(passwordFixture.input)).status).toBe(200);
   });
 
   test("allows API clients that do not send an Origin header", async () => {

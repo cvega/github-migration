@@ -27,6 +27,7 @@
 		>
 			{#if form?.error}
 				<div
+					role="alert"
 					class="flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
 				>
 					<Octicon name="alert" size={16} />
@@ -44,6 +45,7 @@
 					type="text"
 					required
 					autocomplete="username"
+						value={form?.username ?? ""}
 					class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
 			</div>

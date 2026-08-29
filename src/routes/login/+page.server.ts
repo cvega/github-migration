@@ -1,42 +1,55 @@
-import { redirect } from "@sveltejs/kit";
+import { fail, redirect } from "@sveltejs/kit";
+import { recordAuditEvent } from "$lib/server/core/auth/audit";
+import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
 import {
-  authEnabled,
-  createSessionToken,
-  isRateLimited,
-  recordFailedAttempt,
-  SESSION_COOKIE,
-  SESSION_MAX_AGE,
-  validateCredentials,
-} from "$lib/server/core/session";
+  clearFailedLogins,
+  isLoginThrottled,
+  LOGIN_WINDOW_SECONDS,
+  recordFailedLogin,
+} from "$lib/server/core/auth/throttle";
+import { verifyCredentials } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async () => {
-  if (!authEnabled) redirect(302, "/");
+export const load: PageServerLoad = async ({ locals }) => {
+  if (!locals.authEnabled) redirect(302, "/");
+  if (locals.user) {
+    redirect(302, locals.user.mustChangePassword ? "/account/password" : "/");
+  }
   return {};
 };
 
 export const actions: Actions = {
-  default: async ({ request, cookies, getClientAddress, url }) => {
+  default: async ({ request, cookies, getClientAddress, locals, setHeaders, url }) => {
+    if (!locals.authEnabled) redirect(302, "/");
     const ip = getClientAddress();
-    if (isRateLimited(ip)) {
-      return { success: false, error: "Too many failed attempts - try again later." };
-    }
-
     const data = await request.formData();
     const username = data.get("username")?.toString() ?? "";
     const password = data.get("password")?.toString() ?? "";
-    if (!validateCredentials(username, password)) {
-      recordFailedAttempt(ip);
-      return { success: false, error: "Invalid username or password." };
+    if (isLoginThrottled(username, ip)) {
+      setHeaders({ "Retry-After": String(LOGIN_WINDOW_SECONDS) });
+      return fail(429, {
+        username,
+        error: "Too many sign-in attempts. Try again in a few minutes.",
+      });
     }
 
-    cookies.set(SESSION_COOKIE, createSessionToken(), {
+    const user = await verifyCredentials(username, password);
+    if (!user) {
+      recordFailedLogin(username, ip);
+      recordAuditEvent({ action: "auth.login.failed", ipAddress: ip, metadata: { username } });
+      return fail(401, { username, error: "Invalid username or password." });
+    }
+
+    clearFailedLogins(user.username, ip);
+    const token = createSession(user.id);
+    recordAuditEvent({ actorUserId: user.id, action: "auth.login.succeeded", ipAddress: ip });
+    cookies.set(SESSION_COOKIE, token, {
       path: "/",
       httpOnly: true,
       secure: url.protocol === "https:",
       sameSite: "lax",
       maxAge: SESSION_MAX_AGE,
     });
-    redirect(302, "/");
+    redirect(302, user.mustChangePassword ? "/account/password" : "/");
   },
 };

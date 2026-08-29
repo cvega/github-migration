@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { AuthUser } from "$lib/auth-user";
 import type { Migration } from "$lib/migrate/types";
 import { initStore } from "$lib/server/core/db";
-import { createSessionToken, SESSION_COOKIE } from "$lib/server/core/session";
 import { insertEvent } from "$lib/server/migrate/database/events";
 import { insertMigration } from "$lib/server/migrate/database/migrations";
 import { DOMAIN_STORES } from "$lib/server/schemas";
@@ -35,17 +35,23 @@ const SENTINELS = [
 
 let savedEnv: Record<string, string | undefined>;
 
-function event(authEnabled: boolean, session?: string) {
+const AUTHENTICATED_USER: AuthUser = {
+  id: "user-1",
+  username: "operator",
+  displayName: "Migration Operator",
+  role: "operator",
+  isActive: true,
+  mustChangePassword: false,
+};
+
+function event(authEnabled: boolean, user?: AuthUser) {
   return {
-    locals: { authEnabled },
-    cookies: {
-      get: (name: string) => (name === SESSION_COOKIE ? session : undefined),
-    },
+    locals: { authEnabled, user },
   };
 }
 
-async function loadLayout(authEnabled: boolean, session?: string) {
-  const data = await load(event(authEnabled, session) as Parameters<typeof load>[0]);
+async function loadLayout(authEnabled: boolean, user?: AuthUser) {
+  const data = await load(event(authEnabled, user) as Parameters<typeof load>[0]);
   if (!data) throw new Error("Root layout did not return data");
   return data;
 }
@@ -125,14 +131,10 @@ describe("root layout authentication boundary", () => {
     expectNoSentinels(data);
   });
 
-  test("returns only the public contract for an invalid session", async () => {
-    const data = await loadLayout(true, "invalid.session");
-    expect(data).toEqual({ authEnabled: true });
-    expectNoSentinels(data);
-  });
-
   test("retains operational data for a valid session", async () => {
-    const serialized = JSON.stringify(await loadLayout(true, createSessionToken()));
+    const data = await loadLayout(true, AUTHENTICATED_USER);
+    const serialized = JSON.stringify(data);
+    expect(data.currentUser).toEqual(AUTHENTICATED_USER);
     expect(serialized).toContain("internal-source.example.com");
     expect(serialized).toContain("internal-repo-sentinel");
     expect(serialized).toContain("failure-summary-sentinel");

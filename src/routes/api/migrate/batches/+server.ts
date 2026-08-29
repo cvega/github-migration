@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
@@ -18,7 +19,7 @@ export function __setBatchRouteDependenciesForTests(
   };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ locals, request }) => {
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) return json({ error: parsed.error }, { status: parsed.status });
   const validated = validateBody(batchMigrationSchema, parsed.data);
@@ -47,7 +48,13 @@ export const POST: RequestHandler = async ({ request }) => {
   const authError = validateAuthAvailable(body);
   if (authError) return json({ error: authError }, { status: 400 });
   try {
-    return json(startBatch(body), { status: 201 });
+    const batch = startBatch(body);
+    recordOperatorAuditEvent(locals, {
+      action: "batch.started",
+      resourceType: "batch",
+      resourceId: batch.id,
+    });
+    return json(batch, { status: 201 });
   } catch (error) {
     console.error("[api] POST /api/migrate/batches failed:", error);
     return json({ error: "Internal server error" }, { status: 500 });

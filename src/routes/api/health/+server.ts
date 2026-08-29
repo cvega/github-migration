@@ -1,16 +1,14 @@
 /** Public liveness probe with auth details limited to authenticated operators. */
 import { json } from "@sveltejs/kit";
 import { getAuthConfig } from "$lib/server/core/auth";
-import { authEnabled, isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ cookies }) => {
+export const GET: RequestHandler = async ({ locals }) => {
   const body: Record<string, unknown> = {
     status: "ok",
     timestamp: new Date().toISOString(),
   };
-  const sessionCookie = cookies.get(SESSION_COOKIE);
-  const authenticated = !authEnabled || (sessionCookie != null && isValidSession(sessionCookie));
+  const authenticated = !locals.authEnabled || locals.user != null;
 
   if (authenticated) {
     const auth = getAuthConfig();

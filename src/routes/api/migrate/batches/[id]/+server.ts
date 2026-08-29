@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/migrate/manager";
 import type { RequestHandler } from "./$types";
 
@@ -8,7 +9,14 @@ export const GET: RequestHandler = ({ params, url }) => {
   return batch ? json(batch) : json({ error: "Batch not found" }, { status: 404 });
 };
 
-export const DELETE: RequestHandler = ({ params }) => {
+export const DELETE: RequestHandler = ({ locals, params }) => {
   if (!getBatch(params.id)) return json({ error: "Batch not found" }, { status: 404 });
-  return json({ cancelledCount: cancelBatch(params.id) });
+  const cancelledCount = cancelBatch(params.id);
+  recordOperatorAuditEvent(locals, {
+    action: "batch.cancelled",
+    resourceType: "batch",
+    resourceId: params.id,
+    metadata: { cancelledCount },
+  });
+  return json({ cancelledCount });
 };

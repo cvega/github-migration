@@ -1,16 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { createSessionToken, SESSION_COOKIE } from "$lib/server/core/session";
+import type { AuthUser } from "$lib/auth-user";
 import { GET } from "./+server";
 
 type HealthHandler = (event: {
-  cookies: { get(name: string): string | undefined };
+  locals: { authEnabled: boolean; user?: AuthUser };
 }) => Promise<Response>;
 const health = GET as unknown as HealthHandler;
 
-function event(sessionCookie?: string) {
-  return {
-    cookies: { get: (name: string) => (name === SESSION_COOKIE ? sessionCookie : undefined) },
-  };
+function event(user?: AuthUser) {
+  return { locals: { authEnabled: true, user } };
 }
 
 async function bodyOf(response: Response) {
@@ -31,13 +29,19 @@ describe("GET /api/health", () => {
     expect(body.auth).toBeUndefined();
   });
 
-  test("ignores an invalid session cookie", async () => {
-    const body = await bodyOf(await health(event("not.a.valid.token")));
-    expect(body.auth).toBeUndefined();
-  });
-
   test("includes auth details for an authenticated operator", async () => {
-    const body = await bodyOf(await health(event(createSessionToken())));
+    const body = await bodyOf(
+      await health(
+        event({
+          id: "user-1",
+          username: "operator",
+          displayName: null,
+          role: "operator",
+          isActive: true,
+          mustChangePassword: false,
+        }),
+      ),
+    );
     expect(body.auth).toBeDefined();
   });
 });

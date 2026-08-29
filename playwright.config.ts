@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = 4173;
 const host = "[::1]";
+const authState = ".e2e-data/auth-state.json";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -16,17 +17,22 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "setup",
+      testMatch: "**/auth.setup.ts",
+    },
+    {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
+      use: { ...devices["Desktop Chrome"], storageState: authState },
     },
   ],
   webServer: {
     command: `bun run e2e:seed && exec ./node_modules/.bin/vite dev --host ::1 --port ${port}`,
     env: {
       DATA_DIR: ".e2e-data",
-      GH_MIGRATE_USER: "",
-      GH_MIGRATE_PASS: "",
-      GH_MIGRATE_ALLOW_UNAUTHENTICATED: "true",
+      GH_MIGRATE_USER: "e2e-admin",
+      GH_MIGRATE_PASS: "e2e-bootstrap-password",
+      GH_MIGRATE_ALLOW_UNAUTHENTICATED: "false",
       GH_ALLOW_CREDENTIAL_OVERRIDE: "true",
       GH_SOURCE_PAT: "",
       GH_TARGET_PAT: "",

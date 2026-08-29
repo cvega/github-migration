@@ -12,9 +12,9 @@ integers unless noted otherwise.
 | Variable | Purpose |
 |---|---|
 | `DATA_DIR` | Directory containing SQLite data and the exclusive instance lock |
-| `GH_MIGRATE_USER` | Optional dashboard login username |
-| `GH_MIGRATE_PASS` | Optional dashboard login password |
-| `GH_MIGRATE_SESSION_SECRET` | Independent HMAC secret for signed sessions |
+| `GH_MIGRATE_USER` | Username used to create the first administrator when no users exist |
+| `GH_MIGRATE_PASS` | Password used to create the first administrator when no users exist |
+| `GH_MIGRATE_SESSION_SECRET` | Deprecated compatibility setting; accepted but no longer used |
 | `GH_MIGRATE_ALLOW_UNAUTHENTICATED` | Explicitly permit operation without dashboard login |
 | `GH_ALLOW_CREDENTIAL_OVERRIDE` | Permit request-scoped GitHub credentials and source URL overrides |
 | `MIGRATION_RETENTION_DAYS` | Maximum age of terminal migration history |
@@ -22,9 +22,15 @@ integers unless noted otherwise.
 | `PROFILE_RETENTION_DAYS` | Maximum age of terminal profile history |
 | `PROFILE_RETENTION_RUNS` | Maximum retained terminal profile runs |
 
-An authenticated deployment requires username, password, and a strong session
-secret. Unauthenticated mode must be explicitly enabled and should be limited
-to a trusted network.
+On the first authenticated startup, configure both bootstrap values. The
+dashboard hashes the password with Argon2id and stores the administrator in
+SQLite. Later startups use stored users, so the bootstrap values can be removed.
+Administrators add operators and other administrators through **Manage users**.
+
+Usernames are case-insensitively unique. New passwords contain 12-128
+characters. Sessions are opaque, revocable, limited to five per user, and expire
+after seven days. Unauthenticated mode must be explicitly enabled and should be
+limited to a trusted network. It cannot be enabled after users have been created.
 
 ## GitHub Source And Target
 

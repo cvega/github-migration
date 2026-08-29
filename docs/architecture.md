@@ -196,11 +196,18 @@ modes are request PAT, request GitHub App, environment PAT, and environment
 GitHub App. Request credentials take precedence only when credential override
 is enabled. GitLab and Bitbucket credentials are server-owned.
 
-Optional dashboard authentication uses a signed, expiring session cookie. When
-authentication is enabled, the root layout returns only the public
-`authEnabled` contract until a valid session is present; operational URLs,
-organization names, repository names, and failures are not serialized into an
-unauthenticated page response.
+Dashboard users and sessions are stored in SQLite. Passwords use Argon2id.
+Browser cookies contain random 32-byte session tokens; only SHA-256 token
+digests are persisted. Session resolution in the request hook populates the
+authenticated user in request locals, which is the sole downstream identity
+source. Disabled users, expired sessions, and revoked sessions are rejected.
+
+Administrators manage users, while operators retain all profiling and migration
+permissions. User administration and successful operator mutations append
+durable audit events. Failed sign-ins are throttled by username/address pair and
+client address without permanently locking a user. When authentication is
+enabled, the root layout returns only `authEnabled` until a user is resolved, so
+operational names and failures are not serialized to unauthenticated clients.
 
 ## Persistence
 
@@ -211,6 +218,10 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 <!-- BEGIN GENERATED: durable-tables -->
 | Table | Purpose | Notes |
 |---|---|---|
+| `app_users` | Dashboard user identities and credentials | Usernames are unique case-insensitively; passwords are stored as Argon2id hashes |
+| `app_sessions` | Revocable dashboard sessions | Stores SHA-256 token digests, never raw cookie values |
+| `auth_login_attempts` | Persistent sign-in throttling | Bounded failed attempts keyed by username and client address |
+| `audit_events` | Authentication and operator action attribution | Stores actors and resources without credentials or session tokens |
 | `app_schema_versions` | Per-domain schema versions | Supports idempotent startup upgrades |
 | `migrations` | One row per repository migration | Includes batch ID, source provider, native and GitHub checkpoints, state, pipeline step, auth mode, request options, counts, and timestamps |
 | `events` | Append-only migration event log | Replayed for SSE catch-up |

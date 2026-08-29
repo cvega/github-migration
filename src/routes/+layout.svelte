@@ -112,6 +112,7 @@
 			setupComplete={data.setupComplete ?? false}
 			recentActivity={data.recentActivity ?? []}
 			authEnabled={data.authEnabled ?? false}
+			currentUser={data.currentUser ?? null}
 		/>
 		<main class="mx-auto max-w-6xl px-4 py-8 sm:px-6">{@render children()}</main>
 	</div>

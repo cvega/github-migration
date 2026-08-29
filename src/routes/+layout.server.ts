@@ -5,19 +5,15 @@ import {
   isCredentialOverrideAllowed,
 } from "$lib/server/core/auth";
 import { getCachedGitHubStatus } from "$lib/server/core/github-status";
-import { isValidSession, SESSION_COOKIE } from "$lib/server/core/session";
 import { getMigrationTargetProfiles } from "$lib/server/core/targets";
 import { getActiveMigrationCount } from "$lib/server/migrate/database/stats";
 import { MAX_CONCURRENT_MIGRATIONS, recentActivity } from "$lib/server/migrate/manager";
 import { getSetupReadiness } from "$lib/server/setup";
 import type { LayoutServerLoad } from "./$types";
 
-export const load: LayoutServerLoad = ({ cookies, locals }) => {
+export const load: LayoutServerLoad = ({ locals }) => {
   const authEnabled = locals.authEnabled ?? false;
-  if (authEnabled) {
-    const session = cookies.get(SESSION_COOKIE);
-    if (!session || !isValidSession(session)) return { authEnabled: true };
-  }
+  if (authEnabled && !locals.user) return { authEnabled: true };
 
   const auth = getAuthConfig();
   const liveRates = getCachedLiveRateLimits();
@@ -60,6 +56,7 @@ export const load: LayoutServerLoad = ({ cookies, locals }) => {
     ghStatus,
     recentActivity: recentActivity(20),
     authEnabled,
+    currentUser: locals.user ?? null,
     setupComplete: setup.complete,
     gitlabSourceApiUrl: setup.gitlabSourceApiUrl,
     gitlabSourceAuthReady: setup.gitlabSourceAuthReady,

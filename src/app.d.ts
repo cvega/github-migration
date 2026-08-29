@@ -1,3 +1,5 @@
+import type { AuthUser } from "$lib/auth-user";
+
 declare global {
   namespace App {
     interface Error {
@@ -7,8 +9,8 @@ declare global {
 
     interface Locals {
       authEnabled: boolean;
+      user?: AuthUser;
+      sessionTokenHash?: string;
     }
   }
 }
-
-export {};

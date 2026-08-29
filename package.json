@@ -6,6 +6,7 @@
   "packageManager": "bun@1.3.14",
   "scripts": {
     "actions:check": "bun scripts/checks/workflow-actions-check.ts",
+    "auth:reset": "bun scripts/auth/reset-admin-password.ts",
     "audit": "bun audit",
     "boundaries": "bun scripts/checks/boundaries.ts",
     "build": "bun run generate:icons && bunx --bun svelte-kit sync && bunx --bun vite build && bun scripts/packaging/postbuild.ts && bun run bundle:check",

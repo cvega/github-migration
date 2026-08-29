@@ -15,9 +15,14 @@ the lock is a correctness guard for the in-memory queue and recovery manager.
 
 ## Login Loops Or POST Origin Errors
 
-Verify the configured username/password and ensure the session secret is at
-least 32 independent characters. Behind TLS termination, set `ORIGIN` to the
-browser-visible URL. Changing the session secret invalidates existing cookies.
+Bootstrap environment credentials create the first administrator only; they do
+not override a stored user's password. Ask an administrator to reset the user,
+or stop the dashboard and run `bun run auth:reset --username <administrator>`.
+The temporary password must be changed after sign-in.
+
+Behind TLS termination, set `ORIGIN` to the browser-visible URL. Configure
+`ADDRESS_HEADER` and `XFF_DEPTH` only when every request passes through the
+trusted proxy. Existing sessions can be revoked from **Manage users**.
 
 ## Provider Setup Is Unavailable
 

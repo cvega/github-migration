@@ -51,12 +51,6 @@ const LOCAL_CONFIGURATION_KEYS = [
 
 for (const key of LOCAL_CONFIGURATION_KEYS) delete process.env[key];
 
-// Auth credentials. session.ts derives `authEnabled` and the session-signing
-// secret from env *at module-load time*, so the first import
-// of session.ts wins. Setting them here in the preload — before any test file
-// is evaluated — makes that derivation deterministic regardless of which suite
-// imports session.ts first (file-discovery order differs between local and CI).
-// Tests that need the configured values read them back from process.env.
+// Stable bootstrap credentials for tests that initialize application authentication.
 process.env.GH_MIGRATE_USER = "ci-test-admin";
 process.env.GH_MIGRATE_PASS = "ci-test-pass-7f3a9c";
-process.env.GH_MIGRATE_SESSION_SECRET = "ci-test-session-secret-7f3a9c-2026";

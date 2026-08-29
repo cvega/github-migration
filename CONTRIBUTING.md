@@ -34,6 +34,10 @@ widths. For documentation contract changes, run `bun run docs:sync` followed by
 - Add comments only when the reason is not apparent from the code.
 - Do not add compatibility routes, duplicate stores, or speculative schedule behavior.
 - Never place credentials in fixtures, events, logs, screenshots, or page data.
+- Use `Bun.password` with the shared Argon2id policy for dashboard passwords.
+- Store only session-token digests and use request locals as the downstream identity source.
+- Enforce user-role and final-administrator invariants in server services, not UI controls.
+- Audit successful operator mutations without recording credentials or tokens.
 
 ## Tests
 

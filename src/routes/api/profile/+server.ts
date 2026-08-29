@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import {
   countProfileRuns,
   listProfileRunsWithInventoryCounts,
@@ -70,7 +71,7 @@ export function __setProfileRouteDependenciesForTests(
   };
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ locals, request }) => {
   const body = await parseJsonBody(request);
   if ("error" in body) return json({ error: body.error }, { status: body.status });
   const parsed = validateStartProfileRequest(body.data);
@@ -84,6 +85,12 @@ export const POST: RequestHandler = async ({ request }) => {
         : parsed.value.sourceProvider === "gitlab"
           ? dependencies.startGitLabProfile(parsed.value.org)
           : dependencies.startBitbucketServerProfile(parsed.value.org);
+    recordOperatorAuditEvent(locals, {
+      action: "profile.started",
+      resourceType: "profile",
+      resourceId: run.id,
+      metadata: { sourceProvider: parsed.value.sourceProvider },
+    });
     return json(run, { status: 201 });
   } catch (error) {
     if (

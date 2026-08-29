@@ -29,9 +29,9 @@ docker compose up -d --build --wait
 ```
 
 The template enables unauthenticated access for a trusted local network. Before
-exposing the service, configure dashboard credentials and an independent
-session secret. Open `http://localhost:3000` and choose **Profile** or
-**New migration**.
+exposing the service, configure first-administrator bootstrap credentials. The
+dashboard stores Argon2id password hashes and revocable sessions in SQLite.
+Open `http://localhost:3000` and choose **Profile** or **New migration**.
 
 For source development:
 

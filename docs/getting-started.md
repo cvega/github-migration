@@ -15,8 +15,10 @@ docker compose up -d --build --wait
 ```
 
 Open `http://localhost:3000`. The example configuration is intentionally open
-for trusted local use. Configure login credentials before publishing it beyond
-that network; see [Configuration](configuration.md#core).
+for trusted local use. Before publishing it beyond that network, replace
+unauthenticated mode with first-administrator bootstrap credentials; see
+[Configuration](configuration.md#core). Add operators from **Manage users**
+after signing in.
 
 ## Choose Your Path
 

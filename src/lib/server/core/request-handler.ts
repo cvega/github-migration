@@ -1,4 +1,5 @@
 import { type Handle, redirect } from "@sveltejs/kit";
+import type { AuthPrincipal } from "$lib/server/core/auth/model";
 
 /**
  * Shared SvelteKit request policy: enforce session auth outside the explicit
@@ -10,7 +11,7 @@ import { type Handle, redirect } from "@sveltejs/kit";
 
 interface RequestHandlerConfig {
   authEnabled: boolean;
-  isValidSession: (token: string) => boolean;
+  resolveSession: (token: string) => AuthPrincipal | null;
   sessionCookie: string;
 }
 
@@ -22,6 +23,7 @@ const securityHeaders: Record<string, string> = {
 };
 
 const PUBLIC_PATHS = new Set(["/login", "/logout", "/api/health", "/api/ready"]);
+const PASSWORD_CHANGE_PATH = "/account/password";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function applySecurityHeaders(response: Response): Response {
@@ -75,9 +77,15 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
   return async ({ event, resolve }) => {
     event.locals.authEnabled = config.authEnabled;
 
-    if (config.authEnabled && !PUBLIC_PATHS.has(event.url.pathname)) {
+    if (config.authEnabled) {
       const sessionCookie = event.cookies.get(config.sessionCookie);
-      if (!sessionCookie || !config.isValidSession(sessionCookie)) {
+      const principal = sessionCookie ? config.resolveSession(sessionCookie) : null;
+      if (principal) {
+        event.locals.user = principal.user;
+        event.locals.sessionTokenHash = principal.sessionTokenHash;
+      }
+
+      if (!principal && !PUBLIC_PATHS.has(event.url.pathname)) {
         if (event.url.pathname.startsWith("/api/")) {
           return applySecurityHeaders(
             new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -87,6 +95,22 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
           );
         }
         redirect(302, "/login");
+      }
+
+      if (
+        principal?.user.mustChangePassword &&
+        event.url.pathname !== PASSWORD_CHANGE_PATH &&
+        !PUBLIC_PATHS.has(event.url.pathname)
+      ) {
+        if (event.url.pathname.startsWith("/api/")) {
+          return applySecurityHeaders(
+            new Response(JSON.stringify({ error: "Password change required" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        redirect(302, PASSWORD_CHANGE_PATH);
       }
     }
 

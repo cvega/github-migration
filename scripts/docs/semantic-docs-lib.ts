@@ -82,13 +82,16 @@ export function checkSemanticDocument(document: string, contracts: SemanticContr
 }
 
 function extractCreatedTableNames(schemaSources: readonly string[]): string[] {
-  return schemaSources
-    .flatMap((source) =>
-      Array.from(
-        source.matchAll(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z][a-z0-9_]*)/gi),
-        (match) => match[1]?.toLowerCase() ?? "",
+  return [
+    ...new Set(
+      schemaSources.flatMap((source) =>
+        Array.from(
+          source.matchAll(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z][a-z0-9_]*)/gi),
+          (match) => match[1]?.toLowerCase() ?? "",
+        ),
       ),
-    )
+    ),
+  ]
     .filter(Boolean)
     .sort();
 }
