@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.14-alpine AS build
+FROM oven/bun:1.4.0-alpine AS build
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -6,12 +6,12 @@ COPY . .
 RUN bun run build
 
 # Production dependencies only (excludes svelte, vite, tailwindcss, etc.)
-FROM oven/bun:1.3.14-alpine AS deps
+FROM oven/bun:1.4.0-alpine AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-FROM oven/bun:1.3.14-alpine
+FROM oven/bun:1.4.0-alpine
 WORKDIR /app
 # Patch OS packages (e.g. the base image's openssl) before installing su-exec,
 # so the shipped runtime image carries Alpine's latest security fixes and clears
