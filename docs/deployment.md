@@ -99,4 +99,4 @@ checks SQLite write access and does not pass before schema application and
 recovery complete.
 
 Send `SIGTERM` for shutdown. The server stops accepting work, classifies active
-migration and assessment state, closes SQLite, and releases the instance lock.
+migration and profile state, closes SQLite, and releases the instance lock.

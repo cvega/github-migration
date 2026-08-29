@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("reviews and filters a completed source assessment", async ({ page }) => {
+test("reviews and filters a completed source profile", async ({ page }) => {
 	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/profile");
 	await hydrated;
 
-	await expect(page.getByRole("heading", { name: "Assess" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
 	await expect(page.getByRole("link", { name: /e2e-source/ })).toContainText("2/2 repos");
 	await expect(page.getByRole("link", { name: /platform\/products\/services/ })).toContainText(
 		"At least 2 projects",

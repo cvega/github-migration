@@ -4,16 +4,16 @@
 <h1 align="center">GitHub Migration Dashboard</h1>
 
 <p align="center">
-	<strong>Assess, plan, and migrate repositories from GitHub, GitLab, or Bitbucket Server to GitHub targets.</strong>
+	<strong>Profile, plan, and migrate repositories from GitHub, GitLab, or Bitbucket Server to GitHub targets.</strong>
 </p>
 
-The dashboard combines provider-aware source assessment, guided single and
+The dashboard combines provider-aware source profiling, guided single and
 batch setup, durable migration execution, live SSE progress, cancellation,
 restart, reconciliation, crash recovery, and operational statistics.
 
 ## Capabilities
 
-- Assess GitHub organizations, GitLab namespaces, and Bitbucket projects.
+- Profile GitHub organizations, GitLab namespaces, and Bitbucket projects.
 - Build migration plans from readiness findings and repository mappings.
 - Migrate to GHEC or a configured GHES target where the provider path supports it.
 - Queue up to 500 batch members under an app-wide concurrency limit of ten.
@@ -30,7 +30,7 @@ docker compose up -d --build --wait
 
 The template enables unauthenticated access for a trusted local network. Before
 exposing the service, configure dashboard credentials and an independent
-session secret. Open `http://localhost:3000` and choose **Assess source** or
+session secret. Open `http://localhost:3000` and choose **Profile** or
 **New migration**.
 
 For source development:
@@ -44,9 +44,9 @@ bun run verify
 
 ## Screenshots
 
-| Assessment | Migration operations |
+| Profile | Migration operations |
 |---|---|
-| ![Assessment detail](static/imgs/screenshots/profile-detail.png) | ![Migration dashboard](static/imgs/screenshots/dashboard.png) |
+| ![Profile detail](static/imgs/screenshots/profile-detail.png) | ![Migration dashboard](static/imgs/screenshots/dashboard.png) |
 | ![Migration setup](static/imgs/screenshots/new-migration.png) | ![Migration detail](static/imgs/screenshots/migration-detail.png) |
 
 ## Documentation

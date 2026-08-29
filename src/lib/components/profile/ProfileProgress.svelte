@@ -36,11 +36,11 @@
 			{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span>
 		</div>
 		<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
-			<Octicon name="repo" size={12} class="text-gray-500" />Repositories assessed
+			<Octicon name="repo" size={12} class="text-gray-500" />Repositories profiled
 		</div>
 		{#if run.state === "running"}
 			<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
-				<div class="h-full bg-violet-500 transition-all" style:width={`${percentage}%`}></div>
+				<div class="h-full bg-green-500 transition-all" style:width={`${percentage}%`}></div>
 			</div>
 			{#if livePhase && phaseLabels[livePhase]}
 				<div class="mt-1.5 flex items-center gap-1 text-[11px] text-gray-500">

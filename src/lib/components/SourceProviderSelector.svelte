@@ -21,7 +21,7 @@
 			label: "GitHub",
 			icon: "mark-github",
 			iconClass: "bg-gray-700/70 text-gray-100",
-			profileDescription: "Organization assessment",
+			profileDescription: "Organization profile",
 			migrationDescription: "Organizations",
 		},
 		{
@@ -29,7 +29,7 @@
 			label: "GitLab",
 			icon: "gitlab-logo",
 			iconClass: "bg-orange-500/10 text-orange-400",
-			profileDescription: "Namespace assessment",
+			profileDescription: "Namespace profile",
 			migrationDescription: "Namespaces",
 		},
 		{
@@ -37,7 +37,7 @@
 			label: "Bitbucket Server",
 			icon: "bitbucket-logo",
 			iconClass: "bg-blue-500/10 text-blue-400",
-			profileDescription: "Project assessment",
+			profileDescription: "Project profile",
 			migrationDescription: "Projects",
 		},
 	] as const satisfies readonly ProviderOption[];

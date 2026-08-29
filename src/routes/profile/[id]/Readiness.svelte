@@ -126,7 +126,7 @@
 			</div>
 			<label class="flex flex-col gap-1 text-xs text-gray-400">
 				Parallel migrations
-				<input type="number" min="1" max="100" bind:value={parallelism} class="w-24 rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-sm tabular-nums text-gray-100 focus:border-violet-500 focus:outline-none" />
+				<input type="number" min="1" max="100" bind:value={parallelism} class="w-24 rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-sm tabular-nums text-gray-100 focus:border-green-500 focus:outline-none" />
 			</label>
 		</div>
 

@@ -64,7 +64,7 @@
 	});
 </script>
 
-<svelte:head><title>{run.org} - Source assessment</title></svelte:head>
+<svelte:head><title>{run.org} - Source profile</title></svelte:head>
 
 <div class="space-y-6">
 	<Header {run} {provider} />
@@ -95,12 +95,12 @@
 				</h2>
 				{#if scale.repos > 0}
 					<div class="flex flex-wrap items-center gap-2">
-						<select bind:value={readinessFilter} onchange={() => (repoPage = 1)} aria-label="Filter by readiness" class="rounded-md border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-sm text-gray-200 focus:border-violet-500 focus:outline-none">
+						<select bind:value={readinessFilter} onchange={() => (repoPage = 1)} aria-label="Filter by readiness" class="rounded-md border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-sm text-gray-200 focus:border-green-500 focus:outline-none">
 							<option value="all">All readiness</option><option value="ready">No blocking issues</option><option value="warnings">Warnings</option><option value="blockers">Blocking issues</option>
 						</select>
 						<div class="relative">
 							<Octicon name="search" size={16} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-							<input type="search" bind:value={repoSearch} oninput={() => (repoPage = 1)} placeholder="Filter repositories..." aria-label="Filter repositories" class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pr-3 pl-9 text-sm text-gray-100 placeholder:text-gray-500 focus:border-violet-500 focus:outline-none" />
+							<input type="search" bind:value={repoSearch} oninput={() => (repoPage = 1)} placeholder="Filter repositories..." aria-label="Filter repositories" class="w-64 rounded-md border border-gray-700 bg-gray-950 py-1.5 pr-3 pl-9 text-sm text-gray-100 placeholder:text-gray-500 focus:border-green-500 focus:outline-none" />
 						</div>
 					</div>
 				{/if}
@@ -117,7 +117,7 @@
 			{#if scale.repos === 0 && planningRepos.length === 0}
 				<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
 					<Octicon name={run.state === "running" ? "sync" : "inbox"} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />
-					<p class="mt-3">{run.state === "running" ? "Discovering and assessing repositories..." : "No repositories assessed"}</p>
+					<p class="mt-3">{run.state === "running" ? "Discovering and profiling repositories..." : "No repositories profiled"}</p>
 				</div>
 			{:else if repoPageInfo.total === 0}
 				<div class="rounded-md border border-dashed border-gray-600 py-12 text-center text-gray-400">No repositories match the current filters.</div>

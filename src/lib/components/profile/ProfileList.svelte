@@ -56,10 +56,10 @@
 			return `${run.profiledRepos}/${run.totalRepos} repos`;
 		}
 		const count = run.inventoryProjectCount;
-		if (count?.kind === "unavailable") return "Assessment unavailable";
+		if (count?.kind === "unavailable") return "Profile unavailable";
 		if (count?.kind === "at-least") return `At least ${count.value.toLocaleString()} projects`;
 		if (count?.kind === "exact") return `${count.value.toLocaleString()} projects`;
-		return run.state === "running" ? "Discovering projects" : "Assessment failed";
+		return run.state === "running" ? "Discovering projects" : "Profile failed";
 	}
 </script>
 
@@ -82,7 +82,7 @@
 	{#if runs.length === 0}
 		<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-16">
 			<Octicon name="telescope" size={24} class="h-12 w-12 text-gray-500" />
-			<p class="mt-4 text-gray-400">No assessment runs yet</p>
+			<p class="mt-4 text-gray-400">No profile runs yet</p>
 		</div>
 	{:else}
 		<div class="space-y-2">
@@ -130,7 +130,7 @@
 									<Octicon name="clock" size={12} />Started {timeAgo(run.startedAt)}
 								</div>
 							</div>
-							<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-700 text-gray-500 transition-colors group-hover:border-violet-500/40 group-hover:text-violet-400">
+							<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-700 text-gray-500 transition-colors group-hover:border-green-500/40 group-hover:text-green-400">
 								<Octicon name="chevron-right" size={16} />
 							</span>
 						</div>

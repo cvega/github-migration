@@ -100,7 +100,7 @@
 						</td>
 					{/if}
 					<td class="px-4 py-3">
-						<button type="button" onclick={() => toggleRepo(repo.nameWithOwner)} aria-expanded={expanded.has(repo.nameWithOwner)} title={repo.nameWithOwner} class="flex items-center gap-1.5 text-left font-medium text-gray-50 transition-colors hover:text-violet-300">
+						<button type="button" onclick={() => toggleRepo(repo.nameWithOwner)} aria-expanded={expanded.has(repo.nameWithOwner)} title={repo.nameWithOwner} class="flex items-center gap-1.5 text-left font-medium text-gray-50 transition-colors hover:text-green-300">
 							<Octicon name={expanded.has(repo.nameWithOwner) ? "chevron-down" : "chevron-right"} size={12} class="shrink-0 text-gray-500" />
 							{shortRepoName(repo.nameWithOwner)}
 						</button>

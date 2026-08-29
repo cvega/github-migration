@@ -22,19 +22,19 @@
 			provider: "github",
 			label: "GitHub",
 			icon: "mark-github",
-			description: "Organization assessment",
+			description: "Organization profile",
 		},
 		{
 			provider: "gitlab",
 			label: "GitLab",
 			icon: "gitlab-logo",
-			description: "Namespace assessment",
+			description: "Namespace profile",
 		},
 		{
 			provider: "bitbucket-server",
 			label: "Bitbucket Server",
 			icon: "bitbucket-logo",
-			description: "Project assessment",
+			description: "Project profile",
 		},
 	] as const;
 
@@ -73,7 +73,7 @@
 			const run = (await response.json()) as { id: string };
 			await goto(`/profile/${run.id}`);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Failed to start assessment";
+			error = cause instanceof Error ? cause.message : "Failed to start profile";
 		} finally {
 			submitting = false;
 		}
@@ -88,7 +88,7 @@
 				{@const selected = option.provider === sourceProvider}
 				{@const ready = providerAuthAvailable[option.provider]}
 				<label
-					class="relative min-w-0 cursor-pointer border-b border-gray-700 px-3 py-3 transition-colors last:border-b-0 focus-within:ring-2 focus-within:ring-inset focus-within:ring-violet-400 sm:border-b-0 {selected ? 'bg-violet-500/10 shadow-[inset_0_-2px_0_var(--color-violet-500)]' : 'hover:bg-gray-900'}"
+					class="relative min-w-0 cursor-pointer border-b border-gray-700 px-3 py-3 transition-colors last:border-b-0 focus-within:ring-2 focus-within:ring-inset focus-within:ring-green-400 sm:border-b-0 {selected ? 'bg-green-500/10 shadow-[inset_0_-2px_0_var(--color-green-500)]' : 'hover:bg-gray-900'}"
 				>
 					<input
 						class="sr-only"
@@ -136,7 +136,7 @@
 							? "PROJECT"
 							: "octo-org"}
 					autocomplete="off"
-					class="w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-50 placeholder:text-gray-600 focus:border-violet-500 focus:outline-none"
+					class="w-full rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-50 placeholder:text-gray-600 focus:border-green-500 focus:outline-none"
 				/>
 				{#if sourceProvider === "github" && sourceOrgs.length > 0}
 					<datalist id="source-orgs">
@@ -152,10 +152,10 @@
 			<button
 				type="submit"
 				disabled={submitting || !org.trim()}
-				class="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+				class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				<Octicon name={submitting ? "sync" : "play"} size={16} class={submitting ? "animate-spin" : ""} />
-				{submitting ? "Starting..." : "Start assessment"}
+				{submitting ? "Starting..." : "Start profile"}
 			</button>
 		</form>
 		{#if error}
@@ -166,7 +166,7 @@
 	{:else}
 		<p class="flex items-center gap-2 text-sm text-gray-400">
 			<Octicon name="shield-lock" size={16} class="text-gray-500" />
-			{sourceAdapter.displayName} source credentials must be configured on the server before an assessment can start.
+			{sourceAdapter.displayName} source credentials must be configured on the server before a profile can start.
 		</p>
 	{/if}
 </section>

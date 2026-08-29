@@ -34,12 +34,12 @@
 			{#if activeTab === "profile"}
 				<a
 					href="/profile#start-profile"
-					aria-label="Start assessment"
-					title="Start assessment"
-					class="flex h-9 items-center justify-center gap-1.5 rounded-md border border-violet-500 bg-violet-600 px-2.5 text-sm font-medium text-white outline-none transition-colors hover:bg-violet-500 focus-visible:ring-2 focus-visible:ring-violet-300 sm:px-3"
+					aria-label="Start profile"
+					title="Start profile"
+					class="flex h-9 items-center justify-center gap-1.5 rounded-md border border-green-500 bg-green-600 px-2.5 text-sm font-medium text-white outline-none transition-colors hover:bg-green-500 focus-visible:ring-2 focus-visible:ring-green-300 sm:px-3"
 				>
 					<Octicon name="telescope" size={16} />
-					<span class="hidden sm:inline">Start assessment</span>
+					<span class="hidden sm:inline">Start profile</span>
 				</a>
 			{/if}
 			{#if inMigrate}

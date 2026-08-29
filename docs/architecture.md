@@ -5,7 +5,7 @@ SQLite database. Its server code is split into `core`, `source`, `profile`, and
 `migrate` domains with explicit route-level composition.
 
 - [Migration pipeline](#migration-pipeline)
-- [Assessment flow](#assessment-flow)
+- [Profile flow](#profile-flow)
 - [Concurrency and recovery](#concurrency-and-recovery)
 - [Operational boundaries](#operational-boundaries)
 - [Real-time progress](#real-time-progress)
@@ -13,10 +13,10 @@ SQLite database. Its server code is split into `core`, `source`, `profile`, and
 - [Persistence](#persistence)
 - [Domain boundaries](#domain-boundaries)
 
-## Assessment flow
+## Profile flow
 
-Assessments gather provider inventory and repository signals, persist normalized
-results, and evaluate migration readiness. GitHub uses organization and
+Profile runs gather provider inventory and repository signals, persist
+normalized results, and evaluate migration readiness. GitHub uses organization and
 repository crawls; GitLab and Bitbucket Server use their provider adapters to
 discover projects and collect project metrics. The profile domain owns the run
 lifecycle and analysis in both cases.
@@ -30,7 +30,7 @@ sequenceDiagram
 	participant DB as SQLite
 	participant Events as Profile events
 
-	Operator->>API: Start assessment
+	Operator->>API: Start profile
 	API->>Profile: Create running profile
 	Profile->>Provider: Discover inventory and collect signals
 	loop Projects and repositories
@@ -129,7 +129,7 @@ so work that depends on them is not crash-recoverable.
 flowchart TD
 	Start[Process starts] --> Lock[Acquire the data-directory lock]
 	Lock --> Schema[Apply schemas and classify interrupted work]
-	Schema --> Profiles[Mark interrupted assessments failed]
+	Schema --> Profiles[Mark interrupted profiles failed]
 	Schema --> Migration{Interrupted migration}
 	Migration -->|Environment auth and safe checkpoint| Resume[Resume the executor]
 	Migration -->|Environment auth and queued request| Requeue[Return to the FIFO queue]
@@ -139,7 +139,7 @@ flowchart TD
 	Requeue --> Queue
 ```
 
-An interrupted assessment is retained as failed audit history and must be run
+An interrupted profile is retained as failed audit history and must be run
 again. A migration enters `reconciliation_required` when repeating a remote
 write could duplicate or corrupt work; the operator must inspect the source and
 target, confirm the remote outcome, and then start a new attempt.
@@ -156,10 +156,10 @@ than one process.
 | Source and target support | GitHub can target GHEC. GitLab and Bitbucket Server can target GHEC or a configured GHES profile. GitHub-to-GHES is not supported. |
 | Migration capacity | At most ten migrations execute app-wide. Additional requests remain durable in FIFO order. |
 | Batch size | A batch accepts at most 500 repository mappings and uses the same queue as single migrations. |
-| Assessment capacity | One assessment per source provider can run at a time. |
+| Profile capacity | One profile per source provider can run at a time. |
 | Source inventory | GitLab and Bitbucket inventories stop at the provider-neutral 10,000-project envelope. |
 | Durable state | Migration requests, states, events, batches, and acknowledged provider, GitHub, and GHES checkpoints survive a restart. |
-| Process-local state | Active controllers, API clients, and request-scoped credentials do not survive a restart. Interrupted assessments are marked failed. |
+| Process-local state | Active controllers, API clients, and request-scoped credentials do not survive a restart. Interrupted profiles are marked failed. |
 
 Provider-specific constraints also apply:
 
@@ -237,7 +237,7 @@ The server layers are:
 |---|---|
 | `src/lib/server/core/` | Database primitives, GitHub auth and clients, sessions, SSE, and shared infrastructure |
 | `src/lib/server/source/` | GitLab and Bitbucket clients, discovery, profiling, export, and provider configuration |
-| `src/lib/server/profile/` | Provider-neutral assessment lifecycle, analysis, events, and persistence |
+| `src/lib/server/profile/` | Provider-neutral profile lifecycle, analysis, events, and persistence |
 | `src/lib/server/migrate/` | Queue, executors, migration runs, events, and persistence |
 | `src/lib/server/schemas.ts` | Durable-domain composition root |
 | `src/routes/api/` | HTTP validation and cross-domain dependency composition |

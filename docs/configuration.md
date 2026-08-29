@@ -19,8 +19,8 @@ integers unless noted otherwise.
 | `GH_ALLOW_CREDENTIAL_OVERRIDE` | Permit request-scoped GitHub credentials and source URL overrides |
 | `MIGRATION_RETENTION_DAYS` | Maximum age of terminal migration history |
 | `MIGRATION_RETENTION_ROWS` | Maximum retained terminal migration rows |
-| `PROFILE_RETENTION_DAYS` | Maximum age of terminal assessment history |
-| `PROFILE_RETENTION_RUNS` | Maximum retained terminal assessment runs |
+| `PROFILE_RETENTION_DAYS` | Maximum age of terminal profile history |
+| `PROFILE_RETENTION_RUNS` | Maximum retained terminal profile runs |
 
 An authenticated deployment requires username, password, and a strong session
 secret. Unauthenticated mode must be explicitly enabled and should be limited

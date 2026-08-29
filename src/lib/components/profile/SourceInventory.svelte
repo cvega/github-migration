@@ -70,7 +70,7 @@
 	);
 </script>
 
-<section class="space-y-6" aria-label={`${providerName} source assessment`}>
+<section class="space-y-6" aria-label={`${providerName} source profile`}>
 	{#if running}
 		<div class="flex items-center gap-3 rounded-md border border-blue-500/25 bg-blue-500/10 p-4 text-sm text-blue-200" role="status" aria-live="polite">
 			<Octicon name="sync" size={16} class="shrink-0 animate-spin" />

@@ -13,10 +13,10 @@ never returned.
 | `GET` | `/api/health` | Process liveness probe |
 | `GET` | `/api/ready` | Database and startup readiness probe |
 | `GET` | `/api/rate-limits` | Provider quotas, active count, and GitHub status |
-| `POST` | `/api/profile` | Start a provider assessment |
-| `GET` | `/api/profile` | List assessment runs |
-| `GET` | `/api/profile/:id` | Read assessment status and paginated repository detail |
-| `GET` | `/api/profile/:id/events` | Stream assessment progress and terminal state |
+| `POST` | `/api/profile` | Start a provider profile |
+| `GET` | `/api/profile` | List profile runs |
+| `GET` | `/api/profile/:id` | Read profile status and paginated repository detail |
+| `GET` | `/api/profile/:id/events` | Stream profile progress and terminal state |
 | `POST` | `/api/migrate` | Start one repository migration |
 | `GET` | `/api/migrate` | List or search migrations |
 | `GET` | `/api/migrate/activity` | List recent migration activity |

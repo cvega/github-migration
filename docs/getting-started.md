@@ -3,7 +3,7 @@
 ## Requirements
 
 - Docker Engine with Compose for deployment, or Bun 1.3.14 for development.
-- Source-provider credentials with access to the repositories being assessed or migrated.
+- Source-provider credentials with access to the repositories being profiled or migrated.
 - GitHub target credentials with organization and migration permissions.
 - An absolute archive directory and exporter images for GitLab/Bitbucket-to-GHES paths.
 
@@ -22,8 +22,8 @@ that network; see [Configuration](configuration.md#core).
 
 | Goal | Supported path | What to do |
 |---|---|---|
-| Assess a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Assess source**, and review the completed readiness report before planning migrations. |
-| Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure the source and GHEC target credentials, assess the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
+| Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
+| Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure the source and GHEC target credentials, profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
 | Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
 
 GitHub-to-GHES migration is not supported. See the generated
@@ -40,13 +40,13 @@ source and target combinations.
 The **Setup** page reports available providers, credentials, target profiles,
 and migration paths without exposing secret values.
 
-## Assess A Source
+## Profile A Source
 
-Choose **Assess source**, select the provider and organization/namespace, then
+Choose **Profile**, select the provider and organization/namespace, then
 start the run. The detail page streams discovery progress and records provider
 coverage, repository metrics, warnings, blockers, and planning candidates.
 
-Completed assessments can produce a bounded batch plan. Review each source and
+Completed profiles can produce a bounded batch plan. Review each source and
 target mapping before opening the migration workflow.
 
 ## Start A Migration
