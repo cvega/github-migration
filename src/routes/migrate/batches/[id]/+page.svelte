@@ -253,13 +253,13 @@
 					<span class="relative text-lg font-semibold tabular-nums text-gray-50">{percentComplete}%</span>
 				</div>
 				<div class="lg:mt-3">
-					<h2 id="batch-progress-title" class="text-[10px] font-semibold uppercase text-gray-500">Batch progress</h2>
+					<h2 id="batch-progress-title" class="text-xs font-semibold uppercase text-gray-500">Batch progress</h2>
 					<div class="mt-1 text-sm text-gray-300"><strong class="tabular-nums text-gray-50">{resolvedCount}</strong> of {batch.totalCount} resolved</div>
 				</div>
 			</div>
 
 			<div>
-				<div class="mb-3 text-[10px] font-semibold uppercase text-gray-500">Repository states</div>
+				<div class="mb-3 text-xs font-semibold uppercase text-gray-500">Repository states</div>
 				<div class="flex flex-wrap gap-x-5 gap-y-3 text-sm tabular-nums">
 					{#if batch.succeededCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="check-circle-fill" size={12} /><strong>{batch.succeededCount}</strong> succeeded</span>{/if}
 					{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="sync" size={12} /><strong>{batch.runningCount}</strong> running</span>{/if}

@@ -159,6 +159,27 @@ body {
 	font-family: var(--font-sans);
 }
 
+button,
+input,
+optgroup,
+select,
+textarea {
+	font: inherit;
+}
+
+code,
+kbd,
+pre,
+samp,
+.text-machine {
+	font-family: var(--font-mono);
+}
+
+.text-machine {
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+}
+
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;

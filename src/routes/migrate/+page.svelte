@@ -309,7 +309,7 @@
 									><Octicon name="stack" size={16} /></span
 								>
 								<span>
-									<span class="block text-[10px] font-semibold uppercase text-gray-500"
+									<span class="block text-xs font-semibold uppercase text-gray-500"
 										>Migration batches</span
 									>
 									<span class="mt-1 flex items-baseline gap-1.5">
@@ -344,7 +344,7 @@
 									><Octicon name="play" size={16} /></span
 								>
 								<span>
-									<span class="block text-[10px] font-semibold uppercase text-gray-500"
+									<span class="block text-xs font-semibold uppercase text-gray-500"
 										>Active migrations</span
 									>
 									<span class="mt-1 flex items-baseline gap-1.5"
@@ -387,7 +387,7 @@
 									><Octicon name="check-circle" size={16} /></span
 								>
 								<span>
-									<span class="block text-[10px] font-semibold uppercase text-gray-500"
+									<span class="block text-xs font-semibold uppercase text-gray-500"
 										>Completed migrations</span
 									>
 									<span class="mt-1 flex items-baseline gap-1.5"
@@ -436,7 +436,7 @@
 						class="flex items-center justify-between gap-3 md:block md:border-r md:border-gray-700/80 md:pr-5"
 					>
 						<div>
-							<div class="text-[10px] font-semibold uppercase text-gray-500">Batch size</div>
+							<div class="text-xs font-semibold uppercase text-gray-500">Batch size</div>
 							<div class="mt-1 flex items-baseline gap-1.5">
 								<span class="text-3xl leading-none font-semibold text-gray-50 tabular-nums"
 									>{batch.totalCount}</span
@@ -466,7 +466,7 @@
 							title={`${route.source.displayName} to ${route.target.displayName}`}
 						>
 							<div class="min-w-0">
-								<div class="text-[10px] font-semibold uppercase text-gray-500">Source</div>
+								<div class="text-xs font-semibold uppercase text-gray-500">Source</div>
 								<div class="mt-1.5 flex items-center gap-2 text-sm font-semibold text-gray-200">
 									<Octicon name={route.source.icon} size={16} />
 									<span class="truncate">{route.source.label}</span>
@@ -477,7 +477,7 @@
 								<Octicon name="chevron-right" size={16} />
 							</div>
 							<div class="min-w-0">
-								<div class="text-[10px] font-semibold uppercase text-gray-500">Target</div>
+								<div class="text-xs font-semibold uppercase text-gray-500">Target</div>
 								<div class="mt-1.5 flex items-center gap-2 text-sm font-semibold text-gray-200">
 									<Octicon name={route.target.icon} size={16} />
 									<span class="truncate">{route.target.label}</span>
@@ -541,7 +541,7 @@
 						<span class="inline-flex items-center gap-1"
 							><Octicon name="clock" size={12} />Started {timeAgo(batch.startedAt)}</span
 						>
-						<span class="hidden font-mono text-[10px] text-gray-600 sm:inline"
+						<span class="text-machine hidden text-gray-600 sm:inline"
 							>{batch.id.slice(0, 8)}</span
 						>
 					</div>

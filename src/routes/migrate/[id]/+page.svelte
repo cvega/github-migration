@@ -358,7 +358,7 @@
 			<div class="flex min-w-0 items-center gap-3">
 				<Octicon name={sourcePlatform.icon} size={24} class="shrink-0 text-gray-400" />
 				<div class="min-w-0">
-					<div class="text-[10px] font-semibold uppercase text-gray-500">{sourcePlatform.label} source</div>
+					<div class="text-xs font-semibold uppercase text-gray-500">{sourcePlatform.label} source</div>
 					<a
 						href={sourceRepoUrl}
 						target="_blank"
@@ -375,7 +375,7 @@
 			<div class="flex min-w-0 items-center gap-3">
 				<Octicon name={targetPlatform.icon} size={24} class="shrink-0 text-gray-400" />
 				<div class="min-w-0">
-					<div class="text-[10px] font-semibold uppercase text-gray-500">{targetPlatform.label} target</div>
+					<div class="text-xs font-semibold uppercase text-gray-500">{targetPlatform.label} target</div>
 					<a
 						href={targetRepoUrl}
 						target="_blank"

@@ -107,7 +107,7 @@
 				<Octicon name="workflow" size={16} class="text-gray-500" />Migration pipeline
 			</div>
 			<span
-				class="text-[10px] font-semibold uppercase {failed
+				class="text-xs font-semibold uppercase {failed
 					? 'text-red-400'
 					: currentPhase === 'SUCCEEDED'
 						? 'text-green-400'
@@ -149,11 +149,11 @@
 						{/if}
 					</span>
 					<span class="min-w-0">
-						<span class="block text-[9px] font-semibold uppercase text-gray-600"
+						<span class="block text-xs font-semibold uppercase text-gray-600"
 							>Phase {index + 1}</span
 						>
 						<span class="mt-0.5 block truncate text-xs font-medium text-gray-300">{step.label}</span>
-						<span class="mt-0.5 block text-[9px] text-gray-600">
+						<span class="mt-0.5 block text-xs text-gray-600">
 							{status === "completed"
 								? "Complete"
 								: status === "active"
@@ -191,7 +191,7 @@
 							<div class="mt-1 h-1 overflow-hidden rounded-full bg-gray-800">
 								<div class="h-full rounded-full bg-green-500" style="width: {percent}%"></div>
 							</div>
-							<div class="mt-0.5 text-[10px] text-gray-600">{percent}% of {row.source.toLocaleString()}</div>
+							<div class="mt-0.5 text-xs text-gray-600">{percent}% of {row.source.toLocaleString()}</div>
 						{/if}
 					</div>
 				{/each}

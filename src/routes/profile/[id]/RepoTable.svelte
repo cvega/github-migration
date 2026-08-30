@@ -81,7 +81,7 @@
 
 <div class="overflow-x-auto rounded-lg border border-gray-700">
 	<table class="w-full min-w-4xl text-sm">
-		<thead class="bg-gray-900 text-left text-xs uppercase tracking-wide text-gray-500">
+		<thead class="bg-gray-900 text-left text-xs uppercase text-gray-500">
 			<tr>
 				{#if planning}<th class="w-10 px-3 py-2 font-medium"><span class="sr-only">Select</span></th>{/if}
 				<th class="px-4 py-2 font-medium">Repository</th>
@@ -107,9 +107,9 @@
 					</td>
 					<td class="px-4 py-2">
 						{#if planning && planner.selectedNames.includes(repo.nameWithOwner)}
-							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="w-full min-w-32 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 font-mono text-xs text-gray-100 focus:border-blue-500 focus:outline-none" />
+							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine w-full min-w-32 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none" />
 						{:else}
-							<span class="font-mono text-xs text-gray-600">{shortRepoName(repo.nameWithOwner)}</span>
+							<span class="text-machine text-gray-600">{shortRepoName(repo.nameWithOwner)}</span>
 						{/if}
 					</td>
 					<td class="px-4 py-3 text-center">
@@ -153,7 +153,7 @@
 								{#each repoCounts(repo.signals) as count (count.label)}
 									<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
 										<Octicon name={count.icon} size={16} class="shrink-0 text-gray-500" />
-										<div class="min-w-0"><div class="text-sm font-semibold tabular-nums text-gray-100">{count.value}</div><div class="truncate text-[11px] text-gray-400">{count.label}</div></div>
+										<div class="min-w-0"><div class="text-sm font-semibold tabular-nums text-gray-100">{count.value}</div><div class="truncate text-xs text-gray-400">{count.label}</div></div>
 									</div>
 								{/each}
 							</div>

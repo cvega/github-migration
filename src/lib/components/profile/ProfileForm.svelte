@@ -105,7 +105,7 @@
 						<span class="min-w-0 flex-1">
 							<span class="block text-sm font-semibold {selected ? 'text-gray-50' : 'text-gray-300'}">{option.label}</span>
 							<span class="mt-0.5 block text-xs text-gray-500">{option.description}</span>
-							<span class="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium {ready ? 'text-green-400' : 'text-amber-400'}">
+							<span class="mt-1.5 inline-flex items-center gap-1.5 text-xs font-medium {ready ? 'text-green-400' : 'text-amber-400'}">
 								<span class="h-1.5 w-1.5 rounded-full {ready ? 'bg-green-400' : 'bg-amber-400'}"></span>
 								{ready ? "Ready" : "Setup required"}
 							</span>

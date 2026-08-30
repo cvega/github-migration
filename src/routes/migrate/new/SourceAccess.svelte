@@ -21,7 +21,7 @@
 		<span class="inline-flex min-w-0 items-center gap-2 text-sm">
 			<Octicon name={sourceIcon} size={16} class="shrink-0 text-blue-400" />
 			<span class="truncate text-gray-100">{controller.sourcePlatformLabel}</span>
-			{#if !controller.sourceIsCloud && controller.sourceHost}<span class="truncate font-mono text-xs text-gray-500">{controller.sourceHost}</span>{/if}
+			{#if !controller.sourceIsCloud && controller.sourceHost}<span class="text-machine truncate text-gray-500">{controller.sourceHost}</span>{/if}
 		</span>
 		{#if controller.allowOverride && controller.sourceProvider === "github"}<button type="button" onclick={() => (controller.overrideSourceUrl = !controller.overrideSourceUrl)} class="text-xs font-medium text-blue-400 hover:text-blue-300">{controller.overrideSourceUrl ? "Use configured" : "Change"}</button>{/if}
 	</div>

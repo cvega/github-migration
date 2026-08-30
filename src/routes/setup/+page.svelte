@@ -92,13 +92,13 @@
 				<div class="space-y-4 p-5">
 					<p class="text-xs text-gray-500">GitHub.com or GitHub Enterprise Server</p>
 					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="min-w-0 break-all text-right font-mono text-xs text-gray-300">{setup.sourceApiUrl}</dd></div>
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">Organizations</dt><dd class="min-w-0 text-right font-mono text-xs text-gray-300">{setup.sourceOrgs.length ? setup.sourceOrgs.join(", ") : "Set during profiling"}</dd></div>
+						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.sourceApiUrl}</dd></div>
+						<div class="flex justify-between gap-4"><dt class="text-gray-500">Organizations</dt><dd class="text-machine min-w-0 text-right text-gray-300">{setup.sourceOrgs.length ? setup.sourceOrgs.join(", ") : "Set during profiling"}</dd></div>
 					</dl>
 					{#if setup.sourceAuthReady}
 						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration planning.</p>
 					{:else}
-						<pre class="overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 font-mono text-xs leading-5 text-gray-300">GH_SOURCE_API_URL={setup.sourceApiUrl}
+						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">GH_SOURCE_API_URL={setup.sourceApiUrl}
 GH_SOURCE_PAT=github_pat_...</pre>
 					{/if}
 				</div>
@@ -112,13 +112,13 @@ GH_SOURCE_PAT=github_pat_...</pre>
 				<div class="space-y-4 p-5">
 					<p class="text-xs text-gray-500">GitLab.com or self-managed GitLab</p>
 					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="min-w-0 break-all text-right font-mono text-xs text-gray-300">{setup.gitlabSourceApiUrl || "Not configured"}</dd></div>
+						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.gitlabSourceApiUrl || "Not configured"}</dd></div>
 						<div class="flex justify-between gap-4"><dt class="text-gray-500">Archive storage</dt><dd class="text-right text-xs {setup.gitlabMigrationReady ? 'text-green-300' : 'text-gray-400'}">{setup.gitlabMigrationReady ? "Configured" : "Required for migration"}</dd></div>
 					</dl>
 					{#if setup.gitlabMigrationReady}
 						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration.</p>
 					{:else}
-						<pre class="overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 font-mono text-xs leading-5 text-gray-300">GITLAB_SOURCE_API_URL=https://gitlab.com
+						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">GITLAB_SOURCE_API_URL=https://gitlab.com
 GITLAB_SOURCE_PAT=glpat_...
 GITLAB_SOURCE_NAMESPACE=group/subgroup
 ARCHIVE_DIR=/data/archives</pre>
@@ -134,13 +134,13 @@ ARCHIVE_DIR=/data/archives</pre>
 				<div class="space-y-4 p-5">
 					<p class="text-xs text-gray-500">Bitbucket Server or Data Center 5.14+</p>
 					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="min-w-0 break-all text-right font-mono text-xs text-gray-300">{setup.bitbucketSourceApiUrl || "Not configured"}</dd></div>
+						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.bitbucketSourceApiUrl || "Not configured"}</dd></div>
 						<div class="flex justify-between gap-4"><dt class="text-gray-500">Export transfer</dt><dd class="text-right text-xs {setup.bitbucketMigrationReady ? 'text-green-300' : 'text-gray-400'}">{setup.bitbucketMigrationReady ? "SFTP configured" : "SFTP required for migration"}</dd></div>
 					</dl>
 					{#if setup.bitbucketMigrationReady}
 						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration.</p>
 					{:else}
-						<pre class="overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 font-mono text-xs leading-5 text-gray-300">BITBUCKET_SERVER_URL=https://bitbucket.example.com
+						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">BITBUCKET_SERVER_URL=https://bitbucket.example.com
 BITBUCKET_SERVER_USERNAME=migration-user
 BITBUCKET_SERVER_PASSWORD=...
 BITBUCKET_SERVER_SSH_USERNAME=bitbucket
@@ -165,8 +165,8 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 					</div>
 					<div class="space-y-4 p-5">
 						<dl class="grid gap-2 text-sm sm:grid-cols-2">
-							<div><dt class="text-gray-500">API URL</dt><dd class="break-all font-mono text-xs text-gray-300">{profile.apiUrl}</dd></div>
-							<div><dt class="text-gray-500">Organizations</dt><dd class="break-all font-mono text-xs text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Set in migration plan"}</dd></div>
+							<div><dt class="text-gray-500">API URL</dt><dd class="text-machine break-all text-gray-300">{profile.apiUrl}</dd></div>
+							<div><dt class="text-gray-500">Organizations</dt><dd class="text-machine break-all text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Set in migration plan"}</dd></div>
 						</dl>
 						<div class="divide-y divide-gray-800 rounded-md border border-gray-700 bg-gray-950/50">
 							{#each profile.capabilities ?? [] as capability (`${capability.sourceProvider}:${profile.id}`)}
@@ -178,7 +178,7 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 									{#if capability.reasons.length}
 										<ul class="mt-1.5 space-y-1 text-xs text-gray-500">
 											{#each capability.reasons as reason (reason.code)}
-												<li>{reason.message}{#if reason.environment.length}<span class="block font-mono text-[11px] text-gray-600">{reason.environment.join(", ")}</span>{/if}</li>
+												<li>{reason.message}{#if reason.environment.length}<span class="text-machine block text-gray-600">{reason.environment.join(", ")}</span>{/if}</li>
 											{/each}
 										</ul>
 									{/if}
@@ -195,8 +195,8 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 			<div>
 				<h2 class="flex items-center gap-2 text-sm font-medium text-gray-200"><Octicon name="terminal" size={16} class="text-gray-500" />Apply configuration</h2>
-				<p class="mt-1 text-sm text-gray-400">After editing <code class="rounded bg-gray-800 px-1.5 py-0.5 text-xs">.env</code>, recreate the service.</p>
-				<code class="mt-2 block font-mono text-xs text-gray-300">docker compose up -d --force-recreate</code>
+				<p class="mt-1 text-sm text-gray-400">After editing <code class="text-machine rounded bg-gray-800 px-1.5 py-0.5">.env</code>, recreate the service.</p>
+				<code class="text-machine mt-2 block text-gray-300">docker compose up -d --force-recreate</code>
 			</div>
 			<div class="flex shrink-0 flex-wrap gap-2">
 				<a href="/setup" class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700"><Octicon name="sync" size={16} />Check again</a>

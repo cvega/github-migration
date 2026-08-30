@@ -1,19 +1,19 @@
 <script lang="ts">
-	import AuthStatus from "$lib/components/AuthStatus.svelte";
 	import AuthFields from "$lib/components/AuthFields.svelte";
+	import AuthStatus from "$lib/components/AuthStatus.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 	import ErrorDetail from "$lib/components/ErrorDetail.svelte";
 	import GitHubStatus from "$lib/components/GitHubStatus.svelte";
-	import MigrationProgress from "$lib/components/migrate/MigrationProgress.svelte";
 	import MigrationCard from "$lib/components/migrate/MigrationCard.svelte";
+	import MigrationProgress from "$lib/components/migrate/MigrationProgress.svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
-	import { ICONS, type UsedIconName } from "$lib/icons.generated";
 	import OrgSelect from "$lib/components/OrgSelect.svelte";
 	import Pagination from "$lib/components/Pagination.svelte";
 	import ProfileList from "$lib/components/profile/ProfileList.svelte";
 	import ProfileProgress from "$lib/components/profile/ProfileProgress.svelte";
 	import SourceInventory from "$lib/components/profile/SourceInventory.svelte";
 	import SourceProviderSelector from "$lib/components/SourceProviderSelector.svelte";
+	import { ICONS, type UsedIconName } from "$lib/icons.generated";
 	import type { AuthFieldMode, Counts, FailureDetail, Migration, Progress } from "$lib/migrate/types";
 	import type { ProfileDetailRollup, ProfileInventorySummary, ProfileRun } from "$lib/profile/types";
 	import type { SourceProvider } from "$lib/source-provider";
@@ -576,7 +576,7 @@
 			<p>The complete `/migrate/new` workflow is the primary expression of Migration Workbench.</p>
 		</header>
 
-		<div class="composition-anatomy" aria-label="Composition anatomy">
+		<div class="composition-anatomy" role="group" aria-label="Composition anatomy">
 			<div><span>01</span><strong>Route</strong><small>Source and destination remain visible.</small></div>
 			<div><span>02</span><strong>Workbench</strong><small>One decision surface owns the stage.</small></div>
 			<div><span>03</span><strong>Action dock</strong><small>Consequence stays fixed and explicit.</small></div>
@@ -1126,8 +1126,8 @@
 	.icon-size-scale code,
 	.provider-icon-list small {
 		color: var(--guide-muted);
-		font-size: 12px;
-		line-height: 16px;
+		font-size: 13px;
+		line-height: 18px;
 	}
 
 	.provider-icon-list {
@@ -1187,8 +1187,8 @@
 	.icon-inventory summary small,
 	.icon-inventory summary > code {
 		color: var(--guide-muted);
-		font-size: 12px;
-		line-height: 16px;
+		font-size: 13px;
+		line-height: 18px;
 	}
 
 	.icon-inventory-grid {
@@ -1210,7 +1210,8 @@
 	.icon-inventory-grid code {
 		overflow: hidden;
 		color: var(--guide-muted);
-		font-size: 12px;
+		font-size: 13px;
+		line-height: 18px;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
@@ -1899,7 +1900,7 @@
 		.type-composition { padding: 24px 20px; }
 		.type-display { margin-top: 28px; font-size: 28px; line-height: 36px; }
 		.type-route { grid-template-columns: 1fr; }
-		.type-route :global(svg) { transform: rotate(90deg); }
+		.typography-block .typography-reference .type-composition .type-route :global(svg) { transform: rotate(90deg); }
 		.geometry-list { grid-template-columns: 1fr; }
 		.component-registry > summary { align-items: flex-start; flex-direction: column; gap: 0; padding-block: 10px; }
 		.registry-groups { grid-template-columns: 1fr; gap: 18px; }

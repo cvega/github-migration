@@ -30,7 +30,7 @@
 				{badge.label}
 			</span>
 		</h1>
-		<p class="mt-1 break-all font-mono text-xs text-gray-500">
+		<p class="text-machine mt-1 break-all text-gray-500">
 			{provider.displayName} · {run.sourceApiUrl} · started {timeAgo(run.startedAt)}
 			{#if run.apiCalls > 0}
 				· {run.apiCalls.toLocaleString()} API calls

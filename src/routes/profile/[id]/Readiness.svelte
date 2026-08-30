@@ -90,12 +90,12 @@
 							<Octicon name={tile.icon} size={16} class="shrink-0 {tile.warn ? 'text-yellow-400' : 'text-gray-500'}" />
 							<div class="min-w-0">
 								<div class="text-sm font-semibold tabular-nums {tile.warn ? 'text-yellow-200' : 'text-gray-100'}">{tile.value.toLocaleString()}</div>
-								<div class="truncate text-[11px] text-gray-400">{tile.label}</div>
+								<div class="truncate text-xs text-gray-400">{tile.label}</div>
 							</div>
 						</div>
 					{/each}
 				</div>
-				<p class="mt-2 text-[11px] text-gray-500">These resources are organization-scoped and must be recreated on the target. Secret values are never exported.</p>
+				<p class="mt-2 text-xs text-gray-500">These resources are organization-scoped and must be recreated on the target. Secret values are never exported.</p>
 			</div>
 		{/if}
 

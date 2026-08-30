@@ -160,7 +160,7 @@
 		aria-label="Statistics filters"
 	>
 		<fieldset class="min-w-56 flex-1 sm:flex-none">
-			<legend class="mb-1.5 text-[10px] font-semibold uppercase text-gray-500">
+			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
 				<span class="inline-flex items-center gap-1.5"
 					><Octicon name="calendar" size={12} />Started</span
 				>
@@ -186,7 +186,7 @@
 			</div>
 		</fieldset>
 
-		<label class="grid min-w-40 flex-1 gap-1.5 text-[10px] font-semibold uppercase text-gray-500 sm:flex-none">
+		<label class="grid min-w-40 flex-1 gap-1.5 text-xs font-semibold uppercase text-gray-500 sm:flex-none">
 			<span class="inline-flex items-center gap-1.5"><Octicon name="repo" size={12} />Source</span>
 			<select
 				name="source"
@@ -201,7 +201,7 @@
 			</select>
 		</label>
 
-		<label class="grid min-w-40 flex-1 gap-1.5 text-[10px] font-semibold uppercase text-gray-500 sm:flex-none">
+		<label class="grid min-w-40 flex-1 gap-1.5 text-xs font-semibold uppercase text-gray-500 sm:flex-none">
 			<span class="inline-flex items-center gap-1.5"><Octicon name="repo-push" size={12} />Target</span>
 			<select
 				name="target"
@@ -216,7 +216,7 @@
 		</label>
 
 		<fieldset class="min-w-64 flex-1 sm:flex-none">
-			<legend class="mb-1.5 text-[10px] font-semibold uppercase text-gray-500">
+			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
 				<span class="inline-flex items-center gap-1.5"><Octicon name="stack" size={12} />Mode</span>
 			</legend>
 			<div class="flex h-8 overflow-hidden rounded-md border border-gray-600 bg-gray-950">
@@ -319,7 +319,7 @@
 				</div>
 				<div class="text-right">
 					<div class="text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.total)}</div>
-					<div class="text-[10px] font-semibold uppercase text-gray-500">Total migrations</div>
+					<div class="text-xs font-semibold uppercase text-gray-500">Total migrations</div>
 				</div>
 			</div>
 			<div class="status-grid grid grid-cols-2 border-t border-gray-700" style:--status-columns={stateSegments.length}>
@@ -348,7 +348,7 @@
 		<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
 			<div class="mb-3 flex flex-wrap items-start justify-between gap-2">
 				<h2 class="text-sm font-medium text-gray-300">Resources Migrated</h2>
-				<span class="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">
+				<span class="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
 					{fmtNum(stats.resources.migrationCount)} migrations with final counts
 				</span>
 			</div>
@@ -439,7 +439,7 @@
 						</h2>
 						<p class="mt-1 text-xs text-gray-500">Repository volume by source owner</p>
 					</div>
-					<span class="shrink-0 text-[10px] font-semibold uppercase text-gray-500">Top {visibleTopOrgs.length}</span>
+					<span class="shrink-0 text-xs font-semibold uppercase text-gray-500">Top {visibleTopOrgs.length}</span>
 				</div>
 				{#if stats.topOrgs.length > 0}
 					<ul class="flex flex-1 flex-col border-t border-gray-700">
@@ -451,11 +451,11 @@
 								</span>
 								<div class="min-w-0 flex-1">
 									<div class="truncate text-sm font-semibold text-gray-200" title={org.org}>{org.org}</div>
-									<div class="mt-0.5 text-[10px] font-semibold uppercase text-gray-500">Source owner</div>
+									<div class="mt-0.5 text-xs font-semibold uppercase text-gray-500">Source owner</div>
 								</div>
 								<div class="shrink-0 text-right">
 									<div class="text-base font-semibold tabular-nums text-gray-50">{fmtNum(org.count)}</div>
-									<div class="text-[10px] text-gray-500">{stats.total > 0 ? ((org.count / stats.total) * 100).toFixed(1) : '0.0'}% of total</div>
+									<div class="text-xs text-gray-500">{stats.total > 0 ? ((org.count / stats.total) * 100).toFixed(1) : '0.0'}% of total</div>
 								</div>
 							</li>
 						{/each}
@@ -477,7 +477,7 @@
 			</div>
 			<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
 				<table class="w-full border-collapse text-xs tabular-nums">
-					<thead class="bg-gray-950/40 text-[10px] uppercase text-gray-500">
+					<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 						<tr>
 							<th class="px-5 py-2 text-left font-medium">Path</th>
 							<th class="px-3 py-2 text-right font-medium">Total</th>
@@ -540,7 +540,7 @@
 				{#if stats.failuresByReason.length > 0}
 					<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
 						<table class="w-full border-collapse text-xs tabular-nums">
-							<thead class="bg-gray-950/40 text-[10px] uppercase text-gray-500">
+							<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 								<tr>
 									<th class="px-5 py-2 text-left font-medium">Reason</th>
 									<th class="px-3 py-2 text-right font-medium">Count</th>
@@ -553,7 +553,7 @@
 							<tbody class="divide-y divide-gray-700/70">
 								{#each stats.failuresByReason.slice(0, 5) as failure (failure.reason)}
 									<tr class="hover:bg-gray-800/30">
-										<td class="max-w-md truncate px-5 py-3 font-mono text-[10px] text-red-300" title={failure.reason}>{failure.reason}</td>
+										<td class="text-machine max-w-md truncate px-5 py-3 text-red-300" title={failure.reason}>{failure.reason}</td>
 										<td class="px-3 py-3 text-right font-medium text-red-400">{fmtNum(failure.count)}</td>
 										<td class="px-3 py-3 text-right text-gray-300">{failure.share}%</td>
 										<td class="px-3 py-3 text-right text-gray-300">{formatElapsed(failure.avgSeconds)}</td>
@@ -567,7 +567,7 @@
 					<ul class="divide-y divide-gray-700 border-t border-gray-700 md:hidden">
 						{#each stats.failuresByReason.slice(0, 5) as failure (failure.reason)}
 							<li class="space-y-3 p-4">
-								<div class="truncate font-mono text-[10px] text-red-300" title={failure.reason}>{failure.reason}</div>
+								<div class="text-machine truncate text-red-300" title={failure.reason}>{failure.reason}</div>
 								<dl class="grid grid-cols-2 gap-x-5 gap-y-2 text-xs tabular-nums">
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Count</dt><dd class="text-red-400">{fmtNum(failure.count)}</dd></div>
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Share</dt><dd class="text-gray-300">{failure.share}%</dd></div>
@@ -590,7 +590,7 @@
 				{#if stats.batchStats.length > 0}
 					<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
 						<table class="w-full border-collapse text-xs tabular-nums">
-							<thead class="bg-gray-950/40 text-[10px] uppercase text-gray-500">
+							<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 								<tr>
 									<th class="px-5 py-2 text-left font-medium">Batch</th>
 									<th class="px-3 py-2 text-right font-medium">Repositories</th>
@@ -605,7 +605,7 @@
 							<tbody class="divide-y divide-gray-700/70">
 								{#each stats.batchStats as batch (batch.id)}
 									<tr class="hover:bg-gray-800/30">
-										<td class="px-5 py-3 text-left"><a class="font-medium text-blue-400 hover:text-blue-300" href="/migrate/batches/{batch.id}">{batch.id}</a>{#if batch.active}<span class="ml-2 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-medium text-blue-400">Active</span>{/if}</td>
+										<td class="px-5 py-3 text-left"><a class="font-medium text-blue-400 hover:text-blue-300" href="/migrate/batches/{batch.id}">{batch.id}</a>{#if batch.active}<span class="ml-2 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs font-medium text-blue-400">Active</span>{/if}</td>
 										<td class="px-3 py-3 text-right text-gray-300">{fmtNum(batch.total)}</td>
 										<td class="px-3 py-3 text-right text-gray-300">{batch.completionRate}%</td>
 										<td class="px-3 py-3 text-right text-green-400">{fmtNum(batch.succeeded)}</td>
@@ -621,7 +621,7 @@
 					<div class="divide-y divide-gray-700 border-t border-gray-700 md:hidden">
 						{#each stats.batchStats as batch (batch.id)}
 							<a href="/migrate/batches/{batch.id}" class="block space-y-3 p-4 hover:bg-gray-800/30">
-								<div class="flex items-center justify-between gap-3"><span class="truncate font-medium text-blue-400">{batch.id}</span>{#if batch.active}<span class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] text-blue-400">Active</span>{/if}</div>
+								<div class="flex items-center justify-between gap-3"><span class="truncate font-medium text-blue-400">{batch.id}</span>{#if batch.active}<span class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-400">Active</span>{/if}</div>
 								<dl class="grid grid-cols-2 gap-x-5 gap-y-2 text-xs tabular-nums">
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Repositories</dt><dd class="text-gray-300">{fmtNum(batch.total)}</dd></div>
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Complete</dt><dd class="text-gray-300">{batch.completionRate}%</dd></div>
@@ -644,11 +644,11 @@
 						<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300"><Octicon name="database" size={16} class="text-gray-500" />Performance by repository size</h2>
 						<p class="mt-1 text-xs text-gray-500">Historical completion times, not an estimate</p>
 					</div>
-					{#if stats.sizeUnavailableCount > 0}<span class="rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] text-gray-400">{fmtNum(stats.sizeUnavailableCount)} without size data</span>{/if}
+					{#if stats.sizeUnavailableCount > 0}<span class="rounded-full bg-gray-500/10 px-2 py-0.5 text-xs text-gray-400">{fmtNum(stats.sizeUnavailableCount)} without size data</span>{/if}
 				</div>
 				<div class="overflow-x-auto border-t border-gray-700">
 					<table class="w-full min-w-160 border-collapse text-xs tabular-nums">
-						<thead class="bg-gray-950/40 text-[10px] uppercase text-gray-500"><tr><th class="px-5 py-2 text-left font-medium">Size</th><th class="px-3 py-2 text-right font-medium">Succeeded</th><th class="px-3 py-2 text-right font-medium">Failed</th><th class="px-3 py-2 text-right font-medium">Success</th><th class="px-3 py-2 text-right font-medium">Median</th><th class="px-3 py-2 text-right font-medium">P95</th><th class="px-5 py-2 text-right font-medium">Duration data</th></tr></thead>
+						<thead class="bg-gray-950/40 text-xs uppercase text-gray-500"><tr><th class="px-5 py-2 text-left font-medium">Size</th><th class="px-3 py-2 text-right font-medium">Succeeded</th><th class="px-3 py-2 text-right font-medium">Failed</th><th class="px-3 py-2 text-right font-medium">Success</th><th class="px-3 py-2 text-right font-medium">Median</th><th class="px-3 py-2 text-right font-medium">P95</th><th class="px-5 py-2 text-right font-medium">Duration data</th></tr></thead>
 						<tbody class="divide-y divide-gray-700/70">
 							{#each stats.sizeStats as row (row.band)}
 								<tr class="hover:bg-gray-800/30"><td class="px-5 py-3 text-left"><span class="font-semibold text-gray-200">{row.band}</span><span class="ml-2 text-gray-500">{sizeBandLabel(row.band)}</span></td><td class="px-3 py-3 text-right text-green-400">{fmtNum(row.succeeded)}</td><td class="px-3 py-3 text-right {row.failed > 0 ? 'text-red-400' : 'text-gray-500'}">{fmtNum(row.failed)}</td><td class="px-3 py-3 text-right text-gray-200">{row.outcomes > 0 ? `${row.rate}%` : '—'}</td><td class="px-3 py-3 text-right text-gray-300">{formatElapsed(row.duration.medianSeconds)}</td><td class="px-3 py-3 text-right text-gray-300">{formatElapsed(row.duration.p95Seconds)}</td><td class="whitespace-nowrap px-5 py-3 text-right text-gray-400">{fmtNum(row.duration.timedCount)} of {fmtNum(row.duration.eligibleCount)}</td></tr>
@@ -668,8 +668,8 @@
 
 				<section class="border-t border-gray-700" aria-labelledby="timing-heading">
 					<div class="flex items-center justify-between bg-gray-950/30 px-5 py-2">
-						<h3 id="timing-heading" class="text-[10px] font-semibold uppercase text-gray-500">Timing</h3>
-						<span class="text-[10px] text-gray-500">{fmtNum(stats.duration.timedCount)} migrations</span>
+						<h3 id="timing-heading" class="text-xs font-semibold uppercase text-gray-500">Timing</h3>
+						<span class="text-xs text-gray-500">{fmtNum(stats.duration.timedCount)} migrations</span>
 					</div>
 					<dl class="grid grid-cols-1 divide-y divide-gray-700 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
 						<div class="px-5 py-4">
@@ -688,27 +688,27 @@
 				</section>
 
 				<section class="border-t border-gray-700" aria-labelledby="contents-heading">
-					<h3 id="contents-heading" class="bg-gray-950/30 px-5 py-2 text-[10px] font-semibold uppercase text-gray-500">Repository contents</h3>
+					<h3 id="contents-heading" class="bg-gray-950/30 px-5 py-2 text-xs font-semibold uppercase text-gray-500">Repository contents</h3>
 					<dl class="grid grid-cols-2 divide-x divide-y divide-gray-700 sm:grid-cols-4 sm:divide-y-0">
 						<div class="px-5 py-4">
 							<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Repo size</dt>
 							<dd class="mt-1 text-lg font-semibold tabular-nums text-gray-50">{formatRepoSize(stats.data.avgKb)}</dd>
-							<p class="mt-0.5 text-[10px] text-gray-500">{fmtNum(stats.data.sizedCount)} migrations</p>
+							<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.data.sizedCount)} migrations</p>
 						</div>
 						<div class="px-5 py-4">
 							<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="git-commit" size={12} />Commits</dt>
 							<dd class="mt-1 text-lg font-semibold tabular-nums text-gray-50">{fmtNum(avgPerCountedMigration(stats.resources.commits))}</dd>
-							<p class="mt-0.5 text-[10px] text-gray-500">per migration</p>
+							<p class="mt-0.5 text-xs text-gray-500">per migration</p>
 						</div>
 						<div class="px-5 py-4">
 							<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="issue-opened" size={12} />Issues</dt>
 							<dd class="mt-1 text-lg font-semibold tabular-nums text-gray-50">{fmtNum(avgPerCountedMigration(stats.resources.issues))}</dd>
-							<p class="mt-0.5 text-[10px] text-gray-500">per migration</p>
+							<p class="mt-0.5 text-xs text-gray-500">per migration</p>
 						</div>
 						<div class="px-5 py-4">
 							<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="git-pull-request" size={12} />Pull requests</dt>
 							<dd class="mt-1 text-lg font-semibold tabular-nums text-gray-50">{fmtNum(avgPerCountedMigration(stats.resources.pullRequests))}</dd>
-							<p class="mt-0.5 text-[10px] text-gray-500">per migration</p>
+							<p class="mt-0.5 text-xs text-gray-500">per migration</p>
 						</div>
 					</dl>
 				</section>
@@ -740,7 +740,7 @@
 				<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height: 140px;">
 					{#each stats.throughput as day, index (day.date)}
 						<button type="button" class="group relative flex h-full min-w-3.5 flex-1 flex-col justify-end outline-none focus-visible:ring-2 focus-visible:ring-blue-400" aria-label="{shortDate(day.date)}: {fmtNum(day.succeeded)} succeeded, {fmtNum(day.failed)} failed">
-							<span class="pointer-events-none absolute top-0 z-10 hidden w-max max-w-44 rounded-md border border-gray-600 bg-gray-800 px-2 py-1.5 text-left text-[10px] leading-4 text-gray-300 shadow-lg group-hover:block group-focus:block {index < 4 ? 'left-0' : index >= stats.throughput.length - 4 ? 'right-0' : 'left-1/2 -translate-x-1/2'}">
+							<span class="pointer-events-none absolute top-0 z-10 hidden w-max max-w-44 rounded-md border border-gray-600 bg-gray-800 px-2 py-1.5 text-left text-xs text-gray-300 shadow-lg group-hover:block group-focus:block {index < 4 ? 'left-0' : index >= stats.throughput.length - 4 ? 'right-0' : 'left-1/2 -translate-x-1/2'}">
 								<strong class="block font-medium text-gray-100">{shortDate(day.date)}</strong>
 								<span class="block">{fmtNum(day.succeeded)} succeeded</span>
 								<span class="block">{fmtNum(day.failed)} failed</span>

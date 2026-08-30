@@ -101,13 +101,13 @@
 								<Octicon name={provider.icon} size={16} />
 							</span>
 							<span class="min-w-0">
-								<span class="block text-[10px] font-semibold uppercase text-gray-500">{provider.label} source</span>
+								<span class="block text-xs font-semibold uppercase text-gray-500">{provider.label} source</span>
 								<span class="mt-1 block truncate text-base font-semibold text-gray-50">{run.org}</span>
 							</span>
 						</div>
 
 						<div class="border-t border-gray-700/70 pt-3 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-							<div class="text-[10px] font-semibold uppercase text-gray-500">{githubRun ? "Repository coverage" : "Project coverage"}</div>
+							<div class="text-xs font-semibold uppercase text-gray-500">{githubRun ? "Repository coverage" : "Project coverage"}</div>
 							<div class="mt-1 text-sm font-medium tabular-nums text-gray-200">{runCountLabel(run)}</div>
 							{#if run.blockers > 0 || run.warnings > 0}
 								<div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">

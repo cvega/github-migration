@@ -84,7 +84,7 @@
 		<Octicon name={unreadCount > 0 ? "bell-fill" : "bell"} size={16} />
 		{#if unreadCount > 0}
 			<span
-				class="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+				class="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold leading-none text-white"
 			>
 				{unreadCount > 9 ? "9+" : unreadCount}
 			</span>
@@ -123,7 +123,7 @@
 								<span class="min-w-0 flex-1">
 									<span class="flex items-center justify-between gap-2">
 										<span class="truncate text-sm font-medium text-gray-100">{item.repo}</span>
-										<span class="shrink-0 text-[11px] text-gray-500"
+										<span class="shrink-0 text-xs text-gray-500"
 											>{timeAgo(item.createdAt)}</span
 										>
 									</span>

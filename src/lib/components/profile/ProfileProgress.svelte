@@ -43,7 +43,7 @@
 				<div class="h-full bg-green-500 transition-all" style:width={`${percentage}%`}></div>
 			</div>
 			{#if livePhase && phaseLabels[livePhase]}
-				<div class="mt-1.5 flex items-center gap-1 text-[11px] text-gray-500">
+				<div class="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
 					<Octicon name="sync" size={12} class="animate-spin" />{phaseLabels[livePhase]}
 				</div>
 			{/if}

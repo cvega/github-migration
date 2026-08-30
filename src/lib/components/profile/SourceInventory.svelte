@@ -126,7 +126,7 @@
 					<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 						<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value, formatBytes)}</div>
 						<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name={tile.icon} size={12} class="text-gray-500" />{tile.label}</div>
-						{#if tile.value.kind === "unavailable"}<div class="mt-1 text-[11px] text-gray-500">{tile.value.reason}</div>{/if}
+						{#if tile.value.kind === "unavailable"}<div class="mt-1 text-xs text-gray-500">{tile.value.reason}</div>{/if}
 					</div>
 				{/each}
 			</div>

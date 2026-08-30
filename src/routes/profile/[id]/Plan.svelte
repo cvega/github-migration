@@ -42,13 +42,13 @@
 		</label>
 		<div class="grid grid-cols-3 gap-2">
 			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-[11px] text-gray-500">Selected</p><p class="mt-1 text-lg font-semibold text-gray-100">{planner.selectedNames.length}</p>
+				<p class="text-xs text-gray-500">Selected</p><p class="mt-1 text-lg font-semibold text-gray-100">{planner.selectedNames.length}</p>
 			</div>
 			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-[11px] text-gray-500">Warnings</p><p class="mt-1 text-lg font-semibold {planner.selectedWarnings > 0 ? 'text-yellow-300' : 'text-gray-400'}">{planner.selectedWarnings}</p>
+				<p class="text-xs text-gray-500">Warnings</p><p class="mt-1 text-lg font-semibold {planner.selectedWarnings > 0 ? 'text-yellow-300' : 'text-gray-400'}">{planner.selectedWarnings}</p>
 			</div>
 			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-[11px] text-gray-500">Blocking</p><p class="mt-1 text-lg font-semibold {planner.selectedBlockers > 0 ? 'text-red-300' : 'text-gray-400'}">{planner.selectedBlockers}</p>
+				<p class="text-xs text-gray-500">Blocking</p><p class="mt-1 text-lg font-semibold {planner.selectedBlockers > 0 ? 'text-red-300' : 'text-gray-400'}">{planner.selectedBlockers}</p>
 			</div>
 		</div>
 	</div>
@@ -66,8 +66,8 @@
 				{#each planner.planningRepos as repo (repo.nameWithOwner)}
 					<div class="grid min-h-12 grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)] items-center gap-3 px-3 py-2">
 						<input type="checkbox" checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
-						<span class="min-w-0 break-all font-mono text-xs text-gray-300">{repo.nameWithOwner}</span>
-						<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 font-mono text-xs text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
+						<span class="text-machine min-w-0 break-all text-gray-300">{repo.nameWithOwner}</span>
+						<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
 					</div>
 				{/each}
 			</div>

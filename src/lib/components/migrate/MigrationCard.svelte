@@ -127,7 +127,7 @@
 			class="grid grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)] items-center gap-3 md:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)_8.5rem] md:gap-4"
 		>
 			<div class="min-w-0">
-				<div class="text-[10px] font-semibold uppercase text-gray-500">Source repository</div>
+				<div class="text-xs font-semibold uppercase text-gray-500">Source repository</div>
 				<div class="mt-1.5 flex min-w-0 items-center gap-2">
 					<span
 						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-700 bg-gray-950/60 text-gray-400"
@@ -146,7 +146,7 @@
 			</div>
 
 			<div class="min-w-0">
-				<div class="text-[10px] font-semibold uppercase text-gray-500">Target repository</div>
+				<div class="text-xs font-semibold uppercase text-gray-500">Target repository</div>
 				<div class="mt-1.5 flex min-w-0 items-center gap-2">
 					<span
 						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gray-700 bg-gray-950/60 text-gray-400"
