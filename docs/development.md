@@ -1,6 +1,6 @@
 # Development
 
-The repository uses Bun 1.3.14, SvelteKit 2, Svelte 5, TypeScript, Tailwind 4,
+The repository uses Bun 1.4.0, SvelteKit 2, Svelte 5, TypeScript, Tailwind 4,
 Biome, and Playwright.
 
 ## Setup
@@ -17,6 +17,7 @@ The development server listens on `http://localhost:5173`. Server code uses
 
 ```bash
 bun test
+bun run test:changed
 bun run test:e2e
 ```
 

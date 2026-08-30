@@ -11,7 +11,7 @@ const packageManager =
   typeof packageJson.packageManager === "string" ? packageJson.packageManager : "";
 const version = packageManager.match(/^bun@(\d+\.\d+\.\d+)$/)?.[1];
 if (!version) {
-  throw new Error('package.json packageManager must be an exact version such as "bun@1.3.14"');
+  throw new Error('package.json packageManager must be an exact version such as "bun@1.4.0"');
 }
 
 const dockerfile = await Bun.file(resolve(ROOT, "Dockerfile")).text();

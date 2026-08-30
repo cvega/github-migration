@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtempDisposable, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -280,40 +280,39 @@ async function seedRepositoryHistory(
   );
   if (branches.some((branch) => branch.displayId === "main")) return;
 
-  const directory = await mkdtemp(resolve(tmpdir(), "bitbucket-provider-"));
-  try {
-    await git(["init", "--initial-branch=main", "."], directory, state);
-    await git(["config", "user.name", "Provider Contract"], directory, state);
-    await git(["config", "user.email", "provider-contract@example.invalid"], directory, state);
-    await writeFile(resolve(directory, "README.md"), `# ${repositorySlug}\n`);
-    await git(["add", "README.md"], directory, state);
-    await git(["commit", "-m", "Initialize repository"], directory, state);
-    if (rich) {
-      await mkdir(resolve(directory, "src"), { recursive: true });
-      await writeFile(resolve(directory, "src/app.ts"), 'export const provider = "bitbucket";\n');
-      await git(["add", "src/app.ts"], directory, state);
-      await git(["commit", "-m", "Add application entrypoint"], directory, state);
-      await mkdir(resolve(directory, "docs"), { recursive: true });
-      await writeFile(resolve(directory, "docs/runbook.md"), "# Service runbook\n");
-      await git(["add", "docs/runbook.md"], directory, state);
-      await git(["commit", "-m", "Add service runbook"], directory, state);
-      await git(["tag", "-a", "v1.0.0", "-m", "Provider contract release"], directory, state);
-      await git(["switch", "-c", "feature/metrics"], directory, state);
-      await writeFile(resolve(directory, "src/metrics.ts"), "export const metricCount = 1;\n");
-      await git(["add", "src/metrics.ts"], directory, state);
-      await git(["commit", "-m", "Add profile metrics"], directory, state);
-      await git(["switch", "main"], directory, state);
-    }
-    await git(
-      ["remote", "add", "origin", `${BASE_URL}/scm/${projectKey}/${repositorySlug}.git`],
-      directory,
-      state,
-    );
-    await git(["push", "origin", "--all"], directory, state);
-    if (rich) await git(["push", "origin", "--tags"], directory, state);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
+  await using temporaryDirectory = await mkdtempDisposable(
+    resolve(tmpdir(), "bitbucket-provider-"),
+  );
+  const directory = temporaryDirectory.path;
+  await git(["init", "--initial-branch=main", "."], directory, state);
+  await git(["config", "user.name", "Provider Contract"], directory, state);
+  await git(["config", "user.email", "provider-contract@example.invalid"], directory, state);
+  await writeFile(resolve(directory, "README.md"), `# ${repositorySlug}\n`);
+  await git(["add", "README.md"], directory, state);
+  await git(["commit", "-m", "Initialize repository"], directory, state);
+  if (rich) {
+    await mkdir(resolve(directory, "src"), { recursive: true });
+    await writeFile(resolve(directory, "src/app.ts"), 'export const provider = "bitbucket";\n');
+    await git(["add", "src/app.ts"], directory, state);
+    await git(["commit", "-m", "Add application entrypoint"], directory, state);
+    await mkdir(resolve(directory, "docs"), { recursive: true });
+    await writeFile(resolve(directory, "docs/runbook.md"), "# Service runbook\n");
+    await git(["add", "docs/runbook.md"], directory, state);
+    await git(["commit", "-m", "Add service runbook"], directory, state);
+    await git(["tag", "-a", "v1.0.0", "-m", "Provider contract release"], directory, state);
+    await git(["switch", "-c", "feature/metrics"], directory, state);
+    await writeFile(resolve(directory, "src/metrics.ts"), "export const metricCount = 1;\n");
+    await git(["add", "src/metrics.ts"], directory, state);
+    await git(["commit", "-m", "Add profile metrics"], directory, state);
+    await git(["switch", "main"], directory, state);
   }
+  await git(
+    ["remote", "add", "origin", `${BASE_URL}/scm/${projectKey}/${repositorySlug}.git`],
+    directory,
+    state,
+  );
+  await git(["push", "origin", "--all"], directory, state);
+  if (rich) await git(["push", "origin", "--tags"], directory, state);
 }
 
 async function ensurePullRequest(

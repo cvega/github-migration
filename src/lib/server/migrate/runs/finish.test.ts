@@ -90,24 +90,17 @@ describe("migration run settlement", () => {
   });
 
   test("marks a crashed run failed and ignores stale settlement", () => {
-    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    using consoleError = spyOn(console, "error");
+    consoleError.mockImplementation(() => {});
     insertMigration(migration("migration-1"));
     const registration = claimedRun("migration-1");
     const finisher = createMigrationRunFinisher(() => {});
-    try {
-      finisher.settleError("migration-1", registration.token, new Error("executor crashed"));
-      expect(getMigration("migration-1")).toMatchObject({
-        state: "failed",
-        failureReason: "executor crashed",
-      });
-      finisher.settleResult(
-        "migration-1",
-        registration.token,
-        migration("migration-1", "succeeded"),
-      );
-      expect(getMigration("migration-1")?.state).toBe("failed");
-    } finally {
-      consoleError.mockRestore();
-    }
+    finisher.settleError("migration-1", registration.token, new Error("executor crashed"));
+    expect(getMigration("migration-1")).toMatchObject({
+      state: "failed",
+      failureReason: "executor crashed",
+    });
+    finisher.settleResult("migration-1", registration.token, migration("migration-1", "succeeded"));
+    expect(getMigration("migration-1")?.state).toBe("failed");
   });
 });

@@ -53,17 +53,14 @@ describe("migration queue", () => {
   });
 
   test("fails a claimed migration when its secret request is missing", () => {
-    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    using consoleError = spyOn(console, "error");
+    consoleError.mockImplementation(() => {});
     insertMigration(migration("01", "queued"));
-    try {
-      drainMigrationQueue(() => true);
-      expect(getMigration("01")).toMatchObject({
-        state: "failed",
-        failureReason: "Queued migration request lost (internal error)",
-      });
-    } finally {
-      consoleError.mockRestore();
-    }
+    drainMigrationQueue(() => true);
+    expect(getMigration("01")).toMatchObject({
+      state: "failed",
+      failureReason: "Queued migration request lost (internal error)",
+    });
   });
 
   test("keeps a slot for a terminal migration whose promise is settling", () => {

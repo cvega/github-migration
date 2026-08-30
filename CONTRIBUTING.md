@@ -2,7 +2,7 @@
 
 ## Development Setup
 
-Install Bun 1.3.14, then run:
+Install Bun 1.4.0, then run:
 
 ```bash
 bun install

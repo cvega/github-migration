@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Docker Engine with Compose for deployment, or Bun 1.3.14 for development.
+- Docker Engine with Compose for deployment, or Bun 1.4.0 for development.
 - Source-provider credentials with access to the repositories being profiled or migrated.
 - GitHub target credentials with organization and migration permissions.
 - An absolute archive directory and exporter images for GitLab/Bitbucket-to-GHES paths.
