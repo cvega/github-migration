@@ -36,11 +36,7 @@ of a partial global module mock.
 bun run check
 bun run typecheck
 bun run lint
-bun run format:check
-bun run boundaries
-bun run cycles
 bun run docs:check
-bun run mutation:check
 bun run build
 bun run verify
 ```
@@ -51,6 +47,12 @@ documentation, duplicate/dead code, architecture boundaries, cycles, build,
 mutation configuration integrity, Playwright E2E workflows, bundle checks,
 dependency audit, and packaging checks. Playwright uses its seeded `.e2e-data`
 store and starts an isolated development server for the browser run.
+
+Run a focused gate by passing its name through `verify`, for example
+`bun run verify boundaries`, `bun run verify coverage`, or
+`bun run verify format`. Validate mutation configuration with
+`bun run mutation --check`; run the full suite with
+`bun run mutation --force`.
 
 ## Architecture Rules
 
@@ -68,7 +70,7 @@ store and starts an isolated development server for the browser run.
 	composition root.
 - Public DTOs belong to their client-safe domain module.
 
-Run `bun run boundaries` after moving server modules or changing imports.
+Run `bun run verify boundaries` after moving server modules or changing imports.
 
 ## Svelte Work
 
@@ -79,8 +81,9 @@ tables, controls, and long repository names do not introduce document overflow.
 Use the [Migration Workbench](design-system/migration-workbench.md) design system for page composition,
 component states, responsive behavior, and visual review requirements.
 
-Generated icons are updated with `bun run generate:icons`; CI checks that the
-generated output and client bundle remain current.
+Generated icons are updated with
+`bun scripts/packaging/generate-icons.ts`; CI checks that the generated output
+and client bundle remain current.
 
 ## Documentation
 

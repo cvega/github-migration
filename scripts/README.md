@@ -22,7 +22,7 @@ non-zero when a gate fails. The default output is compact JSON for automation;
 gates can be selected when narrowing a failure:
 
 ```bash
-bun run gates typecheck lint
+bun run verify typecheck lint
 ```
 
 The regular verification run validates mutation configuration but does not run
@@ -30,7 +30,7 @@ the full mutation suite. The expensive four-lane suite runs in the scheduled
 mutation workflow or manually with:
 
 ```bash
-bun run mutation:all --force
+bun run mutation --force
 ```
 
 ## Directory Map
@@ -57,13 +57,13 @@ Review these commands before running them:
 | Command | Effect |
 |---|---|
 | `bun run seed` | Adds or replaces development fixture records in `data/gh-migrate.db`. |
-| `bun run e2e:seed` | Deletes and recreates the `.e2e-data` directory. |
-| `bun run generate:icons` | Rewrites `src/lib/icons.generated.ts`. |
+| `bun scripts/fixtures/seed-e2e.ts` | Deletes and recreates the `.e2e-data` directory. |
+| `bun scripts/packaging/generate-icons.ts` | Rewrites `src/lib/icons.generated.ts`. |
 | `bun run docs:sync` | Rewrites generated sections in `docs/architecture.md`. |
 | `bun run release:prep` | Updates the package version and `CHANGELOG.md`; it does not commit, tag, or push. |
 | `bun run auth:reset --username <name>` | Resets an administrator password and revokes that user's sessions. |
-| `bun run provider:gitlab` | Creates, seeds, tests, and removes the local GitLab provider environment. |
-| `bun run provider:bitbucket` | Creates, seeds, tests, and removes the local Bitbucket provider environment. |
+| `bun scripts/providers/gitlab.ts` | Creates, seeds, tests, and removes the local GitLab provider environment. |
+| `bun scripts/providers/bitbucket.ts` | Creates, seeds, tests, and removes the local Bitbucket provider environment. |
 
 Provider harnesses require a working Compose implementation. They detect
 `docker compose`, `podman-compose`, or `docker-compose`, redact known secrets

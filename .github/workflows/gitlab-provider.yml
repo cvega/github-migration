@@ -38,11 +38,11 @@ jobs:
       - name: Run GitLab provider contract
         run: |
           set -o pipefail
-          bun run provider:gitlab run 2>&1 | tee gitlab-provider.log
+          bun scripts/providers/gitlab.ts run 2>&1 | tee gitlab-provider.log
 
       - name: Ensure provider cleanup
         if: always()
-        run: bun run provider:gitlab down
+        run: bun scripts/providers/gitlab.ts down
 
       - name: Upload failure diagnostics
         if: failure()

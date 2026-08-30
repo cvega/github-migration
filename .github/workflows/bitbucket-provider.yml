@@ -41,11 +41,11 @@ jobs:
       - name: Run Bitbucket provider contract
         run: |
           set -o pipefail
-          bun run provider:bitbucket run 2>&1 | tee bitbucket-provider.log
+          bun scripts/providers/bitbucket.ts run 2>&1 | tee bitbucket-provider.log
 
       - name: Ensure provider cleanup
         if: always()
-        run: bun run provider:bitbucket down
+        run: bun scripts/providers/bitbucket.ts down
 
       - name: Upload failure diagnostics
         if: failure()

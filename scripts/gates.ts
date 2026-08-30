@@ -12,8 +12,8 @@
  *     and a red run still contains enough to act without re-running
  *   - exits non-zero iff any gate failed → drop-in for CI / an agent check
  *
- * Pass gate names as args to run a subset, e.g.
- *   bun run gates typecheck lint
+ * Pass gate names through `bun run verify` to run a subset, e.g.
+ *   bun run verify typecheck lint
  */
 export {};
 
@@ -63,7 +63,10 @@ interface Gate {
 }
 
 const GATES: Gate[] = [
-  { name: "icons", cmd: ["bun", "run", "icons:check"] },
+  {
+    name: "icons",
+    cmd: ["bun", "scripts/packaging/generate-icons.ts", "--check"],
+  },
   {
     name: "typecheck",
     cmd: ["bun", "run", "typecheck"],
@@ -80,7 +83,7 @@ const GATES: Gate[] = [
   // `lint` runs `biome check` (lint + formatter + organize-imports/assist);
   // `format` is the explicit formatter-only check.
   { name: "lint", cmd: ["bun", "run", "lint"] },
-  { name: "format", cmd: ["bun", "run", "format:check"] },
+  { name: "format", cmd: ["bunx", "--bun", "biome", "format", "."] },
   {
     name: "docs",
     cmd: ["bun", "run", "docs:check"],
@@ -99,7 +102,7 @@ const GATES: Gate[] = [
   },
   {
     name: "coverage",
-    cmd: ["bun", "run", "coverage:check"],
+    cmd: ["bun", "scripts/checks/coverage-check.ts"],
     parse: (o): Metrics => {
       // Success line: "✓ Coverage gate passed — functions 88.38% (…), lines 85.66% (…)"
       const m = o.match(/functions ([\d.]+)%.*?lines ([\d.]+)%/s);
@@ -108,7 +111,7 @@ const GATES: Gate[] = [
   },
   {
     name: "dup",
-    cmd: ["bun", "run", "dup"],
+    cmd: ["bunx", "--bun", "jscpd"],
     parse: (o) => {
       const r: Metrics = {};
       const clones = int(/Found (\d+) clones/, o);
@@ -122,12 +125,21 @@ const GATES: Gate[] = [
       return r;
     },
   },
-  { name: "deadcode", cmd: ["bun", "run", "deadcode"] },
-  { name: "cycles", cmd: ["bun", "run", "cycles"] },
-  { name: "boundaries", cmd: ["bun", "run", "boundaries"] },
-  { name: "actions", cmd: ["bun", "run", "actions:check"] },
-  { name: "runtime", cmd: ["bun", "run", "runtime:check"] },
-  { name: "mutation-config", cmd: ["bun", "run", "mutation:check"] },
+  { name: "deadcode", cmd: ["bunx", "--bun", "knip"] },
+  { name: "cycles", cmd: ["bun", "scripts/checks/cycles.ts"] },
+  { name: "boundaries", cmd: ["bun", "scripts/checks/boundaries.ts"] },
+  {
+    name: "actions",
+    cmd: ["bun", "scripts/checks/workflow-actions-check.ts"],
+  },
+  {
+    name: "runtime",
+    cmd: ["bun", "scripts/checks/runtime-version-check.ts"],
+  },
+  {
+    name: "mutation-config",
+    cmd: ["bun", "scripts/checks/mutation-runner.ts", "--check"],
+  },
   {
     name: "e2e",
     cmd: ["bun", "run", "test:e2e"],
@@ -146,7 +158,7 @@ const GATES: Gate[] = [
   },
   {
     name: "audit",
-    cmd: ["bun", "run", "audit"],
+    cmd: ["bun", "audit"],
     parse: (o) => ({ vulnerabilities: int(/(\d+) vulnerabilit/i, o) ?? 0 }),
   },
 ];

@@ -35,10 +35,10 @@ jobs:
       - name: Install Chromium
         run: bunx --bun playwright install --with-deps chromium
 
-      # `bun run gates` runs the complete suite developers run locally,
+      # The gate orchestrator runs the complete suite developers run locally,
       # including browser regression, and exits non-zero if any gate is red.
       - name: Run gate suite
-        run: bun run gates
+        run: bun scripts/gates.ts
 
       - name: Upload browser failure traces
         if: failure()

@@ -28,7 +28,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run all mutation lanes
-        run: bun run mutation:all --force
+        run: bun run mutation --force
 
       - name: Upload mutation reports
         if: always()

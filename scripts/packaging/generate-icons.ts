@@ -74,7 +74,7 @@ const output = generate(await usedIconNames());
 if (process.argv.includes("--check")) {
   const existing = await Bun.file(OUTPUT).text();
   if (existing !== output) {
-    console.error(`[icons] ${OUTPUT} is stale; run bun run generate:icons`);
+    console.error(`[icons] ${OUTPUT} is stale; run bun scripts/packaging/generate-icons.ts`);
     process.exit(1);
   }
   console.log(`[icons] ${OUTPUT} is current`);
