@@ -13,6 +13,7 @@ import { getRepositoryMigration } from "./migration-source";
 
 const defaultDependencies = {
   doesRepoExist,
+  fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
   getRepoCounts,
   getRepositoryMigration,
   wait: sleep,
@@ -297,12 +298,20 @@ async function fetchFailureDetail(
   };
   if (snapshot.migrationLogUrl) {
     try {
-      const logHost = new URL(snapshot.migrationLogUrl).hostname;
-      if (!logHost.endsWith(".github.com") && logHost !== "github.com") {
-        console.warn(`[monitor] Refusing to fetch migration log from untrusted host: ${logHost}`);
+      const logUrl = new URL(snapshot.migrationLogUrl);
+      const trustedHost =
+        logUrl.hostname === "github.com" || logUrl.hostname.endsWith(".github.com");
+      if (
+        logUrl.protocol !== "https:" ||
+        logUrl.username !== "" ||
+        logUrl.password !== "" ||
+        logUrl.port !== "" ||
+        !trustedHost
+      ) {
+        console.warn("[monitor] Refusing to fetch migration log from an untrusted URL");
       } else {
         const token = await config.clients.getTargetToken();
-        const response = await fetch(snapshot.migrationLogUrl, {
+        const response = await dependencies.fetch(logUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (response.ok) detail.logEntries = (await response.json()) as LogEntry[];

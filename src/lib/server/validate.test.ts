@@ -455,16 +455,21 @@ describe("validateAuthAvailable", () => {
     );
   });
 
-  test("treats malformed or unknown target profile IDs as the cloud default", () => {
-    for (const targetProfileId of [42, "missing"]) {
-      expect(
-        validateAuthAvailable({
-          sourceToken: "source-token",
-          targetToken: "target-token",
-          targetProfileId,
-        }),
-      ).toBeNull();
-    }
+  test("defaults non-string target IDs but rejects unknown profile names", () => {
+    expect(
+      validateAuthAvailable({
+        sourceToken: "source-token",
+        targetToken: "target-token",
+        targetProfileId: 42,
+      }),
+    ).toBeNull();
+    expect(
+      validateAuthAvailable({
+        sourceToken: "source-token",
+        targetToken: "target-token",
+        targetProfileId: "missing",
+      }),
+    ).toBe("Migration target profile 'missing' is not configured");
   });
 
   test("uses caller-provided native URLs when no server URL is configured", () => {

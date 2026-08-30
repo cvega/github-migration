@@ -94,7 +94,7 @@ export function validateAuthAvailable(creds: CredentialScopeInput): string | nul
   } catch {
     return "Source API URL is invalid";
   }
-  const capability = getMigrationCapability(provider, targetProfile?.id ?? "ghec", {
+  const capability = getMigrationCapability(provider, targetProfileId ?? "ghec", {
     sourceAuthProvided: provider === "github" && Boolean(creds.sourceToken || creds.sourceApp),
     targetAuthProvided: !targetsGhes && Boolean(creds.targetToken || creds.targetApp),
   });

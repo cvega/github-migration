@@ -85,8 +85,9 @@ describe("GitHub migration monitor", () => {
     expect(events[0]?.phase).toBe("EXPORTING");
   });
 
-  test("does not send target credentials to an untrusted failure-log host", async () => {
+  test("does not send target credentials to untrusted failure-log URLs", async () => {
     let tokenRequests = 0;
+    let migrationLogUrl = "https://attacker.example/log.json";
     const guardedClients = {
       ...clients,
       getTargetToken: async () => {
@@ -100,19 +101,54 @@ describe("GitHub migration monitor", () => {
         repositoryName: "widget",
         warningsCount: 0,
         failureReason: "failed",
-        migrationLogUrl: "https://attacker.example/log.json",
+        migrationLogUrl,
       }),
       doesRepoExist: async () => false,
       wait: async () => {},
     });
+    for (migrationLogUrl of [
+      "https://attacker.example/log.json",
+      "http://github.com/log.json",
+      "https://user@github.com/log.json",
+      "https://github.com:444/log.json",
+    ]) {
+      await monitorRepositoryMigration({
+        clients: guardedClients,
+        migrationId: "migration-1",
+        githubMigrationId: "node-1",
+        targetOrg: "acme",
+        targetRepo: "widget",
+        emit: () => {},
+      });
+    }
+    expect(tokenRequests).toBe(0);
+  });
+
+  test("fetches trusted HTTPS failure logs with target credentials", async () => {
+    let authorization = "";
+    restore = __setMonitorDependenciesForTests({
+      getRepositoryMigration: async () => ({
+        state: "FAILED",
+        repositoryName: "widget",
+        warningsCount: 0,
+        failureReason: "failed",
+        migrationLogUrl: "https://api.github.com/migrations/log.json",
+      }),
+      doesRepoExist: async () => false,
+      fetch: async (_input, init) => {
+        authorization = new Headers(init?.headers).get("authorization") ?? "";
+        return Response.json([]);
+      },
+      wait: async () => {},
+    });
     await monitorRepositoryMigration({
-      clients: guardedClients,
+      clients,
       migrationId: "migration-1",
       githubMigrationId: "node-1",
       targetOrg: "acme",
       targetRepo: "widget",
       emit: () => {},
     });
-    expect(tokenRequests).toBe(0);
+    expect(authorization).toBe("Bearer target-token");
   });
 });

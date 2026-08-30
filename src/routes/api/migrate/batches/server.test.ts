@@ -4,11 +4,18 @@ import { migrateStore } from "$lib/server/migrate/database/schema";
 import { __setBatchRouteDependenciesForTests, GET, POST } from "./+server";
 
 let restore: (() => void) | undefined;
+let savedCredentialOverride: string | undefined;
 
-beforeEach(() => initStore(":memory:", [migrateStore]));
+beforeEach(() => {
+  savedCredentialOverride = process.env.GH_ALLOW_CREDENTIAL_OVERRIDE;
+  process.env.GH_ALLOW_CREDENTIAL_OVERRIDE = "true";
+  initStore(":memory:", [migrateStore]);
+});
 afterEach(() => {
   restore?.();
   restore = undefined;
+  if (savedCredentialOverride === undefined) delete process.env.GH_ALLOW_CREDENTIAL_OVERRIDE;
+  else process.env.GH_ALLOW_CREDENTIAL_OVERRIDE = savedCredentialOverride;
   closeStore();
 });
 
@@ -16,6 +23,26 @@ test("lists an empty batch collection", async () => {
   const response = await GET({ url: new URL("http://localhost/api/migrate/batches") } as never);
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ data: [], total: 0, page: 1 });
+});
+
+test("rejects an unconfigured target profile", async () => {
+  const response = await POST({
+    request: new Request("http://localhost/api/migrate/batches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [{ sourceRepo: "acme/widget", targetRepo: "widget" }],
+        targetOrg: "target",
+        targetProfileId: "missing",
+        sourceToken: "source-token",
+        targetToken: "target-token",
+      }),
+    }),
+  } as never);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    error: "Migration target profile 'missing' is not configured",
+  });
 });
 
 test("rejects incomplete and foreign profile-backed batches", async () => {
