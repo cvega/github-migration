@@ -28,6 +28,7 @@ widths. For documentation contract changes, run `bun run docs:sync` followed by
 ## Code Conventions
 
 - Follow existing TypeScript, Svelte 5, and Biome formatting.
+- Follow the [Migration Workbench](docs/design-system/migration-workbench.md) design system for visual and interaction work.
 - Keep server domains isolated and compose cross-domain dependencies in routes.
 - Keep browser DTOs in client-safe domain modules.
 - Use real structured parsers for provider and persisted data.

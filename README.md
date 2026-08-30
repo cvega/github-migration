@@ -60,5 +60,6 @@ bun run verify
 | [API Reference](docs/api.md) | Integrators |
 | [Provider Contracts](docs/provider-contracts.md) | Provider maintainers |
 | [Development](docs/development.md) | Contributors |
+| [Migration Workbench](docs/design-system/migration-workbench.md) | Designers and frontend contributors |
 | [Troubleshooting](docs/troubleshooting.md) | Operators and developers |
 | [Contributing](CONTRIBUTING.md) | Contributors |

@@ -17,7 +17,7 @@
 
 <section class="overflow-hidden rounded-md border border-gray-700 bg-gray-950">
 	<div
-		class="flex flex-col gap-2 border-b border-gray-700 bg-gray-900/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+		class="flex flex-col gap-3 border-b border-gray-700 bg-gray-900/70 px-6 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-7 lg:py-6"
 	>
 		<div>
 			<h2 class="text-base font-semibold text-gray-50">Choose source and target</h2>
@@ -31,9 +31,11 @@
 		</div>
 	</div>
 
-	<div class="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] lg:p-6">
+	<div
+		class="grid gap-6 p-6 lg:p-8 min-[1120px]:grid-cols-[minmax(0,2fr)_4rem_minmax(0,1fr)] min-[1120px]:gap-0"
+	>
 		<div class="min-w-0">
-			<div class="mb-3 flex items-center justify-between">
+			<div class="mb-4 flex items-center justify-between">
 				<h3 class="text-xs font-semibold uppercase text-gray-500">Source</h3>
 				<span class="text-xs font-medium text-blue-400">Required</span>
 			</div>
@@ -47,12 +49,12 @@
 		</div>
 
 		<div class="flex items-center justify-center text-gray-600">
-			<Octicon name="arrow-down" size={16} class="lg:hidden" />
-			<Octicon name="arrow-right" size={16} class="hidden lg:block" />
+			<span class="min-[1120px]:hidden"><Octicon name="arrow-down" size={16} /></span>
+			<span class="hidden min-[1120px]:block"><Octicon name="arrow-right" size={16} /></span>
 		</div>
 
 		<div class="min-w-0">
-			<div class="mb-3 flex items-center justify-between">
+			<div class="mb-4 flex items-center justify-between">
 				<h3 class="text-xs font-semibold uppercase text-gray-500">Target</h3>
 				<span
 					class="text-xs font-medium {controller.sourceProvider
@@ -64,20 +66,20 @@
 			</div>
 			{#if !controller.sourceProvider}
 				<div
-					class="flex min-h-20 items-center justify-center rounded-md border border-dashed border-gray-700 bg-gray-900/50 px-5 text-center text-sm text-gray-500 lg:min-h-21"
+					class="flex h-21 items-center justify-center rounded-md border border-dashed border-gray-700 bg-gray-900/50 px-6 text-center text-sm text-gray-500"
 				>
 					Select a source platform to reveal compatible targets.
 				</div>
 			{:else if controller.targetProfiles.length === 0}
 				<div
 					role="alert"
-					class="rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300"
+					class="flex h-21 items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-4 text-sm text-amber-300"
 				>
 					No configured target supports this source platform.
 				</div>
 			{:else}
 				<div
-					class="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700 bg-gray-900"
+					class="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700 bg-gray-950 lg:h-21"
 				>
 					{#each controller.targetProfiles as profile (profile.id)}
 						{@const readiness = controller.targetRouteReadiness(profile)}
@@ -86,15 +88,15 @@
 							aria-pressed={controller.targetProfileId === profile.id}
 							disabled={readiness !== null}
 							onclick={() => controller.selectTargetProfile(profile.id)}
-							class="flex min-h-20 w-full items-center gap-3 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 lg:min-h-20.5 {controller
+							class="relative flex min-h-[67px] w-full items-center gap-2.5 px-3 py-3 text-left outline-none transition-colors focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-55 lg:h-full lg:min-h-0 {controller
 								.targetProfileId === profile.id
-								? 'bg-blue-500/10'
-								: 'hover:bg-gray-800'}"
+								? 'bg-blue-500/10 shadow-[inset_0_-2px_0_var(--fgColor-accent)]'
+								: 'hover:bg-gray-900'}"
 						>
 							<span
-								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-gray-800 text-gray-100"
+								class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gray-700/70 text-gray-100"
 							>
-								<Octicon name="mark-github" size={24} />
+								<Octicon name="mark-github" size={16} />
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="block text-sm font-semibold text-gray-100"
@@ -112,7 +114,7 @@
 								</span>
 							</span>
 							{#if controller.targetProfileId === profile.id}
-								<Octicon name="check" size={16} class="shrink-0 text-blue-400" />
+								<Octicon name="check" size={12} class="shrink-0 text-blue-400" />
 							{/if}
 						</button>
 					{/each}
@@ -124,14 +126,14 @@
 	{#if controller.issues.length > 0}
 		<div
 			role="alert"
-			class="mx-5 mb-5 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 lg:mx-6 lg:mb-6"
+			class="mx-6 mb-6 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 lg:mx-8 lg:mb-8"
 		>
 			{controller.issues[0]?.message}
 		</div>
 	{/if}
 
 	<footer
-		class="flex flex-col gap-4 border-t border-gray-700 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+		class="flex flex-col gap-5 border-t border-gray-700 px-6 py-5 sm:flex-row sm:items-center sm:justify-between lg:px-8 lg:py-6"
 	>
 		<div>
 			<p class="text-sm font-medium text-gray-200">

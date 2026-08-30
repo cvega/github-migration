@@ -64,6 +64,8 @@ Use Svelte 5 runes and the existing component conventions. Keep server-only data
 out of page serialization. After component changes, run `bun run check` and the
 focused Playwright workflow at desktop and 390px widths. Verify that dialogs,
 tables, controls, and long repository names do not introduce document overflow.
+Use the [Migration Workbench](design-system/migration-workbench.md) design system for page composition,
+component states, responsive behavior, and visual review requirements.
 
 Generated icons are updated with `bun run generate:icons`; CI checks that the
 generated output and client bundle remain current.
