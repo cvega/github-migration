@@ -1,0 +1,22 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null src/lib/server/application/capabilities.test.ts src/lib/server/application/setup.test.ts src/lib/server/core/targets.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "src/lib/server/application/capabilities.ts",
+    "src/lib/server/application/setup.ts",
+    "src/lib/server/core/targets.ts"
+  ],
+  "reporters": ["clear-text", "progress", "json", "html"],
+  "jsonReporter": { "fileName": "reports/mutation/capabilities/mutation.json" },
+  "htmlReporter": { "fileName": "reports/mutation/capabilities/index.html" },
+  "incremental": true,
+  "incrementalFile": "reports/mutation/capabilities/incremental.json",
+  "thresholds": { "high": 90, "low": 80, "break": 80 },
+  "timeoutMS": 10000,
+  "concurrency": 1,
+  "tempDirName": ".stryker-tmp/capabilities"
+}

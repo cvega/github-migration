@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.0-alpine AS build
+FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS build
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
@@ -6,12 +6,12 @@ COPY . .
 RUN bun run build
 
 # Production dependencies only (excludes svelte, vite, tailwindcss, etc.)
-FROM oven/bun:1.4.0-alpine AS deps
+FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-FROM oven/bun:1.4.0-alpine
+FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb
 WORKDIR /app
 # Patch OS packages before installing runtime tools so the shipped image carries
 # Alpine's latest security fixes and clears the release vulnerability gate.

@@ -15,12 +15,20 @@ if (!version) {
 }
 
 const dockerfile = await Bun.file(resolve(ROOT, "Dockerfile")).text();
-const imageVersions = Array.from(
-  dockerfile.matchAll(/^FROM oven\/bun:([^\s-]+)-alpine(?:\s|$)/gm),
-  (match) => match[1] ?? "",
+const imageReferences = Array.from(
+  dockerfile.matchAll(/^FROM oven\/bun:([^\s@-]+)-alpine@sha256:([a-f0-9]{64})(?:\s|$)/gm),
+  (match) => ({ version: match[1] ?? "", digest: match[2] ?? "" }),
 );
-if (imageVersions.length === 0 || imageVersions.some((candidate) => candidate !== version)) {
-  throw new Error(`Every oven/bun Docker stage must use ${version}-alpine`);
+const bunStageCount = dockerfile.match(/^FROM oven\/bun:/gm)?.length ?? 0;
+if (
+  imageReferences.length === 0 ||
+  imageReferences.length !== bunStageCount ||
+  imageReferences.some((reference) => reference.version !== version)
+) {
+  throw new Error(`Every oven/bun Docker stage must use ${version}-alpine pinned by digest`);
+}
+if (new Set(imageReferences.map((reference) => reference.digest)).size !== 1) {
+  throw new Error("Every oven/bun Docker stage must use the same image digest");
 }
 
 for await (const workflow of new Bun.Glob(".github/workflows/*.{yml,yaml}").scan({

@@ -17,10 +17,10 @@ integers unless noted otherwise.
 | `GH_MIGRATE_SESSION_SECRET` | Deprecated compatibility setting; accepted but no longer used |
 | `GH_MIGRATE_ALLOW_UNAUTHENTICATED` | Explicitly permit operation without dashboard login |
 | `GH_ALLOW_CREDENTIAL_OVERRIDE` | Permit request-scoped GitHub credentials and source URL overrides |
-| `MIGRATION_RETENTION_DAYS` | Maximum age of terminal migration history |
-| `MIGRATION_RETENTION_ROWS` | Maximum retained terminal migration rows |
-| `PROFILE_RETENTION_DAYS` | Maximum age of terminal profile history |
-| `PROFILE_RETENTION_RUNS` | Maximum retained terminal profile runs |
+| `MIGRATION_RETENTION_DAYS` | Startup pruning age for terminal migration history; default 90 days, `0` disables age pruning |
+| `MIGRATION_RETENTION_ROWS` | Startup pruning limit for terminal migration rows; default 100,000, `0` disables row pruning |
+| `PROFILE_RETENTION_DAYS` | Startup pruning age for terminal profile history; default 90 days, `0` disables age pruning |
+| `PROFILE_RETENTION_RUNS` | Startup pruning limit for terminal profile runs; default 500, `0` disables run-count pruning |
 
 On the first authenticated startup, configure both bootstrap values. The
 dashboard hashes the password with Argon2id and stores the administrator in
@@ -31,6 +31,10 @@ Usernames are case-insensitively unique. New passwords contain 12-128
 characters. Sessions are opaque, revocable, limited to five per user, and expire
 after seven days. Unauthenticated mode must be explicitly enabled and should be
 limited to a trusted network. It cannot be enabled after users have been created.
+
+Migration, profile, failed-login, and expired-session retention is enforced at
+process startup. A continuously running process can temporarily retain rows
+beyond an age limit until its next restart.
 
 ## GitHub Source And Target
 

@@ -160,8 +160,14 @@ export async function validateMutationManifest(root = repositoryRoot): Promise<M
     if (JSON.stringify(configuredTests) !== JSON.stringify(manifestTests)) {
       errors.push(`${lane.id}: manifest test paths do not match command runner paths`);
     }
-    if (!command.startsWith("bun test --env-file=/dev/null ")) {
-      errors.push(`${lane.id}: command runner must use deterministic Bun test environment`);
+    if (
+      !command.startsWith(
+        "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null ",
+      )
+    ) {
+      errors.push(
+        `${lane.id}: command runner must install mutation aliases and use deterministic Bun test environment`,
+      );
     }
 
     const reportPath = config.jsonReporter?.fileName;

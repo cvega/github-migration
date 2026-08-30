@@ -170,6 +170,27 @@ for (const operation of implementedApi) {
   if (!documentedApi.has(operation)) errors.push(`docs/api.md missing API operation: ${operation}`);
 }
 
+const migrationRoute = await Bun.file(resolve(ROOT, "src/routes/api/migrate/+server.ts")).text();
+const migrationSearchParameter = migrationRoute.match(
+  /searchParams\.get\("([^"]+)"\).*?searchPaginated/s,
+)?.[1];
+if (!migrationSearchParameter) {
+  errors.push("Could not derive the migration search query parameter");
+} else if (!apiDoc.includes(`migration list accepts \`${migrationSearchParameter}\``)) {
+  errors.push(
+    `docs/api.md must document the migration search parameter as ${migrationSearchParameter}`,
+  );
+}
+
+const migrationSchemas = await Bun.file(resolve(ROOT, "src/lib/server/migrate/schemas.ts")).text();
+for (const field of ["repos", "items"] as const) {
+  if (!new RegExp(`\\b${field}\\?`).test(migrationSchemas)) {
+    errors.push(`Could not derive the batch payload field: ${field}`);
+  } else if (!apiDoc.includes(`\`${field}\``)) {
+    errors.push(`docs/api.md must document the batch payload field: ${field}`);
+  }
+}
+
 const configPath = resolve(ROOT, "docs/configuration.md");
 const configDoc = await Bun.file(configPath).text();
 const documentedEnv = new Set(
@@ -199,6 +220,42 @@ for (const name of sourceEnv) {
 for (const name of documentedEnv) {
   if (!sourceEnv.has(name) && !externallyOwnedEnv.has(name)) {
     errors.push(`docs/configuration.md documents unused environment variable: ${name}`);
+  }
+}
+
+const envExamplePath = resolve(ROOT, ".env.example");
+const envExample = await Bun.file(envExamplePath).text();
+const retentionDefaults = [
+  {
+    name: "MIGRATION_RETENTION_DAYS",
+    source: "src/lib/server/migrate/database/schema.ts",
+    fallback: /MIGRATION_RETENTION_DAYS,\s*([\d_]+)/,
+  },
+  {
+    name: "MIGRATION_RETENTION_ROWS",
+    source: "src/lib/server/migrate/database/schema.ts",
+    fallback: /MIGRATION_RETENTION_ROWS,\s*([\d_]+)/,
+  },
+  {
+    name: "PROFILE_RETENTION_DAYS",
+    source: "src/lib/server/profile/database/schema.ts",
+    fallback: /PROFILE_RETENTION_DAYS,\s*([\d_]+)/,
+  },
+  {
+    name: "PROFILE_RETENTION_RUNS",
+    source: "src/lib/server/profile/database/schema.ts",
+    fallback: /PROFILE_RETENTION_RUNS,\s*([\d_]+)/,
+  },
+] as const;
+for (const contract of retentionDefaults) {
+  const source = await Bun.file(resolve(ROOT, contract.source)).text();
+  const sourceDefault = source.match(contract.fallback)?.[1]?.replaceAll("_", "");
+  const exampleDefault = envExample.match(new RegExp(`^#\\s*${contract.name}=([0-9]+)$`, "m"))?.[1];
+  if (!sourceDefault) errors.push(`Could not derive runtime default for ${contract.name}`);
+  else if (exampleDefault !== sourceDefault) {
+    errors.push(
+      `${relative(ROOT, envExamplePath)} default for ${contract.name} must be ${sourceDefault}`,
+    );
   }
 }
 

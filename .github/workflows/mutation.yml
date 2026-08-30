@@ -30,10 +30,6 @@ jobs:
       - name: Run all mutation lanes
         run: bun run mutation:all --force
 
-      - name: Verify survivor reviews
-        if: always()
-        run: bun run mutation:review:check
-
       - name: Upload mutation reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -1,0 +1,24 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null src/lib/server/profile/analysis/duration.test.ts src/lib/server/profile/analysis/insights.test.ts src/lib/server/profile/analysis/overview.test.ts src/lib/server/profile/analysis/plan.test.ts src/lib/server/profile/analysis/repos.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "src/lib/server/profile/analysis/duration.ts",
+    "src/lib/server/profile/analysis/insights.ts",
+    "src/lib/server/profile/analysis/overview.ts",
+    "src/lib/server/profile/analysis/plan.ts",
+    "src/lib/server/profile/analysis/repos.ts"
+  ],
+  "reporters": ["clear-text", "progress", "json", "html"],
+  "jsonReporter": { "fileName": "reports/mutation/profile-decisions/mutation.json" },
+  "htmlReporter": { "fileName": "reports/mutation/profile-decisions/index.html" },
+  "incremental": true,
+  "incrementalFile": "reports/mutation/profile-decisions/incremental.json",
+  "thresholds": { "high": 90, "low": 80, "break": 80 },
+  "timeoutMS": 10000,
+  "concurrency": 1,
+  "tempDirName": ".stryker-tmp/profile-decisions"
+}

@@ -10,3 +10,5 @@ playwright-report/
 test-results/
 data/
 .e2e-data/
+.stryker-tmp/
+reports/mutation/

@@ -17,8 +17,9 @@ volumes, and exposes the container runtime socket for bounded one-shot source
 exporters. The image runs as a non-root application user after the entrypoint
 fixes mounted-directory ownership.
 
-Use a pinned release image through `GH_MIGRATE_IMAGE` when deploying an audited
-build. Keep the Bun image and lockfile versions synchronized.
+Use an immutable release tag or digest through `GH_MIGRATE_IMAGE` when deploying
+an audited build. Do not use `latest` or another floating tag in production.
+Keep the Bun image and lockfile versions synchronized.
 
 ## Authentication And Network
 
@@ -53,10 +54,11 @@ only the main database file while the process is running can omit committed WAL
 transactions. Restore the database and associated archives with the dashboard
 stopped, then verify `/api/ready` before routing traffic.
 
-Failed sign-in rows are retained for 24 hours. Expired and revoked sessions are
-retained for 30 days; audit events are retained indefinitely. Protect database
-backups as authentication data even though plaintext passwords and raw session
-tokens are never stored.
+At process startup, failed sign-in rows older than 24 hours and expired or
+revoked sessions older than 30 days are pruned. A continuously running process
+can retain older rows until its next restart. Audit events are retained
+indefinitely. Protect database backups as authentication data even though
+plaintext passwords and raw session tokens are never stored.
 
 ## Promotion And Rollback
 
@@ -108,7 +110,9 @@ Keep the failed candidate volumes until the rollback has been verified.
 - Pin every administrative SSH host key with its SHA-256 fingerprint.
 - Restrict access to the container runtime socket and exporter images.
 - Retain the default dropped capabilities and bounded exporter resources.
-- Keep archives and database volumes off shared untrusted storage.
+- Keep archives off shared untrusted storage and keep `DATA_DIR` on storage
+	with reliable POSIX locking; SQLite WAL is not supported on filesystems that
+	do not provide it.
 
 ## Probes And Shutdown
 

@@ -1,0 +1,22 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null src/lib/server/source/url.test.ts src/lib/server/source/gitlab/config.test.ts src/lib/server/source/bitbucket/config.test.ts"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "src/lib/server/core/source-url.ts",
+    "src/lib/server/source/gitlab/config.ts",
+    "src/lib/server/source/bitbucket/config.ts"
+  ],
+  "reporters": ["clear-text", "progress", "json", "html"],
+  "jsonReporter": { "fileName": "reports/mutation/provider-config/mutation.json" },
+  "htmlReporter": { "fileName": "reports/mutation/provider-config/index.html" },
+  "incremental": true,
+  "incrementalFile": "reports/mutation/provider-config/incremental.json",
+  "thresholds": { "high": 90, "low": 80, "break": 80 },
+  "timeoutMS": 10000,
+  "concurrency": 1,
+  "tempDirName": ".stryker-tmp/provider-config"
+}

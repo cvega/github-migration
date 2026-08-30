@@ -31,11 +31,15 @@ interface GateResult {
   error?: string;
 }
 
+function elapsedMilliseconds(startedAt: number): number {
+  return Math.round((Bun.nanoseconds() - startedAt) / 1_000_000);
+}
+
 function run(cmd: string[]): { code: number; out: string; ms: number } {
-  const t0 = Date.now();
+  const startedAt = Bun.nanoseconds();
   const proc = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
   const out = strip(proc.stdout.toString() + proc.stderr.toString());
-  return { code: proc.exitCode ?? 1, out, ms: Date.now() - t0 };
+  return { code: proc.exitCode ?? 1, out, ms: elapsedMilliseconds(startedAt) };
 }
 
 /** Last `n` non-empty lines — a compact, actionable failure excerpt. */
@@ -123,6 +127,7 @@ const GATES: Gate[] = [
   { name: "boundaries", cmd: ["bun", "run", "boundaries"] },
   { name: "actions", cmd: ["bun", "run", "actions:check"] },
   { name: "runtime", cmd: ["bun", "run", "runtime:check"] },
+  { name: "mutation-config", cmd: ["bun", "run", "mutation:check"] },
   {
     name: "e2e",
     cmd: ["bun", "run", "test:e2e"],
@@ -164,7 +169,7 @@ if (requested.length && selected.length !== requested.length) {
   process.exit(2);
 }
 
-const t0 = Date.now();
+const startedAt = Bun.nanoseconds();
 const gates: Record<string, GateResult> = {};
 const failures: string[] = [];
 
@@ -174,7 +179,7 @@ if (!(await Bun.file("node_modules/.bin/svelte-kit").exists())) {
   console.log(
     JSON.stringify({
       ok: false,
-      ms: Date.now() - t0,
+      ms: elapsedMilliseconds(startedAt),
       failures: ["prepare"],
       gates: { prepare: { ok: false, ms: 0, error } },
     }),
@@ -193,7 +198,7 @@ if (sync.code !== 0) {
   console.log(
     JSON.stringify({
       ok: false,
-      ms: Date.now() - t0,
+      ms: elapsedMilliseconds(startedAt),
       failures: ["prepare"],
       gates: { prepare: { ok: false, ms: sync.ms, error: tail(sync.out) } },
     }),
@@ -217,7 +222,7 @@ for (const g of selected) {
   if (!ok && failFast) break;
 }
 
-const summary = { ok: failures.length === 0, ms: Date.now() - t0, failures, gates };
+const summary = { ok: failures.length === 0, ms: elapsedMilliseconds(startedAt), failures, gates };
 
 // Minified when green (fewest tokens); indented when red so excerpts are readable.
 console.log(JSON.stringify(summary, null, failures.length ? 2 : 0));

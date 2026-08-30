@@ -5,7 +5,9 @@
 - Docker Engine with Compose for deployment, or Bun 1.4.0 for development.
 - Source-provider credentials with access to the repositories being profiled or migrated.
 - GitHub target credentials with organization and migration permissions.
-- An absolute archive directory and exporter images for GitLab/Bitbucket-to-GHES paths.
+- An absolute `ARCHIVE_DIR` for GitLab-to-GHEC and all GitLab/Bitbucket-to-GHES paths.
+- Pinned SFTP credentials plus an absolute `ARCHIVE_DIR` for Bitbucket-to-GHEC.
+- The matching exporter image for GitLab/Bitbucket-to-GHES paths.
 
 ## Start The Dashboard
 
@@ -25,7 +27,7 @@ after signing in.
 | Goal | Supported path | What to do |
 |---|---|---|
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
-| Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure the source and GHEC target credentials, profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
+| Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
 | Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
 
 GitHub-to-GHES migration is not supported. See the generated
@@ -36,8 +38,9 @@ source and target combinations.
 
 1. Configure one GitHub source and target credential mode: PAT or all three App values.
 2. Add GitLab or Bitbucket server-owned credentials when those providers are needed.
-3. Add a GHES target profile and pinned SSH host key for exporter-to-GHES migrations.
-4. Restart the container and check `/api/ready`.
+3. Configure archive storage for GitLab-to-GHEC and pinned SFTP archive access for Bitbucket-to-GHEC.
+4. Add a GHES target profile and pinned SSH host key for exporter-to-GHES migrations.
+5. Restart the container and check `/api/ready`.
 
 The **Setup** page reports available providers, credentials, target profiles,
 and migration paths without exposing secret values.

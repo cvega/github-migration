@@ -22,7 +22,7 @@ never returned.
 | `GET` | `/api/migrate/activity` | List recent migration activity |
 | `GET` | `/api/migrate/events` | Stream events across all migrations |
 | `POST` | `/api/migrate/batches` | Start a normalized migration batch |
-| `GET` | `/api/migrate/batches` | List or search migration batches |
+| `GET` | `/api/migrate/batches` | List migration batches |
 | `GET` | `/api/migrate/batches/:id` | Read a batch summary and paginated members |
 | `DELETE` | `/api/migrate/batches/:id` | Request cancellation for active batch members |
 | `POST` | `/api/migrate/batches/:id/restart` | Restart eligible batch members |
@@ -35,18 +35,21 @@ never returned.
 ## Pagination
 
 List endpoints accept positive `page` and `limit` query parameters and clamp
-limits to their route maximum. Migration and batch lists also accept `search`;
-statistics and detail routes add their documented UI filters. Responses include
-the selected page, total rows, total pages, and effective limit.
+limits to their route maximum. The migration list accepts `q`. Profile
+repository detail accepts `search` and `readiness`; `view=status` returns only
+run status and `view=repos` returns only the filtered repository page.
+Statistics routes add their documented UI filters. Responses include the
+selected page, total rows, total pages, and effective limit.
 
 ## Starting Migrations
 
 Single requests identify `sourceProvider`, source API/organization/repository,
 target profile and organization/repository, plus optional credentials and
 execution options. Batch requests carry the common source/target configuration
-and a bounded `repositories` mapping list. The server validates provider scope,
-target support, duplicate identities, credential policy, and the maximum batch
-size before persisting work.
+and either a bounded `repos` path list or an `items` mapping list. Each `items`
+entry identifies `sourceRepo` and may override `targetRepo`. The server
+validates provider scope, target support, duplicate identities, credential
+policy, and the maximum batch size before persisting work.
 
 The intentional cutover removed the former `/api/migrate/migrations` prefix.
 There are no compatibility aliases.

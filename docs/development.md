@@ -21,9 +21,10 @@ bun run test:changed
 bun run test:e2e
 ```
 
-Unit tests are colocated with production modules. Route integration and browser
-tests live under `tests/`. Credentialed provider checks are isolated under
-`tests/live` and are not part of the normal offline suite.
+Unit and route integration tests are colocated with production modules under
+`src/`. Browser tests live under `tests/e2e`, and provider contract tests live
+under `tests/providers`. The repository does not currently ship credentialed
+live-provider suites.
 
 Prefer real in-memory SQLite stores for persistence and route behavior. When a
 module owns external I/O or time, use its explicit test dependency hook instead
@@ -39,6 +40,7 @@ bun run format:check
 bun run boundaries
 bun run cycles
 bun run docs:check
+bun run mutation:check
 bun run build
 bun run verify
 ```
@@ -46,9 +48,9 @@ bun run verify
 `bun run verify` is the release go/no-go manifest. It covers tests and enforced
 coverage, generated icons, TypeScript/Svelte diagnostics, formatting, lint,
 documentation, duplicate/dead code, architecture boundaries, cycles, build,
-Playwright E2E workflows, bundle checks, dependency audit, and packaging
-checks. Playwright uses its seeded `.e2e-data` store and starts an isolated
-development server for the browser run.
+mutation configuration integrity, Playwright E2E workflows, bundle checks,
+dependency audit, and packaging checks. Playwright uses its seeded `.e2e-data`
+store and starts an isolated development server for the browser run.
 
 ## Architecture Rules
 

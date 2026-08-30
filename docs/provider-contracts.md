@@ -43,5 +43,6 @@ exporter and does not lock the source.
 
 Offline provider tests use deterministic HTTP fixtures and real clients to
 assert headers, canonical paths, pagination, response parsing, bounds, and
-failure classification. Credentialed checks under `tests/live` are opt-in and
-must target disposable provider data.
+failure classification. Credentialed live-provider suites are not currently
+shipped; any future live checks must remain opt-in and target disposable
+provider data.
