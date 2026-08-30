@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  getCapabilityReport,
-  getMigrationCapability,
-  logCapabilityReport,
-} from "./capability-report";
+import { getCapabilityReport, getMigrationCapability, logCapabilityReport } from "./capabilities";
 
 const KEYS = [
   "GH_SOURCE_PAT",

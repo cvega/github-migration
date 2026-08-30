@@ -51,6 +51,12 @@ const LOCAL_CONFIGURATION_KEYS = [
 
 for (const key of LOCAL_CONFIGURATION_KEYS) delete process.env[key];
 
+const [{ createMigrationSourceRuntime }, { configureMigrationSourceRuntime }] = await Promise.all([
+  import("$lib/server/application/adapters/source-runtime"),
+  import("$lib/server/migrate/ports/source-runtime"),
+]);
+configureMigrationSourceRuntime(createMigrationSourceRuntime());
+
 // Stable bootstrap credentials for tests that initialize application authentication.
 process.env.GH_MIGRATE_USER = "ci-test-admin";
 process.env.GH_MIGRATE_PASS = "ci-test-pass-7f3a9c";

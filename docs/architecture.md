@@ -2,7 +2,7 @@
 
 The dashboard is a single Bun process serving a SvelteKit application and a
 SQLite database. Its server code is split into `core`, `source`, `profile`, and
-`migrate` domains with explicit route-level composition.
+`migrate` domains behind an explicit application composition layer.
 
 - [Migration pipeline](#migration-pipeline)
 - [Profile flow](#profile-flow)
@@ -246,17 +246,26 @@ The server layers are:
 
 | Path | Responsibility |
 |---|---|
+| `src/lib/server/application/` | Cross-domain use cases, request policy, startup reporting, and concrete adapters for domain-owned ports |
 | `src/lib/server/core/` | Database primitives, GitHub auth and clients, sessions, SSE, and shared infrastructure |
 | `src/lib/server/source/` | GitLab and Bitbucket clients, discovery, profiling, export, and provider configuration |
 | `src/lib/server/profile/` | Provider-neutral profile lifecycle, analysis, events, and persistence |
-| `src/lib/server/migrate/` | Queue, executors, migration runs, events, and persistence |
+| `src/lib/server/migrate/` | Queue, executors, migration runs, events, persistence, and source-runtime port contracts |
 | `src/lib/server/schemas.ts` | Durable-domain composition root |
-| `src/routes/api/` | HTTP validation and cross-domain dependency composition |
+| `src/routes/api/` | HTTP transport that delegates request policy and domain work |
 
-`core` cannot import a domain. Sibling domains cannot import one another.
+The application layer may compose `core` and all domains. `core` and domains
+cannot import the application layer; `core` cannot import a domain; and sibling
+domains cannot import one another. Domain-owned ports invert dependencies that
+need concrete provider behavior: migration declares the source-runtime
+contract, while `application/adapters` implements it using the source domain.
 Provider clients and discovery functions are injected into profile services at
-the API route boundary. Browser-capable modules cannot import server modules.
-The `boundaries` gate enforces these constraints for absolute and relative
+the API route boundary. `schemas.ts` is the separate persistence composition
+root.
+
+Every production module under `src/lib/server/` must belong to one of these
+classified layers. Browser-capable modules cannot import server modules. The
+`boundaries` gate enforces all of these constraints for absolute and relative
 imports.
 
 Client-facing provider, migration, and profile contracts live outside

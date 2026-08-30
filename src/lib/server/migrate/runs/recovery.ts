@@ -1,6 +1,5 @@
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
 import { getDb } from "$lib/server/core/db";
-import { validatePersistedServerCredentialScope } from "$lib/server/validate";
 import { getMigrationExecutor } from "$lib/source-provider";
 import {
   getQueuedEnvMigrations,
@@ -8,7 +7,11 @@ import {
   updateMigrationState,
 } from "../database/migrations";
 import { recoverInterruptedMigrations } from "../database/schema";
-import { requestFromPersistedOptions, safeParsePersistedRequestOptions } from "../validate";
+import {
+  requestFromPersistedOptions,
+  safeParsePersistedRequestOptions,
+  validatePersistedServerCredentialScope,
+} from "../validate";
 import { activeMigrationRuns } from "./active";
 
 export interface MigrationRecoveryDependencies {

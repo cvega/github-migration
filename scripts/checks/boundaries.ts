@@ -16,28 +16,24 @@
  */
 import { dirname, relative, resolve } from "node:path";
 import { Glob } from "bun";
+import { checkBoundary, isDomain, type Layer, type TargetLayer } from "./boundary-policy";
 
 const SERVER_DIR = resolve("src/lib/server");
-const DOMAIN_NAMES = ["migrate", "profile", "source"] as const;
-type Domain = (typeof DOMAIN_NAMES)[number];
-type Layer = "core" | Domain | "schemas" | "root";
-
-function isDomain(value: string): value is Domain {
-  return DOMAIN_NAMES.some((domain) => domain === value);
-}
 
 /** Map a file under src/lib/server to its layer. */
-function layerOfFile(absFile: string): Layer {
+function layerOfFile(absFile: string): Layer | null {
   const rel = relative(SERVER_DIR, absFile);
   const top = rel.split("/")[0] ?? "";
+  if (top === "application") return "application";
   if (top === "core") return "core";
   if (isDomain(top)) return top;
-  if (top === "schemas.ts") return "schemas";
-  return "root";
+  if (top === "schemas.ts" || top === "schemas.test.ts") return "schemas";
+  if (top.endsWith(".test.ts")) return "application";
+  return null;
 }
 
 /** Resolve an import specifier to the server layer it targets, or null. */
-function targetLayer(spec: string, fromFile: string): Layer | null {
+function targetLayer(spec: string, fromFile: string): TargetLayer | null {
   let abs: string;
   if (spec.startsWith("$lib/server/")) {
     abs = resolve(SERVER_DIR, spec.slice("$lib/server/".length));
@@ -49,10 +45,11 @@ function targetLayer(spec: string, fromFile: string): Layer | null {
   const rel = relative(SERVER_DIR, abs);
   if (rel.startsWith("..")) return null; // outside server/
   const top = rel.split("/")[0] ?? "";
+  if (top === "application") return "application";
   if (top === "core") return "core";
   if (isDomain(top)) return top;
   if (top === "schemas" || top === "schemas.ts") return "schemas";
-  return "root";
+  return "unclassified";
 }
 
 const IMPORT_RE = /\b(?:from\s*|import\s*)['"]([^'"]+)['"]/g;
@@ -65,35 +62,27 @@ interface Violation {
   reason: string;
 }
 
-function check(from: Layer, to: Layer | null): string | null {
-  if (to === null) return null;
-  if (from === "core" && isDomain(to)) {
-    return "core/ must not import a domain";
-  }
-  if (from === "core" && to === "schemas") {
-    return "core/ must not import schemas.ts (composition root)";
-  }
-  if (isDomain(from) && isDomain(to) && to !== from) {
-    return `domain '${from}' must not import domain '${to}'`;
-  }
-  if (isDomain(from) && to === "schemas") {
-    return `domain '${from}' must not import schemas.ts (composition root)`;
-  }
-  return null;
-}
-
 const violations: Violation[] = [];
 
 for await (const file of new Glob("src/lib/server/**/*.ts").scan(".")) {
   const absFile = resolve(file);
   const from = layerOfFile(absFile);
+  if (!from) {
+    violations.push({
+      file,
+      line: 1,
+      spec: "",
+      reason: "server modules must live in a classified layer",
+    });
+    continue;
+  }
   const lines = (await Bun.file(file).text()).split("\n");
   lines.forEach((text, i) => {
     const specs: string[] = [];
     for (const match of text.matchAll(IMPORT_RE)) if (match[1]) specs.push(match[1]);
     for (const dm of text.matchAll(DYN_IMPORT_RE)) if (dm[1]) specs.push(dm[1]);
     for (const spec of specs) {
-      const reason = check(from, targetLayer(spec, absFile));
+      const reason = checkBoundary(from, targetLayer(spec, absFile));
       if (reason) violations.push({ file, line: i + 1, spec, reason });
     }
   });

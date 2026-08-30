@@ -1,9 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { parseAuthenticatedBody } from "$lib/server/application/migration-policy";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { listPaginated, searchPaginated, start } from "$lib/server/migrate/manager";
 import { createMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
-import { parseAuthenticatedBody } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ locals, request }) => {

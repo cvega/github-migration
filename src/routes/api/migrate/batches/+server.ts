@@ -1,11 +1,12 @@
 import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { validateAuthAvailable } from "$lib/server/application/migration-policy";
+import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
 import { getProfileRun } from "$lib/server/profile/database/runs";
-import { parseJsonBody, validateAuthAvailable } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 const defaults = { findMissingProfileProjectPaths, getProfileRun };

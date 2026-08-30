@@ -124,6 +124,14 @@ const GATES: Gate[] = [
   { name: "actions", cmd: ["bun", "run", "actions:check"] },
   { name: "runtime", cmd: ["bun", "run", "runtime:check"] },
   {
+    name: "e2e",
+    cmd: ["bun", "run", "test:e2e"],
+    parse: (o): Metrics => ({
+      passed: int(/(\d+) passed/, o) ?? 0,
+      skipped: int(/(\d+) skipped/, o) ?? 0,
+    }),
+  },
+  {
     name: "build",
     cmd: ["bun", "run", "build"],
     parse: (o): Metrics => {

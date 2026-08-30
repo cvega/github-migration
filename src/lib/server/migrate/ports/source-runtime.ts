@@ -1,12 +1,4 @@
-import { downloadBitbucketArchive } from "./source/bitbucket/archive";
-import { BitbucketServerApiError } from "./source/bitbucket/client";
-import {
-  getBitbucketServerSourceClient,
-  getBitbucketServerSourceConfig,
-} from "./source/bitbucket/config";
-import { downloadGitLabArchive } from "./source/gitlab/archive";
-import { GitLabApiError } from "./source/gitlab/client";
-import { getGitLabSourceClient } from "./source/gitlab/config";
+import type { SourceUrlInput } from "$lib/server/core/credential-scope";
 
 export interface GitLabMigrationSourceClient {
   apiUrl: string;
@@ -48,20 +40,51 @@ export interface BitbucketMigrationSourceClient {
   }>;
 }
 
+export interface MigrationSourceRuntime {
+  resolveEffectiveSourceApiUrl(input: SourceUrlInput): string;
+  getGitLabMigrationSourceClient(): GitLabMigrationSourceClient;
+  getGitLabGhesSourceClient(): GitLabGhesSourceClient;
+  getBitbucketMigrationSourceClient(): BitbucketMigrationSourceClient;
+  getBitbucketMigrationSourceConfig(): { apiUrl: string; authAvailable: boolean };
+  downloadGitLabMigrationArchive(
+    client: GitLabMigrationSourceClient,
+    projectPath: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  downloadBitbucketMigrationArchive(exportId: string, signal?: AbortSignal): Promise<string>;
+  isDefinitiveGitLabApiError(error: unknown): boolean;
+  isDefinitiveBitbucketApiError(error: unknown): boolean;
+}
+
+let runtime: MigrationSourceRuntime | undefined;
+
+export function configureMigrationSourceRuntime(configuredRuntime: MigrationSourceRuntime): void {
+  runtime = configuredRuntime;
+}
+
+function getRuntime(): MigrationSourceRuntime {
+  if (!runtime) throw new Error("Migration source runtime is not configured");
+  return runtime;
+}
+
+export function resolveEffectiveSourceApiUrl(input: SourceUrlInput): string {
+  return getRuntime().resolveEffectiveSourceApiUrl(input);
+}
+
 export function getGitLabMigrationSourceClient(): GitLabMigrationSourceClient {
-  return getGitLabSourceClient();
+  return getRuntime().getGitLabMigrationSourceClient();
 }
 
 export function getGitLabGhesSourceClient(): GitLabGhesSourceClient {
-  return getGitLabSourceClient();
+  return getRuntime().getGitLabGhesSourceClient();
 }
 
 export function getBitbucketMigrationSourceClient(): BitbucketMigrationSourceClient {
-  return getBitbucketServerSourceClient();
+  return getRuntime().getBitbucketMigrationSourceClient();
 }
 
 export function getBitbucketMigrationSourceConfig(): { apiUrl: string; authAvailable: boolean } {
-  return getBitbucketServerSourceConfig();
+  return getRuntime().getBitbucketMigrationSourceConfig();
 }
 
 export function downloadGitLabMigrationArchive(
@@ -69,20 +92,20 @@ export function downloadGitLabMigrationArchive(
   projectPath: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  return downloadGitLabArchive(client, projectPath, signal);
+  return getRuntime().downloadGitLabMigrationArchive(client, projectPath, signal);
 }
 
 export function downloadBitbucketMigrationArchive(
   exportId: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  return downloadBitbucketArchive(exportId, signal);
+  return getRuntime().downloadBitbucketMigrationArchive(exportId, signal);
 }
 
 export function isDefinitiveGitLabApiError(error: unknown): boolean {
-  return error instanceof GitLabApiError && error.status > 0;
+  return getRuntime().isDefinitiveGitLabApiError(error);
 }
 
 export function isDefinitiveBitbucketApiError(error: unknown): boolean {
-  return error instanceof BitbucketServerApiError && error.status > 0;
+  return getRuntime().isDefinitiveBitbucketApiError(error);
 }

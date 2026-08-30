@@ -4,9 +4,9 @@ import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/con
 import { isGitLabArchiveStorageConfigured } from "$lib/server/source/gitlab/archive";
 import { getGitLabSourceConfig } from "$lib/server/source/gitlab/config";
 import { SOURCE_PROVIDERS, type SourceProvider } from "$lib/source-provider";
-import { isSourceAuthAvailable, isTargetAuthAvailable } from "./core/auth";
-import { isGhesTargetExecutionConfigured } from "./core/ghes-target";
-import { getMigrationTargetProfile, getMigrationTargetProfiles } from "./core/targets";
+import { isSourceAuthAvailable, isTargetAuthAvailable } from "../core/auth";
+import { isGhesTargetExecutionConfigured } from "../core/ghes-target";
+import { getMigrationTargetProfile, getMigrationTargetProfiles } from "../core/targets";
 
 type CapabilityStatus = "ready" | "blocked" | "unsupported";
 

@@ -14,9 +14,9 @@ import type {
 } from "$lib/migrate/types";
 import { isCancellableMigrationState, isExecutingMigrationState } from "$lib/migration-state";
 import { supportsMigrationTarget } from "$lib/migration-target";
+import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
-import { resolveEffectiveSourceApiUrl, validateCredentialScope } from "$lib/server/validate";
 import { getSourceProjectIdentity, getSourceProviderAdapter } from "$lib/source-provider";
 import {
   getBatchListItem,
@@ -41,6 +41,7 @@ import {
 } from "./database/migrations";
 import { getMigrationStats, getStateCounts } from "./database/stats";
 import { getExecutorForMigration, getRegisteredMigrationExecutor } from "./executors/registry";
+import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 import { activeMigrationRuns } from "./runs/active";
 import {
   broadcastMigrationEvent,

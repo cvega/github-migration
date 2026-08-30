@@ -7,7 +7,7 @@ import {
   downloadBitbucketMigrationArchive,
   getBitbucketMigrationSourceClient,
   isDefinitiveBitbucketApiError,
-} from "$lib/server/provider-runtime";
+} from "$lib/server/migrate/ports/source-runtime";
 import { getSourceExportId, updateSourceExportCheckpoint } from "../database/migrations";
 import {
   abortRepositoryMigration,

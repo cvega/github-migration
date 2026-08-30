@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  parseJsonBody,
-  resolveEffectiveSourceApiUrl,
-  validateAuthAvailable,
-  validateCredentialScope,
-  validatePersistedServerCredentialScope,
-  validateProfileCredentialScope,
-} from "./validate";
+import { validateAuthAvailable } from "./application/migration-policy";
+import { parseJsonBody } from "./application/request-body";
+import { validateCredentialScope, validateProfileCredentialScope } from "./core/credential-scope";
+import { resolveEffectiveSourceApiUrl } from "./migrate/ports/source-runtime";
+import { validatePersistedServerCredentialScope } from "./migrate/validate";
 
 function jsonRequest(body: string): Request {
   return new Request("http://localhost/api/migrations", {

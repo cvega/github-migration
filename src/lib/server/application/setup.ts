@@ -1,12 +1,12 @@
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
 import { getGitLabSourceConfig } from "$lib/server/source/gitlab/config";
 import type { SourceProvider } from "$lib/source-provider";
+import { getFormDefaults, getGitHubSourceConfig, isTargetAuthAvailable } from "../core/auth";
 import {
   type CapabilityReport,
   getCapabilityReport,
   type MigrationCapability,
-} from "./capability-report";
-import { getFormDefaults, getGitHubSourceConfig, isTargetAuthAvailable } from "./core/auth";
+} from "./capabilities";
 
 /**
  * Server-owned provider readiness exposed to onboarding without credential

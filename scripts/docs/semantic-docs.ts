@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { SEMANTIC_CONTRACTS } from "../../src/lib/server/semantic-contracts";
+import { SEMANTIC_CONTRACTS } from "../../src/lib/server/application/semantic-contracts";
 import {
   checkDurableTableInventory,
   checkSemanticDocument,

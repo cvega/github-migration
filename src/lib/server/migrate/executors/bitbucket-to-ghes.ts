@@ -3,7 +3,7 @@ import {
   type GhesTargetConnectionConfig,
   getBitbucketGhesTargetExecutionConfig,
 } from "$lib/server/core/ghes-target";
-import { getBitbucketMigrationSourceConfig } from "$lib/server/provider-runtime";
+import { getBitbucketMigrationSourceConfig } from "$lib/server/migrate/ports/source-runtime";
 import { BitbucketExporterWorker } from "../exporters/bitbucket";
 import type { ExporterWorker } from "../exporters/worker";
 import {

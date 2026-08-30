@@ -1,4 +1,4 @@
-import type { SemanticContracts } from "../../src/lib/server/semantic-contracts";
+import type { SemanticContracts } from "../../src/lib/server/application/semantic-contracts";
 
 export const GENERATED_SECTION_IDS = [
   "support-matrix",

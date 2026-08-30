@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
 import {
-  parseJsonBody,
   requestFromPersistedOptions,
   restartValidationInput,
   serializeRequestOptions,
@@ -9,21 +8,6 @@ import {
 } from "./validate";
 
 describe("migration request validation", () => {
-  test("accepts only JSON object request bodies", async () => {
-    expect(
-      await parseJsonBody(
-        new Request("https://example.test", {
-          method: "POST",
-          headers: { "content-type": "application/json; charset=utf-8" },
-          body: '{"sourceRepo":"acme/widget"}',
-        }),
-      ),
-    ).toEqual({ data: { sourceRepo: "acme/widget" } });
-    expect(
-      await parseJsonBody(new Request("https://example.test", { method: "POST", body: "{}" })),
-    ).toEqual({ error: "Content-Type must be application/json", status: 415 });
-  });
-
   test("validates provider and target compatibility", () => {
     expect(validateMigrationTargetSelection({ sourceProvider: "github" })).toBeNull();
     expect(

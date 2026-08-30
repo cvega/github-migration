@@ -6,7 +6,7 @@ import {
 import {
   type GitLabGhesSourceClient,
   getGitLabGhesSourceClient,
-} from "$lib/server/provider-runtime";
+} from "$lib/server/migrate/ports/source-runtime";
 import { GitLabExporterWorker } from "../exporters/gitlab";
 import type { ExporterWorker } from "../exporters/worker";
 import {

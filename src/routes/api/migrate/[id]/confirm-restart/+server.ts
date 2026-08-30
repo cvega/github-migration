@@ -1,8 +1,8 @@
 import { json } from "@sveltejs/kit";
+import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { confirmRestart } from "$lib/server/migrate/manager";
 import { confirmRestartSchema, validateBody } from "$lib/server/migrate/schemas";
-import { parseJsonBody } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {

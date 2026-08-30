@@ -11,8 +11,12 @@ import {
   isTargetAppConfigured,
   isTargetAuthAvailable,
 } from "$lib/server/core/auth";
+import {
+  type CredentialScopeInput,
+  getInputSourceProvider,
+  validateCredentialScope,
+} from "$lib/server/core/credential-scope";
 import { getMigrationTargetProfile } from "$lib/server/core/targets";
-import { validateCredentialScope } from "$lib/server/validate";
 import {
   getMigrationExecutor,
   getSourceProviderAdapter,
@@ -22,8 +26,7 @@ import {
   type PersistedRequestOptions,
   tryParsePersistedRequestOptions,
 } from "./database/migrations";
-
-export { parseJsonBody } from "$lib/server/validate";
+import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 
 export function validateMigrationTargetSelection(input: {
   sourceProvider?: SourceProvider;
@@ -45,6 +48,22 @@ export function validateMigrationTargetSelection(input: {
 export function requireCredentialScope(request: CreateMigrationRequest): void {
   const error = validateCredentialScope(request);
   if (error) throw new TypeError(error);
+}
+
+export function validatePersistedServerCredentialScope(input: CredentialScopeInput): string | null {
+  const scopeError = validateCredentialScope(input);
+  if (scopeError) return scopeError;
+  try {
+    if (
+      resolveEffectiveSourceApiUrl(input) !==
+      resolveEffectiveSourceApiUrl({ sourceProvider: getInputSourceProvider(input) })
+    ) {
+      return "Persisted source API URL no longer matches the server-configured source";
+    }
+  } catch {
+    return "Persisted source API URL is invalid";
+  }
+  return null;
 }
 
 export function determineAuthModeFromRequest(request: CreateMigrationRequest): AuthMode {

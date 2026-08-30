@@ -7,7 +7,7 @@ import {
   type GitLabMigrationSourceClient,
   getGitLabMigrationSourceClient,
   isDefinitiveGitLabApiError,
-} from "$lib/server/provider-runtime";
+} from "$lib/server/migrate/ports/source-runtime";
 import { getSourceExportId, updateGitLabExportCheckpoint } from "../database/migrations";
 import { abortRepositoryMigration, createGitLabMigrationSource } from "../github/migration-source";
 import type { MigrationEventEmitter } from "../github/monitor";

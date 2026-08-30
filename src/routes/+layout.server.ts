@@ -1,3 +1,4 @@
+import { getSetupReadiness } from "$lib/server/application/setup";
 import {
   getAuthConfig,
   getCachedLiveRateLimits,
@@ -8,7 +9,6 @@ import { getCachedGitHubStatus } from "$lib/server/core/github-status";
 import { getMigrationTargetProfiles } from "$lib/server/core/targets";
 import { getActiveMigrationCount } from "$lib/server/migrate/database/stats";
 import { MAX_CONCURRENT_MIGRATIONS, recentActivity } from "$lib/server/migrate/manager";
-import { getSetupReadiness } from "$lib/server/setup";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = ({ locals }) => {

@@ -1,6 +1,6 @@
+import { getSetupReadiness } from "$lib/server/application/setup";
 import { listMigrationsPaginated } from "$lib/server/migrate/database/migrations";
 import { listProfileRuns } from "$lib/server/profile/database/runs";
-import { getSetupReadiness } from "$lib/server/setup";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async () => {

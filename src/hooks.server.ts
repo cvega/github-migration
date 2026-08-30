@@ -1,7 +1,8 @@
 import type { HandleServerError } from "@sveltejs/kit";
 import { building, dev } from "$app/environment";
 import { env } from "$env/dynamic/private";
-import { getCapabilityReport, logCapabilityReport } from "$lib/server/capability-report";
+import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
+import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
 import { initializeAuthentication } from "$lib/server/core/auth/startup";
 import { pruneAuthRecords } from "$lib/server/core/auth/throttle";
@@ -10,11 +11,13 @@ import { acquireInstanceLock } from "$lib/server/core/instance-lock";
 import { createRequestHandler } from "$lib/server/core/request-handler";
 import { recoverInterruptedMigrations } from "$lib/server/migrate/database/schema";
 import { recoverOrphans } from "$lib/server/migrate/manager";
+import { configureMigrationSourceRuntime } from "$lib/server/migrate/ports/source-runtime";
 import { recoverInterruptedProfiles } from "$lib/server/profile/database/schema";
 import { stopActiveProfileRuns } from "$lib/server/profile/service";
 import { DOMAIN_STORES } from "$lib/server/schemas";
 
 const dataDirectory = env.DATA_DIR || "./data";
+configureMigrationSourceRuntime(createMigrationSourceRuntime());
 const instanceLock = acquireInstanceLock(dataDirectory);
 let authEnabled = false;
 try {

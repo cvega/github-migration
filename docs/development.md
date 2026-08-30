@@ -45,15 +45,24 @@ bun run verify
 `bun run verify` is the release go/no-go manifest. It covers tests and enforced
 coverage, generated icons, TypeScript/Svelte diagnostics, formatting, lint,
 documentation, duplicate/dead code, architecture boundaries, cycles, build,
-bundle checks, dependency audit, and packaging checks.
+Playwright E2E workflows, bundle checks, dependency audit, and packaging
+checks. Playwright uses its seeded `.e2e-data` store and starts an isolated
+development server for the browser run.
 
 ## Architecture Rules
 
+- `application` may compose `core` and server domains.
+- `core` and server domains cannot import `application`.
 - `core` cannot import a server domain.
 - Server domains cannot import sibling domains.
-- Routes compose concrete cross-domain dependencies.
+- Domain-owned ports are implemented by `application/adapters` when concrete
+	behavior requires another domain.
+- Routes handle HTTP transport and delegate cross-domain policy to
+	`application`.
 - Browser-capable modules cannot import `$lib/server`.
 - `schemas.ts` is the durable-domain composition root.
+- Root-level production server modules are rejected unless they are the schema
+	composition root.
 - Public DTOs belong to their client-safe domain module.
 
 Run `bun run boundaries` after moving server modules or changing imports.

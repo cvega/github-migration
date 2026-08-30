@@ -1,5 +1,7 @@
 import { json } from "@sveltejs/kit";
+import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
 import {
   countProfileRuns,
   listProfileRunsWithInventoryCounts,
@@ -31,7 +33,6 @@ import {
 } from "$lib/server/source/gitlab/config";
 import { discoverGitLabInventory } from "$lib/server/source/gitlab/inventory";
 import { collectGitLabProfileEnrichment } from "$lib/server/source/gitlab/profile";
-import { parseJsonBody, validateProfileCredentialScope } from "$lib/server/validate";
 import type { RequestHandler } from "./$types";
 
 const defaults = {
