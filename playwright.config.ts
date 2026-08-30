@@ -1,16 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
+import process from "node:process";
 
 const port = 4173;
 const host = "[::1]";
 const authState = ".e2e-data/auth-state.json";
+const isCI = process.env.CI !== undefined;
 
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
+  reporter: isCI ? "github" : "list",
   use: {
     baseURL: `http://${host}:${port}`,
     trace: "on-first-retry",
