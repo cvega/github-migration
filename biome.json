@@ -38,23 +38,8 @@
       "includes": ["**/*.svelte"],
       "linter": {
         "rules": {
-          "style": {
-            "useConst": "off",
-            "useImportType": "off"
-          },
-          "correctness": {
-            "noUnusedVariables": "off",
-            "noUnusedImports": "off",
-            "noUnusedFunctionParameters": "off"
-          },
-          "suspicious": {
-            "noGlobalAssign": "off"
-          },
           "a11y": {
-            "useValidAriaValues": "off",
-            "useKeyWithClickEvents": "off",
-            "useSemanticElements": "off",
-            "noLabelWithoutControl": "off"
+            "useKeyWithClickEvents": "off"
           }
         }
       }

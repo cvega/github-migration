@@ -267,31 +267,33 @@
 		</div>
 	{/if}
 
-	<form role="search" onsubmit={submitSearch} class="relative">
-		<span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-			<Octicon name="search" size={16} />
-		</span>
-		<input
-			type="text"
-			bind:value={searchInput}
-			oninput={onSearchInput}
-			placeholder="Search by repository, organization, or migration ID…"
-			aria-label="Search migrations"
-			autocomplete="off"
-			spellcheck="false"
-			class="w-full rounded-md border border-gray-700 bg-gray-900 py-2.5 pr-10 pl-10 text-sm text-gray-50 transition-colors placeholder:text-gray-500 hover:border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-		/>
-		{#if searchInput}
-			<button
-				type="button"
-				onclick={clearSearch}
-				aria-label="Clear search"
-				class="absolute inset-y-0 right-2 flex items-center rounded p-1 text-gray-500 transition-colors hover:text-gray-200"
-			>
-				<Octicon name="x-circle-fill" size={16} />
-			</button>
-		{/if}
-	</form>
+	<search>
+		<form onsubmit={submitSearch} class="relative">
+			<span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
+				<Octicon name="search" size={16} />
+			</span>
+			<input
+				type="text"
+				bind:value={searchInput}
+				oninput={onSearchInput}
+				placeholder="Search by repository, organization, or migration ID…"
+				aria-label="Search migrations"
+				autocomplete="off"
+				spellcheck="false"
+				class="w-full rounded-md border border-gray-700 bg-gray-900 py-2.5 pr-10 pl-10 text-sm text-gray-50 transition-colors placeholder:text-gray-500 hover:border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+			/>
+			{#if searchInput}
+				<button
+					type="button"
+					onclick={clearSearch}
+					aria-label="Clear search"
+					class="absolute inset-y-0 right-2 flex items-center rounded p-1 text-gray-500 transition-colors hover:text-gray-200"
+				>
+					<Octicon name="x-circle-fill" size={16} />
+				</button>
+			{/if}
+		</form>
+	</search>
 
 	{#if !searching && (batchesResult.total > 0 || activeTotal > 0 || completedTotal > 0)}
 		<div class="grid gap-3 md:grid-cols-3">

@@ -11,6 +11,7 @@
 				? "namespace"
 				: "org",
 	);
+	let fileInput = $state<HTMLInputElement>();
 </script>
 
 <div class="space-y-5">
@@ -35,7 +36,7 @@
 	{:else}
 		{#if controller.hasSourceOrgs}<div data-migration-field="sourceNamespace" tabindex="-1"><div class="flex items-center justify-between gap-2"><label for="batchSourceOrg" class="block text-sm font-medium text-gray-400">{controller.sourceNamespaceLabel} <span class="text-gray-600">applied to names without a {namespaceKind}/</span></label></div><OrgSelect id="batchSourceOrg" bind:value={controller.sourceOrg} options={controller.sourceOrgs} locked={controller.sourceOrgLocked} placeholder={controller.sourceNamespacePlaceholder} /></div>{/if}
 		<div><label for="repoInput" class="block text-sm font-medium text-gray-400">Repository list <span class="text-red-400">*</span> <span class="text-gray-600">one per line</span></label><textarea id="repoInput" data-migration-field="repositoryInput" bind:value={controller.repoInput} rows="6" placeholder={controller.hasSourceOrgs ? "api-server\nweb-frontend\nshared-libs" : "acme-corp/api-server\nacme-corp/web-frontend"} class="mt-1.5 w-full resize-y rounded-md border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-50 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"></textarea></div>
-		<div class="rounded-md border-2 border-dashed p-4 text-center text-sm transition-colors {controller.dragOver ? 'border-blue-500 bg-blue-500/5' : 'border-gray-700'}" role="button" tabindex="0" ondragover={(event) => { event.preventDefault(); controller.dragOver = true; }} ondragleave={() => (controller.dragOver = false)} ondrop={(event) => controller.handleDrop(event)} onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); (event.currentTarget.querySelector('input[type="file"]') as HTMLElement)?.click(); } }}><div class="flex items-center justify-center gap-1.5 text-gray-400"><Octicon name="upload" size={16} /><span>Drag a CSV or text file here, or</span><label class="cursor-pointer text-blue-400 hover:text-blue-300">browse<input type="file" accept=".csv,.txt,.text" class="hidden" onchange={(event) => controller.handleFileInput(event)} /></label></div></div>
+		<button type="button" class="w-full rounded-md border-2 border-dashed p-4 text-center text-sm transition-colors {controller.dragOver ? 'border-blue-500 bg-blue-500/5' : 'border-gray-700'}" onclick={() => fileInput?.click()} ondragover={(event) => { event.preventDefault(); controller.dragOver = true; }} ondragleave={() => (controller.dragOver = false)} ondrop={(event) => controller.handleDrop(event)}><span class="flex items-center justify-center gap-1.5 text-gray-400"><Octicon name="upload" size={16} /><span>Drag a CSV or text file here, or</span><span class="text-blue-400">browse</span></span></button><input bind:this={fileInput} type="file" accept=".csv,.txt,.text" class="hidden" onchange={(event) => controller.handleFileInput(event)} />
 		{#if controller.parsedRepos.length > 0}<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm"><span class="text-green-400">{controller.validRepos.length} valid</span>{#if controller.invalidRepos.length > 0}<span class="text-red-400">{controller.invalidRepos.length} invalid: {controller.invalidRepos.join(", ")}</span>{/if}</div>{/if}
 	{/if}
 </div>

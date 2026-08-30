@@ -576,11 +576,11 @@
 			<p>The complete `/migrate/new` workflow is the primary expression of Migration Workbench.</p>
 		</header>
 
-		<div class="composition-anatomy" role="group" aria-label="Composition anatomy">
-			<div><span>01</span><strong>Route</strong><small>Source and destination remain visible.</small></div>
-			<div><span>02</span><strong>Workbench</strong><small>One decision surface owns the stage.</small></div>
-			<div><span>03</span><strong>Action dock</strong><small>Consequence stays fixed and explicit.</small></div>
-		</div>
+		<ol class="composition-anatomy" aria-label="Composition anatomy">
+			<li><span>01</span><strong>Route</strong><small>Source and destination remain visible.</small></li>
+			<li><span>02</span><strong>Workbench</strong><small>One decision surface owns the stage.</small></li>
+			<li><span>03</span><strong>Action dock</strong><small>Consequence stays fixed and explicit.</small></li>
+		</ol>
 
 		<div class="preview-controls">
 			<div class="segmented" role="tablist" aria-label="Workflow stage">
@@ -593,10 +593,11 @@
 					>{stage === "path" ? "Path" : stage === "configure" ? "Configure" : "Review"}</button>
 				{/each}
 			</div>
-			<div class="segmented" role="group" aria-label="Preview viewport">
+			<fieldset class="segmented">
+				<legend class="sr-only">Preview viewport</legend>
 				<button type="button" aria-pressed={!compactPreview} onclick={() => (compactPreview = false)}>Desktop</button>
 				<button type="button" aria-pressed={compactPreview} onclick={() => (compactPreview = true)}>Mobile</button>
-			</div>
+			</fieldset>
 		</div>
 
 		<div class="preview-stage">
@@ -1636,10 +1637,12 @@
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 32px;
+		padding: 0;
 		margin-bottom: 28px;
+		list-style: none;
 	}
 
-	.composition-anatomy > div {
+	.composition-anatomy > li {
 		display: grid;
 		grid-template-columns: 28px minmax(0, 1fr);
 		column-gap: 10px;
