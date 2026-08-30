@@ -51,7 +51,7 @@ function markdownAnchors(text: string): Set<string> {
 }
 
 const markdownPaths = new Set<string>();
-for (const pattern of ["*.md", "docs/**/*.md", "plans/**/*.md"]) {
+for (const pattern of ["*.md", "docs/**/*.md", "scripts/**/*.md"]) {
   for await (const file of new Bun.Glob(pattern).scan({ cwd: ROOT, onlyFiles: true })) {
     markdownPaths.add(file);
   }
