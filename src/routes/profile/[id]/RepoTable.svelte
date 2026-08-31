@@ -1,21 +1,31 @@
 <script lang="ts">
 	import { SvelteSet } from "svelte/reactivity";
+	import { enhance } from "$app/forms";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { formatRepoSize, timeAgo } from "$lib/format";
 	import type { UsedIconName } from "$lib/icons.generated";
 	import { MIGRATION_CATALOG } from "$lib/profile/migration-catalog";
+	import type {
+		RepositoryAnalysisDetail,
+		RepositoryAnalysisJob,
+		RepositoryAnalysisJobState,
+	} from "$lib/profile/repository-analysis";
 	import type { PageData } from "./$types";
 	import type { ProfileMigrationPlannerController } from "./planner.svelte";
 
 	let {
 		runId,
 		repos,
+		analysis,
 		planning,
+		planningEligibleNames,
 		planner,
 	}: {
 		runId: string;
 		repos: PageData["repos"];
+		analysis: RepositoryAnalysisDetail | null;
 		planning: boolean;
+		planningEligibleNames: string[];
 		planner: ProfileMigrationPlannerController;
 	} = $props();
 
@@ -37,6 +47,10 @@
 		note: "border-gray-600 bg-gray-700/50 text-gray-300",
 	};
 	const toneIcon = { opportunity: "rocket", caution: "alert", note: "info" } as const;
+	const analysisByRepository = $derived(
+		new Map(analysis?.jobs.map((job) => [job.nameWithOwner, job]) ?? []),
+	);
+	const planningEligible = $derived(new Set(planningEligibleNames));
 	let expanded = $derived.by(() => {
 		runId;
 		return new SvelteSet<string>();
@@ -54,8 +68,9 @@
 
 	function repoCounts(
 		signals: RepoSignalsView,
+		analysisJob: RepositoryAnalysisJob | undefined,
 	): Array<{ label: string; value: string; icon: UsedIconName }> {
-		return [
+		const counts: Array<{ label: string; value: string; icon: UsedIconName }> = [
 			{ label: "Issues", value: signals.issuesCount.toLocaleString(), icon: "issue-opened" },
 			{ label: "Pull requests", value: signals.pullRequestsCount.toLocaleString(), icon: "git-pull-request" },
 			{ label: "Commits", value: signals.commitsCount.toLocaleString(), icon: "git-commit" },
@@ -76,6 +91,64 @@
 			{ label: "Code scanning", value: signals.hasCodeScanningAlerts ? "Yes" : "-", icon: "codescan" },
 			{ label: "Size", value: formatRepoSize(signals.diskUsageKb), icon: "database" },
 		];
+		if (analysisJob?.result) {
+			counts.push(
+				{ label: "Git mirror", value: formatBytes(analysisJob.result.mirrorSizeBytes), icon: "git-branch" },
+				{ label: "LFS objects", value: analysisJob.result.lfsPointerCount.toLocaleString(), icon: "file-binary" },
+				{ label: "LFS referenced", value: formatBytes(analysisJob.result.lfsDeclaredBytes), icon: "database" },
+			);
+		} else if (analysisJob?.estimatedWorkspaceBytes !== null && analysisJob?.estimatedWorkspaceBytes !== undefined) {
+			counts.push({
+				label: "Analysis workspace",
+				value: formatBytes(analysisJob.estimatedWorkspaceBytes),
+				icon: "database",
+			});
+		}
+		return counts;
+	}
+
+	function formatBytes(bytes: number): string {
+		if (bytes <= 0) return "0 B";
+		const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+		let value = bytes;
+		let index = 0;
+		while (value >= 1024 && index < units.length - 1) {
+			value /= 1024;
+			index += 1;
+		}
+		return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+	}
+
+	function formatMetric(value: number, unit: string): string {
+		if (unit === "B") return formatBytes(value);
+		return `${value.toLocaleString()}${unit ? ` ${unit}` : ""}`;
+	}
+
+	function metricLabel(description: string): string {
+		const label = description.replace(/^The /, "");
+		return label.charAt(0).toUpperCase() + label.slice(1);
+	}
+
+	function metricStatus(levelOfConcern: number): {
+		label: string;
+		icon: UsedIconName;
+		tone: string;
+	} {
+		if (levelOfConcern >= 30) return { label: "Critical", icon: "stop", tone: "text-red-300" };
+		if (levelOfConcern >= 1) return { label: "Review", icon: "alert", tone: "text-yellow-300" };
+		return { label: "Within range", icon: "check", tone: "text-gray-500" };
+	}
+
+	function analysisState(state: RepositoryAnalysisJobState): {
+		label: string;
+		icon: UsedIconName;
+		tone: string;
+	} {
+		if (state === "succeeded") return { label: "Analyzed", icon: "check-circle", tone: "text-green-400" };
+		if (state === "failed") return { label: "Failed", icon: "x-circle", tone: "text-red-400" };
+		if (state === "running") return { label: "Analyzing", icon: "sync", tone: "text-blue-400" };
+		if (state === "cancelled") return { label: "Cancelled", icon: "stop", tone: "text-gray-400" };
+		return { label: "Queued", icon: "clock", tone: "text-gray-400" };
 	}
 </script>
 
@@ -87,16 +160,26 @@
 				<th class="px-4 py-2 font-medium">Repository</th>
 				<th class="px-4 py-2 font-medium">Target repository</th>
 				<th class="px-4 py-2 text-center font-medium">Severity</th>
+				<th class="px-4 py-2 font-medium">Git analysis</th>
 				<th class="px-4 py-2 font-medium">Migration findings</th>
 				<th class="px-4 py-2 font-medium">Insights</th>
 			</tr>
 		</thead>
 		<tbody class="divide-y divide-gray-800">
 			{#each repos as repo (repo.nameWithOwner)}
+				{@const analysisJob = analysisByRepository.get(repo.nameWithOwner)}
+				{@const canPlan = planningEligible.has(repo.nameWithOwner)}
 				<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
 					{#if planning}
 						<td class="px-3 py-3">
-							<input type="checkbox" checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
+							<input
+								type="checkbox"
+								checked={planner.selectedNames.includes(repo.nameWithOwner)}
+								disabled={!canPlan}
+								onchange={() => planner.toggleSelection(repo.nameWithOwner)}
+								aria-label={canPlan ? `Select ${repo.nameWithOwner}` : `${repo.nameWithOwner} requires Git analysis before planning`}
+								class="h-4 w-4 accent-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+							/>
 						</td>
 					{/if}
 					<td class="px-4 py-3">
@@ -119,6 +202,21 @@
 							{#if repo.infos > 0}<span class="text-gray-400">{repo.infos} info</span>{/if}
 							{#if repo.blockers + repo.warnings + repo.infos === 0}<span class="text-green-400">clear</span>{/if}
 						</span>
+					</td>
+					<td class="px-4 py-3">
+						{#if analysisJob}
+							{@const state = analysisState(analysisJob.state)}
+							<span class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium {state.tone}">
+								<Octicon name={state.icon} size={12} class={analysisJob.state === "running" ? "animate-spin" : ""} />{state.label}
+							</span>
+							{#if analysisJob.result}
+								<p class="mt-0.5 whitespace-nowrap text-xs text-gray-500">{formatBytes(analysisJob.result.mirrorSizeBytes)} mirror</p>
+							{/if}
+						{:else if repo.signals.isEmpty}
+							<span class="text-xs text-gray-500">Not required</span>
+						{:else}
+							<span class="text-xs text-gray-500">Not analyzed</span>
+						{/if}
 					</td>
 					<td class="px-4 py-3">
 						{#if repo.catalogMatches.length === 0}
@@ -148,15 +246,91 @@
 				</tr>
 				{#if expanded.has(repo.nameWithOwner)}
 					<tr class="bg-gray-900/40">
-						<td colspan={planning ? 6 : 5} class="px-4 py-4">
+						<td colspan={planning ? 7 : 6} class="px-4 py-4">
 							<div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-								{#each repoCounts(repo.signals) as count (count.label)}
+								{#each repoCounts(repo.signals, analysisJob) as count (count.label)}
 									<div class="flex items-center gap-2 rounded-md border border-gray-700/60 bg-gray-950/40 px-2.5 py-2">
 										<Octicon name={count.icon} size={16} class="shrink-0 text-gray-500" />
 										<div class="min-w-0"><div class="text-sm font-semibold tabular-nums text-gray-100">{count.value}</div><div class="truncate text-xs text-gray-400">{count.label}</div></div>
 									</div>
 								{/each}
 							</div>
+							{#if analysisJob?.failureReason}
+								<div class="mt-3 border-t border-red-500/20 pt-3">
+									<p class="flex min-w-0 items-start gap-1.5 text-xs text-red-300">
+										<Octicon name="x-circle" size={12} class="mt-0.5 shrink-0" />{analysisJob.failureReason}
+									</p>
+								</div>
+							{/if}
+							{#if analysis && (analysisJob?.state === "failed" || analysisJob?.state === "cancelled")}
+								<form method="POST" action="?/retryAnalysisJob" use:enhance class="mt-3">
+									<input type="hidden" name="analysisRunId" value={analysis.run.id} />
+									<input type="hidden" name="jobId" value={analysisJob.id} />
+									<button type="submit" class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-2.5 py-1.5 text-xs font-medium text-gray-300 hover:border-gray-400 hover:text-white">
+										<Octicon name="sync" size={12} />Retry repository
+									</button>
+								</form>
+							{/if}
+							{#if analysisJob?.result?.gitSizerFindings.length}
+								<div class="mt-3 border-t border-yellow-500/20 pt-3">
+									<p class="mb-2 text-xs font-medium text-gray-300">Git repository concerns</p>
+									<ul class="space-y-2">
+										{#each analysisJob.result.gitSizerFindings as finding (finding.metric)}
+											<li class="flex items-start gap-2 text-xs">
+												<Octicon name={finding.severity === "critical" ? "stop" : "alert"} size={12} class="mt-0.5 shrink-0 {finding.severity === 'critical' ? 'text-red-400' : 'text-yellow-400'}" />
+												<div class="min-w-0">
+													<p class="text-gray-200">
+														{finding.description}: <span class="font-semibold tabular-nums">{formatMetric(finding.value, finding.unit)}</span>
+														<span class="ml-1.5 {finding.severity === 'critical' ? 'text-red-300' : 'text-yellow-300'}">{finding.severity === "critical" ? "Critical" : "Review recommended"}</span>
+													</p>
+													{#if finding.objectDescription}
+														<p class="text-machine mt-0.5 break-all text-gray-500">{finding.objectDescription}</p>
+													{/if}
+												</div>
+											</li>
+										{/each}
+									</ul>
+								</div>
+							{/if}
+							{#if analysisJob?.result?.gitSizerMetrics.length}
+								<details class="group mt-3 border-t border-gray-700 pt-3">
+									<summary class="flex cursor-pointer list-none items-center justify-between gap-4 rounded px-1 py-1.5 text-xs text-gray-300 hover:bg-gray-800/50 hover:text-white [&::-webkit-details-marker]:hidden">
+										<span class="flex items-center gap-2 font-medium">
+											<Octicon name="graph" size={16} class="text-gray-500" />
+											All Git measurements
+											<span class="rounded-full bg-gray-800 px-2 py-0.5 font-normal tabular-nums text-gray-400">{analysisJob.result.gitSizerMetrics.length}</span>
+										</span>
+										<Octicon name="chevron-right" size={12} class="text-gray-500 transition-transform group-open:rotate-90" />
+									</summary>
+									<div class="mt-2 overflow-x-auto rounded-md border border-gray-700/70 bg-gray-950/30">
+										<table class="w-full min-w-xl text-left text-xs">
+											<thead class="bg-gray-900/70 text-[11px] uppercase text-gray-500">
+												<tr>
+													<th class="px-3 py-2 font-medium">Measurement</th>
+													<th class="px-3 py-2 text-right font-medium">Value</th>
+													<th class="px-3 py-2 font-medium">Status</th>
+												</tr>
+											</thead>
+											<tbody class="divide-y divide-gray-800">
+												{#each analysisJob.result.gitSizerMetrics as metric (metric.metric)}
+													{@const status = metricStatus(metric.levelOfConcern)}
+													<tr class="transition-colors hover:bg-gray-800/30 {metric.levelOfConcern >= 30 ? 'bg-red-500/5' : metric.levelOfConcern >= 1 ? 'bg-yellow-500/5' : ''}">
+														<td class="px-3 py-2.5 text-gray-300">
+															<p class="font-medium text-gray-200">{metricLabel(metric.description)}</p>
+															<p class="text-machine mt-0.5 text-[11px] text-gray-600">{metric.metric}</p>
+															{#if metric.objectDescription}<p class="text-machine mt-1 break-all text-[11px] text-blue-300/60">{metric.objectDescription}</p>{/if}
+														</td>
+														<td class="px-3 py-2.5 text-right text-sm font-semibold tabular-nums whitespace-nowrap text-gray-50">{formatMetric(metric.value, metric.unit)}</td>
+														<td class="px-3 py-2.5 whitespace-nowrap">
+															<span class="inline-flex items-center gap-1.5 font-medium {status.tone}"><Octicon name={status.icon} size={12} />{status.label}</span>
+														</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								</details>
+							{/if}
 							<div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
 								<span class="lowercase">{repo.signals.visibility}</span>
 								{#if repo.signals.defaultBranch}<span>default <span class="text-gray-400">{repo.signals.defaultBranch}</span></span>{/if}

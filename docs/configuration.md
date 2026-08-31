@@ -57,6 +57,18 @@ For each GitHub side, configure either a PAT or all three App values. GitHub App
 credentials are preferred for long-running, crash-recoverable work because
 installation tokens can refresh without persisting a request secret.
 
+## Repository Analysis
+
+| Variable | Purpose |
+|---|---|
+| `ANALYSIS_DIR` | Analyzer-only workspace for temporary repository mirrors; default `/analysis` |
+| `ANALYSIS_WORKSPACE_LIMIT_BYTES` | Optional maximum analyzer workspace usage in bytes |
+| `ANALYSIS_RUN_ONCE` | Process at most one queued repository when set to `true` |
+
+The analyzer shares `DATA_DIR` with the dashboard to claim durable jobs and
+stores temporary mirrors only in `ANALYSIS_DIR`. It removes each mirror after
+the repository succeeds or fails.
+
 ## GitLab Source
 
 | Variable | Purpose |

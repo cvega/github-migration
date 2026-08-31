@@ -18,6 +18,7 @@ export const GET: RequestHandler = ({ params, url }) => {
     page,
     search: (url.searchParams.get("search") ?? "").slice(0, 100),
     readiness: readinessFilter,
+    analysisRunId: url.searchParams.get("analysisRunId") ?? undefined,
   };
   const view = url.searchParams.get("view");
   const result =

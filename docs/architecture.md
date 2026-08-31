@@ -232,6 +232,10 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `profile_source_inventories` | Provider-neutral inventory summary | One normalized summary per profile run |
 | `profile_source_inventory_projects` | Source inventory projects | Ordered, normalized project rows for paginated access |
 | `profile_source_project_profiles` | Provider-specific project profiles | Stores normalized per-project profile payloads keyed to inventory rows |
+| `profile_repository_analysis_runs` | Repository analysis lifecycle and rollups | One nonterminal child run per completed GitHub profile |
+| `profile_repository_analysis_jobs` | Durable repository analysis queue | One leased job per selected repository and analysis run |
+| `profile_repository_analysis_results` | Immutable repository analysis evidence | Normalized Git metrics and bounded artifacts per job attempt |
+| `profile_repository_analysis_lfs_pointers` | Historical LFS pointer evidence | Normalized OIDs, sizes, and representative paths per analysis result |
 <!-- END GENERATED: durable-tables -->
 
 There is no separate batch aggregate table. Migrations carry `batch_id`, while

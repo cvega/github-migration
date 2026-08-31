@@ -18,6 +18,7 @@ ensure_owned() {
 
 ensure_owned /data
 ensure_owned /archives
+ensure_owned /analysis
 if [ -S /var/run/docker.sock ]; then
 	socket_gid="$(stat -c '%g' /var/run/docker.sock)"
 	socket_group="$(awk -F: -v gid="$socket_gid" '$3 == gid { print $1; exit }' /etc/group)"

@@ -12,6 +12,7 @@ interface PlannerOptions {
   getRepos(): PageData["repos"];
   getPlanningRepos(): PageData["planningRepos"];
   getDefaultTargetOrg(): string;
+  isRepoEligible?(name: string): boolean;
 }
 
 interface RunValue<T> {
@@ -56,9 +57,11 @@ export class ProfileMigrationPlannerController {
   }
 
   get selectedNames(): string[] {
-    return this.selection?.runId === this.runId
-      ? this.selection.value
-      : defaultProfilePlanSelection(this.options.getPlanningRepos());
+    const selected =
+      this.selection?.runId === this.runId
+        ? this.selection.value
+        : defaultProfilePlanSelection(this.options.getPlanningRepos());
+    return selected.filter((name) => this.options.isRepoEligible?.(name) ?? true);
   }
 
   get targetOrg(): string {
@@ -150,6 +153,10 @@ export class ProfileMigrationPlannerController {
       };
       return;
     }
+    if (!(this.options.isRepoEligible?.(name) ?? true)) {
+      this.setError(`Complete Git analysis for ${name} before adding it to the migration plan.`);
+      return;
+    }
     if (this.selectedNames.length >= MAX_PROFILE_PLAN_REPOS) {
       this.setError(
         `A migration batch can contain at most ${MAX_PROFILE_PLAN_REPOS} repositories.`,
@@ -173,7 +180,11 @@ export class ProfileMigrationPlannerController {
     this.selection = {
       runId: this.runId,
       value: repos
-        .filter((repo) => includeBlockers || repo.blockers === 0)
+        .filter(
+          (repo) =>
+            (this.options.isRepoEligible?.(repo.nameWithOwner) ?? true) &&
+            (includeBlockers || repo.blockers === 0),
+        )
         .slice(0, MAX_PROFILE_PLAN_REPOS)
         .map((repo) => repo.nameWithOwner),
     };

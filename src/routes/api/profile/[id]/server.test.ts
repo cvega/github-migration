@@ -3,7 +3,8 @@ import type { RepoSignals } from "$lib/profile/types";
 import { initStore } from "$lib/server/core/db";
 import { saveProfileInventory } from "$lib/server/profile/database/inventories";
 import { recordRepoProfile } from "$lib/server/profile/database/repos";
-import { createProfileRun } from "$lib/server/profile/database/runs";
+import { startRepositoryAnalysis } from "$lib/server/profile/database/repository-analysis-runs";
+import { completeProfileRun, createProfileRun } from "$lib/server/profile/database/runs";
 import { DOMAIN_STORES } from "$lib/server/schemas";
 import type { SourceNamespaceInventory } from "$lib/source/types";
 import { GET } from "./+server";
@@ -144,5 +145,78 @@ describe("GET /api/profile/[id]", () => {
     } as GetArgs);
 
     expect(response.status).toBe(404);
+  });
+
+  test("returns the selected repository analysis with profile detail", async () => {
+    createProfileRun({
+      id: "analysis-profile",
+      sourceApiUrl: "https://api.github.com",
+      org: "acme",
+    });
+    const signals: RepoSignals = {
+      name: "widget",
+      nameWithOwner: "acme/widget",
+      visibility: "PRIVATE",
+      isArchived: false,
+      isFork: false,
+      isEmpty: false,
+      diskUsageKb: 100,
+      hasWiki: false,
+      hasIssues: true,
+      hasProjects: false,
+      hasDiscussions: false,
+      hasPages: false,
+      defaultBranch: "main",
+      pushedAt: null,
+      updatedAt: null,
+      commitsCount: 0,
+      discussionsCount: 0,
+      projectsV2Count: 0,
+      environmentsCount: 0,
+      releaseAssetBytes: 0,
+      stargazerCount: 0,
+      watcherCount: 0,
+      forkCount: 0,
+      rulesetCount: 0,
+      branchProtectionRuleCount: 0,
+      branchProtectionRulesUsingUnmigratedFeatures: 0,
+      packagesCount: 0,
+      usesLfs: false,
+      workflowFileCount: 0,
+      webhooksCount: 0,
+      hasCodeScanningAlerts: false,
+      collaboratorsCount: 0,
+      tagProtectionCount: 0,
+      issuesCount: 0,
+      pullRequestsCount: 0,
+      branchesCount: 1,
+      tagsCount: 0,
+      releasesCount: 0,
+    };
+    recordRepoProfile("analysis-profile", signals, {
+      nameWithOwner: signals.nameWithOwner,
+      summary: { applies: 0, blockers: 0, warnings: 0, infos: 0, clear: 1, indeterminate: 0 },
+      findings: [],
+    });
+    completeProfileRun("analysis-profile");
+    startRepositoryAnalysis("analysis-profile", {
+      newId: (() => {
+        let id = 0;
+        return () => `analysis-id-${id++}`;
+      })(),
+      nowMs: () => 1_786_944_000_000,
+    });
+
+    const response = await GET({
+      params: { id: "analysis-profile" },
+      url: new URL("https://example.test/api/profile/analysis-profile"),
+    } as GetArgs);
+    const body = await response.json();
+
+    expect(body.repositoryAnalysis.run).toMatchObject({ state: "queued", selectedRepoCount: 1 });
+    expect(body.repositoryAnalysis.jobs[0]).toMatchObject({
+      nameWithOwner: "acme/widget",
+      state: "queued",
+    });
   });
 });

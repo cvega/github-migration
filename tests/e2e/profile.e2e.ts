@@ -33,4 +33,18 @@ test("reviews and filters a completed source profile", async ({ page }) => {
 	await expect(page.getByRole("button", { name: "ready-repo" })).toHaveCount(0);
 	await blockedRepo.click();
 	await expect(blockedRepo).toHaveAttribute("aria-expanded", "true");
+	await expect(page.getByText("Git repository concerns")).toBeVisible();
+	await expect(page.getByText(/The size of the largest blob object: 114 MiB/)).toBeVisible();
+	await expect(page.getByRole("listitem").getByText("refs/heads/main:fixtures/archive.bin")).toBeVisible();
+	await page.locator("summary").filter({ hasText: "All Git measurements" }).click();
+	await expect(page.getByText("Total number of distinct commit objects")).toBeVisible();
+	await expect(page.getByText("18,420")).toBeVisible();
+	await expect(page.getByText("Total size of distinct blob objects")).toBeVisible();
+	await expect(page.getByText("1.0 GiB")).toBeVisible();
+
+	await page.getByLabel("Filter by readiness").selectOption("all");
+	const readyRepo = page.getByRole("button", { name: "ready-repo" });
+	await readyRepo.click();
+	await expect(page.getByText("Fixture clone failure")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Retry repository" })).toBeVisible();
 });

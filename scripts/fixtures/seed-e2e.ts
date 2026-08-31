@@ -95,7 +95,7 @@ db.prepare(
 db.prepare(
   `INSERT INTO profile_runs
      (id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, started_at, completed_at)
-   VALUES (?, ?, ?, 'completed', 2, 2, 1, 1, ?, ?)`,
+  VALUES (?, ?, ?, 'completed', 2, 2, 1, 0, ?, ?)`,
 ).run("seed-e2e-profile", "https://ghes.example.com/api/v3", "e2e-source", startedAt, completedAt);
 
 function profileSignals(name: string): RepoSignals {
@@ -146,16 +146,16 @@ const insertProfileRepo = db.prepare(
      (run_id, name_with_owner, signals, blockers, warnings, infos, applying_considerations, created_at)
    VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
 );
-insertProfileRepo.run(
+const readyProfileRepo = insertProfileRepo.run(
   "seed-e2e-profile",
   "e2e-source/ready-repo",
   JSON.stringify(profileSignals("ready-repo")),
   0,
-  1,
+  0,
   JSON.stringify([{ considerationId: "workflow-history", evidence: "1 workflow" }]),
   startedAt,
 );
-insertProfileRepo.run(
+const blockedProfileRepo = insertProfileRepo.run(
   "seed-e2e-profile",
   "e2e-source/blocked-repo",
   JSON.stringify(profileSignals("blocked-repo")),
@@ -163,6 +163,108 @@ insertProfileRepo.run(
   0,
   JSON.stringify([{ considerationId: "release-size-limit", evidence: "Estimated over limit" }]),
   startedAt,
+);
+
+db.prepare(
+  `INSERT INTO profile_repository_analysis_runs
+     (id, profile_run_id, state, policy_version, selected_repo_count, completed_repo_count,
+      failed_repo_count, unknown_size_repo_count, estimated_clone_bytes,
+      estimated_peak_workspace_bytes, started_at, completed_at)
+   VALUES (?, ?, 'completed', 1, 2, 1, 1, 0, 2097152, 3145728, ?, ?)`,
+).run("seed-e2e-analysis", "seed-e2e-profile", startedAt, completedAt);
+
+const insertAnalysisJob = db.prepare(
+  `INSERT INTO profile_repository_analysis_jobs
+     (id, analysis_run_id, profile_repo_id, name_with_owner, state, priority,
+      priority_reasons, estimated_workspace_bytes, attempt, started_at, completed_at,
+      failure_reason)
+   VALUES (?, 'seed-e2e-analysis', ?, ?, ?, 0, '[]', 3145728, 1, ?, ?, ?)`,
+);
+insertAnalysisJob.run(
+  "seed-e2e-analysis-ready",
+  Number(readyProfileRepo.lastInsertRowid),
+  "e2e-source/ready-repo",
+  "failed",
+  startedAt,
+  completedAt,
+  "Fixture clone failure",
+);
+insertAnalysisJob.run(
+  "seed-e2e-analysis-blocked",
+  Number(blockedProfileRepo.lastInsertRowid),
+  "e2e-source/blocked-repo",
+  "succeeded",
+  startedAt,
+  completedAt,
+  null,
+);
+
+db.prepare(
+  `INSERT INTO profile_repository_analysis_results
+     (id, analysis_job_id, attempt, captured_at, source_ref_fingerprint,
+      mirror_size_bytes, git_version, git_lfs_version, git_sizer_version, metrics)
+    VALUES (?, ?, 1, ?, ?, 1048576, ?, ?, ?, ?)`,
+).run(
+  "seed-e2e-analysis-result",
+  "seed-e2e-analysis-blocked",
+  completedAt,
+  "sha256:fixture",
+  "git version 2.49.1",
+  "git-lfs/3.6.0",
+  "git-sizer 1.5.0",
+  JSON.stringify({
+    uniqueCommitCount: {
+      description: "The total number of distinct commit objects",
+      value: 18_420,
+      unit: "",
+      prefixes: "metric",
+      referenceValue: 500_000,
+      levelOfConcern: 0,
+    },
+    uniqueBlobCount: {
+      description: "The total number of distinct blob objects",
+      value: 82_115,
+      unit: "",
+      prefixes: "metric",
+      referenceValue: 500_000,
+      levelOfConcern: 0,
+    },
+    uniqueBlobSize: {
+      description: "The total size of distinct blob objects",
+      value: 1_073_741_824,
+      unit: "B",
+      prefixes: "binary",
+      referenceValue: 10_000_000_000,
+      levelOfConcern: 0,
+    },
+    referenceCount: {
+      description: "The total number of references",
+      value: 146,
+      unit: "",
+      prefixes: "metric",
+      referenceValue: 25_000,
+      levelOfConcern: 0,
+    },
+    maxCheckoutPathLength: {
+      description: "The maximum path length in any checkout",
+      value: 118,
+      unit: "B",
+      prefixes: "metric",
+      referenceValue: 100,
+      levelOfConcern: 0,
+      objectDescription: "refs/heads/main:src/platform/migrations/repository.ts",
+    },
+    maxBlobSize: {
+      description: "The size of the largest blob object",
+      value: 120_000_000,
+      unit: "B",
+      prefixes: "binary",
+      referenceValue: 10_000_000,
+      levelOfConcern: 12,
+      objectName: "abc123",
+      objectDescription: "refs/heads/main:fixtures/archive.bin",
+    },
+  }),
 );
 
 db.prepare(

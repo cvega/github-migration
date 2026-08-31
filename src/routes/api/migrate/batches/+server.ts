@@ -6,10 +6,15 @@ import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
+import { findRepositoriesAwaitingAnalysis } from "$lib/server/profile/database/repository-analysis-runs";
 import { getProfileRun } from "$lib/server/profile/database/runs";
 import type { RequestHandler } from "./$types";
 
-const defaults = { findMissingProfileProjectPaths, getProfileRun };
+const defaults = {
+  findMissingProfileProjectPaths,
+  findRepositoriesAwaitingAnalysis,
+  getProfileRun,
+};
 let dependencies = { ...defaults };
 export function __setBatchRouteDependenciesForTests(
   overrides: Partial<typeof defaults>,
@@ -44,6 +49,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         { error: `Repository '${missing[0]}' is not part of the profile run` },
         { status: 400 },
       );
+    if (run.sourceProvider === "github") {
+      const awaitingAnalysis = dependencies.findRepositoriesAwaitingAnalysis(run.id, sourceRepos);
+      if (awaitingAnalysis.length > 0) {
+        return json(
+          { error: `Repository '${awaitingAnalysis[0]}' requires successful Git analysis` },
+          { status: 400 },
+        );
+      }
+    }
     body = { ...body, sourceProvider: run.sourceProvider, sourceApiUrl: run.sourceApiUrl };
   }
   const authError = validateAuthAvailable(body);

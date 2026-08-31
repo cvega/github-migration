@@ -4,6 +4,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY . .
 RUN bun run build
+RUN bun build src/bin/profile-analyzer.ts --target=bun --outfile=build/profile-analyzer.js
 
 # Production dependencies only (excludes svelte, vite, tailwindcss, etc.)
 FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS deps
@@ -11,7 +12,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb
+FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS dashboard
 WORKDIR /app
 # Patch OS packages before installing runtime tools so the shipped image carries
 # Alpine's latest security fixes and clears the release vulnerability gate.
@@ -33,3 +34,23 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 	CMD wget -qO- http://127.0.0.1:3000/api/ready || exit 1
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "build/index.js"]
+
+FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5dbfdd3d3d38058437eb AS profile-analyzer
+WORKDIR /app
+RUN apk upgrade --no-cache && \
+	apk add --no-cache \
+		git=2.49.1-r0 \
+		git-lfs=3.6.0-r10 \
+		git-sizer=1.5.0-r34 \
+		sqlite=3.49.2-r1 \
+		su-exec=0.2-r3 && \
+	addgroup -S app && adduser -S app -G app && \
+	mkdir -p /data /analysis
+COPY --from=build --chown=app:app /app/build/profile-analyzer.js ./build/profile-analyzer.js
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV NODE_ENV=production
+ENV DATA_DIR=/data
+ENV ANALYSIS_DIR=/analysis
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bun", "build/profile-analyzer.js"]

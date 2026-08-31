@@ -10,7 +10,7 @@ const repos = [
   { nameWithOwner: "acme/blocked", blockers: 1, warnings: 0 },
 ];
 
-function plannerFixture() {
+function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
   let run = {
     id: "run-1",
     org: "acme",
@@ -22,6 +22,7 @@ function plannerFixture() {
     getRepos: () => repos as never,
     getPlanningRepos: () => repos as never,
     getDefaultTargetOrg: () => "acme-cloud",
+    isRepoEligible: (name) => eligible.includes(name),
   });
   return {
     planner,
@@ -60,5 +61,17 @@ describe("ProfileMigrationPlannerController", () => {
     expect(planner.targetNameError).toBe("");
     expect(planner.targetNameFor("acme/clean")).toBe("clean");
     expect(planner.targetOrg).toBe("acme-cloud");
+  });
+
+  test("keeps ineligible repositories out of selection", () => {
+    const { planner } = plannerFixture(["acme/clean"]);
+
+    expect(planner.selectedNames).toEqual(["acme/clean"]);
+    planner.toggleSelection("acme/warn");
+    expect(planner.selectedNames).toEqual(["acme/clean"]);
+    expect(planner.planError).toContain("Complete Git analysis");
+
+    planner.selectFiltered(true);
+    expect(planner.selectedNames).toEqual(["acme/clean"]);
   });
 });

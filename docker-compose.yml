@@ -1,7 +1,9 @@
 services:
   gh-migrate:
     image: ${GH_MIGRATE_IMAGE:-gh-migrate:local}
-    build: .
+    build:
+      context: .
+      target: dashboard
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -29,7 +31,31 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  profile-analyzer:
+    image: ${GH_MIGRATE_ANALYZER_IMAGE:-gh-migrate-profile-analyzer:local}
+    build:
+      context: .
+      target: profile-analyzer
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file: .env
+    volumes:
+      - gh-migrate-data:/data
+      - gh-migrate-analysis-workspaces:/analysis
+    environment:
+      - DATA_DIR=/data
+      - ANALYSIS_DIR=/analysis
+      - ANALYSIS_WORKSPACE_LIMIT_BYTES=${ANALYSIS_WORKSPACE_LIMIT_BYTES:-}
+      - ANALYSIS_RUN_ONCE=${ANALYSIS_RUN_ONCE:-false}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   gh-migrate-data:
+  gh-migrate-analysis-workspaces:
   gh-migrate-archives:
     name: ${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}

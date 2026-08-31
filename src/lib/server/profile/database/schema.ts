@@ -40,6 +40,26 @@ export const PROFILE_DURABLE_TABLES = [
     purpose: "Provider-specific project profiles",
     notes: "Stores normalized per-project profile payloads keyed to inventory rows",
   },
+  {
+    name: "profile_repository_analysis_runs",
+    purpose: "Repository analysis lifecycle and rollups",
+    notes: "One nonterminal child run per completed GitHub profile",
+  },
+  {
+    name: "profile_repository_analysis_jobs",
+    purpose: "Durable repository analysis queue",
+    notes: "One leased job per selected repository and analysis run",
+  },
+  {
+    name: "profile_repository_analysis_results",
+    purpose: "Immutable repository analysis evidence",
+    notes: "Normalized Git metrics and bounded artifacts per job attempt",
+  },
+  {
+    name: "profile_repository_analysis_lfs_pointers",
+    purpose: "Historical LFS pointer evidence",
+    notes: "Normalized OIDs, sizes, and representative paths per analysis result",
+  },
 ] as const satisfies readonly DurableTableContract[];
 
 const PROFILE_DDL = `
@@ -118,6 +138,73 @@ const PROFILE_DDL = `
     UNIQUE (run_id, path),
     FOREIGN KEY (run_id, source_id)
       REFERENCES profile_source_inventory_projects(run_id, source_id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS profile_repository_analysis_runs (
+    id TEXT PRIMARY KEY,
+    profile_run_id TEXT NOT NULL REFERENCES profile_runs(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'finalizing', 'completed', 'failed', 'cancelled')),
+    policy_version INTEGER NOT NULL DEFAULT 1,
+    selected_repo_count INTEGER NOT NULL,
+    completed_repo_count INTEGER NOT NULL DEFAULT 0,
+    failed_repo_count INTEGER NOT NULL DEFAULT 0,
+    unknown_size_repo_count INTEGER NOT NULL DEFAULT 0,
+    estimated_clone_bytes INTEGER NOT NULL DEFAULT 0,
+    estimated_peak_workspace_bytes INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    failure_reason TEXT
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_analysis_one_active_run
+    ON profile_repository_analysis_runs(profile_run_id)
+    WHERE state IN ('queued', 'running', 'finalizing');
+
+  CREATE INDEX IF NOT EXISTS idx_profile_analysis_runs_profile
+    ON profile_repository_analysis_runs(profile_run_id, started_at DESC);
+
+  CREATE TABLE IF NOT EXISTS profile_repository_analysis_jobs (
+    id TEXT PRIMARY KEY,
+    analysis_run_id TEXT NOT NULL REFERENCES profile_repository_analysis_runs(id) ON DELETE CASCADE,
+    profile_repo_id INTEGER NOT NULL REFERENCES profile_repos(id) ON DELETE CASCADE,
+    name_with_owner TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    priority_reasons TEXT NOT NULL DEFAULT '[]',
+    estimated_workspace_bytes INTEGER,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    failure_reason TEXT,
+    UNIQUE (analysis_run_id, profile_repo_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_profile_analysis_jobs_claim
+    ON profile_repository_analysis_jobs(state, priority DESC, estimated_workspace_bytes, id);
+
+  CREATE TABLE IF NOT EXISTS profile_repository_analysis_results (
+    id TEXT PRIMARY KEY,
+    analysis_job_id TEXT NOT NULL REFERENCES profile_repository_analysis_jobs(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL,
+    captured_at TEXT NOT NULL,
+    source_ref_fingerprint TEXT,
+    mirror_size_bytes INTEGER NOT NULL DEFAULT 0,
+    git_version TEXT NOT NULL,
+    git_lfs_version TEXT NOT NULL,
+    git_sizer_version TEXT NOT NULL,
+    metrics TEXT NOT NULL DEFAULT '{}',
+    raw_artifact TEXT,
+    UNIQUE (analysis_job_id, attempt)
+  );
+
+  CREATE TABLE IF NOT EXISTS profile_repository_analysis_lfs_pointers (
+    analysis_result_id TEXT NOT NULL REFERENCES profile_repository_analysis_results(id) ON DELETE CASCADE,
+    oid TEXT NOT NULL,
+    declared_size_bytes INTEGER NOT NULL,
+    representative_path TEXT NOT NULL,
+    PRIMARY KEY (analysis_result_id, oid)
   );
 
 `;
@@ -332,6 +419,18 @@ export const profileStore: DomainStore = {
     addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
     addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
     addColumnIfMissing(db, "profile_runs", "detail_rollup", "TEXT");
+    addColumnIfMissing(
+      db,
+      "profile_repository_analysis_runs",
+      "unknown_size_repo_count",
+      "INTEGER NOT NULL DEFAULT 0",
+    );
+    addColumnIfMissing(
+      db,
+      "profile_repository_analysis_jobs",
+      "priority_reasons",
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
     addColumnIfMissing(db, "profile_source_inventories", "summary", "TEXT NOT NULL DEFAULT '{}'");
     addColumnIfMissing(
       db,

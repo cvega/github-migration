@@ -86,3 +86,33 @@ test("rejects incomplete and foreign profile-backed batches", async () => {
     error: "Repository 'acme/repo' is not part of the profile run",
   });
 });
+
+test("rejects only GitHub repositories still awaiting required analysis", async () => {
+  restore = __setBatchRouteDependenciesForTests({
+    getProfileRun: () =>
+      ({
+        id: "run",
+        state: "completed",
+        sourceProvider: "github",
+        sourceApiUrl: "https://api.github.com",
+      }) as never,
+    findMissingProfileProjectPaths: () => [],
+    findRepositoriesAwaitingAnalysis: () => ["acme/risky"],
+  });
+  const response = await POST({
+    request: new Request("http://localhost/api/migrate/batches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        profileRunId: "run",
+        items: [{ sourceRepo: "acme/risky", targetRepo: "risky" }],
+        targetOrg: "target",
+      }),
+    }),
+  } as never);
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({
+    error: "Repository 'acme/risky' requires successful Git analysis",
+  });
+});

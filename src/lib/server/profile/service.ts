@@ -1,4 +1,5 @@
 import { MAX_PROFILE_PLAN_REPOS, type ProfilePlanRepo } from "$lib/profile/migration-plan";
+import type { RepositoryAnalysisDetail } from "$lib/profile/repository-analysis";
 import { getSourceClients } from "$lib/server/core/auth";
 import type { SourceInventoryProgress } from "$lib/source/types";
 import { getSourceProviderAdapter } from "$lib/source-provider";
@@ -14,6 +15,7 @@ import {
   iterateRunRepoProfiles,
   type RepoReadinessFilter,
 } from "./database/repos";
+import { getRepositoryAnalysisDetail } from "./database/repository-analysis-runs";
 import {
   backfillProfileRunRollup,
   createProfileRun,
@@ -202,6 +204,7 @@ export interface ProfileDetail extends ProfileDetailRollup {
   planningRepos: ProfilePlanRepo[];
   repoPage: { page: number; totalPages: number; total: number; limit: number };
   inventorySummary: ProfileInventorySummary | null;
+  repositoryAnalysis: RepositoryAnalysisDetail | null;
 }
 export function getProfileStatus(
   id: string,
@@ -234,7 +237,12 @@ export function getProfileRepoPage(
 }
 export function getProfileDetail(
   id: string,
-  options: { page?: number; search?: string; readiness?: RepoReadinessFilter } = {},
+  options: {
+    page?: number;
+    search?: string;
+    readiness?: RepoReadinessFilter;
+    analysisRunId?: string;
+  } = {},
 ): ProfileDetail | null {
   const run = getProfileRun(id);
   if (!run) return null;
@@ -258,5 +266,6 @@ export function getProfileDetail(
       getSourceProviderAdapter(run.sourceProvider).capabilities.planning
         ? getRunRepoPlanProfiles(id, MAX_PROFILE_PLAN_REPOS)
         : [],
+    repositoryAnalysis: getRepositoryAnalysisDetail(id, options.analysisRunId),
   };
 }

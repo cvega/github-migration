@@ -3,15 +3,17 @@
 	import Pagination from "$lib/components/Pagination.svelte";
 	import ProfileProgress from "$lib/components/profile/ProfileProgress.svelte";
 	import SourceInventory from "$lib/components/profile/SourceInventory.svelte";
+	import { repositoryAnalysisAllowsPlanning } from "$lib/profile/repository-analysis";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 	import Header from "./Header.svelte";
 	import { LiveProfileController } from "./live.svelte";
 	import Plan from "./Plan.svelte";
 	import { ProfileMigrationPlannerController } from "./planner.svelte";
 	import Readiness from "./Readiness.svelte";
+	import RepositoryAnalysis from "./RepositoryAnalysis.svelte";
 	import RepoTable from "./RepoTable.svelte";
 
-	let { data } = $props();
+	let { data, form } = $props();
 
 	const REPOS_PER_PAGE = 25;
 	let repoSearch = $derived.by(() => {
@@ -55,12 +57,24 @@
 	const composition = $derived(live.composition);
 	const summary = $derived(live.summary);
 	const estimate = $derived(live.estimate);
+	const repositoryAnalysis = $derived(data.repositoryAnalysis);
 	const provider = $derived(getSourceProviderAdapter(run.sourceProvider));
+	const eligiblePlanningRepos = $derived(
+		planningRepos.filter(
+			(repo) =>
+				run.sourceProvider !== "github" ||
+				repositoryAnalysisAllowsPlanning(repo, repositoryAnalysis),
+		),
+	);
+	const eligiblePlanningNames = $derived(
+		eligiblePlanningRepos.map((repo) => repo.nameWithOwner),
+	);
 	const planner = new ProfileMigrationPlannerController({
 		getRun: () => live.run,
 		getRepos: () => live.repos,
-		getPlanningRepos: () => live.planningRepos,
+		getPlanningRepos: () => eligiblePlanningRepos,
 		getDefaultTargetOrg: () => "",
+		isRepoEligible: (name) => eligiblePlanningNames.includes(name),
 	});
 </script>
 
@@ -83,7 +97,7 @@
 		<ProfileProgress {run} {composition} livePhase={live.livePhase} />
 		<Readiness {run} {scale} {summary} {estimate} />
 
-		{#if run.state === "completed" && planningRepos.length > 0 && provider.capabilities.planning}
+		{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
 			<Plan {planner} canExport={provider.capabilities.export} />
 		{/if}
 
@@ -105,8 +119,15 @@
 					</div>
 				{/if}
 			</div>
+			{#if run.state === "completed"}
+				<RepositoryAnalysis
+					analysis={repositoryAnalysis}
+					available={data.repositoryAnalysisAvailable}
+					{form}
+				/>
+			{/if}
 
-			{#if run.state === "completed" && repos.length > 0 && provider.capabilities.planning}
+			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && repos.length > 0 && provider.capabilities.planning}
 				<div class="mb-2 flex flex-wrap items-center gap-3 text-xs">
 					<button type="button" onclick={() => planner.selectFiltered(false)} class="font-medium text-blue-400 hover:text-blue-300">Select shown without blocking issues</button>
 					<button type="button" onclick={() => planner.selectFiltered(true)} class="font-medium text-blue-400 hover:text-blue-300">Select all shown</button>
@@ -122,7 +143,14 @@
 			{:else if repoPageInfo.total === 0}
 				<div class="rounded-md border border-dashed border-gray-600 py-12 text-center text-gray-400">No repositories match the current filters.</div>
 			{:else}
-				<RepoTable runId={run.id} {repos} planning={run.state === "completed" && provider.capabilities.planning} {planner} />
+				<RepoTable
+					runId={run.id}
+					{repos}
+					analysis={repositoryAnalysis}
+					planning={run.state === "completed" && provider.capabilities.planning}
+					planningEligibleNames={eligiblePlanningNames}
+					{planner}
+				/>
 				<Pagination page={repoPageInfo.page} totalPages={repoPageInfo.totalPages} total={repoPageInfo.total} limit={REPOS_PER_PAGE} onPageChange={(page) => (repoPage = page)} />
 			{/if}
 		</section>
