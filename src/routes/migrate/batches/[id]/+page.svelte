@@ -245,35 +245,36 @@
 		</div>
 	</header>
 
-	<section aria-labelledby="batch-progress-title" class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-		<div class="grid gap-5 p-5 lg:grid-cols-[9rem_minmax(0,1fr)_auto] lg:items-center">
-			<div class="flex items-center gap-4 lg:block lg:border-r lg:border-gray-700/80 lg:pr-5">
-				<div class="relative flex h-20 w-20 shrink-0 items-center justify-center rounded-full" style={`background: conic-gradient(var(--color-green-500) ${percentComplete}%, var(--color-gray-700) 0)`} role="img" aria-label={`${percentComplete}% resolved`}>
-					<span class="absolute inset-1.5 rounded-full bg-gray-900"></span>
-					<span class="relative text-lg font-semibold tabular-nums text-gray-50">{percentComplete}%</span>
-				</div>
-				<div class="lg:mt-3">
-					<h2 id="batch-progress-title" class="text-xs font-semibold uppercase text-gray-500">Batch progress</h2>
-					<div class="mt-1 text-sm text-gray-300"><strong class="tabular-nums text-gray-50">{resolvedCount}</strong> of {batch.totalCount} resolved</div>
-				</div>
-			</div>
-
-			<div>
-				<div class="mb-3 text-xs font-semibold uppercase text-gray-500">Repository states</div>
-				<div class="flex flex-wrap gap-x-5 gap-y-3 text-sm tabular-nums">
-					{#if batch.succeededCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="check-circle-fill" size={12} /><strong>{batch.succeededCount}</strong> succeeded</span>{/if}
-					{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="sync" size={12} /><strong>{batch.runningCount}</strong> running</span>{/if}
-					{#if batch.cancellingCount > 0}<span class="inline-flex items-center gap-1.5 text-cyan-400"><Octicon name="stop" size={12} /><strong>{batch.cancellingCount}</strong> {STATE_LABELS.cancelling.toLowerCase()}</span>{/if}
-					{#if batch.pendingCount > 0}<span class="inline-flex items-center gap-1.5 text-yellow-400"><Octicon name="clock" size={12} /><strong>{batch.pendingCount}</strong> {STATE_LABELS.pending.toLowerCase()}</span>{/if}
-					{#if batch.queuedCount > 0}<span class="inline-flex items-center gap-1.5 text-violet-400"><Octicon name="hourglass" size={12} /><strong>{batch.queuedCount}</strong> {STATE_LABELS.queued.toLowerCase()}</span>{/if}
-					{#if batch.failedCount > 0}<span class="inline-flex items-center gap-1.5 text-red-400"><Octicon name="x-circle-fill" size={12} /><strong>{batch.failedCount}</strong> failed</span>{/if}
-					{#if batch.cancelledCount > 0}<span class="inline-flex items-center gap-1.5 text-gray-400"><Octicon name="skip" size={12} /><strong>{batch.cancelledCount}</strong> cancelled</span>{/if}
-					{#if batch.reconciliationRequiredCount > 0}<span class="inline-flex items-center gap-1.5 text-orange-400"><Octicon name="alert" size={12} /><strong>{batch.reconciliationRequiredCount}</strong> review required</span>{/if}
-				</div>
+	<section aria-labelledby="batch-progress-title" class="rounded-md border border-gray-700 bg-gray-950/40 p-4">
+		<div class="flex items-center justify-between gap-4">
+			<h2 id="batch-progress-title" class="text-sm font-semibold text-gray-200">Batch progress</h2>
+			<strong class="text-sm tabular-nums text-gray-100">{percentComplete}%</strong>
+		</div>
+		<div
+			class="mt-2 h-2 overflow-hidden rounded-full bg-gray-800"
+			role="progressbar"
+			aria-label="Batch progress"
+			aria-valuemin="0"
+			aria-valuemax="100"
+			aria-valuenow={percentComplete}
+		>
+			<div class="h-full rounded-full bg-green-500" style:width={`${percentComplete}%`}></div>
+		</div>
+		<div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+			<div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs tabular-nums">
+				<span class="text-gray-400"><strong class="text-gray-200">{resolvedCount}</strong> of {batch.totalCount} resolved</span>
+				{#if batch.succeededCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="check-circle-fill" size={12} /><strong>{batch.succeededCount}</strong> succeeded</span>{/if}
+				{#if batch.runningCount > 0}<span class="inline-flex items-center gap-1.5 text-green-400"><Octicon name="sync" size={12} /><strong>{batch.runningCount}</strong> running</span>{/if}
+				{#if batch.cancellingCount > 0}<span class="inline-flex items-center gap-1.5 text-cyan-400"><Octicon name="stop" size={12} /><strong>{batch.cancellingCount}</strong> {STATE_LABELS.cancelling.toLowerCase()}</span>{/if}
+				{#if batch.pendingCount > 0}<span class="inline-flex items-center gap-1.5 text-yellow-400"><Octicon name="clock" size={12} /><strong>{batch.pendingCount}</strong> {STATE_LABELS.pending.toLowerCase()}</span>{/if}
+				{#if batch.queuedCount > 0}<span class="inline-flex items-center gap-1.5 text-violet-400"><Octicon name="hourglass" size={12} /><strong>{batch.queuedCount}</strong> {STATE_LABELS.queued.toLowerCase()}</span>{/if}
+				{#if batch.failedCount > 0}<span class="inline-flex items-center gap-1.5 text-red-400"><Octicon name="x-circle-fill" size={12} /><strong>{batch.failedCount}</strong> failed</span>{/if}
+				{#if batch.cancelledCount > 0}<span class="inline-flex items-center gap-1.5 text-gray-400"><Octicon name="skip" size={12} /><strong>{batch.cancelledCount}</strong> cancelled</span>{/if}
+				{#if batch.reconciliationRequiredCount > 0}<span class="inline-flex items-center gap-1.5 text-orange-400"><Octicon name="alert" size={12} /><strong>{batch.reconciliationRequiredCount}</strong> review required</span>{/if}
 			</div>
 
 			{#if restartableCount > 0 || isActive}
-				<div class="flex flex-wrap items-center gap-2 border-t border-gray-700/70 pt-4 lg:flex-col lg:items-stretch lg:border-t-0 lg:border-l lg:pt-0 lg:pl-5">
+				<div class="flex shrink-0 flex-wrap items-center gap-2">
 					{#if restartableCount > 0 && data.canRestart}
 						<button type="button" onclick={openRestartForm} class="flex items-center justify-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"><Octicon name="sync" size={12} />{restartLabel}</button>
 					{/if}

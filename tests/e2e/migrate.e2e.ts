@@ -1,5 +1,43 @@
 import { expect, test } from "@playwright/test";
 
+test("opens list details from row content while preserving nested controls", async ({ page }) => {
+	await page.goto("/migrate");
+	await expect(page.getByRole("link", { name: /Finished/ })).toHaveAttribute("href", "#finished");
+
+	const batchMetadata = page.getByText("1 succeeded", { exact: true }).first();
+	const batchMetadataBox = await batchMetadata.boundingBox();
+	expect(batchMetadataBox).not.toBeNull();
+	await page.mouse.click(
+		batchMetadataBox!.x + batchMetadataBox!.width / 2,
+		batchMetadataBox!.y + batchMetadataBox!.height / 2,
+	);
+	await expect(page).toHaveURL(/\/migrate\/batches\/seed-e2e-batch-one$/);
+	await expect(page.getByRole("progressbar", { name: "Batch progress" })).toHaveAttribute(
+		"aria-valuenow",
+		"100",
+	);
+
+	await page.goto("/migrate#finished");
+	const migrationRow = page.locator("#finished > div > .group").first();
+	await migrationRow.scrollIntoViewIfNeeded();
+	const migrationRowBox = await migrationRow.boundingBox();
+	expect(migrationRowBox).not.toBeNull();
+	await page.mouse.click(
+		migrationRowBox!.x + migrationRowBox!.width * 0.65,
+		migrationRowBox!.y + migrationRowBox!.height / 2,
+	);
+	await expect(page).toHaveURL(/\/migrate\/seed-e2e-migration-one$/);
+
+	await page.goto("/migrate#finished");
+	await page.getByRole("button", { name: "Batch" }).first().click();
+	await expect(page).toHaveURL(/\/migrate\/batches\/seed-e2e-batch-one$/);
+
+	await page.goto("/migrate#finished");
+	const listUrl = page.url();
+	await page.getByRole("button", { name: "Copy error details" }).first().click();
+	expect(page.url()).toBe(listUrl);
+});
+
 test("renders terminal migration detail with canonical provider links", async ({ page }) => {
 	const browserErrors: string[] = [];
 	page.on("console", (message) => {

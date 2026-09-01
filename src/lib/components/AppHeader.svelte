@@ -83,7 +83,10 @@
 		</div>
 	</div>
 
-	<nav aria-label="Primary" class="overflow-x-auto px-2 sm:px-4">
+	<nav
+		aria-label="Primary"
+		class="overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4"
+	>
 		<div class="flex min-w-max items-end gap-1">
 			{#each tabs as tab (tab.id)}
 				{@const selected = tab.id === activeTab}

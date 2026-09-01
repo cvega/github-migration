@@ -14,6 +14,7 @@
 		type GhStatusContext,
 	} from "$lib/context-keys";
 	import { timeAgo } from "$lib/format";
+	import type { UsedIconName } from "$lib/icons.generated";
 	import { eventChangesBatchSummary } from "$lib/migrate/events";
 	import { createGlobalEventSource, migrations } from "$lib/migrate/live.svelte";
 	import { STATE_LABELS } from "$lib/migrate/migration-display";
@@ -87,7 +88,7 @@
 	const active = $derived(
 		migrationRows.filter((migration: Migration) => isActiveMigrationState(migration.state)),
 	);
-	const completed = $derived(
+	const finished = $derived(
 		migrationRows.filter((migration: Migration) => !isActiveMigrationState(migration.state)),
 	);
 	const q = $derived(data.q ?? "");
@@ -136,7 +137,7 @@
 	const activeTotal = $derived(
 		counts ? counts.queued + counts.pending + counts.running + counts.cancelling : 0,
 	);
-	const completedTotal = $derived(
+	const finishedTotal = $derived(
 		counts
 			? counts.succeeded +
 				counts.failed +
@@ -144,12 +145,10 @@
 				counts.reconciliation_required
 			: 0,
 	);
-	const newestBatch = $derived(batchesResult.data[0] ?? null);
-
 	function batchStateBadge(batch: BatchListItem): {
 		label: string;
 		style: string;
-		accent: string;
+		icon: UsedIconName;
 		live?: boolean;
 	} {
 		if (
@@ -158,33 +157,33 @@
 			batch.queuedCount > 0 ||
 			batch.cancellingCount > 0
 		) {
-			return { label: "active", style: "text-green-400", accent: "bg-blue-500", live: true };
+			return { label: "Active", style: "text-blue-400", icon: "sync", live: true };
 		}
 		if (batch.reconciliationRequiredCount > 0) {
 			return {
-				label: "review required",
-				style: "bg-orange-500/15 text-orange-400",
-				accent: "bg-orange-500",
+				label: "Review required",
+				style: "text-orange-400",
+				icon: "alert",
 			};
 		}
 		if (batch.failedCount > 0 && batch.succeededCount > 0) {
 			return {
-				label: "partial",
-				style: "bg-yellow-600/15 text-yellow-400",
-				accent: "bg-yellow-500",
+				label: "Partial",
+				style: "text-yellow-400",
+				icon: "alert",
 			};
 		}
 		if (batch.failedCount > 0) {
 			return {
-				label: "failed",
-				style: "bg-red-500/15 text-red-400",
-				accent: "bg-red-500",
+				label: "Failed",
+				style: "text-red-400",
+				icon: "x-circle-fill",
 			};
 		}
 		return {
-			label: "done",
-			style: "bg-green-600/15 text-green-400",
-			accent: "bg-green-500",
+			label: "Complete",
+			style: "text-green-400",
+			icon: "check-circle-fill",
 		};
 	}
 
@@ -211,14 +210,14 @@
 	}
 </script>
 
-<div class="space-y-8">
+<div class="space-y-6">
 	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div class="flex items-center gap-3">
 			{#if data.logoUrl}
-				<img src={data.logoUrl} alt="" class="h-14 w-14 rounded-lg border border-gray-700" />
+				<img src={data.logoUrl} alt="" class="h-12 w-12 rounded-md border border-gray-700" />
 			{/if}
 			<div>
-				<h1 class="text-2xl font-bold text-gray-50">Migrations</h1>
+				<h1 class="text-2xl font-semibold text-gray-50">Migrations</h1>
 				<p class="mt-1 text-sm text-gray-400">
 					{#if searching}
 						{migrationsResult.total + batchesResult.total} result{migrationsResult.total +
@@ -280,7 +279,7 @@
 				aria-label="Search migrations"
 				autocomplete="off"
 				spellcheck="false"
-				class="w-full rounded-md border border-gray-700 bg-gray-900 py-2.5 pr-10 pl-10 text-sm text-gray-50 transition-colors placeholder:text-gray-500 hover:border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+				class="h-11 w-full rounded-md border border-gray-700 bg-gray-900 pr-10 pl-10 text-sm text-gray-50 transition-colors placeholder:text-gray-500 hover:border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none sm:h-10"
 			/>
 			{#if searchInput}
 				<button
@@ -295,261 +294,118 @@
 		</form>
 	</search>
 
-	{#if !searching && (batchesResult.total > 0 || activeTotal > 0 || completedTotal > 0)}
-		<div class="grid gap-3 md:grid-cols-3">
+	{#if !searching && (batchesResult.total > 0 || activeTotal > 0 || finishedTotal > 0)}
+		<nav aria-label="Migration views" class="grid min-w-0 grid-cols-3 border-b border-gray-700 sm:flex">
 			{#if batchesResult.total > 0}
 				<a
 					href="#batches"
-					class="group relative overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-all hover:border-gray-600 hover:bg-gray-800"
+					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"
 				>
-					<span class="absolute inset-x-0 top-0 h-0.5 bg-blue-500"></span>
-					<span class="block p-4">
-						<span class="flex items-start justify-between gap-3">
-							<span class="flex min-w-0 items-center gap-3">
-								<span
-									class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-400"
-									><Octicon name="stack" size={16} /></span
-								>
-								<span>
-									<span class="block text-xs font-semibold uppercase text-gray-500"
-										>Migration batches</span
-									>
-									<span class="mt-1 flex items-baseline gap-1.5">
-										<span class="text-3xl leading-none font-semibold text-gray-50 tabular-nums"
-											>{batchesResult.total}</span
-										><span class="text-xs text-gray-500">total</span>
-									</span>
-								</span>
-							</span>
-							<Octicon name="arrow-down" size={16} class="text-gray-500" />
-						</span>
-						<span
-							class="mt-4 flex items-center gap-1.5 border-t border-gray-700/70 pt-3 text-xs text-gray-500"
-						>
-							<Octicon name="clock" size={12} />
-							{#if newestBatch}Newest batch started {timeAgo(newestBatch.startedAt)}{:else}All repositories{/if}
-						</span>
-					</span>
+					<Octicon name="list-unordered" size={16} class="text-gray-400" />
+					<span>Batches</span>
+					<span class="min-w-5 rounded-full bg-gray-800 px-1 py-0.5 text-center text-xs font-medium tabular-nums text-gray-400 sm:px-2"
+						>{batchesResult.total}</span
+					>
 				</a>
 			{/if}
 			{#if activeTotal > 0}
 				<a
 					href="#active"
-					class="group relative overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-all hover:border-gray-600 hover:bg-gray-800"
+					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"
 				>
-					<span class="absolute inset-x-0 top-0 h-0.5 bg-green-500"></span>
-					<span class="block p-4">
-						<span class="flex items-center justify-between gap-3">
-							<span class="flex items-center gap-3">
-								<span
-									class="flex h-10 w-10 items-center justify-center rounded-md bg-green-500/10 text-green-400"
-									><Octicon name="play" size={16} /></span
-								>
-								<span>
-									<span class="block text-xs font-semibold uppercase text-gray-500"
-										>Active migrations</span
-									>
-									<span class="mt-1 flex items-baseline gap-1.5"
-										><span class="text-3xl leading-none font-semibold text-gray-50 tabular-nums"
-											>{activeTotal}</span
-										><span class="text-xs text-gray-500">in progress</span></span
-									>
-								</span>
-							</span>
-							<Octicon name="arrow-down" size={16} class="text-gray-500" />
-						</span>
-						<span class="mt-4 flex flex-wrap gap-2 border-t border-gray-700/70 pt-3 text-xs">
-							{#if (counts?.running ?? 0) > 0}<span class="text-green-400"
-								>{counts?.running} running</span
-							>{/if}
-							{#if (counts?.queued ?? 0) > 0}<span class="text-violet-400"
-								>{counts?.queued} {STATE_LABELS.queued.toLowerCase()}</span
-							>{/if}
-							{#if (counts?.pending ?? 0) > 0}<span class="text-yellow-400"
-								>{counts?.pending} {STATE_LABELS.pending.toLowerCase()}</span
-							>{/if}
-							{#if (counts?.cancelling ?? 0) > 0}<span class="text-cyan-400"
-								>{counts?.cancelling} {STATE_LABELS.cancelling.toLowerCase()}</span
-							>{/if}
-						</span>
-					</span>
+					<Octicon name="pulse" size={16} class="text-green-400" />
+					<span>Active</span>
+					<span class="min-w-5 rounded-full bg-gray-800 px-1 py-0.5 text-center text-xs font-medium tabular-nums text-gray-400 sm:px-2"
+						>{activeTotal}</span
+					>
 				</a>
 			{/if}
-			{#if completedTotal > 0}
+			{#if finishedTotal > 0}
 				<a
-					href="#completed"
-					class="group relative overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-all hover:border-gray-600 hover:bg-gray-800"
+					href="#finished"
+					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"
 				>
-					<span class="absolute inset-x-0 top-0 h-0.5 bg-gray-500"></span>
-					<span class="block p-4">
-						<span class="flex items-center justify-between gap-3">
-							<span class="flex items-center gap-3">
-								<span
-									class="flex h-10 w-10 items-center justify-center rounded-md bg-gray-700/60 text-gray-300"
-									><Octicon name="check-circle" size={16} /></span
-								>
-								<span>
-									<span class="block text-xs font-semibold uppercase text-gray-500"
-										>Completed migrations</span
-									>
-									<span class="mt-1 flex items-baseline gap-1.5"
-										><span class="text-3xl leading-none font-semibold text-gray-50 tabular-nums"
-											>{completedTotal}</span
-										><span class="text-xs text-gray-500">total</span></span
-									>
-								</span>
-							</span>
-							<Octicon name="arrow-down" size={16} class="text-gray-500" />
-						</span>
-						<span class="mt-4 flex flex-wrap gap-2 border-t border-gray-700/70 pt-3 text-xs">
-							{#if (counts?.succeeded ?? 0) > 0}<span class="text-green-400"
-								>{counts?.succeeded} succeeded</span
-							>{/if}
-							{#if (counts?.failed ?? 0) > 0}<span class="text-red-400"
-								>{counts?.failed} failed</span
-							>{/if}
-							{#if (counts?.cancelled ?? 0) > 0}<span class="text-gray-400"
-								>{counts?.cancelled} cancelled</span
-							>{/if}
-							{#if (counts?.reconciliation_required ?? 0) > 0}<span class="text-orange-400"
-								>{counts?.reconciliation_required} to review</span
-							>{/if}
-						</span>
-					</span>
+					<Octicon name="check-circle-fill" size={16} class="text-green-400" />
+					<span>Finished</span>
+					<span class="min-w-5 rounded-full bg-gray-800 px-1 py-0.5 text-center text-xs font-medium tabular-nums text-gray-400 sm:px-2"
+						>{finishedTotal}</span
+					>
 				</a>
 			{/if}
-		</div>
+		</nav>
 	{/if}
 
 	{#snippet batchCard(batch: BatchListItem)}
 		{@const badge = batchStateBadge(batch)}
 		{@const route = batchRoute(batch)}
 		{@const donePct = Math.round(pctOf(batch.succeededCount, batch.totalCount))}
-		<a
-			href="/migrate/batches/{batch.id}"
-			class="group relative block overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-all hover:border-gray-600 hover:bg-gray-800"
+		<div
+			class="relative block overflow-hidden border-b border-gray-700 bg-gray-950/40 transition-colors last:border-b-0 hover:bg-gray-900/60"
 		>
-			<span class="absolute inset-y-0 left-0 w-1 {badge.accent}"></span>
-			<div class="p-4 pl-5">
+			<div class="p-3">
 				<div
-					class="grid grid-cols-[minmax(0,1fr)_auto] gap-4 md:grid-cols-[9rem_minmax(18rem,1fr)_5.5rem] md:items-center md:gap-5"
+					class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 md:grid-cols-[minmax(12rem,0.8fr)_minmax(16rem,1.2fr)_8rem] md:items-center md:gap-4"
 				>
-					<div
-						class="flex items-center justify-between gap-3 md:block md:border-r md:border-gray-700/80 md:pr-5"
-					>
-						<div>
-							<div class="text-xs font-semibold uppercase text-gray-500">Batch size</div>
-							<div class="mt-1 flex items-baseline gap-1.5">
-								<span class="text-3xl leading-none font-semibold text-gray-50 tabular-nums"
-									>{batch.totalCount}</span
-								><span class="text-xs text-gray-500">repositories</span>
-							</div>
-						</div>
-						{#if badge.live}
-							<span class="inline-flex items-center gap-1.5 text-xs font-medium {badge.style}">
-								<span class="relative flex h-2 w-2" aria-hidden="true">
-									<span
-										class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-40 motion-reduce:animate-none"
-									></span>
-									<span class="relative inline-flex h-2 w-2 rounded-full bg-green-400"></span>
-								</span>
-								{badge.label}
+					<div class="min-w-0">
+						<a
+							href="/migrate/batches/{batch.id}"
+							class="text-sm font-semibold text-blue-400 after:absolute after:inset-0 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500"
+						>
+							{batch.totalCount} {batch.totalCount === 1 ? "repository" : "repositories"} batch
+						</a>
+						<div class="mt-1 flex items-center gap-2 text-xs">
+							<span class="inline-flex items-center gap-1 font-medium text-gray-400">
+								<Octicon
+									name={badge.icon}
+									size={12}
+									class="{badge.style} {badge.live ? 'animate-spin' : ''}"
+								/>{badge.label}
 							</span>
-						{:else}
-							<span class="rounded-full px-2 py-0.5 text-xs font-medium {badge.style}"
-								>{badge.label}</span
+							<span class="font-mono text-xs text-gray-600">{batch.id.slice(0, 8)}</span>
+						</div>
+					</div>
+
+					<div class="col-span-2 row-start-2 min-w-0 md:col-span-1 md:row-auto">
+						{#if route}
+							<div
+								class="flex min-w-0 items-center gap-2 text-sm text-gray-400"
+								title={`${route.source.displayName} to ${route.target.displayName}`}
 							>
+								<Octicon name={route.source.icon} size={16} class="shrink-0" />
+								<span class="truncate font-medium text-gray-300">{route.source.label}</span>
+								<Octicon name="arrow-right" size={16} class="shrink-0 text-gray-600" />
+								<Octicon name={route.target.icon} size={16} class="shrink-0" />
+								<span class="truncate font-medium text-gray-300">{route.target.label}</span>
+							</div>
+						{:else}
+							<div class="flex items-center gap-2 text-sm font-medium text-yellow-400">
+								<Octicon name="arrow-switch" size={16} />Mixed migration paths
+							</div>
 						{/if}
+						<div class="mt-1 flex flex-wrap items-center gap-x-2 text-xs tabular-nums">
+							{#if batch.succeededCount > 0}<span class="text-green-400">{batch.succeededCount} succeeded</span>{/if}
+							{#if batch.runningCount > 0}<span class="text-blue-400">{batch.runningCount} running</span>{/if}
+							{#if batch.cancellingCount > 0}<span class="text-cyan-400">{batch.cancellingCount} {STATE_LABELS.cancelling.toLowerCase()}</span>{/if}
+							{#if batch.pendingCount > 0}<span class="text-yellow-400">{batch.pendingCount} {STATE_LABELS.pending.toLowerCase()}</span>{/if}
+							{#if batch.queuedCount > 0}<span class="text-violet-400">{batch.queuedCount} {STATE_LABELS.queued.toLowerCase()}</span>{/if}
+							{#if batch.failedCount > 0}<span class="text-red-400">{batch.failedCount} failed</span>{/if}
+							{#if batch.cancelledCount > 0}<span class="text-gray-400">{batch.cancelledCount} cancelled</span>{/if}
+							{#if batch.reconciliationRequiredCount > 0}<span class="text-orange-400">{batch.reconciliationRequiredCount} to review</span>{/if}
+						</div>
 					</div>
 
-					{#if route}
-						<div
-							class="col-span-2 grid min-w-0 grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] items-center md:col-span-1"
-							title={`${route.source.displayName} to ${route.target.displayName}`}
-						>
-							<div class="min-w-0">
-								<div class="text-xs font-semibold uppercase text-gray-500">Source</div>
-								<div class="mt-1.5 flex items-center gap-2 text-sm font-semibold text-gray-200">
-									<Octicon name={route.source.icon} size={16} />
-									<span class="truncate">{route.source.label}</span>
-								</div>
+					<div class="col-start-2 row-start-1 flex items-center justify-end md:col-auto md:row-auto">
+						<div class="w-16 shrink-0 md:w-20" role="img" aria-label={`${donePct}% complete`}>
+							<div class="text-right text-xs font-semibold tabular-nums text-gray-200">{donePct}%</div>
+							<div class="mt-1 h-1 overflow-hidden rounded-full bg-gray-700">
+								<div class="h-full bg-green-500" style:width={`${donePct}%`}></div>
 							</div>
-							<div class="flex items-center px-1 text-gray-600">
-								<span class="h-px flex-1 bg-gray-700"></span>
-								<Octicon name="chevron-right" size={16} />
-							</div>
-							<div class="min-w-0">
-								<div class="text-xs font-semibold uppercase text-gray-500">Target</div>
-								<div class="mt-1.5 flex items-center gap-2 text-sm font-semibold text-gray-200">
-									<Octicon name={route.target.icon} size={16} />
-									<span class="truncate">{route.target.label}</span>
-								</div>
-							</div>
+							<div class="mt-1 text-right text-xs text-gray-500">{timeAgo(batch.startedAt)}</div>
 						</div>
-					{:else}
-						<div
-							class="col-span-2 flex min-h-12 items-center justify-center gap-2 rounded-md border border-yellow-500/20 bg-yellow-500/5 px-3 text-sm font-medium text-yellow-400 md:col-span-1"
-						>
-							<Octicon name="arrow-switch" size={16} />Mixed migration paths
-						</div>
-					{/if}
-
-					<div class="col-start-2 row-start-1 flex items-center gap-3 md:col-auto md:row-auto">
-						<div
-							class="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full"
-							style={`background: conic-gradient(var(--color-green-500) ${donePct}%, var(--color-gray-700) 0)`}
-							role="img"
-							aria-label={`${donePct}% complete`}
-						>
-							<span
-								class="absolute inset-1 rounded-full bg-gray-900 transition-colors group-hover:bg-gray-800"
-							></span>
-							<span class="relative text-sm font-semibold text-gray-100 tabular-nums">{donePct}%</span>
-						</div>
-						<Octicon name="chevron-right" size={16} class="text-gray-600" />
-					</div>
-				</div>
-
-				<div
-					class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-700/70 pt-3"
-				>
-					<div class="flex flex-wrap items-center gap-1.5 text-xs tabular-nums">
-						{#if batch.succeededCount > 0}<span class="text-green-400"
-							>{batch.succeededCount} succeeded</span
-						>{/if}
-						{#if batch.runningCount > 0}<span class="text-blue-400"
-							>{batch.runningCount} running</span
-						>{/if}
-						{#if batch.cancellingCount > 0}<span class="text-cyan-400"
-							>{batch.cancellingCount} {STATE_LABELS.cancelling.toLowerCase()}</span
-						>{/if}
-						{#if batch.pendingCount > 0}<span class="text-yellow-400"
-							>{batch.pendingCount} {STATE_LABELS.pending.toLowerCase()}</span
-						>{/if}
-						{#if batch.queuedCount > 0}<span class="text-violet-400"
-							>{batch.queuedCount} {STATE_LABELS.queued.toLowerCase()}</span
-						>{/if}
-						{#if batch.failedCount > 0}<span class="text-red-400"
-							>{batch.failedCount} failed</span
-						>{/if}
-						{#if batch.cancelledCount > 0}<span class="text-gray-400"
-							>{batch.cancelledCount} cancelled</span
-						>{/if}
-						{#if batch.reconciliationRequiredCount > 0}<span class="text-orange-400"
-							>{batch.reconciliationRequiredCount} to review</span
-						>{/if}
-					</div>
-					<div class="flex items-center gap-2.5 text-xs text-gray-500">
-						<span class="inline-flex items-center gap-1"
-							><Octicon name="clock" size={12} />Started {timeAgo(batch.startedAt)}</span
-						>
-						<span class="text-machine hidden text-gray-600 sm:inline"
-							>{batch.id.slice(0, 8)}</span
-						>
 					</div>
 				</div>
 			</div>
-		</a>
+		</div>
 	{/snippet}
 
 	{#if searching}
@@ -572,10 +428,10 @@
 		{#if batchesResult.total > 0}
 			<section>
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-					<Octicon name="stack" size={16} />Matching batches
+					<Octicon name="list-unordered" size={16} />Matching batches
 					<span class="text-sm font-normal text-gray-500">({batchesResult.total})</span>
 				</h2>
-				<div class="space-y-2">
+				<div class="overflow-hidden rounded-md border border-gray-700">
 					{#each batchesResult.data as batch (batch.id)}{@render batchCard(batch)}{/each}
 				</div>
 				<Pagination
@@ -594,9 +450,9 @@
 					<Octicon name="repo" size={16} />Repositories
 					<span class="text-sm font-normal text-gray-500">({migrationsResult.total})</span>
 				</h2>
-				<div class="space-y-3">
+				<div class="overflow-hidden rounded-md border border-gray-700">
 					{#each migrationsResult.data as migration (migration.id)}
-						<MigrationCard {migration} live={liveById.get(migration.id)} {now} />
+						<MigrationCard {migration} live={liveById.get(migration.id)} {now} grouped />
 					{/each}
 				</div>
 				<Pagination
@@ -612,9 +468,9 @@
 		{#if batchesResult.data.length > 0}
 			<section id="batches" class="scroll-mt-6">
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-					<Octicon name="stack" size={16} />Batches
+					<Octicon name="list-unordered" size={16} />Batches
 				</h2>
-				<div class="space-y-2">
+				<div class="overflow-hidden rounded-md border border-gray-700">
 					{#each batchesResult.data as batch (batch.id)}{@render batchCard(batch)}{/each}
 				</div>
 				<Pagination
@@ -630,24 +486,24 @@
 		{#if active.length > 0}
 			<section id="active" class="scroll-mt-6">
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-					<Octicon name="play" size={16} class="text-green-400" />Active
+					<Octicon name="pulse" size={16} class="text-green-400" />Active
 				</h2>
-				<div class="space-y-3">
+				<div class="overflow-hidden rounded-md border border-gray-700">
 					{#each active as migration (migration.id)}
-						<MigrationCard {migration} live={liveById.get(migration.id)} {now} />
+						<MigrationCard {migration} live={liveById.get(migration.id)} {now} grouped />
 					{/each}
 				</div>
 			</section>
 		{/if}
 
-		{#if completed.length > 0}
-			<section id="completed" class="scroll-mt-6">
+		{#if finished.length > 0}
+			<section id="finished" class="scroll-mt-6">
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-					<Octicon name="check-circle" size={16} class="text-gray-400" />Completed
+					<Octicon name="check-circle-fill" size={16} class="text-green-400" />Finished
 				</h2>
-				<div class="space-y-3">
-					{#each completed as migration (migration.id)}
-						<MigrationCard {migration} />
+				<div class="overflow-hidden rounded-md border border-gray-700">
+					{#each finished as migration (migration.id)}
+						<MigrationCard {migration} grouped />
 					{/each}
 				</div>
 			</section>
