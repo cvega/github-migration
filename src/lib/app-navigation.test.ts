@@ -33,11 +33,12 @@ describe("application navigation", () => {
     ]);
   });
 
-  test("hides Setup after completion outside the setup route", () => {
+  test("keeps Setup discoverable after completion", () => {
     expect(visibleAppTabs("/migrate", true).map((tab) => tab.id)).toEqual([
       "profile",
       "migrations",
       "statistics",
+      "setup",
     ]);
   });
 

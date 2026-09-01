@@ -101,7 +101,7 @@
 							? 'border-transparent text-yellow-300 hover:bg-yellow-500/10 hover:text-yellow-200'
 							: 'border-transparent text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'}"
 				>
-					<Octicon name={tab.icon} size={16} class="hidden sm:inline-block" />
+					<span class="hidden sm:inline-flex"><Octicon name={tab.icon} size={16} /></span>
 					{tab.label}
 					{#if count !== null}
 						<span class="min-w-5 rounded-full bg-gray-800 px-1.5 py-0.5 text-center text-xs font-medium leading-4 tabular-nums text-gray-300">

@@ -102,14 +102,6 @@
 	const directionTotal = $derived(
 		stats.directions.reduce((total, direction) => total + direction.total, 0),
 	);
-	const directionStyles = [
-		{ color: 'var(--data-blue-color-emphasis)', accent: 'border-blue-500/20 bg-blue-500/5 text-blue-400' },
-		{ color: 'var(--data-purple-color-emphasis)', accent: 'border-purple-500/20 bg-purple-500/5 text-purple-400' },
-		{ color: 'var(--data-orange-color-emphasis)', accent: 'border-orange-500/20 bg-orange-500/5 text-orange-400' },
-		{ color: 'var(--data-teal-color-emphasis)', accent: 'border-teal-500/20 bg-teal-500/5 text-teal-400' },
-		{ color: 'var(--data-yellow-color-emphasis)', accent: 'border-yellow-500/20 bg-yellow-500/5 text-yellow-400' },
-	] as const;
-
 	function directionSource(direction: MigrationDirectionStats) {
 		if (direction.sourceProvider === 'github') {
 			return getTargetPlatformPresentation(direction.githubSourcePlatform ?? 'ghes');
@@ -118,10 +110,9 @@
 	}
 
 	const directions = $derived(
-		stats.directions.map((direction, index) => {
+		stats.directions.map((direction) => {
 			const source = directionSource(direction);
 			const target = getTargetPlatformPresentation(direction.targetPlatform);
-			const style = directionStyles[index % directionStyles.length] ?? directionStyles[0];
 			return {
 				key: `${direction.sourceProvider}:${direction.githubSourcePlatform ?? 'native'}:${direction.targetPlatform}`,
 				label: `${source.label} → ${target.label}`,
@@ -129,7 +120,6 @@
 				targetLabel: target.label,
 				sourceIcon: source.icon,
 				targetIcon: target.icon,
-				...style,
 				total: direction.total,
 				success: direction,
 			};
@@ -139,7 +129,10 @@
 		stats.topOrgs.slice(0, Math.min(stats.topOrgs.length, Math.max(3, directions.length))),
 	);
 
-	const maxDay = $derived(Math.max(1, ...stats.throughput.map((day) => day.succeeded + day.failed)));
+	const chartDays = $derived(stats.throughput.slice(-30));
+	const maxChartDay = $derived(Math.max(1, ...chartDays.map((day) => day.succeeded + day.failed)));
+	const middleChartValue = $derived(Math.ceil(maxChartDay / 2));
+	const recentDailyAverage = $derived(Math.round((stats.recentWindow.completed / 7) * 10) / 10);
 
 	function fmtNum(value: number): string {
 		return value.toLocaleString();
@@ -168,28 +161,30 @@
 					timeZone: 'UTC',
 				});
 	}
-	function signedPct(value: number): string {
-		return `${value > 0 ? '+' : ''}${value}%`;
+	function daySuccessRate(succeeded: number, failed: number): string {
+		const total = succeeded + failed;
+		return total > 0 ? `${Math.round((succeeded / total) * 1000) / 10}%` : 'No completions';
 	}
 	function sizeBandLabel(band: RepositorySizeBand): string {
 		return REPOSITORY_SIZE_BANDS.find((definition) => definition.band === band)?.label ?? band;
 	}
 </script>
 
-<div class="space-y-6">
-	<div class="flex items-center gap-3">
-		<Octicon name="graph" size={24} class="text-gray-400" />
-		<h1 class="text-2xl font-bold text-gray-50">Migration Statistics</h1>
-		<span
-			class="ml-1 shrink-0 whitespace-nowrap rounded-full bg-gray-500/15 px-2.5 py-0.5 text-xs font-medium tabular-nums text-gray-400"
-		>
-			{fmtNum(stats.total)} {hasActiveFilters ? 'matching' : 'total'}
-		</span>
+<div class="space-y-7">
+	<div class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-700 pb-4">
+		<div>
+			<h1 class="text-xl font-semibold text-gray-50">Migration statistics</h1>
+			<p class="mt-1 text-sm text-gray-500">Outcomes, throughput, and performance across migration history</p>
+		</div>
+		<div class="flex items-baseline gap-2 tabular-nums">
+			<span class="text-2xl font-semibold text-gray-100">{fmtNum(stats.total)}</span>
+			<span class="text-sm text-gray-500">{hasActiveFilters ? 'matching migrations' : 'total migrations'}</span>
+		</div>
 	</div>
 
 	<form
 		method="GET"
-		class="flex flex-wrap items-end gap-3 rounded-md border border-gray-700 bg-gray-900 p-4"
+		class="flex flex-wrap items-end gap-3"
 		aria-label="Statistics filters"
 	>
 		<FilterMenu
@@ -212,7 +207,7 @@
 			minWidth="12.625rem"
 		/>
 
-		<fieldset class="min-w-56 flex-1 sm:flex-none">
+		<fieldset class="min-w-64 flex-1 sm:flex-none">
 			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
 				<span class="inline-flex items-center gap-1.5"
 					><Octicon name="calendar" size={12} />Started</span
@@ -221,7 +216,7 @@
 			<div class="stats-segmented flex h-8 rounded-md">
 				{#each periodOptions as option (option.value)}
 					<label
-						class="stats-segment relative flex min-w-16 flex-1 cursor-pointer items-center justify-center px-3 text-xs"
+						class="stats-segment relative flex flex-1 cursor-pointer items-center justify-center px-3 text-xs"
 					>
 						<input
 							class="sr-only"
@@ -296,55 +291,123 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="check-circle" size={12} />Success rate</div>
-				<div class="mt-1 text-2xl font-bold text-green-400">{stats.successRate}%</div>
-				<div class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.succeeded)} succeeded · {fmtNum(stats.byState.failed)} failed · {stats.cancellationRate}% cancelled</div>
+		<dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-5">
+			<div class="bg-gray-950 px-4 py-4">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="check-circle" size={12} />Success rate</dt>
+				<dd class="mt-1 text-2xl font-semibold tabular-nums text-green-400">{stats.successRate}%</dd>
+				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.succeeded)} succeeded · {fmtNum(stats.byState.failed)} failed</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stopwatch" size={12} />Avg duration</div>
-				<div class="mt-1 text-2xl font-bold text-gray-50">{formatElapsed(stats.duration.avgSeconds)}</div>
-				<div class="mt-0.5 text-xs text-gray-500">
-					{formatElapsed(stats.duration.medianSeconds)} median · {formatElapsed(stats.duration.p95Seconds)} p95 ·
+			<div class="bg-gray-950 px-4 py-4">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stopwatch" size={12} />Duration</dt>
+				<dd class="mt-1 flex items-baseline gap-1.5 text-2xl font-semibold tabular-nums text-gray-50">
+					{formatElapsed(stats.duration.medianSeconds)} <span class="text-sm font-normal text-gray-400">median</span>
+				</dd>
+				<p class="mt-0.5 text-xs text-gray-500">
+					{formatElapsed(stats.duration.p95Seconds)} p95 ·
 					{#if stats.duration.timedCount === stats.duration.eligibleCount}
 						{fmtNum(stats.duration.timedCount)} migrations
 					{:else}
 						{fmtNum(stats.duration.timedCount)} of {fmtNum(stats.duration.eligibleCount)} with duration
 					{/if}
-				</div>
+				</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Data migrated</div>
-				<div class="mt-1 text-2xl font-bold text-gray-50">{formatRepoSize(stats.data.totalKb)}</div>
-				<div class="mt-0.5 text-xs text-gray-500">{formatRepoSize(stats.data.avgKb)} avg / repo</div>
+			<div class="bg-gray-950 px-4 py-4">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Data migrated</dt>
+				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{formatRepoSize(stats.data.totalKb)}</dd>
+				<p class="mt-0.5 text-xs text-gray-500">{formatRepoSize(stats.data.avgKb)} average per repository</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="sync" size={12} />In progress</div>
-				<div class="mt-1 text-2xl font-bold text-gray-50">{fmtNum(stats.active)}</div>
-				<div class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.running)} running</div>
+			<div class="bg-gray-950 px-4 py-4">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="sync" size={12} />In progress</dt>
+				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.active)}</dd>
+				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.running)} currently running</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stack" size={12} />Batches</div>
-				<div class="mt-1 text-2xl font-bold text-gray-50">{fmtNum(stats.batches)}</div>
-				<div class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.failed)} failed migrations</div>
+			<div class="col-span-2 bg-gray-950 px-4 py-4 sm:col-span-1">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stack" size={12} />Batches</dt>
+				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.batches)}</dd>
+				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.failed)} failed migrations</p>
 			</div>
-		</div>
+		</dl>
 
-		<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-			<div class="flex flex-wrap items-end justify-between gap-2 px-5 py-4">
+		{#if stats.throughput.length > 0}
+			{@const firstDay = chartDays[0]}
+			{@const middleDay = chartDays[Math.floor((chartDays.length - 1) / 2)]}
+			{@const lastDay = chartDays[chartDays.length - 1]}
+			<section class="border-y border-gray-700 py-5">
+				<div class="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<h2 class="text-sm font-semibold text-gray-200">Completions over time</h2>
+						<p class="mt-1 text-xs text-gray-500">{firstDay ? shortDate(firstDay.date) : ''}–{lastDay ? shortDate(lastDay.date) : ''} · daily outcomes</p>
+					</div>
+					<div class="inline-flex items-center gap-3 text-xs text-gray-500">
+							<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-green-500"></span>Succeeded</span>
+							<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-red-500"></span>Failed</span>
+					</div>
+				</div>
+				<dl class="my-4 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-gray-700/70 py-3 text-xs sm:grid-cols-4">
+					<div><dt class="text-gray-500">Last 7 days</dt><dd class="mt-0.5 font-semibold tabular-nums text-gray-200">{fmtNum(stats.recentWindow.completed)} completed</dd></div>
+					<div><dt class="text-gray-500">Previous 7 days</dt><dd class="mt-0.5 font-semibold tabular-nums text-gray-200">{fmtNum(stats.recentWindow.previousCompleted)} completed</dd></div>
+					<div><dt class="text-gray-500">Success rate</dt><dd class="mt-0.5 font-semibold tabular-nums text-green-400">{stats.recentWindow.successRate}% <span class="font-normal text-gray-500">· {fmtNum(stats.recentWindow.failed)} failed</span></dd></div>
+					<div><dt class="text-gray-500">Daily average</dt><dd class="mt-0.5 font-semibold tabular-nums text-gray-200">{fmtNum(recentDailyAverage)} completed</dd></div>
+				</dl>
+				<div class="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-2">
+					<div class="flex h-40 flex-col justify-between pb-px text-right text-xs tabular-nums text-gray-600" aria-hidden="true">
+						<span>{fmtNum(maxChartDay)}</span>
+						<span>{fmtNum(middleChartValue)}</span>
+						<span>0</span>
+					</div>
+					<div class="relative h-40 min-w-0">
+						<div class="pointer-events-none absolute inset-y-0 right-0 border-l border-dashed border-gray-500 bg-blue-500/5" style:width={`${(Math.min(7, chartDays.length) / chartDays.length) * 100}%`} aria-hidden="true">
+							<span class="absolute top-1 right-1 text-xs text-gray-500">Latest 7 days</span>
+						</div>
+						<div class="pointer-events-none absolute inset-0 flex flex-col justify-between" aria-hidden="true">
+							<span class="border-t border-gray-700/70"></span>
+							<span class="border-t border-dashed border-gray-700/70"></span>
+							<span class="border-t border-gray-700"></span>
+						</div>
+						<div class="absolute inset-0 flex items-end gap-1 overflow-x-auto">
+					{#each chartDays as day, index (day.date)}
+						<button type="button" class="group relative flex h-full min-w-2 flex-1 flex-col justify-end outline-none focus-visible:ring-2 focus-visible:ring-blue-400" aria-label="{shortDate(day.date)}: {fmtNum(day.succeeded)} succeeded, {fmtNum(day.failed)} failed, {daySuccessRate(day.succeeded, day.failed)} success rate">
+							<span class="pointer-events-none absolute top-1 z-10 hidden w-max max-w-48 rounded-md border border-gray-600 bg-gray-800 px-2.5 py-2 text-left text-xs text-gray-300 shadow-lg group-hover:block group-focus:block {index < 4 ? 'left-0' : index >= chartDays.length - 4 ? 'right-0' : 'left-1/2 -translate-x-1/2'}">
+								<strong class="block font-medium text-gray-100">{shortDate(day.date)}</strong>
+								<span class="mt-1 block font-medium text-gray-200">{fmtNum(day.succeeded + day.failed)} completed · {daySuccessRate(day.succeeded, day.failed)}</span>
+								<span class="block">{fmtNum(day.succeeded)} succeeded</span>
+								<span class="block">{fmtNum(day.failed)} failed</span>
+							</span>
+							<div class="flex h-full w-full flex-col-reverse justify-start pt-2">
+								{#if day.succeeded > 0}
+									<div style:height={`${(day.succeeded / maxChartDay) * 100}%`} class="min-h-px rounded-b-sm bg-green-500"></div>
+								{/if}
+								{#if day.failed > 0}
+									<div style:height={`${(day.failed / maxChartDay) * 100}%`} class="min-h-px rounded-t-sm bg-red-500"></div>
+								{/if}
+							</div>
+						</button>
+					{/each}
+						</div>
+					</div>
+				</div>
+				<div class="mt-2 ml-13 grid grid-cols-3 text-xs text-gray-500">
+					<span>{firstDay ? shortDate(firstDay.date) : ''}</span>
+					<span class="text-center">{middleDay ? shortDate(middleDay.date) : ''}</span>
+					<span class="text-right">{lastDay ? shortDate(lastDay.date) : ''}</span>
+				</div>
+			</section>
+		{/if}
+
+		<section class="border-y border-gray-700">
+			<div class="flex flex-wrap items-end justify-between gap-2 py-4">
 				<div>
-					<h2 class="text-sm font-medium text-gray-300">Status Distribution</h2>
+					<h2 class="text-sm font-semibold text-gray-200">Migration outcomes</h2>
 					<p class="mt-1 text-xs text-gray-500">Current state across matching migrations</p>
 				</div>
 				<div class="text-right">
-					<div class="text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.total)}</div>
-					<div class="text-xs font-semibold uppercase text-gray-500">Total migrations</div>
+					<div class="text-lg font-semibold tabular-nums text-gray-100">{fmtNum(stats.total)}</div>
+					<div class="text-xs text-gray-500">total migrations</div>
 				</div>
 			</div>
 			<div class="status-grid grid grid-cols-2 border-t border-gray-700" style:--status-columns={stateSegments.length}>
 				{#each stateSegments as seg, index (seg.state)}
-					<div class="border-b border-r border-gray-700/70 px-4 py-4 last:border-r-0 lg:border-b-0 {stateSegments.length % 2 === 1 && index === stateSegments.length - 1 ? 'col-span-2 lg:col-span-1' : ''}">
+					<div class="border-b border-r border-gray-700/70 px-3 py-3 last:border-r-0 lg:border-b-0 {stateSegments.length % 2 === 1 && index === stateSegments.length - 1 ? 'col-span-2 lg:col-span-1' : ''}">
 						<div class="flex items-center gap-1.5 text-xs font-medium {seg.text}">
 							{#if seg.live}
 								<span class="relative flex h-2 w-2" aria-hidden="true">
@@ -356,122 +419,125 @@
 							{/if}
 							{seg.label}
 						</div>
-						<div class="mt-2 flex items-baseline gap-2">
-							<span class="text-xl font-semibold tabular-nums text-gray-50">{fmtNum(seg.count)}</span>
+						<div class="mt-1.5 flex items-baseline gap-2">
+							<span class="text-lg font-semibold tabular-nums text-gray-50">{fmtNum(seg.count)}</span>
 							<span class="text-xs tabular-nums text-gray-500">{seg.pct < 0.1 ? '<0.1' : seg.pct.toFixed(1)}%</span>
 						</div>
 					</div>
 				{/each}
 			</div>
-		</div>
+		</section>
 
-		<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
-			<div class="mb-3 flex flex-wrap items-start justify-between gap-2">
-				<h2 class="text-sm font-medium text-gray-300">Resources Migrated</h2>
-				<span class="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
+		<section>
+			<div class="mb-3 flex flex-wrap items-end justify-between gap-2">
+				<div>
+					<h2 class="text-sm font-semibold text-gray-200">Resources migrated</h2>
+					<p class="mt-1 text-xs text-gray-500">Repository contents moved successfully</p>
+				</div>
+				<span class="text-xs text-gray-500">
 					{fmtNum(stats.resources.migrationCount)} migrations with final counts
 				</span>
 			</div>
-			<div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+			<dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-6">
 				{#each resourceCards as resource (resource.label)}
-					<div class="flex flex-col items-center rounded-md bg-gray-800/40 p-3 text-center">
-						<Octicon name={resource.icon} size={16} class="text-gray-500" />
-						<div class="mt-1.5 text-lg font-semibold text-gray-50">{fmtNum(resource.value)}</div>
-						<div class="text-xs text-gray-500">{resource.label}</div>
+					<div class="bg-gray-950 px-3 py-3">
+						<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name={resource.icon} size={12} />{resource.label}</dt>
+						<dd class="mt-1 text-base font-semibold tabular-nums text-gray-100">{fmtNum(resource.value)}</dd>
 					</div>
 				{/each}
-			</div>
-		</div>
+			</dl>
+		</section>
 
-		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="zap" size={12} />Fastest</div>
+		<section>
+			<h2 class="mb-3 text-sm font-semibold text-gray-200">Highlights</h2>
+			<dl class="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-2 lg:grid-cols-4">
+			<div class="bg-gray-950 px-4 py-3">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="zap" size={12} />Fastest</dt>
 				{#if stats.records.fastest}
-					<div class="mt-1 text-lg font-semibold text-green-400">{formatElapsed(stats.records.fastest.seconds)}</div>
-					<div class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.fastest.repo}>{stats.records.fastest.repo}</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatElapsed(stats.records.fastest.seconds)}</dd>
+					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.fastest.repo}>{stats.records.fastest.repo}</p>
 				{:else}
-					<div class="mt-1 text-lg font-semibold text-gray-500">—</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-500">—</dd>
 				{/if}
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="hourglass" size={12} />Slowest</div>
+			<div class="bg-gray-950 px-4 py-3">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="hourglass" size={12} />Slowest</dt>
 				{#if stats.records.slowest}
-					<div class="mt-1 text-lg font-semibold text-yellow-400">{formatElapsed(stats.records.slowest.seconds)}</div>
-					<div class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.slowest.repo}>{stats.records.slowest.repo}</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatElapsed(stats.records.slowest.seconds)}</dd>
+					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.slowest.repo}>{stats.records.slowest.repo}</p>
 				{:else}
-					<div class="mt-1 text-lg font-semibold text-gray-500">—</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-500">—</dd>
 				{/if}
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Largest repo</div>
+			<div class="bg-gray-950 px-4 py-3">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Largest repository</dt>
 				{#if stats.data.largestRepo}
-					<div class="mt-1 text-lg font-semibold text-gray-50">{formatRepoSize(stats.data.largestKb)}</div>
-					<div class="mt-0.5 truncate text-xs text-gray-500" title={stats.data.largestRepo}>{stats.data.largestRepo}</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatRepoSize(stats.data.largestKb)}</dd>
+					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.data.largestRepo}>{stats.data.largestRepo}</p>
 				{:else}
-					<div class="mt-1 text-lg font-semibold text-gray-500">—</div>
+					<dd class="mt-1 text-lg font-semibold text-gray-500">—</dd>
 				{/if}
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-4">
-				<div class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="alert" size={12} />Warnings</div>
-				<div class="mt-1 text-lg font-semibold text-gray-50">{fmtNum(stats.warnings.total)}</div>
-				<div class="mt-0.5 text-xs text-gray-500">across {fmtNum(stats.warnings.withWarnings)} migrations</div>
+			<div class="bg-gray-950 px-4 py-3">
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="alert" size={12} />Warnings</dt>
+				<dd class="mt-1 text-lg font-semibold text-gray-100">{fmtNum(stats.warnings.total)}</dd>
+				<p class="mt-0.5 text-xs text-gray-500">across {fmtNum(stats.warnings.withWarnings)} migrations</p>
 			</div>
-		</div>
+			</dl>
+		</section>
 
 		<div class="grid gap-6 lg:grid-cols-2">
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
-				<h2 class="mb-3 flex items-center gap-2 text-sm font-medium text-gray-300">
-					<Octicon name="arrow-switch" size={16} class="text-gray-500" />Migration Direction
+			<section>
+				<h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-200">
+					<Octicon name="arrow-switch" size={16} class="text-gray-500" />Migration direction
 				</h2>
 				{#if directionTotal > 0}
-					<div class="grid gap-3 {directions.length > 1 ? 'min-[480px]:grid-cols-2' : ''}">
+					<ul class="divide-y divide-gray-700 border-y border-gray-700">
 						{#each directions as direction (direction.key)}
-							<div class="rounded-md border p-3 {direction.accent}">
-								<div class="flex items-start justify-between gap-2">
-									<div class="inline-flex min-w-0 items-center gap-1 text-sm font-medium" title={direction.label}>
-										<Octicon name={direction.sourceIcon} size={16} class="shrink-0" />
+							<li class="flex items-center justify-between gap-4 py-3">
+								<div class="min-w-0">
+									<div class="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-gray-200" title={direction.label}>
+										<Octicon name={direction.sourceIcon} size={16} class="shrink-0 text-gray-500" />
 										<span class="truncate">{direction.sourceLabel}</span>
-										<Octicon name="arrow-right" size={12} class="shrink-0 opacity-60" />
-										<Octicon name={direction.targetIcon} size={16} class="shrink-0" />
+										<Octicon name="arrow-right" size={12} class="shrink-0 text-gray-600" />
+										<Octicon name={direction.targetIcon} size={16} class="shrink-0 text-gray-500" />
 										<span class="shrink-0">{direction.targetLabel}</span>
 									</div>
-									<span class="shrink-0 text-xs font-semibold tabular-nums text-gray-300">{Math.round((direction.total / directionTotal) * 100)}%</span>
+									<p class="mt-1 text-xs text-gray-500">{fmtNum(direction.success.succeeded)} succeeded of {fmtNum(direction.total)} total</p>
 								</div>
-								<div class="mt-2 space-y-1 text-xs">
-									<div class="flex justify-between text-gray-400"><span>Total</span><span class="font-medium text-gray-200">{fmtNum(direction.total)}</span></div>
-									<div class="flex justify-between text-gray-400"><span>Finished</span><span class="font-medium text-gray-200">{fmtNum(direction.success.finished)}</span></div>
-									<div class="flex justify-between text-gray-400"><span>Succeeded</span><span class="font-medium text-green-400">{fmtNum(direction.success.succeeded)}</span></div>
-									<div class="flex justify-between text-gray-400"><span>Success rate</span><span class="font-medium text-gray-200">{direction.success.rate}%</span></div>
+								<div class="shrink-0 text-right tabular-nums">
+									<div class="text-sm font-semibold text-gray-100">{direction.success.rate}%</div>
+									<div class="mt-1 text-xs text-gray-500">{Math.round((direction.total / directionTotal) * 100)}% of volume</div>
 								</div>
-							</div>
+							</li>
 						{/each}
-					</div>
+					</ul>
 				{:else}
 					<p class="text-sm text-gray-500">No data.</p>
 				{/if}
-			</div>
+			</section>
 
-			<div class="flex min-h-0 flex-col overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="flex items-start justify-between gap-3 p-5">
+			<section class="flex min-h-0 flex-col">
+				<div class="mb-3 flex items-start justify-between gap-3">
 					<div>
-						<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300">
-							<Octicon name="organization" size={16} class="text-gray-500" />Top Source Organizations
+						<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200">
+							<Octicon name="organization" size={16} class="text-gray-500" />Top source organizations
 						</h2>
 						<p class="mt-1 text-xs text-gray-500">Repository volume by source owner</p>
 					</div>
-					<span class="shrink-0 text-xs font-semibold uppercase text-gray-500">Top {visibleTopOrgs.length}</span>
+					<span class="shrink-0 text-xs text-gray-500">Top {visibleTopOrgs.length}</span>
 				</div>
 				{#if stats.topOrgs.length > 0}
-					<ul class="flex flex-1 flex-col border-t border-gray-700">
+					<ul class="flex flex-1 flex-col border-y border-gray-700">
 						{#each visibleTopOrgs as org, index (org.org)}
-							<li class="flex min-h-14 flex-1 items-center gap-3 border-b border-gray-700/70 px-5 py-3 last:border-b-0">
+							<li class="flex min-h-14 flex-1 items-center gap-3 border-b border-gray-700/70 py-3 last:border-b-0">
 								<span class="w-5 shrink-0 text-xs font-semibold tabular-nums text-gray-600">{String(index + 1).padStart(2, '0')}</span>
-								<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-700 bg-gray-950/60 text-gray-400">
+								<span class="flex size-8 shrink-0 items-center justify-center text-gray-500">
 									<Octicon name="organization" size={16} />
 								</span>
 								<div class="min-w-0 flex-1">
-									<div class="truncate text-sm font-semibold text-gray-200" title={org.org}>{org.org}</div>
-									<div class="mt-0.5 text-xs font-semibold uppercase text-gray-500">Source owner</div>
+									<div class="truncate text-sm font-medium text-gray-200" title={org.org}>{org.org}</div>
+									<div class="mt-0.5 text-xs text-gray-500">Source owner</div>
 								</div>
 								<div class="shrink-0 text-right">
 									<div class="text-base font-semibold tabular-nums text-gray-50">{fmtNum(org.count)}</div>
@@ -483,19 +549,19 @@
 				{:else}
 					<p class="text-sm text-gray-500">No data.</p>
 				{/if}
-			</div>
+			</section>
 		</div>
 
-		<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-			<div class="flex flex-wrap items-start justify-between gap-2 p-5">
+		<section>
+			<div class="mb-3 flex flex-wrap items-start justify-between gap-2">
 				<div>
-					<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300">
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200">
 						<Octicon name="arrow-switch" size={16} class="text-gray-500" />Migration paths
 					</h2>
 					<p class="mt-1 text-xs text-gray-500">Success and duration by migration path</p>
 				</div>
 			</div>
-			<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
+			<div class="hidden overflow-x-auto border-y border-gray-700 md:block">
 				<table class="w-full border-collapse text-xs tabular-nums">
 					<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 						<tr>
@@ -533,7 +599,7 @@
 					</tbody>
 				</table>
 			</div>
-			<div class="divide-y divide-gray-700 md:hidden">
+			<div class="divide-y divide-gray-700 border-y border-gray-700 md:hidden">
 				{#each directions as direction (direction.key)}
 					<div class="space-y-3 p-4 text-xs tabular-nums">
 						<div class="font-medium text-gray-200">{direction.label}</div>
@@ -550,15 +616,15 @@
 					</div>
 				{/each}
 			</div>
-		</div>
+		</section>
 
 		<div class="space-y-6">
-			<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<h2 class="flex items-center gap-2 p-5 text-sm font-medium text-gray-300">
-					<Octicon name="alert" size={16} class="text-red-400" />Top Failure Reasons
+			<section>
+				<h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-200">
+					<Octicon name="alert" size={16} class="text-red-400" />Top failure reasons
 				</h2>
 				{#if stats.failuresByReason.length > 0}
-					<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
+					<div class="hidden overflow-x-auto border-y border-gray-700 md:block">
 						<table class="w-full border-collapse text-xs tabular-nums">
 							<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 								<tr>
@@ -584,7 +650,7 @@
 							</tbody>
 						</table>
 					</div>
-					<ul class="divide-y divide-gray-700 border-t border-gray-700 md:hidden">
+					<ul class="divide-y divide-gray-700 border-y border-gray-700 md:hidden">
 						{#each stats.failuresByReason.slice(0, 5) as failure (failure.reason)}
 							<li class="space-y-3 p-4">
 								<div class="text-machine truncate text-red-300" title={failure.reason}>{failure.reason}</div>
@@ -598,17 +664,17 @@
 						{/each}
 					</ul>
 				{:else}
-					<p class="inline-flex items-center gap-1.5 px-5 pb-5 text-sm text-green-400"><Octicon name="check-circle" size={12} />No failures recorded.</p>
+					<p class="inline-flex items-center gap-1.5 border-y border-gray-700 py-4 text-sm text-green-400"><Octicon name="check-circle" size={12} />No failures recorded.</p>
 				{/if}
-			</div>
+			</section>
 
-			<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="p-5">
-					<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300"><Octicon name="stack" size={16} class="text-gray-500" />Batch details</h2>
+			<section>
+				<div class="mb-3">
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="stack" size={16} class="text-gray-500" />Batch details</h2>
 					<p class="mt-1 text-xs text-gray-500">Batches needing attention, followed by recent completed batches</p>
 				</div>
 				{#if stats.batchStats.length > 0}
-					<div class="hidden overflow-x-auto border-t border-gray-700 md:block">
+					<div class="hidden overflow-x-auto border-y border-gray-700 md:block">
 						<table class="w-full border-collapse text-xs tabular-nums">
 							<thead class="bg-gray-950/40 text-xs uppercase text-gray-500">
 								<tr>
@@ -638,7 +704,7 @@
 							</tbody>
 						</table>
 					</div>
-					<div class="divide-y divide-gray-700 border-t border-gray-700 md:hidden">
+					<div class="divide-y divide-gray-700 border-y border-gray-700 md:hidden">
 						{#each stats.batchStats as batch (batch.id)}
 							<a href="/migrate/batches/{batch.id}" class="block space-y-3 p-4 hover:bg-gray-800/30">
 								<div class="flex items-center justify-between gap-3"><span class="truncate font-medium text-blue-400">{batch.id}</span>{#if batch.active}<span class="shrink-0 rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-400">Active</span>{/if}</div>
@@ -654,19 +720,19 @@
 						{/each}
 					</div>
 				{:else}
-					<p class="border-t border-gray-700 px-5 py-6 text-sm text-gray-500">No batches match these filters.</p>
+					<p class="border-y border-gray-700 py-4 text-sm text-gray-500">No batches match these filters.</p>
 				{/if}
-			</div>
+			</section>
 
-			<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="flex flex-wrap items-start justify-between gap-2 p-5">
+			<section>
+				<div class="mb-3 flex flex-wrap items-start justify-between gap-2">
 					<div>
-						<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300"><Octicon name="database" size={16} class="text-gray-500" />Performance by repository size</h2>
+						<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="database" size={16} class="text-gray-500" />Performance by repository size</h2>
 						<p class="mt-1 text-xs text-gray-500">Historical completion times, not an estimate</p>
 					</div>
-					{#if stats.sizeUnavailableCount > 0}<span class="rounded-full bg-gray-500/10 px-2 py-0.5 text-xs text-gray-400">{fmtNum(stats.sizeUnavailableCount)} without size data</span>{/if}
+					{#if stats.sizeUnavailableCount > 0}<span class="text-xs text-gray-500">{fmtNum(stats.sizeUnavailableCount)} without size data</span>{/if}
 				</div>
-				<div class="overflow-x-auto border-t border-gray-700">
+				<div class="overflow-x-auto border-y border-gray-700">
 					<table class="w-full min-w-160 border-collapse text-xs tabular-nums">
 						<thead class="bg-gray-950/40 text-xs uppercase text-gray-500"><tr><th class="px-5 py-2 text-left font-medium">Size</th><th class="px-3 py-2 text-right font-medium">Succeeded</th><th class="px-3 py-2 text-right font-medium">Failed</th><th class="px-3 py-2 text-right font-medium">Success</th><th class="px-3 py-2 text-right font-medium">Median</th><th class="px-3 py-2 text-right font-medium">P95</th><th class="px-5 py-2 text-right font-medium">Duration data</th></tr></thead>
 						<tbody class="divide-y divide-gray-700/70">
@@ -676,17 +742,17 @@
 						</tbody>
 					</table>
 				</div>
-			</div>
+			</section>
 
-			<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="p-5">
-					<h2 class="flex items-center gap-2 text-sm font-medium text-gray-300">
+			<section>
+				<div class="mb-3">
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200">
 						<Octicon name="pulse" size={16} class="text-gray-500" />Per-migration averages
 					</h2>
 					<p class="mt-1 text-xs text-gray-500">Typical timing and repository contents for these results</p>
 				</div>
 
-				<section class="border-t border-gray-700" aria-labelledby="timing-heading">
+				<section class="border-y border-gray-700" aria-labelledby="timing-heading">
 					<div class="flex items-center justify-between bg-gray-950/30 px-5 py-2">
 						<h3 id="timing-heading" class="text-xs font-semibold uppercase text-gray-500">Timing</h3>
 						<span class="text-xs text-gray-500">{fmtNum(stats.duration.timedCount)} migrations</span>
@@ -707,7 +773,7 @@
 					</dl>
 				</section>
 
-				<section class="border-t border-gray-700" aria-labelledby="contents-heading">
+				<section class="border-b border-gray-700" aria-labelledby="contents-heading">
 					<h3 id="contents-heading" class="bg-gray-950/30 px-5 py-2 text-xs font-semibold uppercase text-gray-500">Repository contents</h3>
 					<dl class="grid grid-cols-2 divide-x divide-y divide-gray-700 sm:grid-cols-4 sm:divide-y-0">
 						<div class="px-5 py-4">
@@ -732,64 +798,13 @@
 						</div>
 					</dl>
 				</section>
-			</div>
+			</section>
 		</div>
 
-		{#if stats.throughput.length > 0}
-			{@const firstDay = stats.throughput[0]}
-			{@const middleDay = stats.throughput[Math.floor((stats.throughput.length - 1) / 2)]}
-			{@const lastDay = stats.throughput[stats.throughput.length - 1]}
-			<div class="rounded-md border border-gray-700 bg-gray-900 p-5">
-				<div class="mb-4 flex flex-wrap items-start justify-between gap-3">
-					<div>
-						<h2 class="text-sm font-medium text-gray-300">Completions Over Time</h2>
-						{#if stats.recentWindow.endingOn}<p class="mt-0.5 text-xs text-gray-500">Latest 7 days ending {shortDate(stats.recentWindow.endingOn)}</p>{/if}
-					</div>
-					<div class="flex flex-wrap gap-2 text-xs">
-						<span class="inline-flex items-center gap-3 rounded-md bg-gray-800 px-2 py-1 text-gray-400">
-							<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-green-500"></span>Succeeded</span>
-							<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-sm bg-red-500"></span>Failed</span>
-						</span>
-						<span class="inline-flex items-center gap-1 rounded-md bg-gray-800 px-2 py-1 text-gray-300"><Octicon name="calendar" size={12} class="text-gray-500" />{fmtNum(stats.recentWindow.completed)} completed</span>
-						<span class="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-1 text-green-400"><Octicon name="check-circle" size={12} />{stats.recentWindow.successRate}% success</span>
-						{#if stats.recentWindow.volumeChangePct !== null}
-							<span class="rounded-md px-2 py-1 {stats.recentWindow.volumeChangePct >= 0 ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'}">{signedPct(stats.recentWindow.volumeChangePct)} vs prior 7 days</span>
-						{/if}
-					</div>
-				</div>
-				<div class="flex items-end gap-1 overflow-x-auto pb-1" style="height: 140px;">
-					{#each stats.throughput as day, index (day.date)}
-						<button type="button" class="group relative flex h-full min-w-3.5 flex-1 flex-col justify-end outline-none focus-visible:ring-2 focus-visible:ring-blue-400" aria-label="{shortDate(day.date)}: {fmtNum(day.succeeded)} succeeded, {fmtNum(day.failed)} failed">
-							<span class="pointer-events-none absolute top-0 z-10 hidden w-max max-w-44 rounded-md border border-gray-600 bg-gray-800 px-2 py-1.5 text-left text-xs text-gray-300 shadow-lg group-hover:block group-focus:block {index < 4 ? 'left-0' : index >= stats.throughput.length - 4 ? 'right-0' : 'left-1/2 -translate-x-1/2'}">
-								<strong class="block font-medium text-gray-100">{shortDate(day.date)}</strong>
-								<span class="block">{fmtNum(day.succeeded)} succeeded</span>
-								<span class="block">{fmtNum(day.failed)} failed</span>
-							</span>
-							<div class="flex flex-col-reverse">
-								{#if day.succeeded > 0}
-									<div style="height: {(day.succeeded / maxDay) * 110}px; background: var(--data-green-color-emphasis);" class="rounded-sm"></div>
-								{/if}
-								{#if day.failed > 0}
-									<div style="height: {(day.failed / maxDay) * 110}px; background: var(--data-red-color-emphasis);" class="rounded-sm"></div>
-								{/if}
-							</div>
-						</button>
-					{/each}
-				</div>
-				<div class="mt-3 grid grid-cols-3 text-xs text-gray-500">
-					<span>{firstDay ? shortDate(firstDay.date) : ''}</span>
-					<span class="text-center">{middleDay ? shortDate(middleDay.date) : ''}</span>
-					<span class="text-right">{lastDay ? shortDate(lastDay.date) : ''}</span>
-				</div>
-			</div>
-		{/if}
-
-		<div class="flex justify-center">
-			<a href="/migrate" class="group inline-flex h-9 items-center gap-2 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 shadow-sm transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950">
-				<span class="text-gray-500 transition-transform group-hover:-translate-x-0.5 group-hover:text-gray-300">
-					<Octicon name="chevron-left" size={16} />
-				</span>
-				Back to Dashboard
+		<div>
+			<a href="/migrate" class="inline-flex items-center gap-1 text-sm font-medium text-blue-400 hover:text-blue-300 hover:underline focus-visible:outline-2 focus-visible:outline-blue-500">
+				<Octicon name="chevron-left" size={16} />
+				Back to migrations
 			</a>
 		</div>
 	{/if}

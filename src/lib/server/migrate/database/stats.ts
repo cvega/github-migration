@@ -369,11 +369,34 @@ export function getMigrationStats(
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
   const attentionBatches = batchStats.filter((batch) => batch.needsAttention).slice(0, 5);
   const recentCompletedBatches = batchStats.filter((batch) => !batch.needsAttention).slice(0, 5);
-  const throughput = [...throughputByDate]
+  const observedThroughput = [...throughputByDate]
     .map(([date, counts]) => ({ date, ...counts }))
-    .sort((left, right) => right.date.localeCompare(left.date))
-    .slice(0, 366)
-    .reverse();
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const latestObservedDate = observedThroughput.at(-1)?.date ?? null;
+  const earliestObservedDate = observedThroughput[0]?.date ?? null;
+  const latestObservedTimestamp = latestObservedDate
+    ? Date.parse(`${latestObservedDate}T00:00:00Z`)
+    : Number.NaN;
+  const earliestObservedTimestamp = earliestObservedDate
+    ? Date.parse(`${earliestObservedDate}T00:00:00Z`)
+    : Number.NaN;
+  const firstThroughputTimestamp = Math.max(
+    earliestObservedTimestamp,
+    latestObservedTimestamp - 365 * DAY_MS,
+  );
+  const throughput = Number.isFinite(firstThroughputTimestamp)
+    ? Array.from(
+        {
+          length: Math.round((latestObservedTimestamp - firstThroughputTimestamp) / DAY_MS) + 1,
+        },
+        (_, index) => {
+          const date = new Date(firstThroughputTimestamp + index * DAY_MS)
+            .toISOString()
+            .slice(0, 10);
+          return { date, ...(throughputByDate.get(date) ?? { succeeded: 0, failed: 0 }) };
+        },
+      )
+    : [];
 
   const latestDate = throughput.at(-1)?.date ?? null;
   const latestTimestamp = latestDate ? Date.parse(`${latestDate}T00:00:00Z`) : Number.NaN;

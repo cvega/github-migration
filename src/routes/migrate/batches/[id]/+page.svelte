@@ -276,10 +276,10 @@
 			{#if restartableCount > 0 || isActive}
 				<div class="flex shrink-0 flex-wrap items-center gap-2">
 					{#if restartableCount > 0 && data.canRestart}
-						<button type="button" onclick={openRestartForm} class="flex items-center justify-center gap-1.5 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20"><Octicon name="sync" size={12} />{restartLabel}</button>
+						<button type="button" onclick={openRestartForm} class="batch-action batch-action-default"><Octicon name="sync" size={16} />{restartLabel}</button>
 					{/if}
 					{#if isActive}
-						<button type="button" onclick={openCancelDialog} class="flex items-center justify-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"><Octicon name="x-circle" size={12} />Cancel All</button>
+						<button type="button" onclick={openCancelDialog} class="batch-action batch-action-danger"><Octicon name="x-circle" size={16} />Cancel all</button>
 					{/if}
 				</div>
 			{/if}
@@ -362,3 +362,57 @@
 		</p>
 	{/snippet}
 </ConfirmDialog>
+
+<style>
+	.batch-action {
+		display: inline-flex;
+		height: 2rem;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		padding-inline: 0.75rem;
+		border: 1px solid;
+		border-radius: 0.375rem;
+		box-shadow: var(--button-default-shadow-resting);
+		font-size: 0.875rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.batch-action:focus-visible {
+		outline: 2px solid var(--fgColor-accent);
+		outline-offset: 2px;
+	}
+
+	.batch-action-default {
+		border-color: var(--button-default-borderColor-rest);
+		background: var(--button-default-bgColor-rest);
+		color: var(--button-default-fgColor-rest);
+	}
+
+	.batch-action-default:hover {
+		background: var(--button-default-bgColor-hover);
+	}
+
+	.batch-action-default:active {
+		background: var(--button-default-bgColor-active);
+	}
+
+	.batch-action-danger {
+		border-color: var(--button-danger-borderColor-rest);
+		background: var(--button-danger-bgColor-rest);
+		color: var(--button-danger-fgColor-rest);
+	}
+
+	.batch-action-danger:hover {
+		border-color: var(--button-danger-borderColor-hover);
+		background: var(--button-danger-bgColor-hover);
+		color: var(--button-danger-fgColor-hover);
+	}
+
+	.batch-action-danger:active {
+		border-color: var(--button-danger-borderColor-active);
+		background: var(--button-danger-bgColor-active);
+		color: var(--button-danger-fgColor-active);
+	}
+</style>

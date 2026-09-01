@@ -152,4 +152,25 @@ describe("migration statistics", () => {
       ).total,
     ).toBe(1);
   });
+
+  test("fills calendar gaps in daily throughput", () => {
+    insertMigration(migration("first"));
+    updateMigrationState("first", "succeeded", {
+      completedAt: "2026-08-15T13:00:00.000Z",
+      elapsedSeconds: 10,
+      targetCounts: resources,
+    });
+    insertMigration(migration("third"));
+    updateMigrationState("third", "failed", {
+      completedAt: "2026-08-17T13:00:00.000Z",
+      elapsedSeconds: 20,
+      failureReason: "archive failed",
+    });
+
+    expect(getMigrationStats().throughput).toEqual([
+      { date: "2026-08-15", succeeded: 1, failed: 0 },
+      { date: "2026-08-16", succeeded: 0, failed: 0 },
+      { date: "2026-08-17", succeeded: 0, failed: 1 },
+    ]);
+  });
 });

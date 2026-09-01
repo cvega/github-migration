@@ -28,7 +28,6 @@ export function activeAppTab(pathname: string): AppTabId | null {
   return null;
 }
 
-export function visibleAppTabs(pathname: string, setupComplete: boolean): readonly AppTab[] {
-  const showSetup = !setupComplete || matchesPath(pathname, "/setup");
-  return showSetup ? APP_TABS : APP_TABS.filter((tab) => tab.id !== "setup");
+export function visibleAppTabs(_pathname: string, _setupComplete: boolean): readonly AppTab[] {
+  return APP_TABS;
 }

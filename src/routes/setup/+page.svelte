@@ -12,55 +12,33 @@
 
 <svelte:head><title>Setup - GitHub Migration Toolkit</title></svelte:head>
 
-<div class="mx-auto max-w-6xl space-y-6">
-	<header class="flex flex-wrap items-start justify-between gap-4">
+<div class="mx-auto max-w-5xl space-y-8">
+	<header class="flex flex-wrap items-end justify-between gap-4 border-b border-gray-700 pb-5">
 		<div>
-			<div class="mb-2 flex items-center gap-2 text-sm font-medium text-blue-400">
-				<Octicon name="gear" size={16} />First-time setup
-			</div>
-			<h1 class="text-2xl font-semibold text-gray-50">Prepare profiling and migration</h1>
-			<p class="mt-2 max-w-2xl text-sm text-gray-400">
+			<h1 class="text-xl font-semibold text-gray-50">Setup</h1>
+			<p class="mt-1 max-w-2xl text-sm text-gray-400">
 				Profile and migrate repositories from GitHub, GitLab, or Bitbucket Server/Data Center
 				to configured GitHub targets.
 			</p>
 		</div>
-		<div class="flex flex-col items-end gap-2">
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
 			<span
-				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium {setup.profileReady
-					? 'bg-green-500/15 text-green-300'
-					: 'bg-yellow-500/15 text-yellow-300'}"
+				class="inline-flex items-center gap-1.5 {setup.profileReady ? 'text-green-400' : 'text-yellow-400'}"
 			>
 				<Octicon name={setup.profileReady ? "check-circle-fill" : "alert"} size={16} />
-				{setup.profileReady ? "Source ready to profile" : "Source setup required"}
+				{setup.profileReady ? "Sources ready" : "Source setup required"}
 			</span>
 			<span
-				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium {setup.automationReady
-					? 'bg-green-500/15 text-green-300'
-					: 'bg-gray-800 text-gray-400'}"
+				class="inline-flex items-center gap-1.5 {setup.automationReady ? 'text-green-400' : 'text-gray-400'}"
 			>
 				<Octicon
 					name={setup.automationReady ? "check-circle-fill" : "circle-slash"}
 					size={16}
 				/>
-				{setup.automationReady ? "Migration ready" : "Migration setup incomplete"}
+				{setup.automationReady ? "Targets ready" : "Migration setup incomplete"}
 			</span>
 		</div>
 	</header>
-
-	<ol class="grid grid-cols-3 overflow-hidden rounded-md border border-gray-700 bg-gray-900 text-sm">
-		<li class="flex items-center gap-2 border-r border-gray-700 px-3 py-3 text-gray-200 sm:px-4">
-			<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-xs font-semibold text-violet-300">1</span>
-			<span class="hidden sm:inline">Connect source</span><span class="sm:hidden">Source</span>
-		</li>
-		<li class="flex items-center gap-2 border-r border-gray-700 px-3 py-3 text-gray-200 sm:px-4">
-			<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-xs font-semibold text-blue-300">2</span>
-			<span class="hidden sm:inline">Connect target</span><span class="sm:hidden">Target</span>
-		</li>
-		<li class="flex items-center gap-2 px-3 py-3 text-gray-200 sm:px-4">
-			<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-500/15 text-xs font-semibold text-green-300">3</span>
-			<span class="hidden sm:inline">Profile and migrate</span><span class="sm:hidden">Run</span>
-		</li>
-	</ol>
 
 	{#if deprecatedAliases.length > 0}
 		<div class="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
@@ -78,25 +56,48 @@
 		</div>
 	{/if}
 
-	<section class="space-y-3" aria-labelledby="source-options-heading">
+	<div class="grid gap-8 lg:grid-cols-[12rem_minmax(0,1fr)]">
+		<aside>
+			<nav aria-label="Setup sections" class="grid grid-cols-3 gap-1 lg:sticky lg:top-6 lg:block lg:space-y-1">
+				<a href="#sources" class="flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-gray-100">
+					<span class="text-xs tabular-nums text-gray-500">1</span>
+					<Octicon name="repo" size={16} class="hidden shrink-0 sm:inline-block" />
+					Sources
+				</a>
+				<a href="#targets" class="flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-gray-100">
+					<span class="text-xs tabular-nums text-gray-500">2</span>
+					<Octicon name="repo-push" size={16} class="hidden shrink-0 sm:inline-block" />
+					Targets
+				</a>
+				<a href="#apply" class="flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-gray-100">
+					<span class="text-xs tabular-nums text-gray-500">3</span>
+					<Octicon name="terminal" size={16} class="hidden shrink-0 sm:inline-block" />
+					Apply
+				</a>
+			</nav>
+		</aside>
+
+		<div class="min-w-0 space-y-10">
+
+	<section id="sources" class="scroll-mt-6 space-y-3" aria-labelledby="source-options-heading">
 		<div>
-			<h2 id="source-options-heading" class="text-sm font-semibold text-gray-200">Source options</h2>
-			<p class="mt-1 text-xs text-gray-500">Configure any source provider for profiling.</p>
+			<h2 id="source-options-heading" class="text-base font-semibold text-gray-100">Source providers</h2>
+			<p class="mt-1 text-sm text-gray-500">Credentials and transfer settings used to inspect source repositories.</p>
 		</div>
-		<div class="grid gap-5 lg:grid-cols-3">
-			<section class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="flex items-center justify-between border-b border-gray-700 bg-gray-800/40 px-5 py-3">
-					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="mark-github" size={16} class="text-violet-400" />GitHub source</h3>
-					<span class="text-xs font-medium {setup.sourceAuthReady ? 'text-green-400' : 'text-yellow-400'}">{setup.sourceAuthReady ? "Configured" : "Missing credentials"}</span>
+		<div class="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700">
+			<section class="bg-gray-950">
+				<div class="flex items-center justify-between gap-3 px-4 pt-4">
+					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="mark-github" size={16} class="text-gray-400" />GitHub</h3>
+					<span class="inline-flex items-center gap-1.5 text-xs font-medium {setup.sourceAuthReady ? 'text-green-400' : 'text-yellow-400'}"><Octicon name={setup.sourceAuthReady ? "check-circle-fill" : "alert"} size={12} />{setup.sourceAuthReady ? "Configured" : "Missing credentials"}</span>
 				</div>
-				<div class="space-y-4 p-5">
+				<div class="space-y-3 px-4 pt-2 pb-4">
 					<p class="text-xs text-gray-500">GitHub.com or GitHub Enterprise Server</p>
-					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.sourceApiUrl}</dd></div>
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">Organizations</dt><dd class="text-machine min-w-0 text-right text-gray-300">{setup.sourceOrgs.length ? setup.sourceOrgs.join(", ") : "Set during profiling"}</dd></div>
+					<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+						<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{setup.sourceApiUrl}</dd></div>
+						<div><dt class="text-xs text-gray-500">Organizations</dt><dd class="text-machine mt-0.5 text-gray-300">{setup.sourceOrgs.length ? setup.sourceOrgs.join(", ") : "Set during profiling"}</dd></div>
 					</dl>
 					{#if setup.sourceAuthReady}
-						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration planning.</p>
+						<p class="flex items-center gap-2 text-xs text-gray-500"><Octicon name="check" size={12} class="text-green-400" />Ready for profiling and migration planning.</p>
 					{:else}
 						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">GH_SOURCE_API_URL={setup.sourceApiUrl}
 GH_SOURCE_PAT=github_pat_...</pre>
@@ -104,19 +105,19 @@ GH_SOURCE_PAT=github_pat_...</pre>
 				</div>
 			</section>
 
-			<section class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="flex items-center justify-between border-b border-gray-700 bg-gray-800/40 px-5 py-3">
-					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="gitlab-logo" size={16} />GitLab source</h3>
-					<span class="text-xs font-medium {setup.gitlabSourceAuthReady ? 'text-green-400' : 'text-yellow-400'}">{setup.gitlabMigrationReady ? "Migration ready" : setup.gitlabSourceAuthReady ? "Profile ready" : "Missing credentials"}</span>
+			<section class="bg-gray-950">
+				<div class="flex items-center justify-between gap-3 px-4 pt-4">
+					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="gitlab-logo" size={16} class="text-gray-400" />GitLab</h3>
+					<span class="inline-flex items-center gap-1.5 text-xs font-medium {setup.gitlabSourceAuthReady ? 'text-green-400' : 'text-yellow-400'}"><Octicon name={setup.gitlabSourceAuthReady ? "check-circle-fill" : "alert"} size={12} />{setup.gitlabMigrationReady ? "Migration ready" : setup.gitlabSourceAuthReady ? "Profile ready" : "Missing credentials"}</span>
 				</div>
-				<div class="space-y-4 p-5">
+				<div class="space-y-3 px-4 pt-2 pb-4">
 					<p class="text-xs text-gray-500">GitLab.com or self-managed GitLab</p>
-					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.gitlabSourceApiUrl || "Not configured"}</dd></div>
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">Archive storage</dt><dd class="text-right text-xs {setup.gitlabMigrationReady ? 'text-green-300' : 'text-gray-400'}">{setup.gitlabMigrationReady ? "Configured" : "Required for migration"}</dd></div>
+					<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+						<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{setup.gitlabSourceApiUrl || "Not configured"}</dd></div>
+						<div><dt class="text-xs text-gray-500">Archive storage</dt><dd class="mt-0.5 {setup.gitlabMigrationReady ? 'text-gray-300' : 'text-gray-400'}">{setup.gitlabMigrationReady ? "Configured" : "Required for migration"}</dd></div>
 					</dl>
 					{#if setup.gitlabMigrationReady}
-						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration.</p>
+						<p class="flex items-center gap-2 text-xs text-gray-500"><Octicon name="check" size={12} class="text-green-400" />Ready for profiling and migration.</p>
 					{:else}
 						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">GITLAB_SOURCE_API_URL=https://gitlab.com
 GITLAB_SOURCE_PAT=glpat_...
@@ -126,19 +127,19 @@ ARCHIVE_DIR=/data/archives</pre>
 				</div>
 			</section>
 
-			<section class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-				<div class="flex items-center justify-between border-b border-gray-700 bg-gray-800/40 px-5 py-3">
-					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="bitbucket-logo" size={16} />Bitbucket source</h3>
-					<span class="text-xs font-medium {setup.bitbucketSourceAuthReady ? 'text-green-400' : 'text-yellow-400'}">{setup.bitbucketMigrationReady ? "Migration ready" : setup.bitbucketSourceAuthReady ? "Profile ready" : "Missing credentials"}</span>
+			<section class="bg-gray-950">
+				<div class="flex items-center justify-between gap-3 px-4 pt-4">
+					<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name="bitbucket-logo" size={16} class="text-gray-400" />Bitbucket Server</h3>
+					<span class="inline-flex items-center gap-1.5 text-xs font-medium {setup.bitbucketSourceAuthReady ? 'text-green-400' : 'text-yellow-400'}"><Octicon name={setup.bitbucketSourceAuthReady ? "check-circle-fill" : "alert"} size={12} />{setup.bitbucketMigrationReady ? "Migration ready" : setup.bitbucketSourceAuthReady ? "Profile ready" : "Missing credentials"}</span>
 				</div>
-				<div class="space-y-4 p-5">
+				<div class="space-y-3 px-4 pt-2 pb-4">
 					<p class="text-xs text-gray-500">Bitbucket Server or Data Center 5.14+</p>
-					<dl class="space-y-2 text-sm">
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">API URL</dt><dd class="text-machine min-w-0 break-all text-right text-gray-300">{setup.bitbucketSourceApiUrl || "Not configured"}</dd></div>
-						<div class="flex justify-between gap-4"><dt class="text-gray-500">Export transfer</dt><dd class="text-right text-xs {setup.bitbucketMigrationReady ? 'text-green-300' : 'text-gray-400'}">{setup.bitbucketMigrationReady ? "SFTP configured" : "SFTP required for migration"}</dd></div>
+					<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+						<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{setup.bitbucketSourceApiUrl || "Not configured"}</dd></div>
+						<div><dt class="text-xs text-gray-500">Export transfer</dt><dd class="mt-0.5 {setup.bitbucketMigrationReady ? 'text-gray-300' : 'text-gray-400'}">{setup.bitbucketMigrationReady ? "SFTP configured" : "SFTP required for migration"}</dd></div>
 					</dl>
 					{#if setup.bitbucketMigrationReady}
-						<p class="flex gap-2 text-sm text-green-300"><Octicon name="check" size={16} />Ready for profiling and migration.</p>
+						<p class="flex items-center gap-2 text-xs text-gray-500"><Octicon name="check" size={12} class="text-green-400" />Ready for profiling and migration.</p>
 					{:else}
 						<pre class="text-machine overflow-x-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-gray-300">BITBUCKET_SERVER_URL=https://bitbucket.example.com
 BITBUCKET_SERVER_USERNAME=migration-user
@@ -151,26 +152,26 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 		</div>
 	</section>
 
-	<section class="space-y-3" aria-labelledby="migration-target-heading">
+	<section id="targets" class="scroll-mt-6 space-y-3" aria-labelledby="migration-target-heading">
 		<div>
-			<h2 id="migration-target-heading" class="text-sm font-semibold text-gray-200">Migration targets</h2>
-			<p class="mt-1 text-xs text-gray-500">Targets are configured by your administrator.</p>
+			<h2 id="migration-target-heading" class="text-base font-semibold text-gray-100">Migration targets</h2>
+			<p class="mt-1 text-sm text-gray-500">GitHub destinations and supported source paths.</p>
 		</div>
-		<div class="space-y-3">
+		<div class="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700">
 			{#each targetProfiles as profile (profile.id)}
-				<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-700 bg-gray-800/40 px-5 py-3">
-						<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name={profile.platform === "ghec" ? "cloud" : "server"} size={16} class="text-blue-400" />{profile.displayName}</h3>
-						<span class="text-xs font-medium {profile.serverMigrationReady ? 'text-green-400' : 'text-yellow-400'}">{profile.serverMigrationReady ? "Migration ready" : "Execution setup incomplete"}</span>
+				<article class="bg-gray-950 px-4 py-4">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="flex items-center gap-2 font-medium text-gray-100"><Octicon name={profile.platform === "ghec" ? "cloud" : "server"} size={16} class="text-gray-400" />{profile.displayName}</h3>
+						<span class="inline-flex items-center gap-1.5 text-xs font-medium {profile.serverMigrationReady ? 'text-green-400' : 'text-yellow-400'}"><Octicon name={profile.serverMigrationReady ? "check-circle-fill" : "alert"} size={12} />{profile.serverMigrationReady ? "Migration ready" : "Execution setup incomplete"}</span>
 					</div>
-					<div class="space-y-4 p-5">
-						<dl class="grid gap-2 text-sm sm:grid-cols-2">
-							<div><dt class="text-gray-500">API URL</dt><dd class="text-machine break-all text-gray-300">{profile.apiUrl}</dd></div>
-							<div><dt class="text-gray-500">Organizations</dt><dd class="text-machine break-all text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Set in migration plan"}</dd></div>
+					<div class="mt-3 space-y-4">
+						<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+							<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{profile.apiUrl}</dd></div>
+							<div><dt class="text-xs text-gray-500">Organizations</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Set in migration plan"}</dd></div>
 						</dl>
-						<div class="divide-y divide-gray-800 rounded-md border border-gray-700 bg-gray-950/50">
+						<div class="divide-y divide-gray-700 border-y border-gray-700">
 							{#each profile.capabilities ?? [] as capability (`${capability.sourceProvider}:${profile.id}`)}
-								<div class="px-3 py-2.5">
+								<div class="py-2.5">
 									<div class="flex items-center justify-between gap-3 text-xs">
 										<span class="font-medium text-gray-300">{getSourceProviderAdapter(capability.sourceProvider).displayName}</span>
 										<span class={capability.status === "ready" ? "text-green-400" : capability.status === "unsupported" ? "text-gray-500" : "text-yellow-400"}>{capability.status === "ready" ? "Ready" : capability.status === "unsupported" ? "Unsupported" : "Blocked"}</span>
@@ -186,22 +187,66 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 							{/each}
 						</div>
 					</div>
-				</div>
+				</article>
 			{/each}
 		</div>
 	</section>
 
-	<section class="rounded-md border border-gray-700 bg-gray-900 p-5">
+	<section id="apply" class="scroll-mt-6 border-t border-gray-700 pt-6">
 		<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 			<div>
-				<h2 class="flex items-center gap-2 text-sm font-medium text-gray-200"><Octicon name="terminal" size={16} class="text-gray-500" />Apply configuration</h2>
+				<h2 class="flex items-center gap-2 text-base font-semibold text-gray-100"><Octicon name="terminal" size={16} class="text-gray-500" />Apply configuration</h2>
 				<p class="mt-1 text-sm text-gray-400">After editing <code class="text-machine rounded bg-gray-800 px-1.5 py-0.5">.env</code>, recreate the service.</p>
-				<code class="text-machine mt-2 block text-gray-300">docker compose up -d --force-recreate</code>
+				<code class="text-machine mt-3 block rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-300">docker compose up -d --force-recreate</code>
 			</div>
 			<div class="flex shrink-0 flex-wrap gap-2">
-				<a href="/setup" class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700"><Octicon name="sync" size={16} />Check again</a>
-				<a href="/profile" class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500"><Octicon name="telescope" size={16} />{setup.profileReady ? "Start profile" : "Open Profile"}</a>
+				<a href="/setup" class="setup-button setup-button-default"><Octicon name="sync" size={16} />Check again</a>
+				<a href="/profile" class="setup-button setup-button-primary"><Octicon name="telescope" size={16} />{setup.profileReady ? "Start profile" : "Open profile"}</a>
 			</div>
 		</div>
 	</section>
+		</div>
+	</div>
 </div>
+
+<style>
+	.setup-button {
+		display: inline-flex;
+		height: 2rem;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		padding-inline: 0.75rem;
+		border: 1px solid;
+		border-radius: 0.375rem;
+		box-shadow: var(--button-default-shadow-resting);
+		font-size: 0.875rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.setup-button:focus-visible {
+		outline: 2px solid var(--fgColor-accent);
+		outline-offset: 2px;
+	}
+
+	.setup-button-default {
+		border-color: var(--button-default-borderColor-rest);
+		background: var(--button-default-bgColor-rest);
+		color: var(--button-default-fgColor-rest);
+	}
+
+	.setup-button-default:hover {
+		background: var(--button-default-bgColor-hover);
+	}
+
+	.setup-button-primary {
+		border-color: var(--button-primary-borderColor-rest);
+		background: var(--button-primary-bgColor-rest);
+		color: var(--button-primary-fgColor-rest);
+	}
+
+	.setup-button-primary:hover {
+		background: var(--button-primary-bgColor-hover);
+	}
+</style>
