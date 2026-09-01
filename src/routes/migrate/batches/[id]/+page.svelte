@@ -238,7 +238,7 @@
 				</time>
 			</div>
 		</div>
-		<div class="flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			<AuthStatus label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
 			<AuthStatus label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
 			<GitHubStatus status={ghStatusCtx.value} />

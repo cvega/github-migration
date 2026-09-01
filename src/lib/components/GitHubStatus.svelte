@@ -3,11 +3,6 @@
 	import type { GitHubStatus } from "$lib/status";
 
 	let { status }: { status: GitHubStatus } = $props();
-	const style = $derived(
-		status.ok
-			? "bg-green-600/15 text-green-400 ring-1 ring-green-500/20"
-			: "bg-yellow-500/15 text-yellow-400 ring-1 ring-yellow-500/30",
-	);
 	const label = $derived(
 		status.ok
 			? "All systems operational"
@@ -19,21 +14,18 @@
 
 {#if status.ok}
 	<span
-		class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-4 {style}"
+		class="inline-flex items-center gap-1.5 text-xs font-medium leading-4 text-gray-400"
 		title={label}
 	>
-		<span class="relative flex h-2 w-2">
-			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"></span>
-			<span class="relative inline-flex h-2 w-2 rounded-full bg-green-400"></span>
-		</span>
-		GitHub: Healthy
+		<Octicon name="check-circle-fill" size={12} class="text-green-400" />
+		GitHub operational
 	</span>
 {:else}
 	<a
 		href="https://www.githubstatus.com"
 		target="_blank"
 		rel="noopener noreferrer"
-		class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium leading-4 transition-all {style} hover:ring-yellow-400/50"
+		class="inline-flex items-center gap-1.5 text-xs font-medium leading-4 text-yellow-400 hover:underline"
 		title={status.incidents.map((incident) => `${incident.name} (${incident.status})`).join("\n")}
 	>
 		<Octicon name="alert" size={12} />

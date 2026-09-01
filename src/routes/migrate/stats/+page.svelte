@@ -8,6 +8,7 @@
 	import { getTargetPlatformPresentation } from '$lib/migration-target';
 	import { REPOSITORY_SIZE_BANDS, type RepositorySizeBand } from '$lib/repository-size';
 	import { getSourceProviderAdapter } from '$lib/source-provider';
+	import FilterMenu from './FilterMenu.svelte';
 
 	let { data } = $props();
 	const stats = $derived(data.stats);
@@ -28,6 +29,29 @@
 		{ value: 'single', label: 'Single' },
 		{ value: 'batch', label: 'Batch' },
 	] as const;
+	const sourceFilterOptions = $derived([
+		{ value: 'all', label: 'All sources', href: statsFilterHref({ source: 'all' }) },
+		{ value: 'github', label: 'GitHub', href: statsFilterHref({ source: 'github' }) },
+		{ value: 'gitlab', label: 'GitLab', href: statsFilterHref({ source: 'gitlab' }) },
+		{
+			value: 'bitbucket-server',
+			label: 'Bitbucket Server',
+			href: statsFilterHref({ source: 'bitbucket-server' }),
+		},
+	]);
+	const targetFilterOptions = $derived([
+		{ value: 'all', label: 'All targets', href: statsFilterHref({ target: 'all' }) },
+		{
+			value: 'ghec',
+			label: 'GitHub Enterprise Cloud',
+			href: statsFilterHref({ target: 'ghec' }),
+		},
+		{
+			value: 'ghes',
+			label: 'GitHub Enterprise Server',
+			href: statsFilterHref({ target: 'ghes' }),
+		},
+	]);
 
 	const stateMeta: Record<MigrationState, { label: string; icon: IconName; text: string; live?: boolean }> = {
 		succeeded: { label: STATE_LABELS.succeeded, icon: 'check-circle-fill', text: 'text-green-400' },
@@ -120,6 +144,15 @@
 	function fmtNum(value: number): string {
 		return value.toLocaleString();
 	}
+	function statsFilterHref(overrides: { source?: string; target?: string }): string {
+		const params = new URLSearchParams({
+			source: overrides.source ?? filters.sourceProvider,
+			target: overrides.target ?? filters.targetPlatform,
+			period: filters.period,
+			mode: filters.mode,
+		});
+		return `/migrate/stats?${params.toString()}`;
+	}
 	function avgPerCountedMigration(total: number): number {
 		return stats.resources.migrationCount > 0
 			? Math.round(total / stats.resources.migrationCount)
@@ -159,18 +192,36 @@
 		class="flex flex-wrap items-end gap-3 rounded-md border border-gray-700 bg-gray-900 p-4"
 		aria-label="Statistics filters"
 	>
+		<FilterMenu
+			id="stats-source-filter"
+			name="source"
+			label="Source"
+			icon="repo"
+			value={filters.sourceProvider}
+			options={sourceFilterOptions}
+			minWidth="12.625rem"
+		/>
+
+		<FilterMenu
+			id="stats-target-filter"
+			name="target"
+			label="Target"
+			icon="repo-push"
+			value={filters.targetPlatform}
+			options={targetFilterOptions}
+			minWidth="12.625rem"
+		/>
+
 		<fieldset class="min-w-56 flex-1 sm:flex-none">
 			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
 				<span class="inline-flex items-center gap-1.5"
 					><Octicon name="calendar" size={12} />Started</span
 				>
 			</legend>
-			<div class="flex h-8 overflow-hidden rounded-md border border-gray-600 bg-gray-950">
+			<div class="stats-segmented flex h-8 rounded-md">
 				{#each periodOptions as option (option.value)}
 					<label
-						class="relative flex min-w-16 flex-1 cursor-pointer items-center justify-center border-r border-gray-700 px-3 text-xs last:border-r-0 {filters.period === option.value
-							? 'bg-blue-500/15 font-medium text-blue-300 shadow-[inset_0_-2px_var(--data-blue-color-emphasis)]'
-							: 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}"
+						class="stats-segment relative flex min-w-16 flex-1 cursor-pointer items-center justify-center px-3 text-xs"
 					>
 						<input
 							class="sr-only"
@@ -186,45 +237,14 @@
 			</div>
 		</fieldset>
 
-		<label class="grid min-w-40 flex-1 gap-1.5 text-xs font-semibold uppercase text-gray-500 sm:flex-none">
-			<span class="inline-flex items-center gap-1.5"><Octicon name="repo" size={12} />Source</span>
-			<select
-				name="source"
-				value={filters.sourceProvider}
-				onchange={(event) => event.currentTarget.form?.requestSubmit()}
-				class="h-8 rounded-md border border-gray-600 bg-gray-950 px-2 text-xs font-normal normal-case text-gray-200 outline-none focus:border-blue-500"
-			>
-				<option value="all">All sources</option>
-				<option value="github">GitHub</option>
-				<option value="gitlab">GitLab</option>
-				<option value="bitbucket-server">Bitbucket Server</option>
-			</select>
-		</label>
-
-		<label class="grid min-w-40 flex-1 gap-1.5 text-xs font-semibold uppercase text-gray-500 sm:flex-none">
-			<span class="inline-flex items-center gap-1.5"><Octicon name="repo-push" size={12} />Target</span>
-			<select
-				name="target"
-				value={filters.targetPlatform}
-				onchange={(event) => event.currentTarget.form?.requestSubmit()}
-				class="h-8 rounded-md border border-gray-600 bg-gray-950 px-2 text-xs font-normal normal-case text-gray-200 outline-none focus:border-blue-500"
-			>
-				<option value="all">All targets</option>
-				<option value="ghec">GitHub Enterprise Cloud</option>
-				<option value="ghes">GitHub Enterprise Server</option>
-			</select>
-		</label>
-
 		<fieldset class="min-w-64 flex-1 sm:flex-none">
 			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
 				<span class="inline-flex items-center gap-1.5"><Octicon name="stack" size={12} />Mode</span>
 			</legend>
-			<div class="flex h-8 overflow-hidden rounded-md border border-gray-600 bg-gray-950">
+			<div class="stats-segmented flex h-8 rounded-md">
 				{#each modeOptions as option (option.value)}
 					<label
-						class="relative flex flex-1 cursor-pointer items-center justify-center border-r border-gray-700 px-3 text-xs last:border-r-0 {filters.mode === option.value
-							? 'bg-blue-500/15 font-medium text-blue-300 shadow-[inset_0_-2px_var(--data-blue-color-emphasis)]'
-							: 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}"
+						class="stats-segment relative flex flex-1 cursor-pointer items-center justify-center px-3 text-xs"
 					>
 						<input
 							class="sr-only"
@@ -776,6 +796,64 @@
 </div>
 
 <style>
+	.stats-segmented {
+		overflow: hidden;
+		border: 1px solid var(--controlTrack-borderColor-rest);
+		background: var(--controlTrack-bgColor-rest);
+	}
+
+	.stats-segment {
+		color: var(--controlTrack-fgColor-rest);
+	}
+
+	.stats-segment:not(:last-child)::after {
+		position: absolute;
+		top: 8px;
+		right: -1px;
+		bottom: 8px;
+		width: 1px;
+		background: var(--borderColor-default);
+		content: '';
+	}
+
+	.stats-segment:not(:has(input:checked)):hover {
+		background: var(--controlTrack-bgColor-hover);
+		color: var(--fgColor-default);
+	}
+
+	.stats-segment:not(:has(input:checked)):active {
+		background: var(--controlTrack-bgColor-active);
+	}
+
+	.stats-segment:has(input:checked) {
+		z-index: 1;
+		margin-block: -1px;
+		border: 1px solid var(--controlKnob-borderColor-rest);
+		border-radius: 6px;
+		background: var(--controlKnob-bgColor-rest);
+		color: var(--fgColor-default);
+		font-weight: 600;
+	}
+
+	.stats-segment:first-child {
+		margin-left: -1px;
+	}
+
+	.stats-segment:last-child {
+		margin-right: -1px;
+	}
+
+	.stats-segment:has(input:checked)::after,
+	.stats-segment:has(+ .stats-segment input:checked)::after {
+		display: none;
+	}
+
+	.stats-segment:has(input:focus-visible) {
+		z-index: 2;
+		outline: 2px solid var(--fgColor-accent);
+		outline-offset: -2px;
+	}
+
 	@media (min-width: 64rem) {
 		.status-grid {
 			grid-template-columns: repeat(var(--status-columns), minmax(0, 1fr));

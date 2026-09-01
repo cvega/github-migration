@@ -3,7 +3,12 @@ import type { Counts, Migration, MigrationState } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { insertMigration, updateMigrationSourceSize, updateMigrationState } from "./migrations";
 import { migrateStore } from "./schema";
-import { getActiveMigrationCount, getMigrationStats, getStateCounts } from "./stats";
+import {
+  getActiveMigrationCount,
+  getMigrationCount,
+  getMigrationStats,
+  getStateCounts,
+} from "./stats";
 
 beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
@@ -87,6 +92,7 @@ describe("migration statistics", () => {
       reconciliation_required: 1,
     });
     expect(getActiveMigrationCount()).toBe(3);
+    expect(getMigrationCount()).toBe(8);
   });
 
   test("separates reconciliation from outcomes and computes duration and resource totals", () => {

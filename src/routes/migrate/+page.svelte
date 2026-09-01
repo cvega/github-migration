@@ -232,7 +232,7 @@
 				</p>
 			</div>
 		</div>
-		<div class="flex flex-wrap items-center gap-2 sm:justify-end">
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
 			<AuthStatus
 				label="Source"
 				isApp={auth.sourceApp}

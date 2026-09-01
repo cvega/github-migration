@@ -63,36 +63,38 @@
 	}
 </script>
 
-<section>
-	<div class="mb-3 flex items-center justify-between">
-		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
-			<Octicon name="history" size={16} />
-			Runs <span class="text-sm font-normal text-gray-500">({totalRuns})</span>
+<section class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
+	<div class="flex items-center justify-between gap-4 px-4 py-3">
+		<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-100">
+			<Octicon name="history" size={16} class="text-gray-500" />
+			Profile runs
+			<span class="rounded-full bg-gray-800 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-400">{totalRuns}</span>
 		</h2>
 		<button
 			type="button"
 			onclick={() => invalidateAll()}
-			class="inline-flex items-center gap-1.5 rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-gray-50"
+			class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-600 bg-gray-800 px-3 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-gray-50"
 		>
-			<Octicon name="sync" size={16} />
+			<Octicon name="sync" size={12} />
 			Refresh
 		</button>
 	</div>
 
 	{#if runs.length === 0}
-		<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-16">
-			<Octicon name="telescope" size={24} class="h-12 w-12 text-gray-500" />
-			<p class="mt-4 text-gray-400">No profile runs yet</p>
+		<div class="flex flex-col items-center justify-center border-t border-gray-700 px-6 py-12 text-center">
+			<Octicon name="telescope" size={24} class="text-gray-500" />
+			<h3 class="mt-3 text-sm font-semibold text-gray-200">No profile runs yet</h3>
+			<p class="mt-1 text-xs text-gray-500">Profiles you start will appear here.</p>
 		</div>
 	{:else}
-		<div class="space-y-2">
+		<div class="divide-y divide-gray-700 border-t border-gray-700">
 			{#each runs as run (run.id)}
 				{@const badge = stateBadge[run.state]}
 				{@const provider = providerPresentation[run.sourceProvider]}
 				{@const githubRun = getSourceProviderAdapter(run.sourceProvider).profileKind === "github-readiness"}
 				<a
 					href="/profile/{run.id}"
-					class="group relative block overflow-hidden rounded-md border border-gray-700 bg-gray-900 transition-all hover:border-gray-600 hover:bg-gray-800"
+					class="group relative block overflow-hidden transition-colors hover:bg-gray-800"
 				>
 					<span class="absolute inset-y-0 left-0 w-1 {badge.accent}"></span>
 					<div class="grid gap-4 p-4 pl-5 md:grid-cols-[minmax(15rem,1fr)_minmax(11rem,15rem)_minmax(10rem,auto)] md:items-center md:gap-5">

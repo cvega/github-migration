@@ -18,6 +18,10 @@
 	let liveSource = $derived(data.sourceAuth?.rateLimitLive ?? null);
 	let liveTarget = $derived(data.targetAuth?.rateLimitLive ?? null);
 	let activeMigrations = $derived(data.activeMigrations ?? 0);
+	let polledProfileCount = $state<number | null>(null);
+	let polledMigrationCount = $state<number | null>(null);
+	const profileCount = $derived(polledProfileCount ?? data.profileCount ?? 0);
+	const migrationCount = $derived(polledMigrationCount ?? data.migrationCount ?? 0);
 	let ghStatus: GitHubStatus = $derived(
 		data.ghStatus ?? { ok: true, incidentCount: 0, incidents: [] },
 	);
@@ -61,6 +65,8 @@
 				if (body.source) liveSource = body.source;
 				if (body.target) liveTarget = body.target;
 				activeMigrations = body.activeMigrations ?? activeMigrations;
+				polledProfileCount = body.profileCount ?? polledProfileCount;
+				polledMigrationCount = body.migrationCount ?? polledMigrationCount;
 				if (body.ghStatus) ghStatus = body.ghStatus;
 			}
 		} catch {}
@@ -79,21 +85,19 @@
 		if (pollInterval) clearInterval(pollInterval);
 	});
 
-	function formatRate(remaining: number, limit: number): string {
-		const format = (value: number) =>
-			value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, "")}K` : String(value);
-		return `${format(remaining)}/${format(limit)}`;
+	function formatRate(remaining: number): string {
+		return remaining.toLocaleString();
 	}
 
 	const sourceRateText = $derived(
 		liveSource
-			? formatRate(liveSource.remaining, liveSource.limit)
-			: `${((data.sourceAuth?.rateLimit ?? 0) / 1000).toFixed(0)}K`,
+			? formatRate(liveSource.remaining)
+			: formatRate(data.sourceAuth?.rateLimit ?? 0),
 	);
 	const targetRateText = $derived(
 		liveTarget
-			? formatRate(liveTarget.remaining, liveTarget.limit)
-			: `${((data.targetAuth?.rateLimit ?? 0) / 1000).toFixed(0)}K`,
+			? formatRate(liveTarget.remaining)
+			: formatRate(data.targetAuth?.rateLimit ?? 0),
 	);
 	const sourceRatePct = $derived(
 		liveSource ? Math.round((liveSource.remaining / liveSource.limit) * 100) : -1,
@@ -110,6 +114,8 @@
 		<AppHeader
 			pathname={page.url.pathname}
 			setupComplete={data.setupComplete ?? false}
+			{profileCount}
+			{migrationCount}
 			recentActivity={data.recentActivity ?? []}
 			authEnabled={data.authEnabled ?? false}
 			currentUser={data.currentUser ?? null}

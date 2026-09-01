@@ -7,8 +7,9 @@ import {
 } from "$lib/server/core/auth";
 import { getCachedGitHubStatus } from "$lib/server/core/github-status";
 import { getMigrationTargetProfiles } from "$lib/server/core/targets";
-import { getActiveMigrationCount } from "$lib/server/migrate/database/stats";
+import { getActiveMigrationCount, getMigrationCount } from "$lib/server/migrate/database/stats";
 import { MAX_CONCURRENT_MIGRATIONS, recentActivity } from "$lib/server/migrate/manager";
+import { countProfileRuns } from "$lib/server/profile/database/runs";
 import type { LayoutServerLoad } from "./$types";
 
 export const load: LayoutServerLoad = ({ locals }) => {
@@ -52,6 +53,8 @@ export const load: LayoutServerLoad = ({ locals }) => {
       };
     }),
     activeMigrations: getActiveMigrationCount(),
+    migrationCount: getMigrationCount(),
+    profileCount: countProfileRuns(),
     maxConcurrent: MAX_CONCURRENT_MIGRATIONS,
     ghStatus,
     recentActivity: recentActivity(20),

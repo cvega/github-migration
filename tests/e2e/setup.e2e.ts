@@ -23,5 +23,5 @@ test("reports server configuration readiness and opens profile", async ({ page }
 
 	await page.getByRole("link", { name: "Open Profile" }).click();
 	await expect(page).toHaveURL(/\/profile$/);
-	await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
 });

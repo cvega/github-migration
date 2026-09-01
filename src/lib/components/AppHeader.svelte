@@ -8,12 +8,16 @@
 	let {
 		pathname,
 		setupComplete = false,
+		profileCount = 0,
+		migrationCount = 0,
 		recentActivity = [],
 		authEnabled = false,
 		currentUser = null,
 	}: {
 		pathname: string;
 		setupComplete?: boolean;
+		profileCount?: number;
+		migrationCount?: number;
 		recentActivity?: ActivityItem[];
 		authEnabled?: boolean;
 		currentUser?: AuthUser | null;
@@ -22,6 +26,10 @@
 	const inMigrate = $derived(pathname.startsWith("/migrate"));
 	const activeTab = $derived(activeAppTab(pathname));
 	const tabs = $derived(visibleAppTabs(pathname, setupComplete));
+	const countFormatter = new Intl.NumberFormat("en", {
+		notation: "compact",
+		maximumFractionDigits: 1,
+	});
 </script>
 
 <header class="border-b border-gray-700 bg-gray-900">
@@ -80,6 +88,7 @@
 			{#each tabs as tab (tab.id)}
 				{@const selected = tab.id === activeTab}
 				{@const setupAttention = tab.id === "setup" && !setupComplete && !selected}
+				{@const count = tab.id === "profile" ? profileCount : tab.id === "migrations" ? migrationCount : null}
 				<a
 					href={tab.href}
 					aria-current={selected ? "page" : undefined}
@@ -91,6 +100,11 @@
 				>
 					<Octicon name={tab.icon} size={16} class="hidden sm:inline-block" />
 					{tab.label}
+					{#if count !== null}
+						<span class="min-w-5 rounded-full bg-gray-800 px-1.5 py-0.5 text-center text-xs font-medium leading-4 tabular-nums text-gray-300">
+							{countFormatter.format(count)}
+						</span>
+					{/if}
 				</a>
 			{/each}
 		</div>

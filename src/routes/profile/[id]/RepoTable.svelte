@@ -304,7 +304,7 @@
 									</summary>
 									<div class="mt-2 overflow-x-auto rounded-md border border-gray-700/70 bg-gray-950/30">
 										<table class="w-full min-w-xl text-left text-xs">
-											<thead class="bg-gray-900/70 text-[11px] uppercase text-gray-500">
+											<thead class="bg-gray-900/70 uppercase text-gray-500">
 												<tr>
 													<th class="px-3 py-2 font-medium">Measurement</th>
 													<th class="px-3 py-2 text-right font-medium">Value</th>
@@ -317,8 +317,8 @@
 													<tr class="transition-colors hover:bg-gray-800/30 {metric.levelOfConcern >= 30 ? 'bg-red-500/5' : metric.levelOfConcern >= 1 ? 'bg-yellow-500/5' : ''}">
 														<td class="px-3 py-2.5 text-gray-300">
 															<p class="font-medium text-gray-200">{metricLabel(metric.description)}</p>
-															<p class="text-machine mt-0.5 text-[11px] text-gray-600">{metric.metric}</p>
-															{#if metric.objectDescription}<p class="text-machine mt-1 break-all text-[11px] text-blue-300/60">{metric.objectDescription}</p>{/if}
+															<p class="text-machine mt-0.5 text-gray-600">{metric.metric}</p>
+															{#if metric.objectDescription}<p class="text-machine mt-1 break-all text-blue-300/60">{metric.objectDescription}</p>{/if}
 														</td>
 														<td class="px-3 py-2.5 text-right text-sm font-semibold tabular-nums whitespace-nowrap text-gray-50">{formatMetric(metric.value, metric.unit)}</td>
 														<td class="px-3 py-2.5 whitespace-nowrap">

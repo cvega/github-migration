@@ -1,7 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { fetchLiveRateLimits } from "$lib/server/core/auth";
 import { fetchGitHubStatus } from "$lib/server/core/github-status";
-import { getActiveMigrationCount } from "$lib/server/migrate/database/stats";
+import { getActiveMigrationCount, getMigrationCount } from "$lib/server/migrate/database/stats";
+import { countProfileRuns } from "$lib/server/profile/database/runs";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async () => {
@@ -10,6 +11,8 @@ export const GET: RequestHandler = async () => {
     source: liveRates.source,
     target: liveRates.target,
     activeMigrations: getActiveMigrationCount(),
+    migrationCount: getMigrationCount(),
+    profileCount: countProfileRuns(),
     ghStatus,
   });
 };

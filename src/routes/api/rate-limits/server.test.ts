@@ -57,6 +57,8 @@ describe("GET provider rate limits", () => {
       source: rates.source,
       target: rates.target,
       activeMigrations: 1,
+      migrationCount: 1,
+      profileCount: 0,
       ghStatus,
     });
   });

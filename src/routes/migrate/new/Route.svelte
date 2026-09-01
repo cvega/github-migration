@@ -153,7 +153,7 @@
 				type="button"
 				disabled={!canContinue}
 				onclick={() => controller.goForward()}
-				class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-500"
+				class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-green-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-gray-800 disabled:text-gray-500"
 			>
 				Continue
 				<Octicon name="arrow-right" size={16} />

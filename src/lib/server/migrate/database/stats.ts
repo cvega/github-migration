@@ -79,6 +79,16 @@ export function getActiveMigrationCount(): number {
   return row.count;
 }
 
+export function getMigrationCount(): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM migrations
+			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
+    )
+    .get() as { count: number };
+  return row.count;
+}
+
 export function getStateCounts(): Record<MigrationState, number> {
   const counts: Record<MigrationState, number> = {
     queued: 0,
