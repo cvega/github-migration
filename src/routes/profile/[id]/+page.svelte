@@ -127,14 +127,6 @@
 				/>
 			{/if}
 
-			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && repos.length > 0 && provider.capabilities.planning}
-				<div class="mb-2 flex flex-wrap items-center gap-3 text-xs">
-					<button type="button" onclick={() => planner.selectFiltered(false)} class="font-medium text-blue-400 hover:text-blue-300">Select shown without blocking issues</button>
-					<button type="button" onclick={() => planner.selectFiltered(true)} class="font-medium text-blue-400 hover:text-blue-300">Select all shown</button>
-					<button type="button" onclick={() => planner.clearSelection()} class="font-medium text-gray-400 hover:text-gray-200">Clear selection</button>
-				</div>
-			{/if}
-
 			{#if scale.repos === 0 && planningRepos.length === 0}
 				<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
 					<Octicon name={run.state === "running" ? "sync" : "inbox"} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />

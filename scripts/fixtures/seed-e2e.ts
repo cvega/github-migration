@@ -152,7 +152,7 @@ const readyProfileRepo = insertProfileRepo.run(
   JSON.stringify(profileSignals("ready-repo")),
   0,
   0,
-  JSON.stringify([{ considerationId: "workflow-history", evidence: "1 workflow" }]),
+  JSON.stringify([{ considerationId: "actions-run-history", evidence: "1 workflow" }]),
   startedAt,
 );
 const blockedProfileRepo = insertProfileRepo.run(

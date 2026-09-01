@@ -8,16 +8,13 @@
 	}: { planner: ProfileMigrationPlannerController; canExport: boolean } = $props();
 </script>
 
-<section class="rounded-md border border-blue-500/25 bg-gray-900 p-5 shadow-sm shadow-black/20">
+<section class="rounded-md border border-gray-700 bg-gray-950/40 p-5">
 	<div class="flex flex-wrap items-start justify-between gap-4">
-		<div class="flex items-start gap-3">
-			<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-500/30 bg-blue-500/10 text-blue-400">
-				<Octicon name="tasklist" size={16} />
-			</span>
-			<div>
-				<h2 class="text-base font-semibold text-gray-100">Build migration plan</h2>
-				<p class="mt-1 text-xs text-gray-400">Choose repositories and target names, then launch them as one batch.</p>
-			</div>
+		<div>
+			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+				<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
+			</h2>
+			<p class="mt-1 ml-6 text-sm text-gray-400">Choose repositories and target names, then launch them as one batch.</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
 			{#if canExport}
@@ -25,7 +22,7 @@
 					<Octicon name="download" size={16} />Export
 				</button>
 			{/if}
-			<button type="button" onclick={() => planner.launchBatch()} disabled={planner.launchingBatch || planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
+			<button type="button" onclick={() => planner.launchBatch()} disabled={planner.launchingBatch || planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40">
 				<Octicon name={planner.launchingBatch ? "sync" : "rocket"} size={16} class={planner.launchingBatch ? "animate-spin" : ""} />
 				{planner.launchingBatch ? "Launching..." : "Launch batch"}
 			</button>
@@ -33,22 +30,25 @@
 	</div>
 
 	<div class="mt-5 grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_2fr]">
-		<label class="block text-xs font-medium text-gray-400">
+		<label class="block text-sm font-medium text-gray-400">
 			Target organization
 			<span class="mt-1 flex items-center gap-2 rounded-md border border-gray-700 bg-gray-950 px-3 py-2">
 				<Octicon name="organization" size={16} class="shrink-0 text-blue-400" />
 				<input type="text" required value={planner.targetOrg} oninput={(event) => planner.setTargetOrg(event.currentTarget.value)} placeholder="target-org" class="min-w-0 flex-1 bg-transparent font-mono text-sm text-gray-100 focus:outline-none" />
 			</span>
 		</label>
-		<div class="grid grid-cols-3 gap-2">
-			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-xs text-gray-500">Selected</p><p class="mt-1 text-lg font-semibold text-gray-100">{planner.selectedNames.length}</p>
+		<div class="grid grid-cols-3 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700">
+			<div class="flex items-center justify-between gap-3 bg-gray-950/70 px-3 py-2.5">
+				<p class="flex items-center gap-1.5 text-sm text-gray-400"><Octicon name="check-circle" size={16} class="text-blue-400" />Selected</p>
+				<p class="text-xl font-semibold tabular-nums text-gray-100">{planner.selectedNames.length}</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-xs text-gray-500">Warnings</p><p class="mt-1 text-lg font-semibold {planner.selectedWarnings > 0 ? 'text-yellow-300' : 'text-gray-400'}">{planner.selectedWarnings}</p>
+			<div class="flex items-center justify-between gap-3 bg-gray-950/70 px-3 py-2.5">
+				<p class="flex items-center gap-1.5 text-sm text-gray-400"><Octicon name="alert" size={16} class={planner.selectedWarnings > 0 ? "text-yellow-400" : "text-gray-500"} />Warnings</p>
+				<p class="text-xl font-semibold tabular-nums {planner.selectedWarnings > 0 ? 'text-yellow-300' : 'text-gray-400'}">{planner.selectedWarnings}</p>
 			</div>
-			<div class="rounded-md border border-gray-700 bg-gray-950/50 px-3 py-2">
-				<p class="text-xs text-gray-500">Blocking</p><p class="mt-1 text-lg font-semibold {planner.selectedBlockers > 0 ? 'text-red-300' : 'text-gray-400'}">{planner.selectedBlockers}</p>
+			<div class="flex items-center justify-between gap-3 bg-gray-950/70 px-3 py-2.5">
+				<p class="flex items-center gap-1.5 text-sm text-gray-400"><Octicon name="stop" size={16} class={planner.selectedBlockers > 0 ? "text-red-400" : "text-gray-500"} />Blocking</p>
+				<p class="text-xl font-semibold tabular-nums {planner.selectedBlockers > 0 ? 'text-red-300' : 'text-gray-400'}">{planner.selectedBlockers}</p>
 			</div>
 		</div>
 	</div>

@@ -30,32 +30,35 @@
 	] as const);
 </script>
 
-<section class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-	<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-		<div class="text-2xl font-semibold text-gray-50">
-			{run.profiledRepos}<span class="text-base text-gray-500">/{run.totalRepos}</span>
-		</div>
-		<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
-			<Octicon name="repo" size={12} class="text-gray-500" />Repositories profiled
-		</div>
-		{#if run.state === "running"}
-			<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
-				<div class="h-full bg-green-500 transition-all" style:width={`${percentage}%`}></div>
+<section aria-labelledby="profile-summary-heading" class="overflow-hidden rounded-md border border-gray-700 bg-gray-950/40">
+	<h2 id="profile-summary-heading" class="sr-only">Profile summary</h2>
+	<div class="grid grid-cols-2 sm:grid-cols-5">
+		<div class="col-span-2 p-4 sm:col-span-1">
+			<div class="text-2xl font-semibold tabular-nums text-gray-50">
+				{run.profiledRepos}<span class="text-base font-normal text-gray-500">/{run.totalRepos}</span>
 			</div>
-			{#if livePhase && phaseLabels[livePhase]}
-				<div class="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
-					<Octicon name="sync" size={12} class="animate-spin" />{phaseLabels[livePhase]}
+			<div class="mt-1 flex items-center gap-1.5 text-sm text-gray-400">
+				<Octicon name="repo" size={12} class="text-gray-500" />Repos profiled
+			</div>
+			{#if run.state === "running"}
+				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-800">
+					<div class="h-full bg-green-500 transition-all" style:width={`${percentage}%`}></div>
 				</div>
+				{#if livePhase && phaseLabels[livePhase]}
+					<div class="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
+						<Octicon name="sync" size={12} class="animate-spin" />{phaseLabels[livePhase]}
+					</div>
+				{/if}
 			{/if}
-		{/if}
-	</div>
-	{#each compositionTiles as tile (tile.label)}
-		<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-			<div class="text-2xl font-semibold tabular-nums {tile.color}">{tile.value.pct}%</div>
-			<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400">
-				<Octicon name={tile.icon} size={12} class="text-gray-500" />
-				{tile.label} <span class="text-gray-500">· {tile.value.count.toLocaleString()}</span>
-			</div>
 		</div>
-	{/each}
+		{#each compositionTiles as tile (tile.label)}
+			<div class="border-t border-gray-700 p-4 sm:border-t-0 sm:border-l">
+				<div class="text-2xl font-semibold tabular-nums {tile.color}">{tile.value.pct}%</div>
+				<div class="mt-1 flex items-center gap-1.5 text-sm text-gray-400">
+					<Octicon name={tile.icon} size={12} class="text-gray-500" />
+					{tile.label} <span class="text-gray-500">· {tile.value.count.toLocaleString()}</span>
+				</div>
+			</div>
+		{/each}
+	</div>
 </section>
