@@ -18,6 +18,7 @@
 		repos,
 		analysis,
 		planning,
+		canExport,
 		planningEligibleNames,
 		planner,
 	}: {
@@ -25,6 +26,7 @@
 		repos: PageData["repos"];
 		analysis: RepositoryAnalysisDetail | null;
 		planning: boolean;
+		canExport: boolean;
 		planningEligibleNames: string[];
 		planner: ProfileMigrationPlannerController;
 	} = $props();
@@ -146,11 +148,25 @@
 
 <div class="overflow-hidden rounded-md border border-gray-700">
 	{#if planning}
-		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-gray-700 bg-gray-900 px-4 py-2.5 text-sm">
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-700 bg-gray-900 px-4 py-2.5 text-sm">
 			<span class="font-medium text-gray-300">Select repositories</span>
-			<button type="button" onclick={() => planner.selectFiltered(false)} class="font-medium text-blue-400 hover:text-blue-300">Without blockers</button>
-			<button type="button" onclick={() => planner.selectFiltered(true)} class="font-medium text-blue-400 hover:text-blue-300">All shown</button>
-			<button type="button" onclick={() => planner.clearSelection()} class="font-medium text-gray-400 hover:text-gray-200">Clear</button>
+			<span class="text-gray-500">{planner.selectedNames.length} selected</span>
+			{#if planner.selectedWarnings > 0}
+				<span class="inline-flex items-center gap-1 text-yellow-300"><Octicon name="alert" size={12} />{planner.selectedWarnings} {planner.selectedWarnings === 1 ? "warning" : "warnings"}</span>
+			{/if}
+			{#if planner.selectedBlockers > 0}
+				<span class="inline-flex items-center gap-1 text-red-300"><Octicon name="stop" size={12} />{planner.selectedBlockers} {planner.selectedBlockers === 1 ? "blocker" : "blockers"}</span>
+			{/if}
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-2 sm:ml-auto">
+				<button type="button" onclick={() => planner.selectFiltered(false)} class="font-medium text-blue-400 hover:text-blue-300">Without blockers</button>
+				<button type="button" onclick={() => planner.selectFiltered(true)} class="font-medium text-blue-400 hover:text-blue-300">All shown</button>
+				<button type="button" onclick={() => planner.clearSelection()} class="font-medium text-gray-400 hover:text-gray-200">Clear</button>
+				{#if canExport}
+					<button type="button" onclick={() => planner.exportPlan()} disabled={planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-2.5 py-1 text-xs font-medium text-gray-300 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40">
+						<Octicon name="download" size={12} />Export
+					</button>
+				{/if}
+			</div>
 		</div>
 	{/if}
 	<div class="overflow-x-auto">

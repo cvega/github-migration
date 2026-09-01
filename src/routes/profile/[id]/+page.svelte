@@ -56,7 +56,6 @@
 	const scale = $derived(live.scale);
 	const composition = $derived(live.composition);
 	const summary = $derived(live.summary);
-	const estimate = $derived(live.estimate);
 	const repositoryAnalysis = $derived(data.repositoryAnalysis);
 	const provider = $derived(getSourceProviderAdapter(run.sourceProvider));
 	const eligiblePlanningRepos = $derived(
@@ -94,12 +93,11 @@
 			<Plan {planner} canExport={provider.capabilities.export} />
 		{/if}
 	{:else}
-		<section aria-labelledby="migration-overview-heading" class="space-y-4">
-			<h2 id="migration-overview-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
-				<Octicon name="pulse" size={16} class="text-gray-500" />Migration overview
+		<section aria-labelledby="migration-readiness-heading" class="space-y-4">
+			<h2 id="migration-readiness-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+				<Octicon name="tasklist" size={16} class="text-gray-500" />Migration readiness
 			</h2>
-			<ProfileProgress {run} {composition} livePhase={live.livePhase} showHeading={false} />
-			<Readiness {run} {scale} {summary} {estimate} />
+			<Readiness {run} {scale} {summary} />
 		</section>
 
 		<section class="space-y-3">
@@ -120,15 +118,15 @@
 					</div>
 				{/if}
 			</div>
-			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
-				<Plan {planner} canExport={provider.capabilities.export} embedded />
-			{/if}
 			{#if run.state === "completed"}
 				<RepositoryAnalysis
 					analysis={repositoryAnalysis}
 					available={data.repositoryAnalysisAvailable}
 					{form}
 				/>
+			{/if}
+			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
+				<Plan {planner} canExport={provider.capabilities.export} embedded />
 			{/if}
 
 			{#if scale.repos === 0 && planningRepos.length === 0}
@@ -144,11 +142,29 @@
 					{repos}
 					analysis={repositoryAnalysis}
 					planning={run.state === "completed" && provider.capabilities.planning}
+					canExport={provider.capabilities.export}
 					planningEligibleNames={eligiblePlanningNames}
 					{planner}
 				/>
 				<Pagination page={repoPageInfo.page} totalPages={repoPageInfo.totalPages} total={repoPageInfo.total} limit={REPOS_PER_PAGE} onPageChange={(page) => (repoPage = page)} />
 			{/if}
 		</section>
+
+		<details class="group overflow-hidden rounded-md border border-gray-700 bg-gray-950/40">
+			<summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-gray-300 hover:bg-gray-900/60 hover:text-gray-100 [&::-webkit-details-marker]:hidden">
+				<span class="flex items-center gap-2.5">
+					<Octicon name="pulse" size={16} class="shrink-0 text-gray-500" />
+					<span>
+						<span class="block text-sm font-medium">Profile details</span>
+						<span class="block text-xs text-gray-500">Repository composition and migration scale</span>
+					</span>
+				</span>
+				<Octicon name="chevron-right" size={16} class="shrink-0 text-gray-500 transition-transform group-open:rotate-90" />
+			</summary>
+			<div class="space-y-4 border-t border-gray-700 p-4">
+				<ProfileProgress {run} {composition} livePhase={live.livePhase} showHeading={false} />
+				<Readiness {run} {scale} {summary} view="scale" />
+			</div>
+		</details>
 	{/if}
 </div>

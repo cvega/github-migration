@@ -15,8 +15,13 @@ test("reviews and filters a completed source profile", async ({ page }) => {
 	await page.getByRole("link", { name: /e2e-source/ }).click();
 	await expect(page).toHaveURL(/\/profile\/seed-e2e-profile$/);
 	await expect(page.getByRole("heading", { name: /e2e-source/ })).toBeVisible();
-	await expect(page.getByRole("heading", { name: "Migration scale" })).toBeVisible();
 	await expect(page.getByRole("heading", { name: "Migration readiness" })).toBeVisible();
+	const profileDetails = page.locator("details").filter({
+		has: page.getByText("Profile details", { exact: true }),
+	});
+	await expect(profileDetails).not.toHaveAttribute("open", "");
+	await profileDetails.locator("summary").click();
+	await expect(page.getByRole("heading", { name: "Migration scale" })).toBeVisible();
 
 	const filtered = page.waitForResponse((response) => {
 		const url = new URL(response.url());
