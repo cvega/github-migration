@@ -30,9 +30,11 @@
 	] as const);
 </script>
 
-<section aria-labelledby="profile-summary-heading" class="overflow-hidden rounded-md border border-gray-700 bg-gray-950/40">
-	<h2 id="profile-summary-heading" class="sr-only">Profile summary</h2>
-	<div class="grid grid-cols-2 sm:grid-cols-5">
+<section aria-labelledby="profile-summary-heading" class="space-y-3">
+	<h2 id="profile-summary-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+		<Octicon name="pulse" size={16} class="text-gray-500" />Profile summary
+	</h2>
+	<div class="grid grid-cols-2 overflow-hidden rounded-md border border-gray-700 bg-gray-950/40 sm:grid-cols-5">
 		<div class="col-span-2 p-4 sm:col-span-1">
 			<div class="text-2xl font-semibold tabular-nums text-gray-50">
 				{run.profiledRepos}<span class="text-base font-normal text-gray-500">/{run.totalRepos}</span>

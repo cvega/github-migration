@@ -101,10 +101,10 @@
 			<Plan {planner} canExport={provider.capabilities.export} />
 		{/if}
 
-		<section>
-			<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-				<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-300">
-					<Octicon name="repo" size={16} />Repositories
+		<section class="space-y-3">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+					<Octicon name="repo" size={16} class="text-gray-500" />Repositories
 					{#if scale.repos > 0}<span class="text-sm font-normal text-gray-500">({repoPageInfo.total.toLocaleString()})</span>{/if}
 				</h2>
 				{#if scale.repos > 0}

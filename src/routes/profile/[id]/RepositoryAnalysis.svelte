@@ -101,7 +101,7 @@
 
 </script>
 
-<div class="mb-3 rounded-lg border border-gray-700 bg-gray-900 px-4 py-3">
+<div class="rounded-md border border-gray-700 bg-gray-950/40 px-4 py-3">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<div class="flex min-w-0 items-start gap-2.5">
 			<Octicon

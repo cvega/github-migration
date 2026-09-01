@@ -59,9 +59,9 @@
 	);
 </script>
 
-<section>
-	<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-200">
-		<Octicon name="graph" size={16} />Migration scale
+<section class="space-y-3">
+	<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+		<Octicon name="graph" size={16} class="text-gray-500" />Migration scale
 	</h2>
 	<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-4 lg:grid-cols-7">
 		{#each scaleTiles as tile, index (tile.label)}
@@ -77,14 +77,14 @@
 </section>
 
 {#if scale.repos > 0}
-	<section class="space-y-4">
-		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-200">
-			<Octicon name="tasklist" size={16} />Migration readiness
+	<section class="space-y-3">
+		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+			<Octicon name="tasklist" size={16} class="text-gray-500" />Migration readiness
 		</h2>
 
 		{#if orgResourceTiles.length > 0}
-			<div>
-				<h3 class="mb-2 text-sm font-medium text-gray-300">Organization resources to recreate</h3>
+			<div class="space-y-2">
+				<h3 class="text-sm font-medium text-gray-300">Organization resources to recreate</h3>
 				<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-5">
 					{#each orgResourceTiles as tile (tile.label)}
 						<div class="flex items-center gap-2 px-3 py-2.5 {tile.warn ? 'bg-yellow-500/10' : 'bg-gray-950'}">
@@ -96,7 +96,7 @@
 						</div>
 					{/each}
 				</div>
-				<p class="mt-2 text-sm text-gray-500">These resources are organization-scoped and must be recreated on the target. Secret values are never exported.</p>
+				<p class="text-sm text-gray-500">These resources are organization-scoped and must be recreated on the target. Secret values are never exported.</p>
 			</div>
 		{/if}
 
