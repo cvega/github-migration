@@ -94,12 +94,13 @@
 			<Plan {planner} canExport={provider.capabilities.export} />
 		{/if}
 	{:else}
-		<ProfileProgress {run} {composition} livePhase={live.livePhase} />
-		<Readiness {run} {scale} {summary} {estimate} />
-
-		{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
-			<Plan {planner} canExport={provider.capabilities.export} />
-		{/if}
+		<section aria-labelledby="migration-overview-heading" class="space-y-4">
+			<h2 id="migration-overview-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+				<Octicon name="pulse" size={16} class="text-gray-500" />Migration overview
+			</h2>
+			<ProfileProgress {run} {composition} livePhase={live.livePhase} showHeading={false} />
+			<Readiness {run} {scale} {summary} {estimate} />
+		</section>
 
 		<section class="space-y-3">
 			<div class="flex flex-wrap items-center justify-between gap-3">
@@ -119,6 +120,9 @@
 					</div>
 				{/if}
 			</div>
+			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
+				<Plan {planner} canExport={provider.capabilities.export} embedded />
+			{/if}
 			{#if run.state === "completed"}
 				<RepositoryAnalysis
 					analysis={repositoryAnalysis}

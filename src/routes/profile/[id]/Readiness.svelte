@@ -59,10 +59,10 @@
 	);
 </script>
 
-<section class="space-y-3">
-	<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+<div class="space-y-3">
+	<h3 class="flex items-center gap-2 text-sm font-medium text-gray-300">
 		<Octicon name="graph" size={16} class="text-gray-500" />Migration scale
-	</h2>
+	</h3>
 	<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-4 lg:grid-cols-7">
 		{#each scaleTiles as tile, index (tile.label)}
 			<div class="bg-gray-950 px-3 py-3 {index === scaleTiles.length - 1 ? 'col-span-2 lg:col-span-1' : ''}">
@@ -74,13 +74,13 @@
 			</div>
 		{/each}
 	</div>
-</section>
+</div>
 
 {#if scale.repos > 0}
-	<section class="space-y-3">
-		<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+	<div class="space-y-3">
+		<h3 class="flex items-center gap-2 text-base font-semibold text-gray-200">
 			<Octicon name="tasklist" size={16} class="text-gray-500" />Migration readiness
-		</h2>
+		</h3>
 
 		{#if orgResourceTiles.length > 0}
 			<div class="space-y-2">
@@ -155,5 +155,5 @@
 				</div>
 			</div>
 		{/if}
-	</section>
+	</div>
 {/if}

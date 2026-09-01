@@ -5,15 +5,22 @@
 	let {
 		planner,
 		canExport,
-	}: { planner: ProfileMigrationPlannerController; canExport: boolean } = $props();
+		embedded = false,
+	}: { planner: ProfileMigrationPlannerController; canExport: boolean; embedded?: boolean } = $props();
 </script>
 
 <section class="rounded-md border border-gray-700 bg-gray-950/40 p-5">
 	<div class="flex flex-wrap items-start justify-between gap-4">
 		<div>
-			<h2 class="flex items-center gap-2 text-lg font-semibold text-gray-100">
-				<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
-			</h2>
+			{#if embedded}
+				<h3 class="flex items-center gap-2 text-base font-semibold text-gray-100">
+					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
+				</h3>
+			{:else}
+				<h2 class="flex items-center gap-2 text-base font-semibold text-gray-100">
+					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
+				</h2>
+			{/if}
 			<p class="mt-1 ml-6 text-sm text-gray-400">Choose repositories and target names, then launch them as one batch.</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">

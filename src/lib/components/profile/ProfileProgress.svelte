@@ -6,10 +6,12 @@
 		run,
 		composition,
 		livePhase,
+		showHeading = true,
 	}: {
 		run: ProfileRun;
 		composition: ProfileDetailRollup["composition"];
 		livePhase: string | null;
+		showHeading?: boolean;
 	} = $props();
 
 	const percentage = $derived(
@@ -30,10 +32,12 @@
 	] as const);
 </script>
 
-<section aria-labelledby="profile-summary-heading" class="space-y-3">
-	<h2 id="profile-summary-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
-		<Octicon name="pulse" size={16} class="text-gray-500" />Profile summary
-	</h2>
+<section aria-labelledby={showHeading ? "profile-summary-heading" : undefined} aria-label={showHeading ? undefined : "Profile summary"} class={showHeading ? "space-y-3" : ""}>
+	{#if showHeading}
+		<h2 id="profile-summary-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
+			<Octicon name="pulse" size={16} class="text-gray-500" />Profile summary
+		</h2>
+	{/if}
 	<div class="grid grid-cols-2 overflow-hidden rounded-md border border-gray-700 bg-gray-950/40 sm:grid-cols-5">
 		<div class="col-span-2 p-4 sm:col-span-1">
 			<div class="text-2xl font-semibold tabular-nums text-gray-50">
