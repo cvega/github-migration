@@ -345,76 +345,62 @@
 
 <div class="space-y-6">
 	<section
-		class="relative min-w-0 overflow-hidden rounded-md border border-gray-700 bg-gray-900"
+		class="min-w-0 border-b border-gray-700 pb-5"
 		aria-labelledby="migration-route-heading"
 	>
-		<span class="absolute inset-y-0 left-0 w-1 {stateMeta.accent}"></span>
-		<h1 id="migration-route-heading" class="sr-only">
-			{migration.sourceOrg}/{migration.sourceRepo} to {migration.targetOrg}/{migration.targetRepo}
-		</h1>
-		<div
-			class="grid grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)] items-center gap-2 p-4 pl-5 md:grid-cols-[minmax(12rem,1fr)_3rem_minmax(12rem,1fr)_10rem] md:gap-4"
-		>
-			<div class="flex min-w-0 items-center gap-3">
-				<Octicon name={sourcePlatform.icon} size={24} class="shrink-0 text-gray-400" />
-				<div class="min-w-0">
-					<div class="text-xs font-semibold uppercase text-gray-500">{sourcePlatform.label} source</div>
-					<a
-						href={sourceRepoUrl}
-						target="_blank"
-						rel="noopener"
-						class="mt-1 block truncate font-semibold text-gray-50 hover:text-blue-400"
-					>
-						{migration.sourceOrg}/{migration.sourceRepo}
+		<nav aria-label="Breadcrumb" class="mb-2">
+			<a href="/migrate" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-blue-400">
+				<Octicon name="chevron-left" size={16} />All migrations
+			</a>
+		</nav>
+		<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+			<div class="min-w-0">
+				<h1 id="migration-route-heading" class="flex min-w-0 flex-col gap-1 text-xl text-gray-100 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+					<a href={sourceRepoUrl} target="_blank" rel="noopener" class="min-w-0 break-all hover:text-blue-400 hover:underline">
+						<span class="font-normal text-gray-400">{migration.sourceOrg}/</span><span class="font-semibold">{migration.sourceRepo}</span>
 					</a>
+					<span class="flex min-w-0 items-start gap-2">
+						<span class="sr-only"> to </span>
+						<Octicon name="arrow-right" size={16} class="mt-1 shrink-0 text-gray-600" />
+						<a href={targetRepoUrl} target="_blank" rel="noopener" class="min-w-0 break-all hover:text-blue-400 hover:underline">
+							<span class="font-normal text-gray-400">{migration.targetOrg}/</span><span class="font-semibold text-gray-300">{migration.targetRepo}</span>
+						</a>
+					</span>
+				</h1>
+				<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500">
+					<span class="inline-flex items-center gap-1.5 font-medium {stateMeta.text}">
+						{#if stateMeta.pulse}
+							<span class="relative flex h-2 w-2" aria-hidden="true">
+								<span class="absolute inline-flex h-full w-full animate-ping rounded-full {stateMeta.dot} opacity-40"></span>
+								<span class="relative inline-flex h-2 w-2 rounded-full {stateMeta.dot}"></span>
+							</span>
+						{:else}
+							<Octicon name={STATE_ICONS[migration.state]} size={12} />
+						{/if}
+						{stateMeta.label}
+					</span>
+					<span class="inline-flex items-center gap-1"><Octicon name="clock" size={12} />Started {formatDateTime(migration.startedAt)}</span>
+					<span class="inline-flex items-center gap-1"><Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}</span>
+					<span class="inline-flex items-center gap-1" title="{sourcePlatform.displayName} to {targetPlatform.displayName}">
+						<Octicon name={sourcePlatform.icon} size={16} />{sourcePlatform.label}
+						<Octicon name="arrow-right" size={12} class="text-gray-600" />
+						<Octicon name={targetPlatform.icon} size={16} />{targetPlatform.label}
+					</span>
+					{#if migration.sourceSizeKb != null}<span>{formatRepoSize(migration.sourceSizeKb)}</span>{/if}
+					{#if migration.warningsCount > 0}<span class="text-yellow-400">{migration.warningsCount} warnings</span>{/if}
+					{#if migration.batchId}<a href="/migrate/batches/{migration.batchId}" class="text-blue-400 hover:underline">View batch</a>{/if}
 				</div>
 			</div>
-			<div class="flex items-center text-gray-600">
-				<span class="h-px flex-1 bg-gray-700"></span><Octicon name="chevron-right" size={16} />
-			</div>
-			<div class="flex min-w-0 items-center gap-3">
-				<Octicon name={targetPlatform.icon} size={24} class="shrink-0 text-gray-400" />
-				<div class="min-w-0">
-					<div class="text-xs font-semibold uppercase text-gray-500">{targetPlatform.label} target</div>
-					<a
-						href={targetRepoUrl}
-						target="_blank"
-						rel="noopener"
-						class="mt-1 block truncate font-semibold text-gray-300 hover:text-blue-400"
-					>
-						{migration.targetOrg}/{migration.targetRepo}
-					</a>
-				</div>
-			</div>
-			<div
-				class="col-span-3 mt-1 flex items-center justify-between border-t border-gray-700/70 pt-3 md:col-span-1 md:mt-0 md:block md:border-t-0 md:border-l md:pt-0 md:pl-4"
-			>
-				<span class="inline-flex items-center gap-1.5 text-xs font-medium {stateMeta.text}">
-					{#if stateMeta.pulse}
-						<span class="relative flex h-2 w-2" aria-hidden="true">
-							<span class="absolute inline-flex h-full w-full animate-ping rounded-full {stateMeta.dot} opacity-40"></span>
-							<span class="relative inline-flex h-2 w-2 rounded-full {stateMeta.dot}"></span>
-						</span>
-					{:else}
-						<Octicon name={STATE_ICONS[migration.state]} size={12} />
-					{/if}
-					{stateMeta.label}
-				</span>
-				<span class="inline-flex items-center gap-1 text-sm text-gray-400 md:mt-2">
-					<Octicon name="stopwatch" size={12} />{formatElapsed(migration.elapsedSeconds)}
-				</span>
-			</div>
-		</div>
-
-		<div class="flex flex-wrap items-center gap-2 border-t border-gray-700/70 px-5 py-2.5 text-xs text-gray-500">
-			<span><Octicon name="clock" size={12} /> Started {formatDateTime(migration.startedAt)}</span>
-			{#if migration.sourceSizeKb != null}<span>{formatRepoSize(migration.sourceSizeKb)}</span>{/if}
-			{#if migration.warningsCount > 0}<span class="text-yellow-400">{migration.warningsCount} warnings</span>{/if}
-			{#if migration.batchId}<a href="/migrate/batches/{migration.batchId}" class="text-blue-400">View batch</a>{/if}
-			<div class="ml-auto flex flex-wrap items-center gap-2">
+			<div class="flex shrink-0 flex-wrap items-center gap-2">
 				{#if migration.githubMigrationId}
-					<button type="button" onclick={copyMigrationId} class="rounded-md border border-gray-700 px-2 py-1">
-						<Octicon name={copiedId ? "check" : "copy"} size={12} />{copiedId ? "Copied" : "Copy ID"}
+					<button
+						type="button"
+						onclick={copyMigrationId}
+						aria-label={copiedId ? "Migration ID copied" : "Copy migration ID"}
+						title={copiedId ? "Copied" : "Copy migration ID"}
+						class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-700 bg-gray-900 text-gray-400 transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-100 focus-visible:outline-2 focus-visible:outline-blue-500"
+					>
+						<Octicon name={copiedId ? "check" : "copy"} size={16} />
 					</button>
 				{/if}
 				{#if isActive}
@@ -423,15 +409,16 @@
 						aria-haspopup="dialog"
 						aria-expanded={showCancelDialog}
 						onclick={() => (showCancelDialog = true)}
-						class="rounded-md bg-red-500/10 px-2 py-1 text-red-400">Cancel migration</button
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-2 focus-visible:outline-red-400"><Octicon name="stop" size={16} />Cancel migration</button
 					>
 				{:else if migration.state === "reconciliation_required" && provider.capabilities.restart}
 					<button
 						type="button"
+						aria-label="Review remote status"
 						aria-haspopup="dialog"
 						aria-expanded={showReconciliationDialog}
 						onclick={() => (showReconciliationDialog = true)}
-						class="rounded-md bg-orange-500/10 px-2 py-1 text-orange-300">Review remote status</button
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="shield-check" size={16} />Review status</button
 					>
 				{:else if isRestartable}
 					<button
@@ -439,14 +426,99 @@
 						aria-haspopup="dialog"
 						aria-expanded={showRestartForm}
 						onclick={openRestartForm}
-						class="rounded-md bg-blue-500/10 px-2 py-1 text-blue-400">Restart</button
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="sync" size={16} />Restart</button
 					>
 				{/if}
 			</div>
 		</div>
 	</section>
 
+	<div class="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+		<aside class="lg:border-r lg:border-gray-700 lg:pr-6">
+			<MigrationProgress
+				view="steps"
+				currentPhase={displayedPhase}
+				failed={migration.state === "failed"}
+				active={isActive}
+				showComparison={false}
+			/>
+		</aside>
+
+		<div class="min-w-0 space-y-6">
+			<MigrationProgress
+				view="activity"
+				currentPhase={displayedPhase}
+				failed={migration.state === "failed"}
+				active={isActive}
+				progress={latestProgress}
+				source={progressSourceCounts}
+				target={displayTargetCounts}
+				showComparison={false}
+			/>
+
+			<section aria-labelledby="event-log-title">
+				<div class="mb-3 flex items-center justify-between gap-3">
+					<h2 id="event-log-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
+						<Octicon name="log" size={16} class="text-gray-500" />Event log
+					</h2>
+					<span class="text-xs tabular-nums text-gray-500">{eventLog.length} events</span>
+				</div>
+				<div class="max-h-128 min-h-64 overflow-y-auto rounded-md border border-gray-700 bg-gray-950">
+					{#each eventLog as event, index (event.id ?? index)}
+						<div class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-gray-800/70 px-4 py-2 font-mono text-xs last:border-0 hover:bg-gray-900/60 sm:grid-cols-[4.5rem_7rem_minmax(0,1fr)]">
+							<time datetime={event.createdAt} class="tabular-nums text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</time>
+							<span class="hidden truncate text-gray-500 sm:block">{event.eventType}</span>
+							<span class="min-w-0 wrap-break-word text-gray-300">
+								{#if event.eventType === "step"}
+									{event.payload.message || ""}
+								{:else if event.eventType === "phase_change"}
+									{event.payload.from} to {event.payload.to}
+								{:else if event.eventType === "snapshot"}
+									{event.phase}: {event.payload.progress.current.commits.toLocaleString()} commits,
+									{event.payload.progress.current.issues.toLocaleString()} issues
+								{:else if event.eventType === "complete"}
+									Migration succeeded in {formatElapsed(event.payload.elapsed)}
+								{:else if event.eventType === "failure"}
+									{event.payload.error || event.payload.detail?.failureReason || "Migration failed"}
+								{:else if event.eventType === "restart"}
+									{event.payload.message || "Migration restarted"}
+								{:else}
+									{JSON.stringify(event.payload)}
+								{/if}
+							</span>
+						</div>
+					{/each}
+					{#if eventLog.length === 0}
+						<div class="flex min-h-64 items-center justify-center px-4 text-sm text-gray-500">{isActive ? "Waiting for events..." : "No events recorded"}</div>
+					{/if}
+				</div>
+			</section>
+		</div>
+	</div>
+
+	{#if migration.state === "succeeded"}
+		<section aria-labelledby="resource-verification-title">
+			<h2 id="resource-verification-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
+				<Octicon name="check-circle" size={16} class="text-green-400" />Resource verification
+			</h2>
+			<p class="mt-1 text-sm text-gray-400">Migration completed. Target resource totals are shown below.</p>
+			<dl class="mt-4 grid grid-cols-2 border-y border-gray-700 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-gray-700">
+				{#each completionResources as resource (resource[0])}
+					<div class="px-3 py-3 first:pl-0">
+						<dd class="text-base font-semibold tabular-nums text-gray-100">{resource[1].toLocaleString()}</dd>
+						<dt class="text-xs text-gray-500">{resource[0]}</dt>
+					</div>
+				{/each}
+			</dl>
+		</section>
+	{/if}
+
+	{#if migration.state === "failed" && failureDetail}
+		<ErrorDetail detail={failureDetail} {migration} events={eventLog} />
+	{/if}
+
 	<MigrationProgress
+		view="comparison"
 		currentPhase={displayedPhase}
 		failed={migration.state === "failed"}
 		active={isActive}
@@ -455,62 +527,6 @@
 		target={displayTargetCounts}
 		showComparison={migration.state !== "succeeded"}
 	/>
-
-	{#if migration.state === "succeeded"}
-		<section class="rounded-md border border-green-500/30 bg-green-500/5 p-5">
-			<h2 class="flex items-center gap-2 text-lg font-semibold text-green-400">
-				<Octicon name="check-circle" size={24} />Resource Verification
-			</h2>
-			<p class="mt-1 text-sm text-gray-400">Migration completed. Target resource totals are shown below.</p>
-			<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-				{#each completionResources as resource (resource[0])}
-					<div class="rounded-md bg-gray-900 px-3 py-4 text-center">
-						<div class="text-xl font-bold text-gray-50">{resource[1].toLocaleString()}</div>
-						<div class="text-xs text-gray-500">{resource[0]}</div>
-					</div>
-				{/each}
-			</div>
-		</section>
-	{/if}
-
-	{#if migration.state === "failed" && failureDetail}
-		<ErrorDetail detail={failureDetail} {migration} events={eventLog} />
-	{/if}
-
-	<section>
-		<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300">
-			<Octicon name="log" size={16} />Event Log
-		</h2>
-		<div class="max-h-96 overflow-y-auto rounded-md border border-gray-700 bg-gray-900">
-			{#each eventLog as event, index (event.id ?? index)}
-				<div class="flex items-start gap-3 border-b border-gray-800/50 px-4 py-2.5 last:border-0">
-					<span class="mt-0.5 rounded bg-gray-800 px-1.5 py-0.5 text-xs text-gray-400">{event.eventType}</span>
-					<span class="text-sm text-gray-300">
-						{#if event.eventType === "step"}
-							{event.payload.message || ""}
-						{:else if event.eventType === "phase_change"}
-							{event.payload.from} to {event.payload.to}
-						{:else if event.eventType === "snapshot"}
-							{event.phase}: {event.payload.progress.current.commits.toLocaleString()} commits,
-							{event.payload.progress.current.issues.toLocaleString()} issues
-						{:else if event.eventType === "complete"}
-							Migration succeeded in {formatElapsed(event.payload.elapsed)}
-						{:else if event.eventType === "failure"}
-							{event.payload.error || event.payload.detail?.failureReason || "Migration failed"}
-						{:else if event.eventType === "restart"}
-							{event.payload.message || "Migration restarted"}
-						{:else}
-							{JSON.stringify(event.payload)}
-						{/if}
-					</span>
-					<span class="ml-auto shrink-0 text-xs text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</span>
-				</div>
-			{/each}
-			{#if eventLog.length === 0}
-				<div class="px-4 py-8 text-center text-sm text-gray-500">{isActive ? "Waiting for events..." : "No events recorded"}</div>
-			{/if}
-		</div>
-	</section>
 </div>
 
 <MigrationForm

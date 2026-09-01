@@ -13,6 +13,7 @@
 		source = null,
 		target = null,
 		showComparison = true,
+		view = "all",
 	}: {
 		currentPhase: Phase;
 		failed?: boolean;
@@ -21,6 +22,7 @@
 		source?: Counts | null;
 		target?: Counts | null;
 		showComparison?: boolean;
+		view?: "all" | "steps" | "activity" | "comparison";
 	} = $props();
 
 	const steps: { phase: Phase; label: string; icon: IconName }[] = [
@@ -98,16 +100,14 @@
 </script>
 
 <div class="space-y-6">
-	<section
-		class="overflow-hidden rounded-md border border-gray-700 bg-gray-900"
-		aria-label="Migration pipeline"
-	>
-		<div class="flex items-center justify-between gap-3 px-4 py-2.5">
-			<div class="flex items-center gap-2 text-xs font-medium text-gray-300">
+	{#if view === "all" || view === "steps"}
+	<section aria-label="Migration pipeline">
+		<div class="mb-4 flex items-center justify-between gap-3 lg:block">
+			<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200">
 				<Octicon name="workflow" size={16} class="text-gray-500" />Migration pipeline
-			</div>
+			</h2>
 			<span
-				class="text-xs font-semibold uppercase {failed
+				class="text-xs font-medium lg:mt-1 lg:block lg:pl-6 {failed
 					? 'text-red-400'
 					: currentPhase === 'SUCCEEDED'
 						? 'text-green-400'
@@ -117,43 +117,34 @@
 			</span>
 		</div>
 
-		<div
-			class="grid grid-cols-2 gap-px border-t border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-6"
-		>
-			{#each steps as step, index (step.phase)}
+		<ol>
+			{#each steps as step (step.phase)}
 				{@const status = phaseStatus(step.phase)}
-				<div
-					class="relative flex min-w-0 items-center gap-2.5 bg-gray-900 px-3 py-3 {status ===
-					'active'
-						? 'shadow-[inset_0_-2px_var(--color-green-500)]'
-						: status === 'failed'
-							? 'bg-red-500/5 shadow-[inset_0_-2px_var(--color-red-500)]'
-							: ''}"
-				>
+				<li class="relative flex min-w-0 gap-3 pb-4 last:pb-0">
+					{#if step.phase !== "SUCCEEDED"}
+						<span class="absolute bottom-0 left-2.75 top-6 w-px bg-gray-700" aria-hidden="true"></span>
+					{/if}
 					<span
-						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border {status ===
+						class="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-gray-950 {status ===
 						'completed'
-							? 'border-green-500/30 bg-green-500/10 text-green-400'
+							? 'border-green-500/50 text-green-400'
 							: status === 'active'
-								? 'border-green-500/40 bg-green-500/10 text-green-400'
+								? 'border-green-500 text-green-400'
 								: status === 'failed'
-									? 'border-red-500/40 bg-red-500/10 text-red-400'
-									: 'border-gray-700 bg-gray-950/60 text-gray-600'}"
+									? 'border-red-500 text-red-400'
+									: 'border-gray-700 text-gray-600'}"
 					>
 						{#if status === "completed"}
-							<Octicon name="check" size={16} />
+							<Octicon name="check" size={12} />
 						{:else if status === "failed"}
-							<Octicon name="x" size={16} />
+							<Octicon name="x" size={12} />
 						{:else}
-							<Octicon name={step.icon} size={16} />
+							<Octicon name={step.icon} size={12} />
 						{/if}
 					</span>
-					<span class="min-w-0">
-						<span class="block text-xs font-semibold uppercase text-gray-600"
-							>Phase {index + 1}</span
-						>
-						<span class="mt-0.5 block truncate text-xs font-medium text-gray-300">{step.label}</span>
-						<span class="mt-0.5 block text-xs text-gray-600">
+					<span class="min-w-0 pt-0.5">
+						<span class="block text-sm font-medium {status === 'upcoming' ? 'text-gray-500' : 'text-gray-200'}">{step.label}</span>
+						<span class="mt-0.5 block text-xs {status === 'active' ? 'text-green-400' : status === 'failed' ? 'text-red-400' : 'text-gray-600'}">
 							{status === "completed"
 								? "Complete"
 								: status === "active"
@@ -163,27 +154,28 @@
 										: "Waiting"}
 						</span>
 					</span>
-				</div>
+				</li>
 				{/each}
-		</div>
+		</ol>
 	</section>
+	{/if}
 
-	{#if active && progress}
-		<section class="rounded-md border border-green-500/20 bg-green-500/5 p-4">
+	{#if (view === "all" || view === "activity") && active && progress}
+		<section aria-labelledby="live-progress-title">
 			<div class="mb-3 flex items-center justify-between">
-				<h2 class="flex items-center gap-2 text-sm font-semibold uppercase text-green-400">
-					<Octicon name="pulse" size={16} />Live Progress
+				<h2 id="live-progress-title" class="flex items-center gap-2 text-sm font-semibold text-gray-200">
+					<Octicon name="pulse" size={16} class="text-green-400" />Live progress
 				</h2>
 				<span class="inline-flex items-center gap-1 text-xs text-gray-500">
 					<Octicon name="stopwatch" size={12} />{formatElapsed(progress.current.elapsed)} elapsed
 				</span>
 			</div>
-			<div class="grid grid-cols-3 gap-3 sm:grid-cols-6">
+			<div class="grid grid-cols-2 gap-x-6 gap-y-3 border-y border-gray-700 py-3 sm:grid-cols-3 lg:grid-cols-6">
 				{#each metricRows as row (row.label)}
 					{@const percent =
 						row.source > 0 ? Math.min(100, Math.round((row.live / row.source) * 100)) : 0}
-					<div class="text-center">
-						<div class="text-lg font-bold text-gray-50">{row.live.toLocaleString()}</div>
+					<div>
+						<div class="text-base font-semibold tabular-nums text-gray-100">{row.live.toLocaleString()}</div>
 						<div class="inline-flex items-center gap-1 text-xs text-gray-500">
 							<Octicon name={row.icon} size={12} />{row.label}
 						</div>
@@ -197,7 +189,7 @@
 				{/each}
 			</div>
 			{#if progress.commitsPerMin > 0 || progress.issuesPerMin > 0}
-				<div class="mt-3 flex gap-4 border-t border-green-500/10 pt-2 text-xs text-gray-400">
+				<div class="mt-3 flex gap-4 text-xs text-gray-400">
 					{#if progress.commitsPerMin > 0}<span>{Math.round(progress.commitsPerMin)} commits/min</span>{/if}
 					{#if progress.issuesPerMin > 0}<span>{Math.round(progress.issuesPerMin)} issues/min</span>{/if}
 				</div>
@@ -205,43 +197,41 @@
 		</section>
 	{/if}
 
-	{#if showComparison && (source || target)}
-		<div class="overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-			<table class="w-full text-sm">
-				<thead>
-					<tr class="border-b border-gray-700 text-gray-400">
-						<th class="px-4 py-2.5 text-left font-medium">Resource</th>
-						<th class="px-4 py-2.5 text-right font-medium">Source</th>
-						<th class="px-4 py-2.5 text-right font-medium">Target</th>
-						<th class="px-4 py-2.5 text-right font-medium">Match</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each metricRows as row (row.label)}
-						{@const matches = row.source > 0 ? row.target >= row.source : row.target === 0}
-						<tr class="border-b border-gray-800/50 last:border-0">
-							<td class="px-4 py-2 text-gray-300">
-								<span class="inline-flex items-center gap-2"
-									><Octicon name={row.icon} size={16} class="text-gray-500" />{row.label}</span
+	{#if (view === "all" || view === "comparison") && showComparison && (source || target)}
+		<section aria-labelledby="resource-comparison-title">
+			<div class="mb-3 flex items-center justify-between gap-4">
+				<h2 id="resource-comparison-title" class="text-lg font-semibold text-gray-200">Resource comparison</h2>
+				<span class="text-xs text-gray-500">Source <Octicon name="arrow-right" size={12} /> Target</span>
+			</div>
+			<ul class="border-y border-gray-700">
+				{#each metricRows as row (row.label)}
+					{@const matches = row.source > 0 ? row.target >= row.source : row.target === 0}
+					<li class="grid grid-cols-[minmax(0,1fr)_auto_3rem] items-center gap-3 border-b border-gray-800/70 py-2.5 last:border-0">
+						<span class="inline-flex min-w-0 items-center gap-2 text-sm text-gray-300">
+							<Octicon name={row.icon} size={16} class="shrink-0 text-gray-500" />
+							<span class="truncate">{row.label}</span>
+						</span>
+						<span class="flex items-center justify-end gap-2 text-sm tabular-nums">
+							<span class="text-gray-500">{row.source.toLocaleString()}</span>
+							<Octicon name="arrow-right" size={12} class="text-gray-600" />
+							<span class="min-w-10 text-right text-gray-200">{active && row.target === 0 ? "—" : row.target.toLocaleString()}</span>
+						</span>
+						<span class="flex justify-end text-xs tabular-nums">
+							{#if active && row.target === 0}
+								<span class="text-gray-600"><Octicon name="clock" size={16} /><span class="sr-only">Pending</span></span>
+							{:else if matches}
+								<span class="text-green-400"><Octicon name="check-circle" size={16} /><span class="sr-only">Matched</span></span>
+							{:else}
+								<span class="text-yellow-400"
+									>{row.source > 0
+										? `${Math.floor((row.target / row.source) * 10000) / 100}%`
+										: "—"}</span
 								>
-							</td>
-							<td class="px-4 py-2 text-right text-gray-400">{row.source.toLocaleString()}</td>
-							<td class="px-4 py-2 text-right text-gray-50">{row.target.toLocaleString()}</td>
-							<td class="px-4 py-2 text-right">
-								{#if matches}
-									<span class="text-green-400"><Octicon name="check-circle" size={16} /></span>
-								{:else}
-									<span class="text-yellow-400"
-										>{row.source > 0
-											? `${Math.floor((row.target / row.source) * 10000) / 100}%`
-											: "-"}</span
-									>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+							{/if}
+						</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
 	{/if}
 </div>
