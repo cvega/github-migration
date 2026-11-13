@@ -1,11 +1,13 @@
 # Architecture
 
-The dashboard is a single Bun process serving a SvelteKit application and a
-SQLite database. Its server code is split into `core`, `source`, `profile`, and
-`migrate` domains behind an explicit application composition layer.
+The supported deployment uses two Bun processes: a SvelteKit dashboard and a
+repository-analysis worker. They coordinate through one SQLite database. The
+dashboard server code is split into `core`, `source`, `profile`, and `migrate`
+domains behind an explicit application composition layer.
 
 - [Migration pipeline](#migration-pipeline)
 - [Profile flow](#profile-flow)
+- [Mannequin attribution](#mannequin-attribution)
 - [Concurrency and recovery](#concurrency-and-recovery)
 - [Operational boundaries](#operational-boundaries)
 - [Real-time progress](#real-time-progress)
@@ -16,10 +18,10 @@ SQLite database. Its server code is split into `core`, `source`, `profile`, and
 ## Profile flow
 
 Profile runs gather provider inventory and repository signals, persist
-normalized results, and evaluate migration readiness. GitHub uses organization and
-repository crawls; GitLab and Bitbucket Server use their provider adapters to
-discover projects and collect project metrics. The profile domain owns the run
-lifecycle and analysis in both cases.
+normalized results, and evaluate migration readiness. GitHub uses organization
+and repository crawls; GitLab and Bitbucket Server use their provider adapters
+to discover projects and collect project metrics. The profile domain owns the
+run lifecycle and analysis in both cases.
 
 ```mermaid
 sequenceDiagram
@@ -42,6 +44,19 @@ sequenceDiagram
 	Profile->>Events: Publish terminal frame
 	Events-->>Operator: Stream progress and result
 ```
+
+### Repository analysis
+
+After a GitHub profile completes, the operator can start a separate repository
+analysis run. Durable jobs clone each non-empty repository into the analyzer
+workspace, collect normalized Git and LFS evidence, and persist immutable
+results. The profile page can cancel a run or retry an individual failed job.
+
+The analyzer runs as a separate process with the same `DATA_DIR` and its own
+temporary `ANALYSIS_DIR`. GitHub batch creation requires successful analysis
+for each selected repository that has profile warnings or blockers; clear
+repositories remain eligible without it. GitLab and Bitbucket Server migrations
+do not use this gate.
 
 ## Migration pipeline
 
@@ -111,6 +126,19 @@ Ambiguous remote writes are never replayed automatically. An interruption
 during prepare, mapping, or import becomes `reconciliation_required` when the
 dashboard cannot prove whether the remote operation completed.
 
+## Mannequin attribution
+
+The Mannequins workspace uses the configured GHEC target credential to list a
+target organization's mannequins and visible members. Operators can filter the
+source identities, select a target member, and submit GitHub's attribution
+invitation mutation. Successful submissions append an operator audit event.
+
+Discovery and invitation submission are live GitHub operations, not durable
+migration jobs. The dashboard shows GitHub's current claimant when available,
+but it does not persist invitation state or poll `Invited`, `Completed`, and
+`Rejected` transitions. Retries and rejected-invitation replacement therefore
+remain operator-managed in GitHub.
+
 ## Concurrency and recovery
 
 The manager enforces one app-wide limit of ten executing migrations. Requests
@@ -157,8 +185,8 @@ than one process.
 | Migration capacity | At most ten migrations execute app-wide. Additional requests remain durable in FIFO order. |
 | Batch size | A batch accepts at most 500 repository mappings and uses the same queue as single migrations. |
 | Profile capacity | One profile per source provider can run at a time. |
-| Source inventory | GitLab and Bitbucket inventories stop at the provider-neutral 10,000-project envelope. |
-| Durable state | Migration requests, states, events, batches, and acknowledged provider, GitHub, and GHES checkpoints survive a restart. |
+| Source inventory | Provider inventories stop at the provider-neutral 10,000-project envelope. |
+| Durable state | Migration requests, states, events, batches, analysis jobs, and acknowledged provider, GitHub, and GHES checkpoints survive a restart. |
 | Process-local state | Active controllers, API clients, and request-scoped credentials do not survive a restart. Interrupted profiles are marked failed. |
 
 Provider-specific constraints also apply:
@@ -191,10 +219,13 @@ result even if it missed the live event.
 
 ## Authentication
 
-GitHub source and target credentials are resolved independently. The supported
-modes are request PAT, request GitHub App, environment PAT, and environment
-GitHub App. Request credentials take precedence only when credential override
-is enabled. GitLab and Bitbucket credentials are server-owned.
+GitHub source and target credentials for migration requests are resolved
+independently. The supported migration modes are request PAT, request GitHub
+App, environment PAT, and environment GitHub App. Request credentials take
+precedence when credential override is enabled, which is the default. Profile
+collection, repository analysis, Mannequins, GitLab, and Bitbucket use
+server-owned credentials. Server credentials are restricted to their
+configured source namespaces and target-profile organizations.
 
 Dashboard users and sessions are stored in SQLite. Passwords use Argon2id.
 Browser cookies contain random 32-byte session tokens; only SHA-256 token
@@ -202,12 +233,13 @@ digests are persisted. Session resolution in the request hook populates the
 authenticated user in request locals, which is the sole downstream identity
 source. Disabled users, expired sessions, and revoked sessions are rejected.
 
-Administrators manage users, while operators retain all profiling and migration
-permissions. User administration and successful operator mutations append
-durable audit events. Failed sign-ins are throttled by username/address pair and
-client address without permanently locking a user. When authentication is
-enabled, the root layout returns only `authEnabled` until a user is resolved, so
-operational names and failures are not serialized to unauthenticated clients.
+Administrators manage users, while operators retain profiling and migration
+permissions. User administration, migration commands, profile starts, and
+mannequin invitation submissions append durable audit events. Failed sign-ins
+are throttled by username/address pair and client address without permanently
+locking a user. When authentication is enabled, the root layout returns only
+`authEnabled` until a user is resolved, so operational names and failures are
+not serialized to unauthenticated clients.
 
 ## Persistence
 
@@ -269,9 +301,14 @@ root.
 
 Every production module under `src/lib/server/` must belong to one of these
 classified layers. Browser-capable modules cannot import server modules. The
-`boundaries` gate enforces all of these constraints for absolute and relative
-imports.
+`boundaries` gate enforces these constraints for absolute and relative imports.
 
 Client-facing provider, migration, and profile contracts live outside
 `src/lib/server` so Svelte components can consume them without pulling server
 implementations into the browser bundle.
+
+`src/lib/profile/migration-catalog.ts` is the canonical migration-readiness
+catalog. Each entry describes a limitation or required follow-up, its severity
+and scope, the profiler detector that evaluates it, remediation guidance, and
+the supporting GitHub documentation. Profile analysis combines this reference
+data with collected source signals; the catalog itself performs no detection.

@@ -12,6 +12,7 @@ describe("application navigation", () => {
     ["/migrate/migration-id", "migrations"],
     ["/migrate/batches/batch-id", "migrations"],
     ["/migrate/stats", "statistics"],
+    ["/mannequins", "mannequins"],
     ["/setup", "setup"],
     ["/unknown", null],
   ] as const)("selects the tab for %s", (pathname, expected) => {
@@ -21,6 +22,7 @@ describe("application navigation", () => {
   test("does not treat similar route names as application routes", () => {
     expect(activeAppTab("/migrations")).toBeNull();
     expect(activeAppTab("/profiles")).toBeNull();
+    expect(activeAppTab("/mannequin")).toBeNull();
     expect(activeAppTab("/setup-guide")).toBeNull();
   });
 
@@ -29,6 +31,7 @@ describe("application navigation", () => {
       "profile",
       "migrations",
       "statistics",
+      "mannequins",
       "setup",
     ]);
   });
@@ -38,6 +41,7 @@ describe("application navigation", () => {
       "profile",
       "migrations",
       "statistics",
+      "mannequins",
       "setup",
     ]);
   });

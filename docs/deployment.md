@@ -32,8 +32,9 @@ Configure either explicit unauthenticated mode on a trusted network or
 `GH_MIGRATE_USER` and `GH_MIGRATE_PASS` for the first authenticated startup.
 Those values create the first administrator only while the user table is empty;
 remove them after confirming that administrator can sign in.
-`GH_MIGRATE_SESSION_SECRET` is deprecated and no longer signs sessions. Bind to
-`0.0.0.0` only when a firewall or reverse proxy provides the intended boundary.
+`GH_MIGRATE_SESSION_SECRET` is deprecated and no longer signs sessions. Compose
+publishes to loopback by default; set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only when
+a firewall or reverse proxy provides the intended boundary.
 
 Behind TLS termination, set `ORIGIN` to the public URL. Configure forwarded
 client addressing only when all traffic must pass through one trusted proxy;
@@ -144,7 +145,8 @@ recovery complete.
 
 Send `SIGTERM` to both services for shutdown. The dashboard stops accepting
 work, classifies active migration and profile state, closes SQLite, and releases
-the instance lock. The analyzer stops claiming jobs, lets its active command
-observe cancellation, cleans that job's workspace, and closes SQLite. A job
+the instance lock. The analyzer stops claiming new jobs after its current
+repository command returns, then cleans that job's workspace and closes SQLite.
+Its shutdown signal does not currently interrupt an active Git command. A job
 whose lease expires after an ungraceful analyzer exit is eligible to be claimed
 again.

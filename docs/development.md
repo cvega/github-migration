@@ -10,8 +10,10 @@ bun install
 bun run dev
 ```
 
-The development server listens on `http://localhost:5173`. Server code uses
-`bun:sqlite`, so run all scripts and tests with Bun.
+The development server listens on port 5173 on all interfaces. Use
+`http://localhost:5173` on the development host or the host's LAN address from
+another device. Server code uses `bun:sqlite`, so run all scripts and tests with
+Bun.
 
 ## Tests
 
@@ -76,8 +78,9 @@ Run `bun run verify boundaries` after moving server modules or changing imports.
 
 Use Svelte 5 runes and the existing component conventions. Keep server-only data
 out of page serialization. After component changes, run `bun run check` and the
-focused Playwright workflow at desktop and 390px widths. Verify that dialogs,
-tables, controls, and long repository names do not introduce document overflow.
+focused configured Playwright workflow, then inspect the affected page manually
+at a 390px viewport. Verify that dialogs, tables, controls, and long repository
+names do not introduce document overflow.
 Use the [Migration Workbench](design-system/migration-workbench.md) design system for page composition,
 component states, responsive behavior, and visual review requirements.
 

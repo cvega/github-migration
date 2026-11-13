@@ -29,6 +29,7 @@ after signing in.
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
 | Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
+| Attribute mannequins | Migrated source identities in a GHEC organization | Configure a GHEC target organization and credential, open **Mannequins**, map each source identity to a visible target member, and send the attribution invitation. |
 
 GitHub-to-GHES migration is not supported. See the generated
 [support matrix](architecture.md#migration-pipeline) for the authoritative
@@ -52,7 +53,11 @@ start the run. The detail page streams discovery progress and records provider
 coverage, repository metrics, warnings, blockers, and planning candidates.
 
 Completed profiles can produce a bounded batch plan. Review each source and
-target mapping before opening the migration workflow.
+target mapping before opening the migration workflow. A GitHub batch launched
+from a profile requires successful repository analysis for selected
+repositories with warnings or blockers. Start that analysis from the completed
+profile page and wait for the analyzer service to finish, or retry failed
+repository jobs there. Clear repositories remain eligible without analysis.
 
 ## Start A Migration
 
@@ -65,6 +70,14 @@ target mapping before opening the migration workflow.
 The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
+
+## Attribute Mannequins
+
+Choose **Mannequins**, select a configured GHEC organization, and map each
+unclaimed source identity to a visible organization member. The dashboard sends
+the invitation through GitHub and records the operator action, but GitHub owns
+acceptance. Invitation status is not persisted or polled by the dashboard, so
+review pending or rejected invitations in GitHub before sending another.
 
 ## Stop The Dashboard
 

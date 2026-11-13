@@ -77,7 +77,7 @@
 		aria-label="Notifications{unreadCount > 0 ? ` (${unreadCount} unread)` : ''}"
 		aria-haspopup="true"
 		aria-expanded={open}
-		class="relative flex h-9 w-9 items-center justify-center rounded-md border border-gray-700 bg-gray-900 text-gray-300 outline-none transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-50 focus-visible:ring-2 focus-visible:ring-blue-400 {open
+		class="relative flex h-8 w-8 items-center justify-center rounded-md border border-gray-700 bg-gray-900 text-gray-300 outline-none transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-50 focus-visible:ring-2 focus-visible:ring-blue-400 {open
 			? 'bg-gray-800 text-gray-50'
 			: ''}"
 	>

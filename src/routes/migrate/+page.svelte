@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount, untrack } from "svelte";
+	import { getContext, onDestroy, onMount } from "svelte";
 	import { goto, invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import AuthStatus from "$lib/components/AuthStatus.svelte";
@@ -69,7 +69,6 @@
 	onDestroy(() => {
 		globalSSE?.destroy();
 		if (batchRefreshTimer) clearTimeout(batchRefreshTimer);
-		if (searchDebounce) clearTimeout(searchDebounce);
 	});
 
 	const liveById = $derived.by(() => {
@@ -93,44 +92,9 @@
 	);
 	const q = $derived(data.q ?? "");
 	const searching = $derived(q.length > 0);
-	let searchInput = $state(untrack(() => data.q ?? ""));
-	let appliedSearchQuery = $state(untrack(() => data.q ?? ""));
-	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
-
-	$effect(() => {
-		const nextQuery = data.q ?? "";
-		if (nextQuery !== appliedSearchQuery) {
-			appliedSearchQuery = nextQuery;
-			searchInput = nextQuery;
-		}
-	});
-
-	function navigateSearch(value: string) {
-		const params = new URLSearchParams(page.url.searchParams);
-		const trimmed = value.trim();
-		if (trimmed) params.set("q", trimmed);
-		else params.delete("q");
-		params.delete("page");
-		params.delete("bp");
-		const query = params.toString();
-		goto(query ? `/migrate?${query}` : "/migrate", { keepFocus: true, noScroll: true });
-	}
-
-	function onSearchInput() {
-		if (searchDebounce) clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => navigateSearch(searchInput), 250);
-	}
-
-	function submitSearch(event: SubmitEvent) {
-		event.preventDefault();
-		if (searchDebounce) clearTimeout(searchDebounce);
-		navigateSearch(searchInput);
-	}
 
 	function clearSearch() {
-		if (searchDebounce) clearTimeout(searchDebounce);
-		searchInput = "";
-		navigateSearch("");
+		goto("/migrate", { keepFocus: true, noScroll: true });
 	}
 
 	const counts = $derived(data.stateCounts);
@@ -265,34 +229,6 @@
 			</button>
 		</div>
 	{/if}
-
-	<search>
-		<form onsubmit={submitSearch} class="relative">
-			<span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-500">
-				<Octicon name="search" size={16} />
-			</span>
-			<input
-				type="text"
-				bind:value={searchInput}
-				oninput={onSearchInput}
-				placeholder="Search by repository, organization, or migration ID…"
-				aria-label="Search migrations"
-				autocomplete="off"
-				spellcheck="false"
-				class="h-11 w-full rounded-md border border-gray-700 bg-gray-900 pr-10 pl-10 text-sm text-gray-50 transition-colors placeholder:text-gray-500 hover:border-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none sm:h-10"
-			/>
-			{#if searchInput}
-				<button
-					type="button"
-					onclick={clearSearch}
-					aria-label="Clear search"
-					class="absolute inset-y-0 right-2 flex items-center rounded p-1 text-gray-500 transition-colors hover:text-gray-200"
-				>
-					<Octicon name="x-circle-fill" size={16} />
-				</button>
-			{/if}
-		</form>
-	</search>
 
 	{#if !searching && (batchesResult.total > 0 || activeTotal > 0 || finishedTotal > 0)}
 		<nav aria-label="Migration views" class="grid min-w-0 grid-cols-3 border-b border-gray-700 sm:flex">

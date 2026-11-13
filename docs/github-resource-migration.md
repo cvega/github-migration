@@ -1,6 +1,13 @@
 # GitHub-to-GitHub Migration Engineering Design
 
-Status: Draft
+Status: Draft target design, partially implemented
+
+> **Implementation snapshot:** Durable GitHub repository analysis and the
+> standalone GHEC Mannequins workspace are implemented. Integrated resource
+> snapshots and writes, LFS payload transfer, versioned mappings, multi-track
+> completion, and durable mannequin invitation state remain target design. See
+> [Architecture](architecture.md) and [API Reference](api.md) for the current
+> production contracts.
 
 This document defines the complete GitHub-to-GitHub migration workflow for the
 dashboard: source discovery, repository readiness, GitHub Enterprise Importer
@@ -79,8 +86,9 @@ Important current-state constraints are:
   absent currently collapse to the same Boolean result.
 - `src/lib/server/profile/analysis/duration.ts` estimates duration only from the
   repository API `size` field.
-- `src/lib/server/profile/analysis/repos.ts` intentionally leaves
-  `git-sizer`-dependent findings indeterminate because no local analysis runs.
+- The primary API pass leaves `git-sizer`-dependent findings indeterminate;
+  operators can now start a durable child repository-analysis run from the
+  completed profile page.
 - `src/lib/server/migrate/github/monitor.ts` infers `IMPORTING_METADATA` from
   target repository visibility and counts; GitHub does not return that phase as
   an authoritative remote substate.
@@ -92,11 +100,15 @@ Important current-state constraints are:
 - `src/lib/server/migrate/executors/github-to-ghec.ts` performs source archival
   after GEI and `post_migration`; target behavior must defer destructive source
   finalization until required LFS, resource, and verification work completes.
-- Migration events are durable SSE replay, but the existing schema has no
-  analysis, LFS, API resource, mapping, or mannequin job tables.
-- The production image does not contain Git, Git LFS, or `git-sizer`.
+- Migration events are durable SSE replay. The schema now includes repository
+  analysis runs, jobs, results, and LFS pointer evidence, but it has no
+  migration LFS, API resource, mapping, or mannequin job tables.
+- The dashboard image does not contain Git, Git LFS, or `git-sizer`; the
+  separate profile-analyzer image contains pinned versions of those tools.
 - `src/lib/server/migrate/exporters/docker.ts` already demonstrates the
   repository's sandboxed external-tool execution pattern.
+- The standalone `/mannequins` workspace lists GHEC mannequins and members and
+  submits attribution invitations, but it does not persist invitation status.
 
 The design extends these existing boundaries rather than creating another
 GitHub client abstraction. `createClients` already supplies source and target
@@ -104,12 +116,12 @@ REST, GraphQL, and refreshable credential access.
 
 ### Current and target behavior
 
-This is a target-state engineering design. The `Existing System` section is the
-implemented baseline as of 2026-08-30; later sections define planned behavior
-unless they explicitly say that behavior exists today. In particular, deep
-analysis, LFS execution, complete resource snapshots, target resource writes,
-mapping revisions, conflict decisions, multi-track completion, and mannequin
-jobs are not implemented yet.
+This is a target-state engineering design. The `Existing System` section and
+explicit implementation-status notes describe the current baseline; other
+sections define planned behavior unless they say it exists today. Deep
+repository analysis is implemented. LFS payload execution, complete resource
+snapshots, target resource writes, mapping revisions, conflict decisions,
+multi-track completion, and durable mannequin jobs are not.
 
 The existing detector emits a `git-archive-size-limit` estimate when API
 `diskUsageKb` reaches 2 GiB. That is a current triage threshold, not proof of
@@ -190,6 +202,13 @@ does not make the expensive analysis part of the runner process.
 
 ## Repository Analysis Process
 
+**Implementation status:** The child run, durable queue, separate analyzer,
+full mirror, `git-sizer` metrics, historical LFS pointer inventory, profile UI,
+cancel/retry actions, and migration-planning eligibility checks are implemented.
+The richer primary-pass collection states, operator-selected analysis scope,
+capacity policy, stale-ref enforcement, and analysis SSE described below remain
+target behavior unless called out otherwise.
+
 The primary API pass finishes first and marks its `profile_runs` record
 `completed`. That completed profile is a stable initial assessment: it remains
 readable, exportable, and comparable without waiting for clones or local Git
@@ -204,13 +223,13 @@ and its repository jobs from the completed profile. The profile is not reopened
 or changed back to `running`. The dashboard does not clone repositories or wait
 for analysis commands.
 
-Target behavior: repositories selected for a repository analysis run receive a
-local Git analysis. A dedicated profile analyzer claims durable repository jobs
-and launches an isolated process for one repository at a time. Each job uses a
-full, non-shallow Git mirror containing all reachable refs, then runs
-`git-sizer --json --json-version=2` and `git lfs ls-files --all --json`. Today,
-only the `HEAD:.gitattributes` hint exists; it is not proof that LFS pointers are
-absent.
+Repositories selected for a repository analysis run receive a local Git
+analysis. A dedicated profile analyzer claims durable repository jobs and
+launches an isolated process for one repository at a time. Each job uses a full,
+non-shallow Git mirror containing all reachable refs, then runs
+`git-sizer --json --json-version=2` and `git lfs ls-files --all --json`. The
+primary API pass still records only the `HEAD:.gitattributes` hint; the analyzer
+augments it with historical pointer evidence.
 
 The analysis phase does not fetch Git LFS content, contact the target, or
 schedule migration work. The Git mirror is analysis input because
@@ -317,28 +336,32 @@ Every API-derived file check stores `observed`, `partial`, `truncated`,
 positive current-tree finding may raise priority immediately. A negative result
 only describes that commit and never replaces the all-reachable-history result.
 
-For each selected repository, analysis creates evidence owned by its
-analysis run; it does not overwrite the completed initial profile. When all
-required jobs are terminal, a finalizer computes repository readiness,
-blockers, warnings, and the analysis rollup, then marks the analysis run
-`completed`. Analysis failure is retained on that repository and does not
-erase the primary API findings.
+For each selected repository, analysis creates evidence owned by its analysis
+run; it does not overwrite the completed initial profile. The implementation
+updates success and failure counts inline when a job finishes and marks the run
+`completed` when no queued or running jobs remain. Findings are derived from
+persisted `git-sizer` metrics when results are read; there is no separate
+finalizer or persisted readiness rollup yet. A failed job retains its failure
+reason and does not erase the primary API findings.
 
-A repository analysis failure normally finalizes as `unknown` evidence and a
-blocked result for that repository. The analysis run becomes `failed` only when its jobs or
-finalization cannot produce a coherent result. The initial profile remains
-`completed`.
+The target design adds a finalization phase that turns failed jobs into
+explicit `unknown` evidence, persists repository readiness and a run rollup,
+and reserves run `failed` for a rollup that cannot be produced coherently. The
+initial profile remains `completed` in either model.
 
 `profile_runs` keeps the existing `running`, `completed`, and `failed` states.
-`profile_repository_analysis_runs` independently uses `queued`, `running`, `finalizing`,
-`completed`, `failed`, or `cancelled`. A retry creates another attempt on the
-same repository job. A later refresh against changed source refs creates a new
-analysis run; it does not mutate or version the completed run.
+The analysis-run runtime currently transitions through `queued`, `running`,
+`completed`, and `cancelled`; `finalizing` and `failed` are allowed by the
+schema but are not entered by current code. A retry requeues the same repository
+job and increments its attempt when it is claimed again. A later refresh
+against changed source refs is intended to create a new analysis run rather
+than mutate the completed run.
 
-API collection and deep analysis have independent capacity pools. A profile
+API collection and deep analysis are scheduled independently. A profile
 finishes and releases the provider's API-crawl slot before analysis can be
-started. Analysis workers enforce global concurrency, disk quota, and
-per-host limits across all analysis runs.
+started. The current analyzer processes one repository at a time and checks
+filesystem capacity for each claimed job; target capacity policy adds global
+concurrency, disk reservations, and per-host limits across analysis runs.
 
 The completed profile calculates two storage estimates from API `diskUsageKb`:
 cumulative clone I/O across the selected repositories and peak workspace for
@@ -349,17 +372,16 @@ API cannot expose the packed all-ref mirror size, unreachable-object behavior,
 or historical LFS payload size. LFS payloads are excluded because analysis does
 not download them.
 
-Before claiming work, the scheduler reads actual `/analysis` capacity and free
-space. It preserves a host reserve of the greater of 5 GiB or 10 percent of
-filesystem capacity, then admits a job only when its reservation fits above
-that reserve and any already claimed reservations. A deployment may set a
-lower operational ceiling without changing the profile estimate. A repository
-with unknown API size is admitted one at a time only when the host is otherwise
-idle; the worker monitors workspace growth and fails the attempt as
-`insufficient_workspace` before consuming the host reserve. Measured mirror
-sizes feed later estimates but never rewrite historical runs. The API size is
-an admission proxy, never readiness evidence. The claim transaction is short;
-cloning and tool execution occur outside SQLite transactions.
+After claiming work, the current analyzer reads actual `/analysis` capacity
+and free space. It preserves a host reserve of the greater of 5 GiB or 10
+percent of filesystem capacity and rejects a known-size job whose estimate does
+not fit above that reserve and the optional operational ceiling. The target
+scheduler performs this admission before claiming, reserves space across
+workers, handles unknown-size jobs only on an otherwise idle host, and monitors
+live workspace growth. Measured mirror sizes may feed later estimates but must
+never rewrite historical runs. The API size is an admission proxy, never
+readiness evidence. The claim transaction is short; cloning and tool execution
+occur outside SQLite transactions.
 
 Each analysis job is independently claimable and records `queued`, `running`,
 `succeeded`, `failed`, or `cancelled`; attempt count; lease owner and expiry;
@@ -368,11 +390,13 @@ and failure evidence. Workers renew leases while active. An expired lease makes
 the job claimable again after its isolated workspace is discarded or proven
 safe to reuse.
 
-The analysis service also owns a lightweight finalizer loop. After all
+The target analysis service also owns a lightweight finalizer loop. After all
 required jobs for an analysis run become terminal, one service instance
 atomically claims finalization, computes repository findings and rollups, and
-marks that analysis run `completed` or `failed`. Expensive repository
-commands never execute in the dashboard/API process.
+marks that analysis run `completed` or `failed`. Today, each job completion or
+failure updates counters and may mark the run `completed` in the same database
+transaction. Expensive repository commands never execute in the dashboard/API
+process.
 
 The analysis service has its own deployment and image. That image contains
 Bun, Git, Git LFS, and pinned `git-sizer`; the dashboard image does not gain
@@ -389,11 +413,12 @@ an environment PAT is also recoverable. Request-scoped PATs or private keys are
 not persisted or forwarded into the durable queue, so a profile requiring those
 credentials cannot enter secondary analysis.
 
-The current in-memory profile event publisher cannot carry progress from a
-separate process. The analysis event endpoint must poll durable analysis
-run and job aggregates and emit changes. The existing profile event endpoint
-remains responsible only for the initial API pass. The database, not SSE
-delivery, determines analysis progress and completion.
+The in-memory profile event publisher cannot carry progress from a separate
+process. The current profile page polls its server load every two seconds while
+analysis is active. A future analysis event endpoint may emit durable run and
+job aggregates; the existing profile event endpoint remains responsible only
+for the initial API pass. The database, not delivery to the browser, determines
+analysis progress and completion.
 
 The normalized analysis result records:
 
@@ -530,6 +555,12 @@ the assumed repository concurrency.
 
 ## Operator Workflow
 
+This section describes the integrated target workflow. Today, repository
+analysis is available on the profile detail page and mannequin invitations are
+available in the standalone Mannequins workspace. Resource selection, mapping
+revisions, conflict decisions, and target verification are not yet integrated
+into one migration plan.
+
 ### 1. Configure
 
 The existing migration setup adds resource selection and mapping to the plan.
@@ -559,10 +590,14 @@ repository rows.
 
 ### 3. Attribute
 
-After GEI creates mannequins, the dashboard discovers them on the target,
-matches them to the approved identity map, and submits attribution invitations.
-The dashboard records GitHub's documented states: `Invited`, `Completed`, and
-`Rejected`.
+In the target integrated workflow, after GEI creates mannequins, the dashboard
+discovers them on the target, matches them to the approved identity map, submits
+attribution invitations, and persists GitHub's documented `Invited`,
+`Completed`, and `Rejected` states.
+
+The current standalone workspace implements discovery, member selection, and
+invitation submission. It displays GitHub's current claimant and records the
+operator action, but does not persist or poll invitation states.
 
 For ordinary accounts, acceptance happens outside the dashboard. The public
 GraphQL mutation currently exposes only `ownerId`, `sourceId`, and `targetId`.
@@ -572,9 +607,10 @@ rejected invitation are also undocumented and remain operator blockers.
 
 ### 4. Verify
 
-The dashboard reads target state, normalizes it, and compares it with the frozen
-source snapshot. Verification reports exact matches, accepted differences,
-failures, and resources excluded by the operator.
+In the target workflow, the dashboard reads target state, normalizes it, and
+compares it with the frozen source snapshot. Verification reports exact
+matches, accepted differences, failures, and resources excluded by the
+operator.
 
 ## Completion Semantics
 
@@ -808,11 +844,11 @@ yet recreate or verify them.
 Migration events remain the audit and SSE projection. They are not the source of
 truth for scheduling or recovery.
 
-The profile domain currently has `profile_runs`, `profile_repos`, and normalized
-source inventory tables, but no analysis queue or results tables. The
+The profile domain currently has `profile_runs`, `profile_repos`, normalized
+source inventory tables, and the four repository-analysis tables below. The
 migration domain currently has `migrations`, `events`, `ghes_import_jobs`, and
 `migration_batch_items`, but no LFS, API resource, mapping, or mannequin job
-tables. The remaining records in this section are target schema additions.
+tables. Other records in this section are target schema additions.
 
 ### Profile evidence
 
@@ -823,7 +859,7 @@ normalized Git metrics, ref fingerprints, LFS pointer evidence, and final
 findings. Neither owns downloaded LFS payloads or source/target reconciliation.
 Failed or stale evidence remains explicit.
 
-Target profile persistence adds:
+Implemented profile persistence includes:
 
 - `profile_repository_analysis_runs` for the completed-profile input, selected scope,
   policy version, aggregate state, timestamps, and finalization ownership
@@ -835,9 +871,10 @@ Target profile persistence adds:
   size, and representative path per analysis result; payload availability is
   not asserted during profiling
 
-The finalizer writes analysis-owned repository decisions and its run rollup
-in a transaction. Repository job executors only persist their own results; the
-analysis finalizer never changes the completed initial profile.
+In the target model, the finalizer writes analysis-owned repository decisions
+and its run rollup in a transaction. Current repository job executors persist
+their own results and update run counters and terminal state inline. Neither
+model changes the completed initial profile.
 
 ### Batch plans
 
@@ -901,7 +938,9 @@ manifests, mappings, and invitations may not.
 ## API Contract
 
 The existing profile and migration endpoints remain the top-level entry points.
-Repository-analysis, LFS, resource, mapping, and mannequin routes below are planned API
+Repository analysis currently uses profile-page form actions plus the existing
+profile detail response. The REST routes for repository-analysis mutations and
+all LFS, resource, mapping, and batch-scoped mannequin routes below are planned
 extensions, not current routes.
 
 ### Profile
@@ -909,9 +948,14 @@ extensions, not current routes.
 - `POST /api/profile` starts the initial API profile. The request returns the
   run while API collection continues; that run reaches a terminal state without
   starting repository analysis.
-- `GET /api/profile/:id` includes collection completeness, initial findings,
-  workload bands, proposed analysis scope and priority reasons, prior analysis
-  runs, selected analysis results, and snapshot metadata.
+- `GET /api/profile/:id` currently includes initial findings, paginated
+  repositories, and the selected or latest repository-analysis run. The target
+  response adds complete resource snapshots and richer collection metadata.
+- The profile detail page currently provides `startAnalysis`, `cancelAnalysis`,
+  and `retryAnalysisJob` form actions.
+
+Planned profile API extensions are:
+
 - `GET /api/profile/:id/resources` pages through captured records by resource
   kind and repository without expanding the normal profile response.
 - `POST /api/profile/:id/repository-analyses` validates that the profile is
@@ -925,7 +969,7 @@ extensions, not current routes.
 
 ### Migration creation
 
-`POST /api/migrate` and `POST /api/migrate/batches` accept:
+The target `POST /api/migrate` and `POST /api/migrate/batches` contract adds:
 
 ```json
 {
@@ -938,14 +982,14 @@ extensions, not current routes.
 }
 ```
 
-The server rejects launch unless both runs exist, the analysis belongs to the
-profile, the analysis is completed, every selected repository has a current
-terminal result, required conditional work is present, selected snapshots are
-complete, mappings are resolved, and conflicts have decisions. Batch creation
-freezes the profile snapshots and analysis results and persists all initial
-work before launching the first repository.
+Today, a batch that supplies `profileRunId` verifies that the profile is
+completed and that each selected GitHub repository with warnings or blockers
+has a successful job in the selected latest analysis run. The target contract
+also requires an explicit `analysisRunId`, current terminal results, complete
+conditional work and snapshots, resolved mappings, and approved conflicts. It
+then freezes those inputs before launching the first repository.
 
-### Migration status and commands
+### Planned migration status and commands
 
 - `GET /api/migrate/:id` returns separate GEI, LFS, API resource, verification,
   and attribution summaries in addition to the overall state.
@@ -982,13 +1026,13 @@ analysis runs remain selectable for audit without becoming separate products.
 
 | Surface | Current frontend | Target frontend | Required change |
 |---|---|---|---|
-| Profile state | One `running`, `completed`, or `failed` API run | API profile keeps its terminal state while a child repository analysis has its own lifecycle | Never change a completed API run back to running |
-| Profile progress | One API percentage and transient phase | API progress ends normally; repository analysis reports from the repository toolbar and row states | Keep both lifecycles distinct without creating a second page section |
-| Analysis handoff | None | Completed profile proposes repositories, check families, priorities, omissions, and workspace range | Add explicit selection and `Analyze repositories`; never enqueue mirrors implicitly |
-| Readiness | Zero blockers can display as clear | API findings remain the baseline while Git analysis state enriches each repository independently | Repositories without blockers or warnings can remain ready without Git analysis |
-| Repository worklist | API findings and count tiles | API evidence and deep Git analysis appear together for each repository | Preserve evidence source, capture time, and analysis run identity |
-| Live updates | In-process API SSE | Durable analysis aggregates refresh the visible profile view | Preserve filters, expanded repository, and selection during updates |
-| Planning | Available after API completion | Each repository is eligible independently; a GitHub repository with blockers or warnings requires its own successful Git analysis | Revalidate every selected repository when creating the batch |
+| Profile state | The API profile remains terminal while its child analysis has an independent lifecycle | Preserve this model as more evidence tracks are added | Never change a completed API run back to running |
+| Profile progress | API progress uses SSE; active analysis reloads durable aggregates every two seconds | A dedicated durable analysis stream may replace polling | Keep both lifecycles distinct without creating a second page section |
+| Analysis handoff | `Analyze Git data` queues every non-empty repository | Let the operator review and select the proposed scope | Never enqueue mirrors before an explicit action |
+| Readiness | API findings remain the baseline and Git results enrich each repository | Add richer collection states and stale-ref policy | Clear repositories remain eligible without Git analysis |
+| Repository worklist | API evidence and Git/LFS measurements share each repository row | Add resource snapshots and evidence age | Preserve evidence source, capture time, and analysis run identity |
+| Live updates | The active analysis toolbar polls while preserving the route composition | Durable analysis aggregates or SSE refresh the same view | Preserve filters, expanded repository, and selection during updates |
+| Planning | A repository with warnings or blockers requires a successful analysis job | Revalidate frozen refs, resources, mappings, and conflicts | Revalidate every selected repository when creating the batch |
 
 ### Profile repository enrichment
 
@@ -1012,7 +1056,7 @@ monolith          warning      Not analyzed       Large release assets
 ```
 
 Starting analysis creates one child `profile_repository_analysis_runs` record
-plus one job for each selected non-empty repository. The compact repository
+plus one job for every non-empty repository. The compact repository
 toolbar reports aggregate progress and cancellation; each existing repository
 row reports queued, running, analyzed, failed, or cancelled. Empty repositories
 show that analysis is not required. A cancelled run never renders cancelled jobs
@@ -1024,10 +1068,10 @@ Failed rows expose their failure reason in that same disclosure. Raw command
 output and worker controls never appear in the UI.
 
 A successful repository job contributes its normalized Git metrics, LFS pointer
-inventory, fingerprints, findings, and readiness to the profile read model. It
+inventory, fingerprint, findings, and readiness to the profile read model. It
 does not overwrite API snapshots or gate unrelated repositories. A later
-analysis run creates new child records. Changed source refs mark affected
-results stale and require a new analysis run.
+analysis run creates new child records. Automatically marking changed source
+refs stale and requiring a new analysis run remains target behavior.
 
 At widths below 640 px, repository filters and the analysis toolbar stack before
 the existing horizontally scrollable worklist. Full action labels remain
@@ -1038,10 +1082,10 @@ owner. Route-local production components are:
 
 ```text
 Header.svelte                         # API profile and selected analysis states
-RepositoryAnalysis.svelte            # compact repository toolbar and run controls
+RepositoryAnalysis.svelte            # toolbar, run controls, and active polling
 RepoTable.svelte                      # API facts plus per-repository Git/LFS results
-MigrationPlanDock.svelte             # analysis-bound eligibility and handoff
-live.svelte.ts                        # API and analysis SSE hints
+Plan.svelte                           # analysis-bound eligibility and handoff
+live.svelte.ts                        # initial API profile SSE
 planner.svelte.ts                     # analysis-bound selection and target names
 ```
 
@@ -1085,10 +1129,11 @@ or changing migration inputs silently:
 | Durable artifacts | Delete mirrors after every terminal attempt. Persist normalized metrics; store LFS pointers as normalized child rows, not one JSON result. Retain only bounded, redacted raw tool output under profile retention | LFS inventories can be large, and raw output is neither a scheduler ledger nor safe unbounded SQLite data |
 | Toolchain | Pin exact Git, Git LFS, and `git-sizer` versions in the analyzer image and fixture their output schemas | Reproducibility and parser compatibility depend on concrete versions |
 
-The existing authentication decision is already fixed: repository analysis is
-available only with recoverable server-owned GitHub App or environment PAT
-credentials. A profile created with request-only credentials remains readable,
-but `Analyze repositories` is unavailable with an explicit reason.
+The existing authentication decision is already fixed: profile collection and
+repository analysis are available only with recoverable server-owned GitHub
+App or environment PAT credentials. The dashboard does not create profiles
+with request-only credentials; request-scoped credentials apply to migration
+requests and are not persisted for later analysis.
 
 | Area | Ready now | Must be decided or proven before production enablement |
 |---|---|---|
@@ -1111,6 +1156,10 @@ mannequin behavior is proven. This order produces a usable evidence product
 without pretending unresolved target-write semantics are complete.
 
 ## Code Organization
+
+The service/image topology below is implemented. Subsequent source trees show
+the target organization for the remaining resource-migration work and are not a
+literal inventory of the current working tree.
 
 The target extends the existing domain layout instead of creating a second
 application tree. Code is organized first by domain (`profile` or `migrate`),
@@ -1363,7 +1412,9 @@ never imports `$lib/server`.
 
 ### Persistence names
 
-Existing table names remain unchanged. Target profile additions are:
+Existing table names remain unchanged. The first four repository-analysis
+tables are implemented; the resource and identity tables remain target
+additions:
 
 | Table or column | Ownership and purpose |
 |---|---|
@@ -1417,8 +1468,9 @@ successful analysis job. Neither server domain imports the other.
 
 The dashboard process owns API collection, planning, and status APIs. The
 separate analyzer owns repository mirror creation, isolated tool processes,
-leases, and analysis-run finalization. Both use the profile store contract; the
-analyzer does not import routes or migration
+leases, and inline analysis-run completion. The target design moves persisted
+findings and rollup computation into an explicit finalization phase. Both use
+the profile store contract; the analyzer does not import routes or migration
 orchestration.
 
 The GitHub repository executor remains responsible for one repository. It
@@ -1444,9 +1496,9 @@ On restart:
 
 1. Recover pending jobs using server-owned credentials.
 2. Resume GEI monitoring from its persisted migration ID.
-3. Leave analysis runs in `queued`, `running`, or `finalizing` recoverable;
-  services reclaim expired job or finalization leases instead of changing the
-  completed source profile.
+3. Leave analysis runs in `queued` or `running` recoverable; workers reclaim
+  expired job leases instead of changing the completed source profile. The
+  target finalization phase also makes `finalizing` and its lease recoverable.
 4. Fail an interrupted initial profile because the current API crawl has no
   durable continuation point.
 5. Recreate replaceable analysis or LFS working storage when necessary and
@@ -1549,6 +1601,12 @@ current FPT and GHEC behavior for every endpoint.
 
 A construct is not selectable in production until its capture, conflict,
 apply, recovery, retry, and verification paths are all implemented.
+
+The repository-analysis foundation in item 2 has landed, including durable
+jobs, the analyzer image, Git/LFS evidence, and profile-page controls. Its
+remaining capacity and freshness policy work, items 3 through 8, and the
+batch-integrated invitation state in item 9 remain target work. The standalone
+Mannequins workspace already provides discovery and invitation submission.
 
 ## Research Sources
 

@@ -31,6 +31,35 @@ requires ID, private key, and installation ID together. GitLab and Bitbucket
 credentials are server-owned. Request credentials are hidden when credential
 override is disabled.
 
+## GitHub Rejects Target Access
+
+A configured target credential can still be invalid, expired, installed on the
+wrong organization, or missing migration permissions. A `401` means GitHub
+rejected the PAT or App installation token; replace the credential or verify the
+App installation. A `403` usually means the credential is valid but cannot view
+the organization, mannequins, or members, or cannot create attribution
+invitations.
+
+## Repository Analysis Does Not Advance
+
+Check that the `profile-analyzer` service is running and shares the dashboard's
+`DATA_DIR`. Its private `ANALYSIS_DIR` must be writable and have enough space
+for the configured workspace limit. Inspect analyzer logs for clone, source-App
+authentication, lease, and cleanup failures; failed jobs can be retried from
+the profile detail page.
+
+## Another Device Cannot Reach The Dashboard
+
+The Compose deployment publishes to `127.0.0.1` by default. Set
+`GH_MIGRATE_PUBLISH_HOST=0.0.0.0`, restart Compose, and allow TCP port 3000 only
+from the intended network. The Vite development server already listens on all
+interfaces on port 5173.
+
+On WSL2, confirm the distribution is using mirrored networking or configure
+the required forwarding. Windows Defender Firewall, including the Hyper-V
+firewall applied to WSL, must also allow the selected port; a Linux listener
+alone does not prove that another LAN device can reach it.
+
 ## SSH Or Archive Transfer Fails
 
 Confirm the administrative host, port, username, private key, and pinned

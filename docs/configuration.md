@@ -36,6 +36,21 @@ Migration, profile, failed-login, and expired-session retention is enforced at
 process startup. A continuously running process can temporarily retain rows
 beyond an age limit until its next restart.
 
+## Runtime And Networking
+
+| Variable | Purpose |
+|---|---|
+| `PORT` | Adapter-node HTTP port; Compose fixes this to `3000` |
+| `GH_MIGRATE_PUBLISH_HOST` | Host address where Compose publishes port 3000; default `127.0.0.1` |
+| `ORIGIN` | Browser-visible public origin when running behind a reverse proxy |
+| `ADDRESS_HEADER` | Trusted proxy header used to resolve the client address |
+| `XFF_DEPTH` | Number of trusted proxy hops in the forwarded address chain |
+
+Compose is loopback-only by default. Set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only
+when a firewall or reverse proxy provides the intended network boundary.
+Configure `ADDRESS_HEADER` and `XFF_DEPTH` only when every request passes through
+the trusted proxy; login throttling uses the resolved client address.
+
 ## GitHub Source And Target
 
 | Variable | Purpose |

@@ -1,7 +1,49 @@
 import { expect, test } from "@playwright/test";
 
-test("opens list details from row content while preserving nested controls", async ({ page }) => {
+test("searches migrations from the application header", async ({ page }) => {
+	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate");
+	await hydrated;
+
+	const header = page.getByRole("banner");
+	const search = header.getByRole("searchbox", { name: "Search migrations" });
+	await expect(search).toBeVisible();
+	const controlHeights = await Promise.all([
+		header
+			.getByRole("search", { name: "Migration search" })
+			.evaluate((element) => element.getBoundingClientRect().height),
+		header
+			.getByRole("button", { name: /^Notifications/ })
+			.evaluate((element) => element.getBoundingClientRect().height),
+		header
+			.locator('summary[aria-label^="Open user menu"]')
+			.evaluate((element) => element.getBoundingClientRect().height),
+	]);
+	expect(controlHeights).toEqual([32, 32, 32]);
+	await page.keyboard.press("/");
+	await expect(search).toBeFocused();
+	await search.fill("repository-one");
+
+	await expect(page).toHaveURL(/\/migrate\?q=repository-one$/);
+	await expect(page.getByRole("heading", { name: "Matching batches (1)" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Repositories (1)" })).toBeVisible();
+	await expect(page.getByText("source-one/repository-one", { exact: true })).toBeVisible();
+
+	const rehydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
+	await page.reload();
+	await rehydrated;
+	await expect(header.getByRole("searchbox", { name: "Search migrations" })).toHaveValue(
+		"repository-one",
+	);
+	await header.getByRole("button", { name: "Clear migration search" }).click();
+	await expect(page).toHaveURL(/\/migrate$/);
+	await expect(header.getByRole("searchbox", { name: "Search migrations" })).toHaveValue("");
+});
+
+test("opens list details from row content while preserving nested controls", async ({ page }) => {
+	let hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
+	await page.goto("/migrate");
+	await hydrated;
 	await expect(page.getByRole("link", { name: /Finished/ })).toHaveAttribute("href", "#finished");
 
 	const batchMetadata = page.getByText("1 succeeded", { exact: true }).first();
@@ -28,11 +70,15 @@ test("opens list details from row content while preserving nested controls", asy
 	);
 	await expect(page).toHaveURL(/\/migrate\/seed-e2e-migration-one$/);
 
+	hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate#finished");
+	await hydrated;
 	await page.getByRole("button", { name: "Batch" }).first().click();
 	await expect(page).toHaveURL(/\/migrate\/batches\/seed-e2e-batch-one$/);
 
+	hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate#finished");
+	await hydrated;
 	const listUrl = page.url();
 	await page.getByRole("button", { name: "Copy error details" }).first().click();
 	expect(page.url()).toBe(listUrl);

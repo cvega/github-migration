@@ -13,6 +13,7 @@
 /// <reference types="bun" />
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 import type { SourceProvider } from "../../src/lib/source-provider";
 import type { TargetPlatform } from "../../src/lib/target-platform";
@@ -23,8 +24,9 @@ import {
 } from "./migration-seed-routes";
 import { seedProfiles } from "./seed-profiles";
 
-mkdirSync("data", { recursive: true });
-const db = new Database("data/gh-migrate.db", { create: true });
+const dataDirectory = process.env.DATA_DIR || "data";
+mkdirSync(dataDirectory, { recursive: true });
+const db = new Database(join(dataDirectory, "gh-migrate.db"), { create: true });
 for (const domain of DOMAIN_STORES) domain.applySchema(db);
 
 // ── Clean previous seed data ───────────────────────────────────────────────
@@ -696,16 +698,23 @@ const transaction = db.transaction(() => {
   console.log(`✓ Active batch with 20 repos (5 running, 3 pending)`);
 
   // ── 4. Completed batches (~150) ──────────────────────────────────────
-  const batchBaseDate = new Date(nowMs - 60 * dayMs);
+  const completedBatchCount = 150;
+  const completedBatchHistoryDays = 90;
+  const historicalBatchCount = completedBatchCount - MIGRATION_SEED_ROUTES.length;
 
-  for (let b = 0; b < 150; b++) {
+  for (let b = 0; b < completedBatchCount; b++) {
     const batchId = `seed-batch-${String(b).padStart(4, "0")}`;
     const batchSize = rand(5, 40);
     const route = migrationSeedRoute(b);
-    const batchStart =
+    const daysAgo =
       b < MIGRATION_SEED_ROUTES.length
-        ? new Date(nowMs - (b + 1) * dayMs)
-        : new Date(batchBaseDate.getTime() + b * 6 * 3600 * 1000);
+        ? b + 1
+        : 1 +
+          Math.floor(
+            ((b - MIGRATION_SEED_ROUTES.length) * (completedBatchHistoryDays - 1)) /
+              (historicalBatchCount - 1),
+          );
+    const batchStart = new Date(nowMs - daysAgo * dayMs);
 
     for (let i = 0; i < batchSize; i++) {
       const r = Math.random();

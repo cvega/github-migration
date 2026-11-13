@@ -32,6 +32,7 @@
     "@primer/primitives": "^11.10.0",
     "csv-parse": "^7.0.2",
     "csv-stringify": "^6.8.3",
+    "jdenticon": "^3.3.0",
     "simple-icons": "^16.29.0",
     "ssh2": "^1.17.0",
     "ssh2-sftp-client": "^12.1.1",

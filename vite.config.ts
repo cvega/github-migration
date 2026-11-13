@@ -9,6 +9,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
   server: {
+    host: "0.0.0.0",
     // Browser tests do not use HMR, and disabling it avoids colliding with a
     // developer's long-running Vite server on the dedicated websocket port.
     hmr: process.env.PLAYWRIGHT_TEST

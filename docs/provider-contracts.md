@@ -18,9 +18,9 @@ bounded collection; they do not orchestrate migration lifecycles.
 
 The client sends a private token to the configured GitLab API and percent-
 encodes project paths. Discovery traverses namespace projects with explicit
-pagination and requests statistics where available. Profile collection gathers
-issues, merge requests, commits, branches, tags, and releases under bounded
-concurrency and request budgets.
+pagination and requests statistics where available. For each selected project,
+profiling collects issues, merge requests, commits, branches, tags, and releases
+under bounded concurrency and request budgets.
 
 Native GHEC migration requests a project export, polls completion, downloads
 the archive with a size and timeout bound, and records a durable export
@@ -34,10 +34,13 @@ administrator opts in. Discovery validates the minimum supported server
 version, traverses configured projects and repositories, and normalizes paging
 even when server responses omit optional totals.
 
-Profile collection gathers commits, pull requests, branches, tags, and fork data.
-Native GHEC migration starts the Bitbucket export and retrieves its archive from
-shared home over pinned SFTP. GHES migration uses the read-only external
-exporter and does not lock the source.
+For each selected repository, profiling collects commits, pull requests,
+branches, tags, and fork data. Native GHEC migration starts the Bitbucket export
+and retrieves its archive from shared home over pinned SFTP. GHES migration uses
+the read-only external exporter and does not lock the source.
+
+Provider credentials, archive limits, timeouts, project scopes, and SSH pinning
+are listed in [Configuration](configuration.md).
 
 ## Verification
 

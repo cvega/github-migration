@@ -49,10 +49,23 @@ execution options. Batch requests carry the common source/target configuration
 and either a bounded `repos` path list or an `items` mapping list. Each `items`
 entry identifies `sourceRepo` and may override `targetRepo`. The server
 validates provider scope, target support, duplicate identities, credential
-policy, and the maximum batch size before persisting work.
+policy, and the maximum batch size before persisting work. When a batch refers
+to a completed GitHub profile, each selected repository with profile warnings
+or blockers must have a successful repository analysis result. The server
+rejects missing, active, failed, or cancelled analysis jobs for those
+repositories. Clear repositories remain eligible without analysis, and GitLab
+and Bitbucket Server batches do not use this gate.
 
 The intentional cutover removed the former `/api/migrate/migrations` prefix.
 There are no compatibility aliases.
+
+## Browser Workflows
+
+Repository analysis is started, cancelled, and retried through form actions on
+the profile detail page; its latest detail is returned by
+`GET /api/profile/:id`. Mannequin discovery and attribution invitations are
+form actions on `/mannequins`. Neither workflow currently exposes a public REST
+mutation endpoint.
 
 ## Server-Sent Events
 
