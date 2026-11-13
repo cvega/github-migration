@@ -21,6 +21,10 @@ mounts the same data volume plus its own analysis workspace. Both images run as
 a non-root application user after the entrypoint fixes mounted-directory
 ownership.
 
+The main and release workflows publish the explicit `dashboard` Docker target.
+Compose builds the separate `profile-analyzer` target from the same source
+revision; the publishing workflows do not publish an analyzer image.
+
 Use immutable release tags or digests through `GH_MIGRATE_IMAGE` and
 `GH_MIGRATE_ANALYZER_IMAGE` when deploying an audited build. Build both from the
 same source revision, and do not use `latest` or another floating tag in

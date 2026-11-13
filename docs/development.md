@@ -48,7 +48,9 @@ coverage, generated icons, TypeScript/Svelte diagnostics, formatting, lint,
 documentation, duplicate/dead code, architecture boundaries, cycles, build,
 mutation configuration integrity, Playwright E2E workflows, bundle checks,
 dependency audit, and packaging checks. Playwright uses its seeded `.e2e-data`
-store and starts an isolated development server for the browser run.
+store and starts an isolated development server for the browser run. Fixture
+timestamps are relative to seed time so startup retention remains enabled
+without aging out the test records.
 
 Run a focused gate by passing its name through `verify`, for example
 `bun run verify boundaries`, `bun run verify coverage`, or

@@ -16,8 +16,9 @@ const insert = db.prepare(`
     target_org, target_repo, state, started_at, completed_at, elapsed_seconds
   ) VALUES (?, ?, ?, ?, ?, ?, ?, 'succeeded', ?, ?, 60)
 `);
-const completedAt = "2026-08-07T12:01:00.000Z";
-const startedAt = "2026-08-07T12:00:00.000Z";
+const nowMs = Date.now();
+const completedAt = new Date(nowMs).toISOString();
+const startedAt = new Date(nowMs - 60_000).toISOString();
 
 insert.run(
   "seed-e2e-migration-one",
