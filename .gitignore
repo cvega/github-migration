@@ -12,3 +12,4 @@ data/
 .e2e-data/
 .stryker-tmp/
 reports/mutation/
+.visual-data/
