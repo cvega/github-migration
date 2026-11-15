@@ -1,6 +1,6 @@
-import type { HandleServerError } from "@sveltejs/kit";
-import { building, dev } from "$app/environment";
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
+import type { HandleServerError } from "@sveltejs/kit/hooks";
+import { building, dev } from "$app/env";
 import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
 import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
@@ -74,7 +74,8 @@ export const handle = createRequestHandler({
   sessionCookie: SESSION_COOKIE,
 });
 
-export const handleError: HandleServerError = async ({ error, event }) => {
+export const handleError: HandleServerError = async ({ error, event, kind }) => {
+  if (kind !== "unknown") return;
   const id = Bun.randomUUIDv7().slice(0, 8);
   console.error(`[error ${id}] ${event.request.method} ${event.url.pathname}`, error);
   return { message: `Internal error (ref: ${id})`, code: id };

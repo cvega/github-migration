@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
 import { type GitHubClient, isVersionAtLeast } from "$lib/server/core/github";

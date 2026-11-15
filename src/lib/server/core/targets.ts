@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import { DEFAULT_TARGET_PROFILE_ID, type MigrationTargetProfile } from "$lib/migration-target";
 import { isGhecSource, normalizeGitHubApiUrl, sourceBaseUrl } from "./github";
 

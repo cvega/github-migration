@@ -1,9 +1,9 @@
 /**
  * Server-Sent Events helper. Builds an SSE `Response` with the standard
  * event-stream headers and a 30s keepalive comment, and runs a caller-provided
- * `onStart` once the stream opens. `onStart` receives the raw stream controller
- * and returns a cleanup function (e.g. an unsubscribe) that runs when the client
- * disconnects.
+ * `onStart` once the stream opens. `onStart` receives a text-frame controller;
+ * frames are UTF-8 encoded for the HTTP adapter. It returns a cleanup function
+ * (e.g. an unsubscribe) that runs when the client disconnects.
  *
  * Centralizes the boilerplate shared by the global and per-migration event
  * endpoints (keepalive interval, cleanup wiring, headers).
@@ -23,7 +23,7 @@ const SSE_HEADERS = {
 } as const;
 
 /**
- * @param onStart Runs when the stream opens, with the raw stream controller so
+ * @param onStart Runs when the stream opens, with a text-frame controller so
  *   callers can `enqueue` payloads and `close` the stream. Returns a cleanup fn
  *   (e.g. an unsubscribe) invoked on client disconnect or keepalive failure,
  *   or `null` when setup closes the stream synchronously.
@@ -34,14 +34,28 @@ export function sseResponse(
   let cleanup: (() => void) | null = null;
   let keepalive: ReturnType<typeof setInterval> | null = null;
 
-  const stream = new ReadableStream<string>({
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      cleanup = onStart(controller);
+      cleanup = onStart({
+        get desiredSize() {
+          return controller.desiredSize;
+        },
+        enqueue(frame) {
+          controller.enqueue(encoder.encode(frame));
+        },
+        close() {
+          controller.close();
+        },
+        error(reason) {
+          controller.error(reason);
+        },
+      });
       if (!cleanup) return;
 
       keepalive = setInterval(() => {
         try {
-          controller.enqueue(": keepalive\n\n");
+          controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
           if (keepalive) clearInterval(keepalive);
           keepalive = null;

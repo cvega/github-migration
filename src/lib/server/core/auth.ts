@@ -20,8 +20,8 @@
  * request it takes precedence over the GitHub App token.
  */
 
+import { env } from "node:process";
 import type { graphql } from "@octokit/graphql";
-import { env } from "$env/dynamic/private";
 import type { AppAuth, AuthInput } from "$lib/migrate/types";
 import {
   createSingleClient,

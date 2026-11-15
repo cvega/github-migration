@@ -20,7 +20,10 @@ not override a stored user's password. Ask an administrator to reset the user,
 or stop the dashboard and run `bun run auth:reset --username <administrator>`.
 The temporary password must be changed after sign-in.
 
-Behind TLS termination, set `ORIGIN` to the browser-visible URL. Configure
+Set `ORIGIN` to the exact browser-visible origin for direct HTTP access as well
+as TLS termination. The container default is `http://localhost:3000`; browsing
+`http://127.0.0.1:3000`, a LAN hostname, or an HTTPS URL requires a matching
+override. Do not disable origin protection to work around a mismatch. Configure
 `ADDRESS_HEADER` and `XFF_DEPTH` only when every request passes through the
 trusted proxy. Existing sessions can be revoked from **Manage users**.
 

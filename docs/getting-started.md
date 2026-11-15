@@ -22,6 +22,9 @@ unauthenticated mode with first-administrator bootstrap credentials; see
 [Configuration](configuration.md#core). Add operators from **Manage users**
 after signing in.
 
+If using another hostname, IP address, port, or HTTPS, set `ORIGIN` in `.env`
+to that exact browser-visible origin before starting the containers.
+
 ## Choose Your Path
 
 | Goal | Supported path | What to do |

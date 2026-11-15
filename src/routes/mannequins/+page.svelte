@@ -34,7 +34,7 @@
 	}
 
 	function goToPage(nextPage: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		params.set("page", String(nextPage));
 		goto(`/mannequins?${params.toString()}`);
 	}

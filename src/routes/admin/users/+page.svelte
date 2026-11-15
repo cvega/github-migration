@@ -39,10 +39,11 @@
 		}
 	}
 
-	function goToPage(nextPage: number): void {
-		const params = new URLSearchParams(page.url.searchParams);
+	async function goToPage(nextPage: number): Promise<void> {
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		params.set("page", String(nextPage));
-		goto(`/admin/users?${params.toString()}`, { keepFocus: true, noScroll: false });
+		await goto(`/admin/users?${params.toString()}`, { reset: false });
+		window.scrollTo(0, 0);
 	}
 
 	const enhanceCreateUser: SubmitFunction = () => {

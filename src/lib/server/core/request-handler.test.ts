@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Handle } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
 import type { AuthPrincipal } from "./auth/model";
 import { createRequestHandler } from "./request-handler";
 

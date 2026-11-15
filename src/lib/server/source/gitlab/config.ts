@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import { GitLabClient, normalizeGitLabApiUrl } from "./client";
 
 export interface GitLabSourceConfig {

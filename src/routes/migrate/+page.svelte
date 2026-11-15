@@ -94,7 +94,7 @@
 	const searching = $derived(q.length > 0);
 
 	function clearSearch() {
-		goto("/migrate", { keepFocus: true, noScroll: true });
+		goto("/migrate", { reset: false });
 	}
 
 	const counts = $derived(data.stateCounts);
@@ -161,16 +161,18 @@
 
 	const pctOf = (value: number, total: number) => (total > 0 ? (value / total) * 100 : 0);
 
-	function goMigrationsPage(nextPage: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+	async function goMigrationsPage(nextPage: number) {
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		params.set("page", String(nextPage));
-		goto(`/migrate?${params.toString()}`, { keepFocus: true, noScroll: false });
+		await goto(`/migrate?${params.toString()}`, { reset: false });
+		window.scrollTo(0, 0);
 	}
 
-	function goBatchesPage(nextPage: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+	async function goBatchesPage(nextPage: number) {
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		params.set("bp", String(nextPage));
-		goto(`/migrate?${params.toString()}`, { keepFocus: true, noScroll: false });
+		await goto(`/migrate?${params.toString()}`, { reset: false });
+		window.scrollTo(0, 0);
 	}
 </script>
 

@@ -10,6 +10,27 @@ afterEach(() => {
 });
 
 describe("sseResponse", () => {
+  test("encodes terminal frames as bytes for the HTTP adapter", async () => {
+    const response = sseResponse((controller) => {
+      controller.enqueue('data: {"type":"done"}\n\n');
+      controller.close();
+      return null;
+    });
+    const reader = response.body!.getReader();
+    const { value } = await reader.read();
+    expect(value).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(value)).toBe('data: {"type":"done"}\n\n');
+    expect((await reader.read()).done).toBe(true);
+  });
+
+  test("propagates source errors through the byte stream", async () => {
+    const response = sseResponse((controller) => {
+      controller.error(new Error("event source failed"));
+      return null;
+    });
+    await expect(response.text()).rejects.toThrow("event source failed");
+  });
+
   test("does not create a keepalive when setup closes the stream", async () => {
     let intervals = 0;
     globalThis.setInterval = (() => {

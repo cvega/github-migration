@@ -1,9 +1,33 @@
+import { fileURLToPath } from "node:url";
+import adapter from "@sveltejs/adapter-node";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
-export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+export default defineConfig(({ command, isPreview }) => ({
+  plugins: [
+    tailwindcss(),
+    sveltekit({
+      preprocess: vitePreprocess(),
+      adapter: adapter({ out: "build", precompress: true }),
+      version: { pollInterval: 0 },
+      // Keep form origin protection enabled; JSON APIs enforce it in the request handler.
+      csp: {
+        directives: {
+          "default-src": ["self"],
+          "script-src": ["self"],
+          "style-src": ["self", "unsafe-inline"],
+          "img-src": ["self", "data:"],
+          "connect-src": command === "serve" && !isPreview ? ["self", "ws:", "wss:"] : ["self"],
+          "font-src": ["self"],
+        },
+      },
+    }),
+  ],
+  resolve: {
+    alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },
+  },
   build: {
     // @primer/octicons bundles all icon SVGs (~900kB); not tree-shakeable.
     chunkSizeWarningLimit: 1000,
@@ -22,4 +46,4 @@ export default defineConfig({
   ssr: {
     external: ["bun:sqlite"],
   },
-});
+}));

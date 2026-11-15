@@ -5,8 +5,7 @@
  */
 import { mock } from "bun:test";
 
-mock.module("$env/dynamic/private", () => ({ env: process.env }));
-mock.module("$app/environment", () => ({
+mock.module("$app/env", () => ({
   browser: false,
   building: false,
   dev: false,

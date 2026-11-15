@@ -19,6 +19,7 @@ services:
       - ARCHIVE_DIR=/archives
       - EXPORTER_ARCHIVE_VOLUME=${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}
       - PORT=3000
+      - ORIGIN=${ORIGIN:-http://localhost:3000}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/ready >/dev/null || exit 1"]
       interval: 30s

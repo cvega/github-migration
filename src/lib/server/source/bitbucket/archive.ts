@@ -1,7 +1,7 @@
 import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { env } from "node:process";
 import SftpClient from "ssh2-sftp-client";
-import { env } from "$env/dynamic/private";
 import { verifySshHostKey } from "$lib/server/core/ssh-host-key";
 
 interface SftpArchiveConfig {

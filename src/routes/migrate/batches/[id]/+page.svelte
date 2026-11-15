@@ -195,10 +195,11 @@
 		}
 	}
 
-	function goPage(nextPage: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+	async function goPage(nextPage: number) {
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		params.set("page", String(nextPage));
-		goto(`?${params.toString()}`, { keepFocus: true, noScroll: false });
+		await goto(`?${params.toString()}`, { reset: false });
+		window.scrollTo(0, 0);
 	}
 </script>
 

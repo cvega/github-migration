@@ -42,7 +42,7 @@ beyond an age limit until its next restart.
 |---|---|
 | `PORT` | Adapter-node HTTP port; Compose fixes this to `3000` |
 | `GH_MIGRATE_PUBLISH_HOST` | Host address where Compose publishes port 3000; default `127.0.0.1` |
-| `ORIGIN` | Browser-visible public origin when running behind a reverse proxy |
+| `ORIGIN` | Exact browser-visible origin, including scheme and port; container/Compose default `http://localhost:3000` |
 | `ADDRESS_HEADER` | Trusted proxy header used to resolve the client address |
 | `XFF_DEPTH` | Number of trusted proxy hops in the forwarded address chain |
 
@@ -50,6 +50,12 @@ Compose is loopback-only by default. Set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only
 when a firewall or reverse proxy provides the intended network boundary.
 Configure `ADDRESS_HEADER` and `XFF_DEPTH` only when every request passes through
 the trusted proxy; login throttling uses the resolved client address.
+
+Set `ORIGIN` for direct HTTP access as well as reverse proxies. For example,
+use `http://127.0.0.1:3000` when browsing that address, or
+`https://migrate.example.com` behind TLS termination. The hostname, scheme, and
+port must match the browser URL; a mismatch rejects login forms and JSON API
+writes. Keep origin protection enabled.
 
 ## GitHub Source And Target
 

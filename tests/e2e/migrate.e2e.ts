@@ -28,6 +28,7 @@ test("searches migrations from the application header", async ({ page }) => {
 	await expect(page.getByRole("heading", { name: "Matching batches (1)" })).toBeVisible();
 	await expect(page.getByRole("heading", { name: "Repositories (1)" })).toBeVisible();
 	await expect(page.getByText("source-one/repository-one", { exact: true })).toBeVisible();
+	await expect(search).toBeFocused();
 
 	const rehydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.reload();
@@ -38,6 +39,7 @@ test("searches migrations from the application header", async ({ page }) => {
 	await header.getByRole("button", { name: "Clear migration search" }).click();
 	await expect(page).toHaveURL(/\/migrate$/);
 	await expect(header.getByRole("searchbox", { name: "Search migrations" })).toHaveValue("");
+	await expect(search).toBeFocused();
 });
 
 test("opens list details from row content while preserving nested controls", async ({ page }) => {

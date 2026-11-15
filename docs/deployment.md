@@ -25,6 +25,10 @@ The main and release workflows publish the explicit `dashboard` Docker target.
 Compose builds the separate `profile-analyzer` target from the same source
 revision; the publishing workflows do not publish an analyzer image.
 
+The reusable verification workflow builds and scans both production images.
+It checks authenticated login, same-origin JSON validation, cross-origin
+rejection, live SQLite backup, and analyzer toolchain/database startup.
+
 Use immutable release tags or digests through `GH_MIGRATE_IMAGE` and
 `GH_MIGRATE_ANALYZER_IMAGE` when deploying an audited build. Build both from the
 same source revision, and do not use `latest` or another floating tag in
@@ -40,7 +44,10 @@ remove them after confirming that administrator can sign in.
 publishes to loopback by default; set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only when
 a firewall or reverse proxy provides the intended boundary.
 
-Behind TLS termination, set `ORIGIN` to the public URL. Configure forwarded
+Containers default `ORIGIN` to `http://localhost:3000`. Set it to the exact
+browser-visible origin for any other hostname, IP, port, or HTTPS deployment.
+This is required for direct HTTP access as well as TLS termination; a mismatch
+rejects login forms and JSON API writes. Configure forwarded
 client addressing only when all traffic must pass through one trusted proxy;
 otherwise clients could spoof their address and weaken login throttling.
 

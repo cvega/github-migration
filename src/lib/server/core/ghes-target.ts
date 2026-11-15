@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import type { MigrationTargetProfile } from "$lib/migration-target";
 import { type ExporterSandboxPolicy, getExporterSandboxPolicy } from "./exporter-sandbox";
 import { getMigrationTargetProfile } from "./targets";

@@ -1,4 +1,5 @@
-import { type Handle, redirect } from "@sveltejs/kit";
+import { redirect } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
 import type { AuthPrincipal } from "$lib/server/core/auth/model";
 
 /**

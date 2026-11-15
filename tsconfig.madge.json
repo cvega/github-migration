@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
+      "@sveltejs/kit/hooks": ["node_modules/@sveltejs/kit/types/index.d.ts"],
       "$lib": ["src/lib"],
       "$lib/*": ["src/lib/*"]
     }

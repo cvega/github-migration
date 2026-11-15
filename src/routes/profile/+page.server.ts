@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import { getFormDefaults, isSourceAuthAvailable } from "$lib/server/core/auth";
 import {
   countProfileRuns,

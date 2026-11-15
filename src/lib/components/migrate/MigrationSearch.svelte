@@ -20,14 +20,14 @@
 	});
 
 	function navigateSearch(value: string) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.searchParams.toString());
 		const trimmed = value.trim();
 		if (trimmed) params.set("q", trimmed);
 		else params.delete("q");
 		params.delete("page");
 		params.delete("bp");
 		const query = params.toString();
-		goto(query ? `/migrate?${query}` : "/migrate", { keepFocus: true, noScroll: true });
+		goto(query ? `/migrate?${query}` : "/migrate", { reset: false });
 	}
 
 	function onSearchInput() {

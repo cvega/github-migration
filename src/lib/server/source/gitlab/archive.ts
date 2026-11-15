@@ -1,6 +1,6 @@
 import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { env } from "$env/dynamic/private";
+import { env } from "node:process";
 import type { GitLabClient } from "./client";
 
 type GitLabArchiveClient = Pick<GitLabClient, "downloadProjectExport">;
