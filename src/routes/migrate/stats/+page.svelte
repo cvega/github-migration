@@ -22,12 +22,12 @@
 	const periodOptions = [
 		{ value: '30d', label: '30 days' },
 		{ value: '90d', label: '90 days' },
-		{ value: 'all', label: 'All' },
+		{ value: 'all', label: 'All time' },
 	] as const;
 	const modeOptions = [
-		{ value: 'all', label: 'All' },
-		{ value: 'single', label: 'Single' },
-		{ value: 'batch', label: 'Batch' },
+		{ value: 'all', label: 'All modes', icon: null },
+		{ value: 'single', label: 'Single', icon: 'repo' },
+		{ value: 'batch', label: 'Batch', icon: 'stack' },
 	] as const;
 	const sourceFilterOptions = $derived([
 		{ value: 'all', label: 'All sources', href: statsFilterHref({ source: 'all' }) },
@@ -184,7 +184,7 @@
 
 	<form
 		method="GET"
-		class="flex flex-wrap items-end gap-3"
+		class="stats-filters"
 		aria-label="Statistics filters"
 	>
 		<FilterMenu
@@ -194,7 +194,7 @@
 			icon="repo"
 			value={filters.sourceProvider}
 			options={sourceFilterOptions}
-			minWidth="12.625rem"
+			minWidth="0"
 		/>
 
 		<FilterMenu
@@ -204,19 +204,19 @@
 			icon="repo-push"
 			value={filters.targetPlatform}
 			options={targetFilterOptions}
-			minWidth="12.625rem"
+			minWidth="0"
 		/>
 
-		<fieldset class="min-w-64 flex-1 sm:flex-none">
-			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
+		<fieldset class="min-w-0">
+			<legend class="mb-1.5 text-xs font-medium text-gray-400">
 				<span class="inline-flex items-center gap-1.5"
 					><Octicon name="calendar" size={12} />Started</span
 				>
 			</legend>
-			<div class="stats-segmented flex h-8 rounded-md">
+			<div class="stats-segmented">
 				{#each periodOptions as option (option.value)}
 					<label
-						class="stats-segment relative flex flex-1 cursor-pointer items-center justify-center px-3 text-xs"
+						class="stats-segment"
 					>
 						<input
 							class="sr-only"
@@ -232,14 +232,14 @@
 			</div>
 		</fieldset>
 
-		<fieldset class="min-w-64 flex-1 sm:flex-none">
-			<legend class="mb-1.5 text-xs font-semibold uppercase text-gray-500">
+		<fieldset class="min-w-0">
+			<legend class="mb-1.5 text-xs font-medium text-gray-400">
 				<span class="inline-flex items-center gap-1.5"><Octicon name="stack" size={12} />Mode</span>
 			</legend>
-			<div class="stats-segmented flex h-8 rounded-md">
+			<div class="stats-segmented">
 				{#each modeOptions as option (option.value)}
 					<label
-						class="stats-segment relative flex flex-1 cursor-pointer items-center justify-center px-3 text-xs"
+						class="stats-segment"
 					>
 						<input
 							class="sr-only"
@@ -249,6 +249,7 @@
 							checked={filters.mode === option.value}
 							onchange={(event) => event.currentTarget.form?.requestSubmit()}
 						/>
+						{#if option.icon}<Octicon name={option.icon} size={16} />{/if}
 						{option.label}
 					</label>
 				{/each}
@@ -258,11 +259,12 @@
 		{#if hasActiveFilters}
 			<a
 				href="/migrate/stats"
-				class="flex size-8 items-center justify-center rounded-md border border-gray-600 bg-gray-950 text-gray-400 outline-none hover:border-gray-500 hover:bg-gray-800 hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-blue-400"
+				class="absolute -top-0.5 right-0 inline-flex h-5 items-center gap-1 rounded-sm text-xs text-gray-400 outline-none hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-blue-400"
 				aria-label="Reset filters"
 				title="Reset filters"
 			>
 				<Octicon name="x" size={12} />
+				Reset
 			</a>
 		{/if}
 	</form>
@@ -811,24 +813,41 @@
 </div>
 
 <style>
+	.stats-filters {
+		position: relative;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: end;
+		gap: 0.75rem;
+	}
+
 	.stats-segmented {
-		overflow: hidden;
+		display: flex;
+		height: 2rem;
+		gap: 0.125rem;
+		padding: 0.125rem;
 		border: 1px solid var(--controlTrack-borderColor-rest);
+		border-radius: 0.375rem;
 		background: var(--controlTrack-bgColor-rest);
 	}
 
 	.stats-segment {
+		position: relative;
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-items: center;
+		justify-content: center;
+		gap: 0.375rem;
+		padding-inline: 0.5rem;
+		border: 1px solid transparent;
+		border-radius: 0.25rem;
 		color: var(--controlTrack-fgColor-rest);
-	}
-
-	.stats-segment:not(:last-child)::after {
-		position: absolute;
-		top: 8px;
-		right: -1px;
-		bottom: 8px;
-		width: 1px;
-		background: var(--borderColor-default);
-		content: '';
+		font-size: 0.75rem;
+		font-weight: 500;
+		white-space: nowrap;
+		cursor: pointer;
+		transition: background-color 120ms, border-color 120ms, color 120ms;
 	}
 
 	.stats-segment:not(:has(input:checked)):hover {
@@ -841,32 +860,36 @@
 	}
 
 	.stats-segment:has(input:checked) {
-		z-index: 1;
-		margin-block: -1px;
-		border: 1px solid var(--controlKnob-borderColor-rest);
-		border-radius: 6px;
-		background: var(--controlKnob-bgColor-rest);
-		color: var(--fgColor-default);
+		border-color: color-mix(in srgb, var(--fgColor-accent) 35%, transparent);
+		background: var(--bgColor-accent-muted);
+		color: var(--fgColor-accent);
 		font-weight: 600;
-	}
-
-	.stats-segment:first-child {
-		margin-left: -1px;
-	}
-
-	.stats-segment:last-child {
-		margin-right: -1px;
-	}
-
-	.stats-segment:has(input:checked)::after,
-	.stats-segment:has(+ .stats-segment input:checked)::after {
-		display: none;
 	}
 
 	.stats-segment:has(input:focus-visible) {
 		z-index: 2;
 		outline: 2px solid var(--fgColor-accent);
 		outline-offset: -2px;
+	}
+
+	@media (min-width: 40rem) {
+		.stats-filters {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
+	@media (min-width: 75rem) {
+		.stats-filters {
+			width: fit-content;
+			max-width: 100%;
+			grid-template-columns: 12.625rem 14rem 14.5rem 15.5rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.stats-segment {
+			transition: none;
+		}
 	}
 
 	@media (min-width: 64rem) {

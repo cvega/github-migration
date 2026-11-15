@@ -93,7 +93,7 @@
 
 <svelte:window onpointerdown={handleOutsidePointer} onkeydown={handleWindowKeydown} />
 
-<div bind:this={root} style:min-width={minWidth} class="relative grid flex-1 gap-1.5 text-xs font-semibold uppercase text-gray-500 sm:flex-none">
+<div bind:this={root} style:min-width={minWidth} class="relative grid flex-1 gap-1.5 text-xs font-medium text-gray-400 sm:flex-none">
 	<span id={`${id}-label`} class="inline-flex items-center gap-1.5">
 		<Octicon name={icon} size={12} />{label}
 	</span>
@@ -106,7 +106,7 @@
 		aria-labelledby={`${id}-label ${id}-value`}
 		onclick={togglePanel}
 		onkeydown={handleTriggerKeydown}
-		class="filter-trigger flex h-8 items-center gap-2 rounded-md px-3 text-xs font-semibold normal-case outline-none"
+		class="filter-trigger flex h-8 items-center gap-2 rounded-md px-3 text-xs font-medium normal-case outline-none"
 	>
 		<span id={`${id}-value`} class="min-w-0 flex-1 truncate text-left">{selected?.label ?? value}</span>
 		<Octicon name="chevron-down" size={16} class="shrink-0 text-gray-400 transition-transform {open ? 'rotate-180' : ''}" />
