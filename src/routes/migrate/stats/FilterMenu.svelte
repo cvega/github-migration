@@ -95,7 +95,7 @@
 
 <div bind:this={root} style:min-width={minWidth} class="relative grid flex-1 gap-1.5 text-xs font-medium text-gray-400 sm:flex-none">
 	<span id={`${id}-label`} class="inline-flex items-center gap-1.5">
-		<Octicon name={icon} size={12} />{label}
+		<Octicon name={icon} size={12} class="text-blue-400" />{label}
 	</span>
 	<input type="hidden" {name} {value} />
 	<button
@@ -167,19 +167,19 @@
 
 <style>
 	.filter-trigger {
-		border: 1px solid var(--button-default-borderColor-rest);
-		background: var(--button-default-bgColor-rest);
-		box-shadow: var(--button-default-shadow-resting);
-		color: var(--button-default-fgColor-rest);
+		border: 1px solid var(--controlTrack-borderColor-rest);
+		background: var(--controlTrack-bgColor-rest);
+		color: var(--controlTrack-fgColor-rest);
 	}
 
 	.filter-trigger:hover,
 	.filter-trigger[aria-expanded='true'] {
-		background: var(--button-default-bgColor-hover);
+		background: var(--controlTrack-bgColor-hover);
+		color: var(--fgColor-default);
 	}
 
 	.filter-trigger:active {
-		background: var(--button-default-bgColor-active);
+		background: var(--controlTrack-bgColor-active);
 	}
 
 	.filter-trigger:focus-visible {

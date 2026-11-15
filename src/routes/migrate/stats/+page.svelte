@@ -173,7 +173,7 @@
 <div class="space-y-7">
 	<div class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-700 pb-4">
 		<div>
-			<h1 class="text-xl font-semibold text-gray-50">Migration statistics</h1>
+			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50"><Octicon name="graph" size={24} class="text-gray-500" />Migration statistics</h1>
 			<p class="mt-1 text-sm text-gray-500">Outcomes, throughput, and performance across migration history</p>
 		</div>
 		<div class="flex items-baseline gap-2 tabular-nums">
@@ -210,7 +210,7 @@
 		<fieldset class="min-w-0">
 			<legend class="mb-1.5 text-xs font-medium text-gray-400">
 				<span class="inline-flex items-center gap-1.5"
-					><Octicon name="calendar" size={12} />Started</span
+					><Octicon name="calendar" size={12} class="text-blue-400" />Started</span
 				>
 			</legend>
 			<div class="stats-segmented">
@@ -234,7 +234,7 @@
 
 		<fieldset class="min-w-0">
 			<legend class="mb-1.5 text-xs font-medium text-gray-400">
-				<span class="inline-flex items-center gap-1.5"><Octicon name="stack" size={12} />Mode</span>
+				<span class="inline-flex items-center gap-1.5"><Octicon name="stack" size={12} class="text-blue-400" />Mode</span>
 			</legend>
 			<div class="stats-segmented">
 				{#each modeOptions as option (option.value)}
@@ -255,18 +255,6 @@
 				{/each}
 			</div>
 		</fieldset>
-
-		{#if hasActiveFilters}
-			<a
-				href="/migrate/stats"
-				class="absolute -top-0.5 right-0 inline-flex h-5 items-center gap-1 rounded-sm text-xs text-gray-400 outline-none hover:text-gray-200 focus-visible:ring-2 focus-visible:ring-blue-400"
-				aria-label="Reset filters"
-				title="Reset filters"
-			>
-				<Octicon name="x" size={12} />
-				Reset
-			</a>
-		{/if}
 	</form>
 
 	{#if stats.total === 0}
@@ -278,7 +266,6 @@
 					href="/migrate/stats"
 					class="mt-4 inline-flex items-center gap-1.5 rounded-md border border-gray-600 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-200 outline-none hover:bg-gray-700 focus-visible:ring-2 focus-visible:ring-blue-400"
 				>
-					<Octicon name="x" size={12} />
 					Reset filters
 				</a>
 			{:else}
@@ -295,12 +282,12 @@
 	{:else}
 		<dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-5">
 			<div class="bg-gray-950 px-4 py-4">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="check-circle" size={12} />Success rate</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="check-circle" size={12} class="text-green-400" />Success rate</dt>
 				<dd class="mt-1 text-2xl font-semibold tabular-nums text-green-400">{stats.successRate}%</dd>
 				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.succeeded)} succeeded · {fmtNum(stats.byState.failed)} failed</p>
 			</div>
 			<div class="bg-gray-950 px-4 py-4">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stopwatch" size={12} />Duration</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stopwatch" size={12} class="text-blue-400" />Duration</dt>
 				<dd class="mt-1 flex items-baseline gap-1.5 text-2xl font-semibold tabular-nums text-gray-50">
 					{formatElapsed(stats.duration.medianSeconds)} <span class="text-sm font-normal text-gray-400">median</span>
 				</dd>
@@ -314,17 +301,17 @@
 				</p>
 			</div>
 			<div class="bg-gray-950 px-4 py-4">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Data migrated</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} class="text-blue-400" />Data migrated</dt>
 				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{formatRepoSize(stats.data.totalKb)}</dd>
 				<p class="mt-0.5 text-xs text-gray-500">{formatRepoSize(stats.data.avgKb)} average per repository</p>
 			</div>
 			<div class="bg-gray-950 px-4 py-4">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="sync" size={12} />In progress</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="sync" size={12} class="text-blue-400" />In progress</dt>
 				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.active)}</dd>
 				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.running)} currently running</p>
 			</div>
 			<div class="col-span-2 bg-gray-950 px-4 py-4 sm:col-span-1">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stack" size={12} />Batches</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="stack" size={12} class="text-blue-400" />Batches</dt>
 				<dd class="mt-1 text-2xl font-semibold tabular-nums text-gray-50">{fmtNum(stats.batches)}</dd>
 				<p class="mt-0.5 text-xs text-gray-500">{fmtNum(stats.byState.failed)} failed migrations</p>
 			</div>
@@ -337,7 +324,7 @@
 			<section class="border-y border-gray-700 py-5">
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div>
-						<h2 class="text-sm font-semibold text-gray-200">Completions over time</h2>
+						<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="graph" size={16} class="text-gray-500" />Completions over time</h2>
 						<p class="mt-1 text-xs text-gray-500">{firstDay ? shortDate(firstDay.date) : ''}–{lastDay ? shortDate(lastDay.date) : ''} · daily outcomes</p>
 					</div>
 					<div class="inline-flex items-center gap-3 text-xs text-gray-500">
@@ -399,7 +386,7 @@
 		<section class="border-y border-gray-700">
 			<div class="flex flex-wrap items-end justify-between gap-2 py-4">
 				<div>
-					<h2 class="text-sm font-semibold text-gray-200">Migration outcomes</h2>
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="check-circle" size={16} class="text-gray-500" />Migration outcomes</h2>
 					<p class="mt-1 text-xs text-gray-500">Current state across matching migrations</p>
 				</div>
 				<div class="text-right">
@@ -433,7 +420,7 @@
 		<section>
 			<div class="mb-3 flex flex-wrap items-end justify-between gap-2">
 				<div>
-					<h2 class="text-sm font-semibold text-gray-200">Resources migrated</h2>
+					<h2 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="database" size={16} class="text-gray-500" />Resources migrated</h2>
 					<p class="mt-1 text-xs text-gray-500">Repository contents moved successfully</p>
 				</div>
 				<span class="text-xs text-gray-500">
@@ -443,7 +430,7 @@
 			<dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-6">
 				{#each resourceCards as resource (resource.label)}
 					<div class="bg-gray-950 px-3 py-3">
-						<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name={resource.icon} size={12} />{resource.label}</dt>
+						<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name={resource.icon} size={12} class="text-blue-400" />{resource.label}</dt>
 						<dd class="mt-1 text-base font-semibold tabular-nums text-gray-100">{fmtNum(resource.value)}</dd>
 					</div>
 				{/each}
@@ -451,10 +438,10 @@
 		</section>
 
 		<section>
-			<h2 class="mb-3 text-sm font-semibold text-gray-200">Highlights</h2>
+			<h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="star" size={16} class="text-gray-500" />Highlights</h2>
 			<dl class="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-2 lg:grid-cols-4">
 			<div class="bg-gray-950 px-4 py-3">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="zap" size={12} />Fastest</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="zap" size={12} class="text-blue-400" />Fastest</dt>
 				{#if stats.records.fastest}
 					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatElapsed(stats.records.fastest.seconds)}</dd>
 					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.fastest.repo}>{stats.records.fastest.repo}</p>
@@ -463,7 +450,7 @@
 				{/if}
 			</div>
 			<div class="bg-gray-950 px-4 py-3">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="hourglass" size={12} />Slowest</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="hourglass" size={12} class="text-blue-400" />Slowest</dt>
 				{#if stats.records.slowest}
 					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatElapsed(stats.records.slowest.seconds)}</dd>
 					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.records.slowest.repo}>{stats.records.slowest.repo}</p>
@@ -472,7 +459,7 @@
 				{/if}
 			</div>
 			<div class="bg-gray-950 px-4 py-3">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} />Largest repository</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="database" size={12} class="text-blue-400" />Largest repository</dt>
 				{#if stats.data.largestRepo}
 					<dd class="mt-1 text-lg font-semibold text-gray-100">{formatRepoSize(stats.data.largestKb)}</dd>
 					<p class="mt-0.5 truncate text-xs text-gray-500" title={stats.data.largestRepo}>{stats.data.largestRepo}</p>
@@ -481,7 +468,7 @@
 				{/if}
 			</div>
 			<div class="bg-gray-950 px-4 py-3">
-				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="alert" size={12} />Warnings</dt>
+				<dt class="flex items-center gap-1.5 text-xs text-gray-500"><Octicon name="alert" size={12} class="text-blue-400" />Warnings</dt>
 				<dd class="mt-1 text-lg font-semibold text-gray-100">{fmtNum(stats.warnings.total)}</dd>
 				<p class="mt-0.5 text-xs text-gray-500">across {fmtNum(stats.warnings.withWarnings)} migrations</p>
 			</div>
@@ -814,7 +801,6 @@
 
 <style>
 	.stats-filters {
-		position: relative;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		align-items: end;
@@ -878,11 +864,11 @@
 		}
 	}
 
-	@media (min-width: 75rem) {
+	@media (min-width: 62rem) {
 		.stats-filters {
 			width: fit-content;
 			max-width: 100%;
-			grid-template-columns: 12.625rem 14rem 14.5rem 15.5rem;
+			grid-template-columns: 12rem 13.5rem 14.5rem 15.5rem;
 		}
 	}
 
