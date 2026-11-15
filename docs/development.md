@@ -1,6 +1,6 @@
 # Development
 
-The repository uses Bun 1.4.0, SvelteKit 2, Svelte 5, TypeScript, Tailwind 4,
+The repository uses Bun 1.4.4, SvelteKit 2, Svelte 5, TypeScript, Tailwind 4,
 Biome, and Playwright.
 
 ## Setup
@@ -64,6 +64,18 @@ when Biome reports a schema mismatch, run `bunx --bun biome migrate --write`.
 Review and commit those updates alongside the dependency changes, then rerun
 the verification suite. Address coverage failures with tests for meaningful
 untested behavior rather than lowering the 90% function and line thresholds.
+
+### TypeScript Checking
+
+`bun run typecheck` synchronizes SvelteKit, then uses Bun's native checker for
+both the application and scripts projects with two threads per invocation.
+The `--no-script` flag bypasses the existing `check` package script. The same
+`typecheck` gate runs in local verification and CI; there is no separate
+`tsc` gate.
+
+`bun run check` remains responsible for Svelte diagnostics. The TypeScript
+dependency is retained for editor and tooling support; Bun's native checker
+follows TypeScript 7 semantics while that dependency is currently TypeScript 6.
 
 ## Architecture Rules
 

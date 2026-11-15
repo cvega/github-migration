@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.4",
   "scripts": {
     "auth:reset": "bun scripts/auth/reset-admin-password.ts",
     "build": "bun scripts/packaging/build.ts",
@@ -20,7 +20,7 @@
     "test": "bun test",
     "test:changed": "bun test --changed",
     "test:e2e": "bunx --bun playwright test",
-    "typecheck": "bunx --bun svelte-kit sync && bunx --bun tsc --noEmit && bunx --bun tsc --noEmit -p scripts/tsconfig.json",
+    "typecheck": "bunx --bun svelte-kit sync && bun check --no-script --threads=2 -p tsconfig.json && bun check --no-script --threads=2 -p scripts/tsconfig.json",
     "verify": "bun scripts/gates.ts --verbose --fail-fast"
   },
   "dependencies": {

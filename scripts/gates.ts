@@ -201,7 +201,7 @@ if (!(await Bun.file("node_modules/.bin/svelte-kit").exists())) {
 
 // Prepare: generate SvelteKit's `.svelte-kit/` (the $types + $lib path aliases)
 // once, up front. On a fresh checkout it doesn't exist yet, and without it both
-// `tsc` (typecheck) and `bun test` ($lib import resolution) fail. Doing it here
+// `bun check` (typecheck) and `bun test` ($lib import resolution) fail. Doing it here
 // — not relying on gate order — keeps subset runs (e.g. `gates coverage`)
 // correct too.
 const sync = run(["bunx", "--bun", "svelte-kit", "sync"]);

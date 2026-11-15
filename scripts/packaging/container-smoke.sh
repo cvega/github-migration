@@ -38,12 +38,12 @@ if [ "$ready" != true ]; then
 	exit 1
 fi
 
-docker exec "$container" sh -c '
+docker exec -i "$container" sh <<'SQLITE_SMOKE'
 	set -eu
-	sqlite3 /tmp/source.db "CREATE TABLE records(value TEXT); INSERT INTO records VALUES (\"backup-check\");"
+	sqlite3 /tmp/source.db "CREATE TABLE records(value TEXT); INSERT INTO records VALUES ('backup-check');"
 	sqlite3 /tmp/source.db ".backup /tmp/backup.db"
 	test "$(sqlite3 /tmp/backup.db "PRAGMA integrity_check;")" = ok
 	test "$(sqlite3 /tmp/backup.db "SELECT value FROM records;")" = backup-check
-'
+SQLITE_SMOKE
 
 echo "Container health and SQLite backup smoke tests passed"
