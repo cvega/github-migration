@@ -58,6 +58,13 @@ Run a focused gate by passing its name through `verify`, for example
 `bun run mutation --check`; run the full suite with
 `bun run mutation --force`.
 
+Dependency upgrades can leave generated icons or the Biome configuration schema
+out of date. Regenerate icons with `bun scripts/packaging/generate-icons.ts` and,
+when Biome reports a schema mismatch, run `bunx --bun biome migrate --write`.
+Review and commit those updates alongside the dependency changes, then rerun
+the verification suite. Address coverage failures with tests for meaningful
+untested behavior rather than lowering the 90% function and line thresholds.
+
 ## Architecture Rules
 
 - `application` may compose `core` and server domains.

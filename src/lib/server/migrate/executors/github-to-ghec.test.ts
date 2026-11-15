@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import type { Migration, MigrationEvent } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
-import { __setGitHubToGhecDependenciesForTests, runGitHubToGhecMigration } from "./github-to-ghec";
+import {
+  __setGitHubToGhecDependenciesForTests,
+  resumeGitHubToGhecMigration,
+  runGitHubToGhecMigration,
+} from "./github-to-ghec";
 
 const clients = {
   source: {},
@@ -13,6 +18,39 @@ const clients = {
 
 let restore = () => {};
 afterEach(() => restore());
+
+function interruptedMigration(): Migration {
+  return {
+    id: "recovered-migration",
+    batchId: null,
+    githubMigrationId: "MIGRATION",
+    sourceProvider: "github",
+    sourceApiUrl: "https://source.example.com/api/v3",
+    targetProfileId: "ghec",
+    targetPlatform: "ghec",
+    targetApiUrl: "https://api.github.com",
+    sourceOrg: "acme",
+    sourceRepo: "widget",
+    targetOrg: "cloud",
+    targetRepo: "widget",
+    state: "running",
+    failureReason: null,
+    migrationLogUrl: null,
+    warningsCount: 0,
+    sourceCounts: null,
+    targetCounts: null,
+    sourceSizeKb: null,
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
+    completedAt: null,
+    elapsedSeconds: null,
+    authMode: "env-pat",
+    requestOptions: JSON.stringify({
+      sourceRepo: "acme/widget",
+      targetOrg: "cloud",
+      archiveSource: true,
+    }),
+  };
+}
 
 describe("GitHub-to-GHEC executor", () => {
   test("composes preflight, archive resolution, GHEC import, and source archival", async () => {
@@ -119,5 +157,117 @@ describe("GitHub-to-GHEC executor", () => {
       state: "reconciliation_required",
       failureReason: "connection lost after mutation",
     });
+  });
+
+  test("recovers an acknowledged import without repeating import or source archival", async () => {
+    const migration = interruptedMigration();
+    const signal = new AbortController().signal;
+    const events: MigrationEvent[] = [];
+    const archiveRepository = mock(async () => true);
+    const executeArchiveToGhec = mock(async () => migration);
+    restore = __setGitHubToGhecDependenciesForTests({
+      resolveSourceAuth: () => ({ token: "source-token" }),
+      resolveTargetAuth: () => ({ token: "target-token" }),
+      createClients: (options) => {
+        expect(options).toEqual({
+          sourceApiUrl: migration.sourceApiUrl,
+          sourceAuth: { token: "source-token" },
+          targetApiUrl: migration.targetApiUrl,
+          targetAuth: { token: "target-token" },
+        });
+        return clients;
+      },
+      monitorGhecMigration: async (restoredClients, record, migrationId, _emit, receivedSignal) => {
+        expect(restoredClients).toBe(clients);
+        expect(record).toBe(migration);
+        expect(migrationId).toBe("MIGRATION");
+        expect(receivedSignal).toBe(signal);
+        return { ...record, state: "succeeded" };
+      },
+      executeArchiveToGhec,
+      archiveRepository,
+    });
+
+    const result = await resumeGitHubToGhecMigration(
+      migration,
+      (event) => events.push(event),
+      signal,
+    );
+
+    expect(result.state).toBe("succeeded");
+    expect(executeArchiveToGhec).not.toHaveBeenCalled();
+    expect(archiveRepository).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({
+      eventType: "step",
+      payload: {
+        postTerminal: { operation: "source_archive", outcome: "not_attempted" },
+        message: expect.stringContaining("manually"),
+      },
+    });
+  });
+
+  test("requires reconciliation when a recovered import can no longer be observed", async () => {
+    restore = __setGitHubToGhecDependenciesForTests({
+      resolveSourceAuth: () => ({ token: "source-token" }),
+      resolveTargetAuth: () => ({ token: "target-token" }),
+      createClients: () => clients,
+      monitorGhecMigration: async () => {
+        throw new Error("GitHub status unavailable");
+      },
+    });
+
+    const result = await resumeGitHubToGhecMigration(interruptedMigration(), () => {});
+
+    expect(result).toMatchObject({
+      state: "reconciliation_required",
+      failureReason: "GitHub status unavailable",
+      githubMigrationId: "MIGRATION",
+    });
+    expect(result.completedAt).not.toBeNull();
+    expect(result.elapsedSeconds).toBeGreaterThanOrEqual(60);
+  });
+
+  test.each([
+    {
+      outcome: "confirmed",
+      state: "cancelled",
+      reason: "Operator cancelled",
+    },
+    {
+      outcome: "unconfirmed",
+      state: "reconciliation_required",
+      reason: "Remote migration could not be confirmed cancelled",
+    },
+    {
+      outcome: "unavailable",
+      state: "reconciliation_required",
+      reason: "GitHub cancellation unavailable",
+    },
+  ])("handles $outcome cancellation of a recovered import", async ({ outcome, state, reason }) => {
+    const controller = new AbortController();
+    const abortMigration = mock(async () => {
+      if (outcome === "unavailable") throw new Error("GitHub cancellation unavailable");
+      return outcome === "confirmed";
+    });
+    restore = __setGitHubToGhecDependenciesForTests({
+      resolveSourceAuth: () => ({ token: "source-token" }),
+      resolveTargetAuth: () => ({ token: "target-token" }),
+      createClients: () => clients,
+      monitorGhecMigration: async () => {
+        controller.abort(new Error("Operator cancelled"));
+        throw controller.signal.reason;
+      },
+      abortMigration,
+    });
+
+    const result = await resumeGitHubToGhecMigration(
+      interruptedMigration(),
+      () => {},
+      controller.signal,
+    );
+
+    expect(abortMigration).toHaveBeenCalledWith(clients.targetGraphql, "MIGRATION");
+    expect(result).toMatchObject({ state, failureReason: reason });
+    expect(result.completedAt).not.toBeNull();
   });
 });

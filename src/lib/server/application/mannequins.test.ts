@@ -126,4 +126,40 @@ describe("mannequin operations", () => {
     ).resolves.toEqual({ sourceLogin: "source-octocat", targetLogin: "octocat" });
     expect(calls).toEqual(["membership", "mutation"]);
   });
+
+  test("returns an empty page when the mannequin cursor has reached the end", async () => {
+    let calls = 0;
+    const graphql = async () => {
+      calls += 1;
+      return {
+        organization: {
+          id: "ORG",
+          login: "octo-target",
+          mannequins: {
+            totalCount: 1,
+            pageInfo: { endCursor: "last-cursor", hasNextPage: false },
+            nodes: [{ id: "M1", login: "source-alice", claimant: null }],
+          },
+        },
+      };
+    };
+
+    const result = await listOrganizationMannequins(client({ graphql } as never), "octo-target", 2);
+
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      organization: { id: "ORG", login: "octo-target" },
+      mannequins: [],
+      page: 2,
+      totalPages: 1,
+      totalCount: 1,
+    });
+  });
+
+  test("reports an inaccessible organization rather than an empty mannequin list", async () => {
+    const graphql = async () => ({ organization: null });
+    await expect(
+      listOrganizationMannequins(client({ graphql } as never), "unavailable-org"),
+    ).rejects.toThrow("Organization unavailable-org was not found.");
+  });
 });

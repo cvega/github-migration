@@ -87,7 +87,7 @@ function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted)
     throw signal.reason instanceof Error ? signal.reason : new Error("Profile worker cancelled");
 }
-function describe(error: unknown): string {
+function describeProfileError(error: unknown): string {
   if (error && typeof error === "object") {
     const value = error as {
       status?: number;
@@ -246,7 +246,7 @@ export async function runProfile(
     saveProfileRunRollup(input.id, buildProfileDetailRollup(iterateRunRepoProfiles(input.id)));
     completeProfileRun(input.id);
   } catch (error) {
-    failProfileRun(input.id, describe(error));
+    failProfileRun(input.id, describeProfileError(error));
   }
   const run = getProfileRun(input.id);
   if (!run) throw new Error(`Profile run '${input.id}' vanished after execution`);
