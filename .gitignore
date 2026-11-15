@@ -1,15 +1,26 @@
-.DS_Store
+# Environment and local credentials
 .env
 .env.*
 !.env.example
+/.provider-state/
+
+# Dependencies and build output
+node_modules/
 .svelte-kit/
 build/
+
+# Test output and generated reports
 coverage/
-node_modules/
 playwright-report/
 test-results/
-data/
 .e2e-data/
 .stryker-tmp/
-reports/mutation/
+/reports/
+
+# Runtime data and backups
+data/
 .visual-data/
+/backups/
+
+# Operating system files
+.DS_Store
