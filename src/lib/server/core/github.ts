@@ -297,22 +297,22 @@ export async function getRepoCounts(
         }
       }`,
       { owner, repo },
-    ).catch(() => null),
+    ),
     getResourceCount(client, owner, repo, "commits"),
   ]);
 
-  if (gqlResult) {
-    return {
-      commits,
-      branches: gqlResult.repository.refs.totalCount,
-      tags: gqlResult.repository.tags.totalCount,
-      issues: gqlResult.repository.issues.totalCount,
-      pullRequests: gqlResult.repository.pullRequests.totalCount,
-      releases: gqlResult.repository.releases.totalCount,
-    };
+  const counts = {
+    commits,
+    branches: gqlResult.repository.refs.totalCount,
+    tags: gqlResult.repository.tags.totalCount,
+    issues: gqlResult.repository.issues.totalCount,
+    pullRequests: gqlResult.repository.pullRequests.totalCount,
+    releases: gqlResult.repository.releases.totalCount,
+  };
+  if (!Object.values(counts).every((count) => Number.isSafeInteger(count) && count >= 0)) {
+    throw new Error("Invalid repository counts returned by GitHub");
   }
-  // Fallback: if GraphQL fails, zero out the non-commit fields
-  return { commits, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
+  return counts;
 }
 
 async function getResourceCount(
@@ -327,12 +327,20 @@ async function getResourceCount(
     const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
     const link = response.headers.link;
     if (link) {
-      const lastPage = link.match(/page=(\d+)>;\s*rel="last"/)?.[1];
-      if (lastPage) return parseInt(lastPage, 10);
+      const last = link.split(",").find((part) => /\brel="last"/.test(part));
+      const lastPage = last?.match(/[?&]page=(\d+)/)?.[1];
+      if (lastPage) return Number.parseInt(lastPage, 10);
+      if (last || /\brel="next"/.test(link)) {
+        throw new Error(`Cannot determine ${resource} count from pagination`);
+      }
     }
-    return Array.isArray(response.data) ? response.data.length : 0;
-  } catch {
-    return 0;
+    if (!Array.isArray(response.data)) throw new Error(`Invalid ${resource} count response`);
+    return response.data.length;
+  } catch (error) {
+    if (resource === "commits" && error instanceof Error && "status" in error && error.status === 409) {
+      return 0;
+    }
+    throw error;
   }
 }
 

@@ -68,7 +68,6 @@ export async function monitorRepositoryMigration(config: MonitorConfig): Promise
   let lastPhase: Phase | null = null;
   let terminalPhase: Phase = "UNKNOWN";
   let finalCounts: Counts | null = null;
-  let lastAuthoritativeCounts: Counts | null = null;
   let sourceCounts: Counts | null = config.sourceCounts ?? null;
 
   if (!sourceCounts && config.sourceOrg && config.sourceRepo) {
@@ -93,7 +92,6 @@ export async function monitorRepositoryMigration(config: MonitorConfig): Promise
 
   const poll = async (): Promise<boolean> => {
     const snapshot = await takeSnapshot(config, startTime, sourceCounts);
-    if (snapshot.countsAuthoritative) lastAuthoritativeCounts = snapshotToCounts(snapshot);
     const progress = computeProgress(snapshot, previous);
     if (lastPhase && snapshot.phase !== lastPhase) {
       config.emit({
@@ -116,7 +114,7 @@ export async function monitorRepositoryMigration(config: MonitorConfig): Promise
       });
       previous = snapshot;
       terminalPhase = "SUCCEEDED";
-      finalCounts = lastAuthoritativeCounts;
+      finalCounts = snapshot.countsAuthoritative ? snapshotToCounts(snapshot) : null;
       return true;
     }
     if (snapshot.phase === "FAILED") {
@@ -197,8 +195,8 @@ async function takeSnapshot(
         config.targetRepo,
       );
       countsAuthoritative = true;
-    } catch {
-      // Counts become authoritative on a later successful poll.
+    } catch (error) {
+      console.warn("Target repository counts unavailable; a later poll will retry.", error);
     }
   }
   return {

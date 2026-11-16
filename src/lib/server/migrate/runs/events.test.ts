@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Migration, MigrationEvent } from "$lib/migrate/types";
+import type { Migration, MigrationEvent, Progress } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { getEvents } from "../database/events";
 import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
@@ -112,6 +112,32 @@ describe("migration event projection", () => {
         state: "reconciliation_required",
         failureReason: "Migration settled remotely while cancellation was pending",
       });
+    } finally {
+      activeMigrationRuns.finish("migration-1", registration.token);
+    }
+  });
+
+  test("clears a partial target snapshot when final counts are unavailable", () => {
+    insertMigration(migration("migration-1"));
+    const counts = { commits: 10, branches: 1, tags: 1, issues: 2, pullRequests: 3, releases: 1 };
+    updateMigrationState("migration-1", "running", { targetCounts: counts });
+    const registration = activeMigrationRuns.claim("migration-1");
+    if (!registration) throw new Error("run was not claimed");
+    const current: Progress["current"] = {
+      timestamp: "2026-08-18T12:05:00.000Z", migrationState: "SUCCEEDED",
+      failureReason: "", migrationLogUrl: "", warningsCount: 0, repoExists: true,
+      countsAuthoritative: false, repoSize: 0, ...counts, phase: "SUCCEEDED", elapsed: 300,
+    };
+    const progress: Progress = {
+      current, previous: null, deltaCommits: 0, deltaBranches: 0, deltaTags: 0,
+      deltaIssues: 0, deltaPRs: 0, deltaReleases: 0, deltaSize: 0, commitsPerMin: 0, issuesPerMin: 0,
+    };
+    try {
+      createMigrationEventHandler("migration-1", registration.token)({
+        migrationId: "migration-1", eventType: "complete", phase: "SUCCEEDED",
+        payload: { progress, sourceCounts: null, elapsed: 300 }, createdAt: current.timestamp,
+      });
+      expect(getMigration("migration-1")).toMatchObject({ state: "succeeded", targetCounts: null });
     } finally {
       activeMigrationRuns.finish("migration-1", registration.token);
     }

@@ -74,6 +74,23 @@ The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
 
+## Export Statistics
+
+Open **Statistics**, select the report filters, and choose the printer icon
+(**Print or save PDF**).
+In the browser's print dialog, select **Save as PDF** to save the filtered report
+with a cover and closing page showing the selected filters.
+
+Statistics count migration attempts. The seven-day windows use UTC calendar days
+ending today, and the Started filter selects migrations by their start time.
+The completions chart covers the selected cohort's recorded completion dates;
+spans over 210 days are grouped into labeled multi-day intervals.
+Source repository size is the sum of available sizes for successful migrations,
+not measured bytes transferred. Destination resource counts are recorded final
+repository totals, not a count of items transferred. Coverage is shown beside
+the totals. Commit counts represent default-branch history; older counts may
+contain zeros from unavailable API data.
+
 ## Attribute Mannequins
 
 Choose **Mannequins**, select a configured GHEC organization, and map each

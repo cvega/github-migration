@@ -70,9 +70,24 @@ describe("migration run settlement", () => {
     createMigrationRunFinisher(() => {}).settleResult(
       "migration-1",
       registration.token,
-      migration("migration-1", "failed"),
+      {
+        ...migration("migration-1", "failed"),
+        targetCounts: { commits: 10, branches: 1, tags: 1, issues: 2, pullRequests: 3, releases: 1 },
+      },
     );
     expect(getMigration("migration-1")?.state).toBe("succeeded");
+    expect(getMigration("migration-1")?.targetCounts).toBeNull();
+  });
+
+  test("persists a later successful final-count lookup after a terminal event", () => {
+    insertMigration(migration("migration-1"));
+    const registration = claimedRun("migration-1");
+    updateMigrationState("migration-1", "succeeded", { targetCounts: null });
+    const counts = { commits: 10, branches: 1, tags: 1, issues: 2, pullRequests: 3, releases: 1 };
+    createMigrationRunFinisher(() => {}).settleResult("migration-1", registration.token, {
+      ...migration("migration-1", "succeeded"), targetCounts: counts,
+    });
+    expect(getMigration("migration-1")?.targetCounts).toEqual(counts);
   });
 
   test("requires reconciliation for a non-cancelled result while cancellation is pending", () => {

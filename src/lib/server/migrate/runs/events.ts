@@ -110,6 +110,7 @@ export function createMigrationEventHandler(
           sourceCounts: event.payload.sourceCounts ?? undefined,
           warningsCount: snapshot.warningsCount,
           migrationLogUrl: snapshot.migrationLogUrl || undefined,
+          targetCounts: null,
         };
         if (snapshot.countsAuthoritative) {
           extra.targetCounts = {

@@ -380,7 +380,7 @@ export function updateMigrationState(
     migrationLogUrl?: string;
     warningsCount?: number;
     sourceCounts?: Counts;
-    targetCounts?: Counts;
+    targetCounts?: Counts | null;
     completedAt?: string;
     elapsedSeconds?: number;
   },
@@ -395,7 +395,7 @@ export function updateMigrationState(
 				migration_log_url = COALESCE($migration_log_url, migration_log_url),
 				warnings_count = COALESCE($warnings_count, warnings_count),
 				source_counts = COALESCE($source_counts, source_counts),
-				target_counts = COALESCE($target_counts, target_counts),
+				target_counts = CASE WHEN $set_target_counts THEN $target_counts ELSE target_counts END,
 				completed_at = COALESCE($completed_at, completed_at),
 				elapsed_seconds = COALESCE($elapsed_seconds, elapsed_seconds)
 			 WHERE id = $id AND ($preserve_cancellation = 0 OR state <> 'cancelling')`,
@@ -409,6 +409,7 @@ export function updateMigrationState(
       $warnings_count: extra?.warningsCount ?? null,
       $source_counts: extra?.sourceCounts ? JSON.stringify(extra.sourceCounts) : null,
       $target_counts: extra?.targetCounts ? JSON.stringify(extra.targetCounts) : null,
+      $set_target_counts: extra?.targetCounts !== undefined ? 1 : 0,
       $completed_at: extra?.completedAt ?? null,
       $elapsed_seconds: extra?.elapsedSeconds ?? null,
       $preserve_cancellation: preserveCancellation ? 1 : 0,

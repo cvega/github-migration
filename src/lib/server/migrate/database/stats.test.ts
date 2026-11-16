@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Counts, Migration, MigrationState } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { insertMigration, updateMigrationSourceSize, updateMigrationState } from "./migrations";
 import { migrateStore } from "./schema";
 import {
@@ -168,9 +168,96 @@ describe("migration statistics", () => {
     });
 
     expect(getMigrationStats().throughput).toEqual([
-      { date: "2026-08-15", succeeded: 1, failed: 0 },
-      { date: "2026-08-16", succeeded: 0, failed: 0 },
-      { date: "2026-08-17", succeeded: 0, failed: 1 },
+      { date: "2026-08-15", endDate: "2026-08-15", succeeded: 1, failed: 0 },
+      { date: "2026-08-16", endDate: "2026-08-16", succeeded: 0, failed: 0 },
+      { date: "2026-08-17", endDate: "2026-08-17", succeeded: 0, failed: 1 },
     ]);
+  });
+
+  test("charts the full selected history in readable intervals without losing outcomes", () => {
+    const now = new Date("2026-11-16T12:00:00.000Z");
+    const day = 24 * 60 * 60 * 1000;
+    for (const [index, daysAgo] of [0, 7, 30, 89, 179, 399].entries()) {
+      const timestamp = new Date(now.getTime() - daysAgo * day).toISOString();
+      const id = `history-${index}`;
+      insertMigration(migration(id, "pending", { startedAt: timestamp }));
+      updateMigrationState(id, index % 2 === 0 ? "succeeded" : "failed", { completedAt: timestamp });
+    }
+    const filters = { sourceProvider: "all", targetPlatform: "all", mode: "all" } as const;
+    const all = getMigrationStats({ ...filters, period: "all" }, now);
+    const ninety = getMigrationStats({ ...filters, period: "90d" }, now);
+    const thirty = getMigrationStats({ ...filters, period: "30d" }, now);
+
+    expect(all.throughputIntervalDays).toBe(7);
+    expect(all.throughput.length).toBeLessThanOrEqual(210);
+    expect(all.throughput[0]?.date).toBe(new Date(now.getTime() - 399 * day).toISOString().slice(0, 10));
+    expect(all.throughput.at(-1)?.endDate).toBe("2026-11-16");
+    expect(all.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(6);
+    expect(ninety.throughputIntervalDays).toBe(1);
+    expect(ninety.throughput).toHaveLength(90);
+    expect(ninety.throughput[0]?.date).toBe(new Date(now.getTime() - 89 * day).toISOString().slice(0, 10));
+    expect(ninety.throughput.at(-1)?.endDate).toBe("2026-11-16");
+    expect(ninety.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(4);
+    expect(thirty.throughputIntervalDays).toBe(1);
+    expect(thirty.throughput).toHaveLength(31);
+    expect(thirty.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(3);
+  });
+
+  test("anchors recent windows to today in UTC and excludes future outcomes", () => {
+    for (const [id, completedAt] of [
+      ["recent", "2026-11-10T00:00:00.000Z"],
+      ["previous", "2026-11-09T23:59:59.000Z"],
+      ["old", "2026-09-01T00:00:00.000Z"],
+      ["future", "2026-11-16T18:00:00.000Z"],
+    ] as const) {
+      insertMigration(migration(id));
+      updateMigrationState(id, "succeeded", { completedAt });
+    }
+    const now = new Date("2026-11-16T12:00:00.000Z");
+    expect(getMigrationStats(undefined, now).recentWindow).toMatchObject({
+      endingOn: "2026-11-16",
+      completed: 1,
+      previousCompleted: 1,
+      successRate: 100,
+    });
+    expect(getMigrationStats(undefined, new Date("2027-01-01T00:00:00.000Z")).recentWindow)
+      .toMatchObject({ completed: 0, previousCompleted: 0, successRate: null });
+  });
+
+  test("tracks missing information and separates source owners by host", () => {
+    insertMigration(migration("failure", "failed", { batchId: "batch", failureReason: null }));
+    insertMigration(migration("retry", "failed", { sourceRepo: "failure" }));
+    insertMigration(migration("other-host", "running", { sourceApiUrl: "https://ghes.example.com/api/v3" }));
+    const stats = getMigrationStats();
+    expect(stats.failuresWithoutReason).toBe(2);
+    expect(stats.batchFailures).toBe(1);
+    expect(stats.topOrgs.map(({ host, count }) => ({ host, count }))).toEqual([
+      { host: "api.github.com", count: 2 },
+      { host: "ghes.example.com", count: 1 },
+    ]);
+    expect(stats.resources.migrationCount).toBe(0);
+    expect(stats.data.sizedCount).toBe(0);
+  });
+
+  test("excludes incomplete or invalid final count records", () => {
+    insertOutcome("valid", "succeeded", 10);
+    insertOutcome("missing-field", "succeeded", 10);
+    insertOutcome("invalid", "succeeded", 10);
+    getDb().prepare("UPDATE migrations SET target_counts = ? WHERE id = ?").run('{"commits": 4}', "missing-field");
+    getDb().prepare("UPDATE migrations SET target_counts = ? WHERE id = ?").run("not json", "invalid");
+    expect(getMigrationStats().resources).toMatchObject({ commits: 10, migrationCount: 1 });
+  });
+
+  test("does not treat invalid source sizes as measured data", () => {
+    insertOutcome("invalid-size", "succeeded", 10);
+    getDb().prepare("UPDATE migrations SET source_size_kb = -1 WHERE id = ?").run("invalid-size");
+    const stats = getMigrationStats();
+    expect(stats.data).toMatchObject({ sizedCount: 0, avgKb: null });
+    expect(stats.sizeUnavailableCount).toBe(1);
+  });
+
+  test("has no success rate when there are no outcomes", () => {
+    insertMigration(migration("running", "running"));
+    expect(getMigrationStats().successRate).toBeNull();
   });
 });

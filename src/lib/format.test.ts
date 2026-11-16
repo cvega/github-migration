@@ -17,6 +17,12 @@ describe("formatElapsed", () => {
     expect(formatElapsed(125)).toBe("2m 5s");
   });
 
+  test("carries rounded seconds into the next minute or hour", () => {
+    expect(formatElapsed(59.5)).toBe("1m 0s");
+    expect(formatElapsed(3479.5)).toBe("58m 0s");
+    expect(formatElapsed(3599.5)).toBe("1h 0m");
+  });
+
   test("formats hour-and-minute durations, dropping seconds", () => {
     expect(formatElapsed(3600)).toBe("1h 0m");
     expect(formatElapsed(3661)).toBe("1h 1m");

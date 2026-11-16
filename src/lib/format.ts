@@ -2,8 +2,9 @@
 
 export function formatElapsed(seconds: number | null, fallback = "—"): string {
   if (seconds == null) return fallback;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60);
+  const roundedSeconds = Math.round(seconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const remainingSeconds = roundedSeconds % 60;
   if (minutes >= 60) {
     const hours = Math.floor(minutes / 60);
     return `${hours}h ${minutes % 60}m`;

@@ -2,13 +2,13 @@
  * Seed script — generates realistic migration and profiler datasets for UI testing.
  *
  * Targets:
- *   • ~2,500 individual migrations
+ *   • At least 2,500 migrations spanning six calendar months
  *   • ~150 batches (5–40 repos each)
  *   • 10 currently running migrations (5 individual + 5 inside an active batch)
  *   • Realistic distribution: ~92% succeeded, ~5% failed, ~3% cancelled, plus running/pending
  *   • 4 profiler runs with 349 repository profiles across clean, mixed, large, and failed scenarios
  *
- * Run: bun seed.ts
+ * Run: bun run seed [--migrations-only]
  */
 /// <reference types="bun" />
 import { Database } from "bun:sqlite";
@@ -25,17 +25,11 @@ import {
 import { seedProfiles } from "./seed-profiles";
 
 const dataDirectory = process.env.DATA_DIR || "data";
+const migrationsOnly = process.argv.includes("--migrations-only");
 mkdirSync(dataDirectory, { recursive: true });
 const db = new Database(join(dataDirectory, "gh-migrate.db"), { create: true });
+db.run("PRAGMA busy_timeout = 5000");
 for (const domain of DOMAIN_STORES) domain.applySchema(db);
-
-// ── Clean previous seed data ───────────────────────────────────────────────
-const migrationPrefixes = ["seed-feat-", "seed-running-", "seed-batch-", "seed-ind-"];
-for (const prefix of migrationPrefixes) {
-  db.prepare("DELETE FROM events WHERE migration_id LIKE ?").run(`${prefix}%`);
-  db.prepare("DELETE FROM migrations WHERE id LIKE ?").run(`${prefix}%`);
-}
-console.log("✓ Cleaned previous migration seed data\n");
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
@@ -306,11 +300,14 @@ function createMigration(opts: MigrationOpts) {
   const isGhecSource = sourceProvider === "github" && sourceApiUrl === "https://api.github.com";
   const src = randomCounts();
 
-  const elapsed = opts.state === "running" || opts.state === "pending" ? null : rand(90, 7200);
+  const maxElapsed = Math.min(7200, Math.max(0, Math.floor((Date.now() - opts.startedAt.getTime()) / 1000)));
+  const elapsed = opts.state === "running" || opts.state === "pending" ? null : rand(Math.min(90, maxElapsed), maxElapsed);
   const completedAt = elapsed !== null ? isoTs(opts.startedAt, elapsed) : null;
   const warnings = opts.state === "succeeded" ? rand(0, 12) : 0;
   const tgt =
-    opts.state === "succeeded" ? { ...src, commits: Math.max(0, src.commits + rand(-5, 0)) } : null;
+    opts.state === "succeeded" && targetPlatform === "ghec"
+      ? { ...src, commits: Math.max(0, src.commits + rand(-5, 0)) }
+      : null;
   const failure = opts.state === "failed" ? (opts.failureReason ?? pick(failureReasons)) : null;
   const targetWebUrl =
     targetPlatform === "ghec" ? "https://github.com" : targetApiUrl.replace(/\/api\/v3\/?$/, "");
@@ -335,13 +332,15 @@ function createMigration(opts: MigrationOpts) {
     opts.state,
     failure,
     warnings,
-    JSON.stringify(src),
+    sourceProvider === "github" && targetPlatform === "ghec" ? JSON.stringify(src) : null,
     tgt ? JSON.stringify(tgt) : null,
     opts.startedAt.toISOString(),
     completedAt,
     elapsed,
     logUrl,
-    opts.sourceSizeKb ?? randomRepoSizeKb(),
+    sourceProvider === "github" && targetPlatform === "ghec"
+      ? (opts.sourceSizeKb ?? randomRepoSizeKb())
+      : null,
   );
 
   // ── Events ──────────────────────────────────────────────────────────────
@@ -417,6 +416,7 @@ function createMigration(opts: MigrationOpts) {
 
     let prevPhase: string | null = null;
     for (const [offset, phase] of phases) {
+      if (offset > (elapsed ?? maxElapsed)) continue;
       if (prevPhase) {
         insertEvent.run(
           opts.id,
@@ -431,7 +431,9 @@ function createMigration(opts: MigrationOpts) {
 
     // Git import snapshots
     const gitStart = isGhecSource ? 90 : 180;
-    const gitEnd = elapsed ? Math.min(gitStart + rand(300, 1200), elapsed - 120) : gitStart + 600;
+    const gitEnd = elapsed !== null
+      ? Math.max(gitStart, Math.min(gitStart + rand(300, 1200), elapsed - 120))
+      : Math.min(gitStart + 600, maxElapsed + 1);
     let prevCounts = { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
 
     for (let t = gitStart; t < gitEnd; t += 60) {
@@ -455,6 +457,7 @@ function createMigration(opts: MigrationOpts) {
           migrationLogUrl: "",
           warningsCount: 0,
           repoExists: true,
+          countsAuthoritative: true,
           repoSize: 0,
         },
         previous: null,
@@ -479,7 +482,7 @@ function createMigration(opts: MigrationOpts) {
     }
 
     // Metadata phase + snapshots (only for completed)
-    if (opts.state === "succeeded" && elapsed) {
+    if (opts.state === "succeeded" && elapsed !== null && gitEnd < elapsed - 30) {
       insertEvent.run(
         opts.id,
         "phase_change",
@@ -512,6 +515,7 @@ function createMigration(opts: MigrationOpts) {
                 migrationLogUrl: "",
                 warningsCount: 0,
                 repoExists: true,
+                countsAuthoritative: true,
                 repoSize: 0,
                 phase: "IMPORTING_METADATA",
                 elapsed: t,
@@ -544,13 +548,14 @@ function createMigration(opts: MigrationOpts) {
       JSON.stringify({
         progress: {
           current: {
-            ...src,
+            ...(tgt ?? { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 }),
             timestamp: isoTs(opts.startedAt, elapsed),
             migrationState: "SUCCEEDED",
             failureReason: "",
             migrationLogUrl: logUrl ?? "",
             warningsCount: warnings,
             repoExists: true,
+            countsAuthoritative: tgt !== null,
             repoSize: 0,
             phase: "SUCCEEDED",
             elapsed,
@@ -566,7 +571,7 @@ function createMigration(opts: MigrationOpts) {
           commitsPerMin: 0,
           issuesPerMin: 0,
         },
-        sourceCounts: src,
+        sourceCounts: sourceProvider === "github" && targetPlatform === "ghec" ? src : null,
         elapsed,
       }),
       isoTs(opts.startedAt, elapsed),
@@ -616,10 +621,26 @@ function createMigration(opts: MigrationOpts) {
 // Generate data inside a transaction for speed
 // ══════════════════════════════════════════════════════════════════════════
 const transaction = db.transaction(() => {
+  const migrationPrefixes = ["seed-feat-", "seed-running-", "seed-batch-", "seed-ind-"];
+  for (const prefix of migrationPrefixes) {
+    for (const table of ["events", "migration_batch_items", "ghes_import_jobs"]) {
+      db.prepare(`DELETE FROM ${table} WHERE migration_id LIKE ?`).run(`${prefix}%`);
+    }
+    db.prepare("DELETE FROM migrations WHERE id LIKE ?").run(`${prefix}%`);
+  }
+  console.log("✓ Cleaned previous migration seed data");
   let migrationCount = 0;
   let batchCount = 0;
   const nowMs = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
+  const now = new Date(nowMs);
+  const historyStart = new Date(nowMs);
+  historyStart.setUTCDate(1);
+  historyStart.setUTCMonth(historyStart.getUTCMonth() - 6);
+  const lastDay = new Date(Date.UTC(historyStart.getUTCFullYear(), historyStart.getUTCMonth() + 1, 0)).getUTCDate();
+  historyStart.setUTCDate(Math.min(now.getUTCDate(), lastDay));
+  const historyEndMs = nowMs - dayMs;
+  const historySpanMs = historyEndMs - historyStart.getTime();
 
   // ── 1. Featured migrations with rich event histories ─────────────────
   createMigration({
@@ -699,22 +720,18 @@ const transaction = db.transaction(() => {
 
   // ── 4. Completed batches (~150) ──────────────────────────────────────
   const completedBatchCount = 150;
-  const completedBatchHistoryDays = 90;
   const historicalBatchCount = completedBatchCount - MIGRATION_SEED_ROUTES.length;
 
   for (let b = 0; b < completedBatchCount; b++) {
     const batchId = `seed-batch-${String(b).padStart(4, "0")}`;
     const batchSize = rand(5, 40);
     const route = migrationSeedRoute(b);
-    const daysAgo =
+    const batchStart = new Date(
       b < MIGRATION_SEED_ROUTES.length
-        ? b + 1
-        : 1 +
-          Math.floor(
-            ((b - MIGRATION_SEED_ROUTES.length) * (completedBatchHistoryDays - 1)) /
-              (historicalBatchCount - 1),
-          );
-    const batchStart = new Date(nowMs - daysAgo * dayMs);
+        ? nowMs - (b + 1) * dayMs
+        : historyEndMs -
+          Math.floor(((b - MIGRATION_SEED_ROUTES.length) * historySpanMs) / (historicalBatchCount - 1)),
+    );
 
     for (let i = 0; i < batchSize; i++) {
       const r = Math.random();
@@ -745,8 +762,6 @@ const transaction = db.transaction(() => {
   // ── 5. Individual completed migrations (fill to at least 2500) ───────
   const targetTotal = Math.max(2500, migrationCount + 200);
   const remaining = targetTotal - migrationCount;
-  const individualBase = new Date(nowMs - 85 * dayMs);
-
   for (let i = 0; i < remaining; i++) {
     const route = migrationSeedRoute(i);
     const r = Math.random();
@@ -757,7 +772,7 @@ const transaction = db.transaction(() => {
       ...route,
       id: `seed-ind-${String(i).padStart(4, "0")}`,
       state,
-      startedAt: new Date(individualBase.getTime() + i * rand(600, 3600) * 1000),
+      startedAt: new Date(historyStart.getTime() + Math.floor((i * historySpanMs) / Math.max(1, remaining - 1))),
       repo: repoNames[i % repoNames.length],
       richEvents: false,
     });
@@ -776,9 +791,11 @@ const transaction = db.transaction(() => {
   console.log(`  Pending:          3 (in active batch)`);
   console.log(`══════════════════════════════════════════════════`);
 
-  const profiles = seedProfiles(db);
-  console.log(`\n✓ ${profiles.runs} profile runs with ${profiles.repos} repository profiles`);
-  console.log(`  Completed: ${profiles.completed}; failed: ${profiles.failed}`);
+  if (!migrationsOnly) {
+    const profiles = seedProfiles(db);
+    console.log(`\n✓ ${profiles.runs} profile runs with ${profiles.repos} repository profiles`);
+    console.log(`  Completed: ${profiles.completed}; failed: ${profiles.failed}`);
+  }
 });
 
 console.log("\nInserting data (this may take a few seconds)...\n");

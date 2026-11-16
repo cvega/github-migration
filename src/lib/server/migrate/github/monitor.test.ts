@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { Counts, MigrationEvent } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
 import { __setMonitorDependenciesForTests, monitorRepositoryMigration } from "./monitor";
@@ -67,6 +67,7 @@ describe("GitHub migration monitor", () => {
       getRepoCounts: async () => counts,
       wait: async () => {},
     });
+
     const events: MigrationEvent[] = [];
     await monitorRepositoryMigration({
       clients,
@@ -83,6 +84,29 @@ describe("GitHub migration monitor", () => {
       "complete",
     ]);
     expect(events[0]?.phase).toBe("EXPORTING");
+  });
+
+  test("does not use an earlier snapshot as final counts when the final lookup fails", async () => {
+    using warn = spyOn(console, "warn").mockImplementation(() => {});
+    let poll = 0;
+    restore = __setMonitorDependenciesForTests({
+      getRepositoryMigration: async () => ({
+        state: ++poll === 1 ? "IN_PROGRESS" : "SUCCEEDED",
+        repositoryName: "widget", warningsCount: 0, failureReason: "", migrationLogUrl: "",
+      }),
+      doesRepoExist: async () => true,
+      getRepoCounts: async () => {
+        if (poll === 2) throw new Error("unavailable");
+        return counts;
+      },
+      wait: async () => {},
+    });
+    const result = await monitorRepositoryMigration({
+      clients, migrationId: "migration-1", githubMigrationId: "node-1",
+      targetOrg: "acme", targetRepo: "widget", sourceCounts: counts, emit: () => {},
+    });
+    expect(result).toEqual({ phase: "SUCCEEDED", finalCounts: null });
+    expect(warn).toHaveBeenCalled();
   });
 
   test("does not send target credentials to untrusted failure-log URLs", async () => {

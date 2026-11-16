@@ -62,6 +62,12 @@ store and starts an isolated development server for the browser run. Fixture
 timestamps are relative to seed time so startup retention remains enabled
 without aging out the test records.
 
+For a six-month synthetic migration history without changing profile fixtures,
+run `bun run seed --migrations-only`. This replaces migration fixtures with
+reserved `seed-` prefixes. The default 90-day migration retention will prune
+older fixtures on restart; set `MIGRATION_RETENTION_DAYS=190` before starting
+the dashboard to retain the full test history.
+
 CI also builds both production container targets and runs
 `scripts/packaging/container-smoke.sh DASHBOARD_IMAGE ANALYZER_IMAGE`. This
 complements the dev-server browser suite with production login, API origin

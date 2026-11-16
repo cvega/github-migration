@@ -158,7 +158,7 @@ export function getMigrationStats(
       { succeeded: 0, failed: 0, durations: [] as number[] },
     ]),
   );
-  const organizationCounts = new Map<string, number>();
+  const organizationCounts = new Map<string, { org: string; provider: string; host: string; count: number }>();
   const batchIds = new Set<string>();
   const throughputByDate = new Map<string, { succeeded: number; failed: number }>();
   const failuresByReason = new Map<
@@ -172,19 +172,35 @@ export function getMigrationStats(
   let successfulSizeTotal = 0;
   let successfulSizedCount = 0;
   let sizeUnavailableCount = 0;
+  let failuresWithoutReason = 0;
+  let batchFailures = 0;
   let largest: { repo: string; kb: number } | null = null;
   let fastest: { repo: string; seconds: number } | null = null;
   let slowest: { repo: string; seconds: number } | null = null;
 
   for (const row of migrationRows) {
+    const sizeKb = row.source_size_kb !== null &&
+      Number.isSafeInteger(row.source_size_kb) && row.source_size_kb >= 0
+      ? row.source_size_kb
+      : null;
     byState[row.state] += 1;
     total += 1;
     totalWarnings += row.warnings_count;
     if (row.warnings_count > 0) migrationsWithWarnings += 1;
-    organizationCounts.set(row.source_org, (organizationCounts.get(row.source_org) ?? 0) + 1);
+    const orgKey = JSON.stringify([row.source_provider, row.source_api_url, row.source_org]);
+    const org = organizationCounts.get(orgKey) ?? {
+      org: row.source_org,
+      provider: row.source_provider,
+      host: URL.canParse(row.source_api_url) ? new URL(row.source_api_url).host : row.source_api_url,
+      count: 0,
+    };
+    org.count += 1;
+    organizationCounts.set(orgKey, org);
     if (row.batch_id !== null) batchIds.add(row.batch_id);
-    if (row.source_size_kb === null) sizeUnavailableCount += 1;
-    if (row.state === "failed" && row.failure_reason) {
+    if (row.batch_id !== null && row.state === "failed") batchFailures += 1;
+    if (sizeKb === null) sizeUnavailableCount += 1;
+    if (row.state === "failed" && !row.failure_reason?.trim()) failuresWithoutReason += 1;
+    if (row.state === "failed" && row.failure_reason?.trim()) {
       const failure = failuresByReason.get(row.failure_reason) ?? {
         count: 0,
         totalSeconds: 0,
@@ -236,11 +252,11 @@ export function getMigrationStats(
         }
         if (!slowest || row.elapsed_seconds > slowest.seconds) slowest = record;
       }
-      if (row.source_size_kb !== null) {
-        successfulSizeTotal += row.source_size_kb;
+      if (sizeKb !== null) {
+        successfulSizeTotal += sizeKb;
         successfulSizedCount += 1;
-        if (!largest || row.source_size_kb > largest.kb) {
-          largest = { repo: `${row.source_org}/${row.source_repo}`, kb: row.source_size_kb };
+        if (!largest || sizeKb > largest.kb) {
+          largest = { repo: `${row.source_org}/${row.source_repo}`, kb: sizeKb };
         }
       }
     }
@@ -248,8 +264,8 @@ export function getMigrationStats(
     if (row.state === "cancelled") direction.cancelled += 1;
     directionsByKey.set(directionKey, direction);
 
-    if (row.source_size_kb !== null) {
-      const sizeSummary = sizeByBand.get(repositorySizeBand(row.source_size_kb))!;
+    if (sizeKb !== null) {
+      const sizeSummary = sizeByBand.get(repositorySizeBand(sizeKb))!;
       if (row.state === "succeeded") {
         sizeSummary.succeeded += 1;
         if (row.elapsed_seconds !== null) sizeSummary.durations.push(row.elapsed_seconds);
@@ -263,7 +279,7 @@ export function getMigrationStats(
   const finished = resolved;
   const active = byState.queued + byState.pending + byState.running + byState.cancelling;
   const needsReview = byState.reconciliation_required;
-  const successRate = outcomes > 0 ? Math.round((byState.succeeded / outcomes) * 1000) / 10 : 0;
+  const successRate = outcomes > 0 ? Math.round((byState.succeeded / outcomes) * 1000) / 10 : null;
   const cancellationRate =
     resolved > 0 ? Math.round((byState.cancelled / resolved) * 1000) / 10 : 0;
   const duration = durationDistribution(successfulDurations, byState.succeeded);
@@ -282,8 +298,8 @@ export function getMigrationStats(
       };
     });
   const topOrgs = [...organizationCounts]
-    .map(([org, count]) => ({ org, count }))
-    .sort((left, right) => right.count - left.count || left.org.localeCompare(right.org))
+    .map(([key, value]) => ({ key, ...value }))
+    .sort((left, right) => right.count - left.count || left.org.localeCompare(right.org) || left.key.localeCompare(right.key))
     .slice(0, 6);
   const failureStats = [...failuresByReason]
     .map(([reason, failure]) => ({ reason, ...failure }))
@@ -380,41 +396,53 @@ export function getMigrationStats(
   const earliestObservedTimestamp = earliestObservedDate
     ? Date.parse(`${earliestObservedDate}T00:00:00Z`)
     : Number.NaN;
-  const firstThroughputTimestamp = Math.max(
-    earliestObservedTimestamp,
-    latestObservedTimestamp - 365 * DAY_MS,
+  const throughputDays = Number.isFinite(earliestObservedTimestamp)
+    ? Math.round((latestObservedTimestamp - earliestObservedTimestamp) / DAY_MS) + 1
+    : 0;
+  const throughputIntervalDays = throughputDays <= 210 ? 1 : Math.ceil(throughputDays / 1470) * 7;
+  const throughput = Array.from(
+    { length: Math.ceil(throughputDays / throughputIntervalDays) },
+    (_, index) => {
+      const start = earliestObservedTimestamp + index * throughputIntervalDays * DAY_MS;
+      const end = Math.min(start + (throughputIntervalDays - 1) * DAY_MS, latestObservedTimestamp);
+      return {
+        date: new Date(start).toISOString().slice(0, 10),
+        endDate: new Date(end).toISOString().slice(0, 10),
+        succeeded: 0,
+        failed: 0,
+      };
+    },
   );
-  const throughput = Number.isFinite(firstThroughputTimestamp)
-    ? Array.from(
-        {
-          length: Math.round((latestObservedTimestamp - firstThroughputTimestamp) / DAY_MS) + 1,
-        },
-        (_, index) => {
-          const date = new Date(firstThroughputTimestamp + index * DAY_MS)
-            .toISOString()
-            .slice(0, 10);
-          return { date, ...(throughputByDate.get(date) ?? { succeeded: 0, failed: 0 }) };
-        },
-      )
-    : [];
+  for (const day of observedThroughput) {
+    const timestamp = Date.parse(`${day.date}T00:00:00Z`);
+    const index = Math.floor((timestamp - earliestObservedTimestamp) / (throughputIntervalDays * DAY_MS));
+    const interval = throughput[index];
+    if (interval) {
+      interval.succeeded += day.succeeded;
+      interval.failed += day.failed;
+    }
+  }
 
-  const latestDate = throughput.at(-1)?.date ?? null;
-  const latestTimestamp = latestDate ? Date.parse(`${latestDate}T00:00:00Z`) : Number.NaN;
+  const today = now.toISOString().slice(0, 10);
+  const todayTimestamp = Date.parse(`${today}T00:00:00Z`);
   let recentSucceeded = 0;
   let recentFailed = 0;
   let previousCompleted = 0;
-  for (const row of throughput) {
-    const daysAgo = Math.round((latestTimestamp - Date.parse(`${row.date}T00:00:00Z`)) / DAY_MS);
-    if (daysAgo <= 6) {
-      recentSucceeded += row.succeeded;
-      recentFailed += row.failed;
-    } else if (daysAgo <= 13) {
-      previousCompleted += row.succeeded + row.failed;
+  for (const row of migrationRows) {
+    if (!row.completed_at || (row.state !== "succeeded" && row.state !== "failed")) continue;
+    const completedTimestamp = Date.parse(row.completed_at);
+    if (!Number.isFinite(completedTimestamp) || completedTimestamp > now.getTime()) continue;
+    const daysAgo = Math.round((todayTimestamp - Date.parse(`${row.completed_at.slice(0, 10)}T00:00:00Z`)) / DAY_MS);
+    if (daysAgo >= 0 && daysAgo <= 6) {
+      if (row.state === "succeeded") recentSucceeded += 1;
+      else recentFailed += 1;
+    } else if (daysAgo >= 7 && daysAgo <= 13) {
+      previousCompleted += 1;
     }
   }
   const recentCompleted = recentSucceeded + recentFailed;
   const recentSuccessRate =
-    recentCompleted > 0 ? Math.round((recentSucceeded / recentCompleted) * 1000) / 10 : 0;
+    recentCompleted > 0 ? Math.round((recentSucceeded / recentCompleted) * 1000) / 10 : null;
   const volumeChangePct =
     previousCompleted > 0
       ? Math.round(((recentCompleted - previousCompleted) / previousCompleted) * 1000) / 10
@@ -430,7 +458,14 @@ export function getMigrationStats(
 				SUM(COALESCE(json_extract(target_counts, '$.releases'), 0)) AS releases,
 				COUNT(*) AS migration_count
 			 FROM migrations WHERE ${statisticsWhere} AND state = 'succeeded'
-				 AND target_counts IS NOT NULL AND json_valid(target_counts)`,
+				 AND CASE WHEN json_valid(target_counts) THEN
+           json_type(target_counts, '$.commits') = 'integer' AND json_extract(target_counts, '$.commits') >= 0
+           AND json_type(target_counts, '$.branches') = 'integer' AND json_extract(target_counts, '$.branches') >= 0
+           AND json_type(target_counts, '$.tags') = 'integer' AND json_extract(target_counts, '$.tags') >= 0
+           AND json_type(target_counts, '$.issues') = 'integer' AND json_extract(target_counts, '$.issues') >= 0
+           AND json_type(target_counts, '$.pullRequests') = 'integer' AND json_extract(target_counts, '$.pullRequests') >= 0
+           AND json_type(target_counts, '$.releases') = 'integer' AND json_extract(target_counts, '$.releases') >= 0
+         ELSE 0 END`,
     )
     .get(parameters) as {
     commits: number | null;
@@ -485,12 +520,15 @@ export function getMigrationStats(
     records: { fastest, slowest },
     topOrgs,
     failuresByReason: failureStats,
+    failuresWithoutReason,
+    batchFailures,
     sizeStats,
     sizeUnavailableCount,
     batchStats: [...attentionBatches, ...recentCompletedBatches],
     throughput,
+    throughputIntervalDays,
     recentWindow: {
-      endingOn: latestDate,
+      endingOn: today,
       completed: recentCompleted,
       succeeded: recentSucceeded,
       failed: recentFailed,

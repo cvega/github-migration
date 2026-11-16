@@ -33,6 +33,9 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
       return;
     }
     if (current && isTerminalMigrationState(current.state)) {
+      if (current.state === "succeeded" && result.state === "succeeded" && !current.targetCounts && result.targetCounts) {
+        updateMigrationState(id, current.state, { targetCounts: result.targetCounts });
+      }
       finish(id, runToken, current.state);
       return;
     }
@@ -43,7 +46,7 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
       {
         githubMigrationId: result.githubMigrationId ?? undefined,
         sourceCounts: result.sourceCounts ?? undefined,
-        targetCounts: result.targetCounts ?? undefined,
+        targetCounts: result.state === "succeeded" ? result.targetCounts : undefined,
         warningsCount: result.warningsCount || undefined,
         completedAt: result.completedAt ?? undefined,
         elapsedSeconds: result.elapsedSeconds ?? undefined,

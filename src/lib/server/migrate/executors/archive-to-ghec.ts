@@ -88,8 +88,8 @@ export async function monitorGhecMigration(
           migration.targetOrg,
           migration.targetRepo,
         );
-      } catch {
-        // Target counts are supplementary and can lag repository creation.
+      } catch (error) {
+        console.warn("Final target repository counts unavailable.", error);
       }
     }
   } else {

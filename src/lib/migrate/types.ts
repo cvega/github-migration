@@ -344,8 +344,8 @@ export interface MigrationStats {
   active: number;
   /** Migrations awaiting reconciliation. */
   needsReview: number;
-  /** Success rate over succeeded and failed migrations, 0–100. */
-  successRate: number;
+  /** Success rate over succeeded and failed migrations, or null without outcomes. */
+  successRate: number | null;
   /** Cancellation rate over resolved migrations, 0–100. */
   cancellationRate: number;
   duration: {
@@ -378,21 +378,24 @@ export interface MigrationStats {
     fastest: { repo: string; seconds: number } | null;
     slowest: { repo: string; seconds: number } | null;
   };
-  /** Top source organizations by migration count. */
-  topOrgs: Array<{ org: string; count: number }>;
+  /** Top source organizations by migration attempts, separated by provider and host. */
+  topOrgs: Array<{ key: string; org: string; provider: string; host: string; count: number }>;
   failuresByReason: MigrationFailureStats[];
+  failuresWithoutReason: number;
+  batchFailures: number;
   sizeStats: MigrationSizeStats[];
   sizeUnavailableCount: number;
   batchStats: MigrationBatchStats[];
-  /** Completions per calendar day (UTC), oldest first. */
-  throughput: Array<{ date: string; succeeded: number; failed: number }>;
-  /** Latest seven calendar days ending on the most recent completion. */
+  /** Completions grouped into UTC calendar intervals, oldest first. */
+  throughput: Array<{ date: string; endDate: string; succeeded: number; failed: number }>;
+  throughputIntervalDays: number;
+  /** Seven UTC calendar days ending today, excluding future completions. */
   recentWindow: {
     endingOn: string | null;
     completed: number;
     succeeded: number;
     failed: number;
-    successRate: number;
+    successRate: number | null;
     previousCompleted: number;
     volumeChangePct: number | null;
   };
