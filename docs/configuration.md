@@ -16,6 +16,7 @@ integers unless noted otherwise.
 | `GH_MIGRATE_PASS` | Password used to create the first administrator when no users exist |
 | `GH_MIGRATE_SESSION_SECRET` | Deprecated compatibility setting; accepted but no longer used |
 | `GH_MIGRATE_ALLOW_UNAUTHENTICATED` | Explicitly permit operation without dashboard login |
+| `GH_MIGRATE_METRICS_TOKEN` | Optional bearer token enabling the Prometheus metrics endpoint; must contain no whitespace |
 | `GH_ALLOW_CREDENTIAL_OVERRIDE` | Permit request-scoped GitHub credentials and source URL overrides |
 | `MIGRATION_RETENTION_DAYS` | Startup pruning age for terminal migration history; default 90 days, `0` disables age pruning |
 | `MIGRATION_RETENTION_ROWS` | Startup pruning limit for terminal migration rows; default 100,000, `0` disables row pruning |
@@ -35,6 +36,11 @@ limited to a trusted network. It cannot be enabled after users have been created
 Migration, profile, failed-login, and expired-session retention is enforced at
 process startup. A continuously running process can temporarily retain rows
 beyond an age limit until its next restart.
+
+The metrics endpoint is disabled when `GH_MIGRATE_METRICS_TOKEN` is unset or
+empty, including in unauthenticated dashboard mode. Use a separate,
+cryptographically random token, store it as a secret, and use TLS or a trusted
+private network for scrapes. See [API Reference](api.md#prometheus-metrics).
 
 ## Runtime And Networking
 

@@ -1,7 +1,8 @@
 # API Reference
 
-All endpoints return JSON except Server-Sent Event streams. Protected
-deployments require the dashboard session cookie obtained from `/login`.
+Endpoints return JSON except Server-Sent Event streams and the Prometheus
+metrics endpoint. Protected deployments require the dashboard session cookie
+obtained from `/login`, except for metrics, which uses a separate bearer token.
 Validation failures return `{ "error": "..." }` with an appropriate 4xx
 status. Credentials are accepted only by documented migration requests and are
 never returned.
@@ -12,6 +13,7 @@ never returned.
 |---|---|---|
 | `GET` | `/api/health` | Process liveness probe |
 | `GET` | `/api/ready` | Database and startup readiness probe |
+| `GET` | `/api/metrics` | Token-protected Prometheus migration metrics |
 | `GET` | `/api/rate-limits` | Provider quotas, active count, and GitHub status |
 | `POST` | `/api/profile` | Start a provider profile |
 | `GET` | `/api/profile` | List profile runs |
@@ -85,3 +87,51 @@ repository.
 also verifies that initialization completed and SQLite can acquire a write
 transaction. Deployments should use readiness, not health, before routing
 operator traffic.
+
+## Prometheus Metrics
+
+Set `GH_MIGRATE_METRICS_TOKEN` in the dashboard process environment to enable
+`GET /api/metrics`. Use a separate, cryptographically random token without
+whitespace. The endpoint requires `Authorization: Bearer <token>` even when
+dashboard login is disabled or a browser session is present. It returns 404
+when disabled, 401 for a missing or incorrect token, and 503 for invalid token
+configuration. Protect the token in transit with TLS or a trusted private
+network; do not put it in a URL.
+
+Example Prometheus configuration (store the token in a protected file):
+
+```yaml
+scrape_configs:
+  - job_name: migration-toolkit
+    metrics_path: /api/metrics
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/migration-toolkit-token
+    static_configs:
+      - targets: ["migrate.example.com"]
+```
+
+The endpoint returns Prometheus text exposition format 0.0.4. All metrics are
+gauges, grouped by `source` (`github`, `gitlab`, `bitbucket-server`), `target`
+(`ghec`, `ghes`, or `other`), `mode` (`single` or `batch`), and current
+`state`. Unknown stored states are grouped under `other`; repository names,
+organization names, URLs, and failure messages are not labels.
+
+| Metric | Meaning |
+|---|---|
+| `gh_migrate_migrations` | Number of retained migration records in the current state |
+| `gh_migrate_migration_duration_observations` | Retained records with a nonnegative recorded duration |
+| `gh_migrate_migration_duration_observed_seconds` | Sum of those recorded durations in seconds |
+
+For example, `sum by (state) (gh_migrate_migrations)` graphs state counts.
+Average recorded duration for successful migrations is
+`sum(gh_migrate_migration_duration_observed_seconds{state="succeeded"}) / sum(gh_migrate_migration_duration_observations{state="succeeded"})`;
+the result is undefined when there are no recorded durations.
+
+These are snapshots of retained database rows, not lifetime event counters or
+histograms. Counts and duration sums can decrease when records are pruned,
+deleted, restarted, or change state; do not use `rate()` or `increase()` as a
+count of completed migrations. Scraping begins a new time series in
+Prometheus; it does not backfill historical changes, and short-lived states
+between scrapes may not be observed.

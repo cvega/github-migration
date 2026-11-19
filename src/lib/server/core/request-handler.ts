@@ -24,6 +24,7 @@ const securityHeaders: Record<string, string> = {
 };
 
 const PUBLIC_PATHS = new Set(["/login", "/logout", "/api/health", "/api/ready"]);
+const METRICS_PATH = "/api/metrics";
 const PASSWORD_CHANGE_PATH = "/account/password";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -79,6 +80,9 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
     event.locals.authEnabled = config.authEnabled;
 
     if (config.authEnabled) {
+      const isMetricsScrape =
+        event.url.pathname === METRICS_PATH &&
+        (event.request.method === "GET" || event.request.method === "HEAD");
       const sessionCookie = event.cookies.get(config.sessionCookie);
       const principal = sessionCookie ? config.resolveSession(sessionCookie) : null;
       if (principal) {
@@ -86,7 +90,7 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
         event.locals.sessionTokenHash = principal.sessionTokenHash;
       }
 
-      if (!principal && !PUBLIC_PATHS.has(event.url.pathname)) {
+      if (!principal && !PUBLIC_PATHS.has(event.url.pathname) && !isMetricsScrape) {
         if (event.url.pathname.startsWith("/api/")) {
           return applySecurityHeaders(
             new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -101,7 +105,8 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
       if (
         principal?.user.mustChangePassword &&
         event.url.pathname !== PASSWORD_CHANGE_PATH &&
-        !PUBLIC_PATHS.has(event.url.pathname)
+        !PUBLIC_PATHS.has(event.url.pathname) &&
+        !isMetricsScrape
       ) {
         if (event.url.pathname.startsWith("/api/")) {
           return applySecurityHeaders(

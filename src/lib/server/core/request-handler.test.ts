@@ -131,6 +131,23 @@ describe("request authentication hook", () => {
     expect(fixture.resolved()).toBe(0);
   });
 
+  test("routes only metrics scrapes to their independent token authentication", async () => {
+    for (const method of ["GET", "HEAD"]) {
+      const fixture = inputFor("/api/metrics", { method });
+      expect((await handler()(fixture.input)).status).toBe(200);
+      expect(fixture.resolved()).toBe(1);
+    }
+
+    for (const path of ["/api/metrics/extra", "/api/migrate"]) {
+      const fixture = inputFor(path);
+      expect((await handler()(fixture.input)).status).toBe(401);
+      expect(fixture.resolved()).toBe(0);
+    }
+    const mutation = inputFor("/api/metrics", { method: "POST" });
+    expect((await handler()(mutation.input)).status).toBe(401);
+    expect(mutation.resolved()).toBe(0);
+  });
+
   test("redirects a protected page request without a session", async () => {
     const fixture = inputFor("/migrate");
     await expect(handler()(fixture.input)).rejects.toMatchObject({
