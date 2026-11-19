@@ -258,8 +258,11 @@ describe("countByPagination", () => {
 describe("getRepoCounts", () => {
   const graph = (async () => ({
     repository: {
-      refs: { totalCount: 2 }, tags: { totalCount: 1 }, issues: { totalCount: 3 },
-      pullRequests: { totalCount: 4 }, releases: { totalCount: 5 },
+      refs: { totalCount: 2 },
+      tags: { totalCount: 1 },
+      issues: { totalCount: 3 },
+      pullRequests: { totalCount: 4 },
+      releases: { totalCount: 5 },
     },
   })) as unknown as Parameters<typeof getRepoCounts>[1];
   const client = (request: () => Promise<unknown>) =>
@@ -271,29 +274,70 @@ describe("getRepoCounts", () => {
       data: [{}],
     }));
     expect(await getRepoCounts(octokit, graph, "acme", "repo")).toEqual({
-      commits: 42, branches: 2, tags: 1, issues: 3, pullRequests: 4, releases: 5,
+      commits: 42,
+      branches: 2,
+      tags: 1,
+      issues: 3,
+      pullRequests: 4,
+      releases: 5,
     });
   });
 
   test("does not turn failed or incomplete lookups into zero counts", async () => {
     const ok = client(async () => ({ headers: {}, data: [] }));
-    const brokenGraph = (async () => { throw new Error("graphql unavailable"); }) as unknown as typeof graph;
-    await expect(getRepoCounts(ok, brokenGraph, "acme", "repo")).rejects.toThrow("graphql unavailable");
-    await expect(getRepoCounts(client(async () => { throw httpError(403); }), graph, "acme", "repo"))
-      .rejects.toThrow("HTTP 403");
-    await expect(getRepoCounts(client(async () => ({
-      headers: { link: '<https://api.github.com/x?page=2>; rel="next"' }, data: [{}],
-    })), graph, "acme", "repo")).rejects.toThrow("Cannot determine");
+    const brokenGraph = (async () => {
+      throw new Error("graphql unavailable");
+    }) as unknown as typeof graph;
+    await expect(getRepoCounts(ok, brokenGraph, "acme", "repo")).rejects.toThrow(
+      "graphql unavailable",
+    );
+    await expect(
+      getRepoCounts(
+        client(async () => {
+          throw httpError(403);
+        }),
+        graph,
+        "acme",
+        "repo",
+      ),
+    ).rejects.toThrow("HTTP 403");
+    await expect(
+      getRepoCounts(
+        client(async () => ({
+          headers: { link: '<https://api.github.com/x?page=2>; rel="next"' },
+          data: [{}],
+        })),
+        graph,
+        "acme",
+        "repo",
+      ),
+    ).rejects.toThrow("Cannot determine");
     const invalidGraph = (async () => ({
       repository: {
-        refs: { totalCount: -1 }, tags: { totalCount: 1 }, issues: { totalCount: 3 },
-        pullRequests: { totalCount: 4 }, releases: { totalCount: 5 },
+        refs: { totalCount: -1 },
+        tags: { totalCount: 1 },
+        issues: { totalCount: 3 },
+        pullRequests: { totalCount: 4 },
+        releases: { totalCount: 5 },
       },
     })) as unknown as typeof graph;
-    await expect(getRepoCounts(ok, invalidGraph, "acme", "repo")).rejects.toThrow("Invalid repository counts");
+    await expect(getRepoCounts(ok, invalidGraph, "acme", "repo")).rejects.toThrow(
+      "Invalid repository counts",
+    );
   });
 
   test("treats GitHub's empty repository response as zero commits", async () => {
-    expect((await getRepoCounts(client(async () => { throw httpError(409); }), graph, "acme", "repo")).commits).toBe(0);
+    expect(
+      (
+        await getRepoCounts(
+          client(async () => {
+            throw httpError(409);
+          }),
+          graph,
+          "acme",
+          "repo",
+        )
+      ).commits,
+    ).toBe(0);
   });
 });

@@ -300,8 +300,14 @@ function createMigration(opts: MigrationOpts) {
   const isGhecSource = sourceProvider === "github" && sourceApiUrl === "https://api.github.com";
   const src = randomCounts();
 
-  const maxElapsed = Math.min(7200, Math.max(0, Math.floor((Date.now() - opts.startedAt.getTime()) / 1000)));
-  const elapsed = opts.state === "running" || opts.state === "pending" ? null : rand(Math.min(90, maxElapsed), maxElapsed);
+  const maxElapsed = Math.min(
+    7200,
+    Math.max(0, Math.floor((Date.now() - opts.startedAt.getTime()) / 1000)),
+  );
+  const elapsed =
+    opts.state === "running" || opts.state === "pending"
+      ? null
+      : rand(Math.min(90, maxElapsed), maxElapsed);
   const completedAt = elapsed !== null ? isoTs(opts.startedAt, elapsed) : null;
   const warnings = opts.state === "succeeded" ? rand(0, 12) : 0;
   const tgt =
@@ -431,9 +437,10 @@ function createMigration(opts: MigrationOpts) {
 
     // Git import snapshots
     const gitStart = isGhecSource ? 90 : 180;
-    const gitEnd = elapsed !== null
-      ? Math.max(gitStart, Math.min(gitStart + rand(300, 1200), elapsed - 120))
-      : Math.min(gitStart + 600, maxElapsed + 1);
+    const gitEnd =
+      elapsed !== null
+        ? Math.max(gitStart, Math.min(gitStart + rand(300, 1200), elapsed - 120))
+        : Math.min(gitStart + 600, maxElapsed + 1);
     let prevCounts = { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
 
     for (let t = gitStart; t < gitEnd; t += 60) {
@@ -548,7 +555,14 @@ function createMigration(opts: MigrationOpts) {
       JSON.stringify({
         progress: {
           current: {
-            ...(tgt ?? { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 }),
+            ...(tgt ?? {
+              commits: 0,
+              branches: 0,
+              tags: 0,
+              issues: 0,
+              pullRequests: 0,
+              releases: 0,
+            }),
             timestamp: isoTs(opts.startedAt, elapsed),
             migrationState: "SUCCEEDED",
             failureReason: "",
@@ -637,7 +651,9 @@ const transaction = db.transaction(() => {
   const historyStart = new Date(nowMs);
   historyStart.setUTCDate(1);
   historyStart.setUTCMonth(historyStart.getUTCMonth() - 6);
-  const lastDay = new Date(Date.UTC(historyStart.getUTCFullYear(), historyStart.getUTCMonth() + 1, 0)).getUTCDate();
+  const lastDay = new Date(
+    Date.UTC(historyStart.getUTCFullYear(), historyStart.getUTCMonth() + 1, 0),
+  ).getUTCDate();
   historyStart.setUTCDate(Math.min(now.getUTCDate(), lastDay));
   const historyEndMs = nowMs - dayMs;
   const historySpanMs = historyEndMs - historyStart.getTime();
@@ -730,7 +746,9 @@ const transaction = db.transaction(() => {
       b < MIGRATION_SEED_ROUTES.length
         ? nowMs - (b + 1) * dayMs
         : historyEndMs -
-          Math.floor(((b - MIGRATION_SEED_ROUTES.length) * historySpanMs) / (historicalBatchCount - 1)),
+            Math.floor(
+              ((b - MIGRATION_SEED_ROUTES.length) * historySpanMs) / (historicalBatchCount - 1),
+            ),
     );
 
     for (let i = 0; i < batchSize; i++) {
@@ -772,7 +790,9 @@ const transaction = db.transaction(() => {
       ...route,
       id: `seed-ind-${String(i).padStart(4, "0")}`,
       state,
-      startedAt: new Date(historyStart.getTime() + Math.floor((i * historySpanMs) / Math.max(1, remaining - 1))),
+      startedAt: new Date(
+        historyStart.getTime() + Math.floor((i * historySpanMs) / Math.max(1, remaining - 1)),
+      ),
       repo: repoNames[i % repoNames.length],
       richEvents: false,
     });

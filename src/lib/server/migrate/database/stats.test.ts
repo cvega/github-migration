@@ -181,7 +181,9 @@ describe("migration statistics", () => {
       const timestamp = new Date(now.getTime() - daysAgo * day).toISOString();
       const id = `history-${index}`;
       insertMigration(migration(id, "pending", { startedAt: timestamp }));
-      updateMigrationState(id, index % 2 === 0 ? "succeeded" : "failed", { completedAt: timestamp });
+      updateMigrationState(id, index % 2 === 0 ? "succeeded" : "failed", {
+        completedAt: timestamp,
+      });
     }
     const filters = { sourceProvider: "all", targetPlatform: "all", mode: "all" } as const;
     const all = getMigrationStats({ ...filters, period: "all" }, now);
@@ -190,17 +192,27 @@ describe("migration statistics", () => {
 
     expect(all.throughputIntervalDays).toBe(7);
     expect(all.throughput.length).toBeLessThanOrEqual(210);
-    expect(all.throughput[0]?.date).toBe(new Date(now.getTime() - 399 * day).toISOString().slice(0, 10));
+    expect(all.throughput[0]?.date).toBe(
+      new Date(now.getTime() - 399 * day).toISOString().slice(0, 10),
+    );
     expect(all.throughput.at(-1)?.endDate).toBe("2026-11-16");
-    expect(all.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(6);
+    expect(
+      all.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0),
+    ).toBe(6);
     expect(ninety.throughputIntervalDays).toBe(1);
     expect(ninety.throughput).toHaveLength(90);
-    expect(ninety.throughput[0]?.date).toBe(new Date(now.getTime() - 89 * day).toISOString().slice(0, 10));
+    expect(ninety.throughput[0]?.date).toBe(
+      new Date(now.getTime() - 89 * day).toISOString().slice(0, 10),
+    );
     expect(ninety.throughput.at(-1)?.endDate).toBe("2026-11-16");
-    expect(ninety.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(4);
+    expect(
+      ninety.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0),
+    ).toBe(4);
     expect(thirty.throughputIntervalDays).toBe(1);
     expect(thirty.throughput).toHaveLength(31);
-    expect(thirty.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0)).toBe(3);
+    expect(
+      thirty.throughput.reduce((total, bucket) => total + bucket.succeeded + bucket.failed, 0),
+    ).toBe(3);
   });
 
   test("anchors recent windows to today in UTC and excludes future outcomes", () => {
@@ -220,14 +232,17 @@ describe("migration statistics", () => {
       previousCompleted: 1,
       successRate: 100,
     });
-    expect(getMigrationStats(undefined, new Date("2027-01-01T00:00:00.000Z")).recentWindow)
-      .toMatchObject({ completed: 0, previousCompleted: 0, successRate: null });
+    expect(
+      getMigrationStats(undefined, new Date("2027-01-01T00:00:00.000Z")).recentWindow,
+    ).toMatchObject({ completed: 0, previousCompleted: 0, successRate: null });
   });
 
   test("tracks missing information and separates source owners by host", () => {
     insertMigration(migration("failure", "failed", { batchId: "batch", failureReason: null }));
     insertMigration(migration("retry", "failed", { sourceRepo: "failure" }));
-    insertMigration(migration("other-host", "running", { sourceApiUrl: "https://ghes.example.com/api/v3" }));
+    insertMigration(
+      migration("other-host", "running", { sourceApiUrl: "https://ghes.example.com/api/v3" }),
+    );
     const stats = getMigrationStats();
     expect(stats.failuresWithoutReason).toBe(2);
     expect(stats.batchFailures).toBe(1);
@@ -243,8 +258,12 @@ describe("migration statistics", () => {
     insertOutcome("valid", "succeeded", 10);
     insertOutcome("missing-field", "succeeded", 10);
     insertOutcome("invalid", "succeeded", 10);
-    getDb().prepare("UPDATE migrations SET target_counts = ? WHERE id = ?").run('{"commits": 4}', "missing-field");
-    getDb().prepare("UPDATE migrations SET target_counts = ? WHERE id = ?").run("not json", "invalid");
+    getDb()
+      .prepare("UPDATE migrations SET target_counts = ? WHERE id = ?")
+      .run('{"commits": 4}', "missing-field");
+    getDb()
+      .prepare("UPDATE migrations SET target_counts = ? WHERE id = ?")
+      .run("not json", "invalid");
     expect(getMigrationStats().resources).toMatchObject({ commits: 10, migrationCount: 1 });
   });
 

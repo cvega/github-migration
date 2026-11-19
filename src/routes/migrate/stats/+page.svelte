@@ -890,7 +890,7 @@
 
 	.stats-table th {
 		padding: 10px 12px;
-		font-size: 11px;
+		font-size: var(--text-xs);
 		font-weight: 600;
 		white-space: nowrap;
 	}
@@ -933,7 +933,7 @@
 		border: 1px solid transparent;
 		border-radius: 0.25rem;
 		color: var(--controlTrack-fgColor-rest);
-		font-size: 0.75rem;
+		font-size: var(--text-xs);
 		font-weight: 500;
 		white-space: nowrap;
 		cursor: pointer;

@@ -33,7 +33,12 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
       return;
     }
     if (current && isTerminalMigrationState(current.state)) {
-      if (current.state === "succeeded" && result.state === "succeeded" && !current.targetCounts && result.targetCounts) {
+      if (
+        current.state === "succeeded" &&
+        result.state === "succeeded" &&
+        !current.targetCounts &&
+        result.targetCounts
+      ) {
         updateMigrationState(id, current.state, { targetCounts: result.targetCounts });
       }
       finish(id, runToken, current.state);

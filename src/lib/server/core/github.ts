@@ -337,7 +337,12 @@ async function getResourceCount(
     if (!Array.isArray(response.data)) throw new Error(`Invalid ${resource} count response`);
     return response.data.length;
   } catch (error) {
-    if (resource === "commits" && error instanceof Error && "status" in error && error.status === 409) {
+    if (
+      resource === "commits" &&
+      error instanceof Error &&
+      "status" in error &&
+      error.status === 409
+    ) {
       return 0;
     }
     throw error;

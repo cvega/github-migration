@@ -92,7 +92,10 @@ describe("GitHub migration monitor", () => {
     restore = __setMonitorDependenciesForTests({
       getRepositoryMigration: async () => ({
         state: ++poll === 1 ? "IN_PROGRESS" : "SUCCEEDED",
-        repositoryName: "widget", warningsCount: 0, failureReason: "", migrationLogUrl: "",
+        repositoryName: "widget",
+        warningsCount: 0,
+        failureReason: "",
+        migrationLogUrl: "",
       }),
       doesRepoExist: async () => true,
       getRepoCounts: async () => {
@@ -102,8 +105,13 @@ describe("GitHub migration monitor", () => {
       wait: async () => {},
     });
     const result = await monitorRepositoryMigration({
-      clients, migrationId: "migration-1", githubMigrationId: "node-1",
-      targetOrg: "acme", targetRepo: "widget", sourceCounts: counts, emit: () => {},
+      clients,
+      migrationId: "migration-1",
+      githubMigrationId: "node-1",
+      targetOrg: "acme",
+      targetRepo: "widget",
+      sourceCounts: counts,
+      emit: () => {},
     });
     expect(result).toEqual({ phase: "SUCCEEDED", finalCounts: null });
     expect(warn).toHaveBeenCalled();

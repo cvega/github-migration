@@ -158,7 +158,10 @@ export function getMigrationStats(
       { succeeded: 0, failed: 0, durations: [] as number[] },
     ]),
   );
-  const organizationCounts = new Map<string, { org: string; provider: string; host: string; count: number }>();
+  const organizationCounts = new Map<
+    string,
+    { org: string; provider: string; host: string; count: number }
+  >();
   const batchIds = new Set<string>();
   const throughputByDate = new Map<string, { succeeded: number; failed: number }>();
   const failuresByReason = new Map<
@@ -179,10 +182,12 @@ export function getMigrationStats(
   let slowest: { repo: string; seconds: number } | null = null;
 
   for (const row of migrationRows) {
-    const sizeKb = row.source_size_kb !== null &&
-      Number.isSafeInteger(row.source_size_kb) && row.source_size_kb >= 0
-      ? row.source_size_kb
-      : null;
+    const sizeKb =
+      row.source_size_kb !== null &&
+      Number.isSafeInteger(row.source_size_kb) &&
+      row.source_size_kb >= 0
+        ? row.source_size_kb
+        : null;
     byState[row.state] += 1;
     total += 1;
     totalWarnings += row.warnings_count;
@@ -191,7 +196,9 @@ export function getMigrationStats(
     const org = organizationCounts.get(orgKey) ?? {
       org: row.source_org,
       provider: row.source_provider,
-      host: URL.canParse(row.source_api_url) ? new URL(row.source_api_url).host : row.source_api_url,
+      host: URL.canParse(row.source_api_url)
+        ? new URL(row.source_api_url).host
+        : row.source_api_url,
       count: 0,
     };
     org.count += 1;
@@ -299,7 +306,12 @@ export function getMigrationStats(
     });
   const topOrgs = [...organizationCounts]
     .map(([key, value]) => ({ key, ...value }))
-    .sort((left, right) => right.count - left.count || left.org.localeCompare(right.org) || left.key.localeCompare(right.key))
+    .sort(
+      (left, right) =>
+        right.count - left.count ||
+        left.org.localeCompare(right.org) ||
+        left.key.localeCompare(right.key),
+    )
     .slice(0, 6);
   const failureStats = [...failuresByReason]
     .map(([reason, failure]) => ({ reason, ...failure }))
@@ -415,7 +427,9 @@ export function getMigrationStats(
   );
   for (const day of observedThroughput) {
     const timestamp = Date.parse(`${day.date}T00:00:00Z`);
-    const index = Math.floor((timestamp - earliestObservedTimestamp) / (throughputIntervalDays * DAY_MS));
+    const index = Math.floor(
+      (timestamp - earliestObservedTimestamp) / (throughputIntervalDays * DAY_MS),
+    );
     const interval = throughput[index];
     if (interval) {
       interval.succeeded += day.succeeded;
@@ -432,7 +446,9 @@ export function getMigrationStats(
     if (!row.completed_at || (row.state !== "succeeded" && row.state !== "failed")) continue;
     const completedTimestamp = Date.parse(row.completed_at);
     if (!Number.isFinite(completedTimestamp) || completedTimestamp > now.getTime()) continue;
-    const daysAgo = Math.round((todayTimestamp - Date.parse(`${row.completed_at.slice(0, 10)}T00:00:00Z`)) / DAY_MS);
+    const daysAgo = Math.round(
+      (todayTimestamp - Date.parse(`${row.completed_at.slice(0, 10)}T00:00:00Z`)) / DAY_MS,
+    );
     if (daysAgo >= 0 && daysAgo <= 6) {
       if (row.state === "succeeded") recentSucceeded += 1;
       else recentFailed += 1;
