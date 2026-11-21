@@ -8,6 +8,8 @@
  *     talk only through `core`.
  *   - `schemas.ts` is the composition root and may import every domain.
  *   - browser-capable modules must not import `$lib/server`.
+ *   - source-provider clients, exporters, and executors must not import another
+ *     source provider's implementation; target protocols remain shared.
  *
  * Both absolute (`$lib/server/<x>`) and relative (`../<x>/…`) imports are
  * resolved to a layer, so neither import style can sneak a violation past the
@@ -16,7 +18,13 @@
  */
 import { dirname, relative, resolve } from "node:path";
 import { Glob } from "bun";
-import { checkBoundary, isDomain, type Layer, type TargetLayer } from "./boundary-policy";
+import {
+  checkBoundary,
+  checkSourceProviderBoundary,
+  isDomain,
+  type Layer,
+  type TargetLayer,
+} from "./boundary-policy";
 
 const SERVER_DIR = resolve("src/lib/server");
 
@@ -32,8 +40,7 @@ function layerOfFile(absFile: string): Layer | null {
   return null;
 }
 
-/** Resolve an import specifier to the server layer it targets, or null. */
-function targetLayer(spec: string, fromFile: string): TargetLayer | null {
+function serverImportPath(spec: string, fromFile: string): string | null {
   let abs: string;
   if (spec.startsWith("$lib/server/")) {
     abs = resolve(SERVER_DIR, spec.slice("$lib/server/".length));
@@ -44,6 +51,12 @@ function targetLayer(spec: string, fromFile: string): TargetLayer | null {
   }
   const rel = relative(SERVER_DIR, abs);
   if (rel.startsWith("..")) return null; // outside server/
+  return rel;
+}
+
+/** Map a resolved server import to its layer. */
+function targetLayer(rel: string | null): TargetLayer | null {
+  if (rel === null) return null;
   const top = rel.split("/")[0] ?? "";
   if (top === "application") return "application";
   if (top === "core") return "core";
@@ -82,7 +95,10 @@ for await (const file of new Glob("src/lib/server/**/*.ts").scan(".")) {
     for (const match of text.matchAll(IMPORT_RE)) if (match[1]) specs.push(match[1]);
     for (const dm of text.matchAll(DYN_IMPORT_RE)) if (dm[1]) specs.push(dm[1]);
     for (const spec of specs) {
-      const reason = checkBoundary(from, targetLayer(spec, absFile));
+      const target = serverImportPath(spec, absFile);
+      const reason =
+        checkBoundary(from, targetLayer(target)) ??
+        checkSourceProviderBoundary(relative(SERVER_DIR, absFile), target);
       if (reason) violations.push({ file, line: i + 1, spec, reason });
     }
   });
@@ -125,4 +141,6 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log("✓ Boundary check passed — server domains and browser imports stay isolated");
+console.log(
+  "✓ Boundary check passed — server domains, source providers, and browser imports stay isolated",
+);

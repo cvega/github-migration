@@ -1,6 +1,12 @@
-import { resolveTargetAuth } from "$lib/server/core/auth";
+import { env } from "node:process";
+import type { MigrationTargetProfile } from "$lib/migration-target";
+import { isTargetAuthAvailable } from "$lib/server/core/auth";
 import type { GitHubClient } from "$lib/server/core/github";
-import { createSingleClient } from "$lib/server/core/github";
+
+export {
+  getMigrationTargetClient as getTargetMannequinClient,
+  migrationTargetCredentialError as mannequinTargetCredentialError,
+} from "$lib/server/core/targets";
 
 const MANNEQUINS_PER_PAGE = 50;
 
@@ -10,7 +16,7 @@ interface MannequinClaimant {
   avatarUrl: string;
 }
 
-interface Mannequin {
+export interface Mannequin {
   id: string;
   login: string;
   email: string | null;
@@ -102,8 +108,10 @@ const CREATE_INVITATION_MUTATION = `
   }
 `;
 
-export function getTargetMannequinClient(): GitHubClient {
-  return createSingleClient(resolveTargetAuth(), "https://api.github.com");
+export function isMannequinTargetAuthAvailable(target: MigrationTargetProfile): boolean {
+  return target.platform === "ghec"
+    ? isTargetAuthAvailable()
+    : Boolean(env.GHES_TARGET_ADMIN_PAT?.trim());
 }
 
 export async function listOrganizationMembers(
@@ -166,6 +174,51 @@ export async function listOrganizationMannequins(
   };
 }
 
+export async function listAllOrganizationMannequins(
+  client: GitHubClient,
+  organization: string,
+): Promise<Mannequin[]> {
+  const mannequins: Mannequin[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const result = (await client.graphql(MANNEQUINS_QUERY, {
+      login: organization,
+      first: MANNEQUINS_PER_PAGE,
+      after: cursor,
+    })) as MannequinQueryResult;
+    if (!result.organization) throw new Error(`Organization ${organization} was not found.`);
+    const connection = result.organization.mannequins;
+    mannequins.push(...connection.nodes);
+    if (!connection.pageInfo.hasNextPage) return mannequins;
+    if (!connection.pageInfo.endCursor || connection.pageInfo.endCursor === cursor) {
+      throw new Error("GitHub returned an invalid mannequin pagination cursor.");
+    }
+    cursor = connection.pageInfo.endCursor;
+  }
+}
+
+export async function getTargetUserReadiness(
+  client: GitHubClient,
+  organization: string,
+  login: string,
+): Promise<"ready" | "pending" | "not_member" | "not_found"> {
+  try {
+    await client.users.getByUsername({ username: login });
+  } catch (error) {
+    if (error instanceof Error && "status" in error && error.status === 404) return "not_found";
+    throw error;
+  }
+  try {
+    const { data } = await client.orgs.getMembershipForUser({ org: organization, username: login });
+    if (data.state === "active") return "ready";
+    if (data.state === "pending") return "pending";
+    throw new Error(`Unexpected organization membership state: ${data.state}`);
+  } catch (error) {
+    if (error instanceof Error && "status" in error && error.status === 404) return "not_member";
+    throw error;
+  }
+}
+
 export async function createAttributionInvitation(
   client: GitHubClient,
   input: { organization: string; mannequinId: string; targetLogin: string },
@@ -184,6 +237,7 @@ export async function createAttributionInvitation(
     ownerId: organization.node_id,
     sourceId: input.mannequinId,
     targetId: target.node_id,
+    request: { retries: 0 },
   })) as {
     createAttributionInvitation: {
       source: { login: string };

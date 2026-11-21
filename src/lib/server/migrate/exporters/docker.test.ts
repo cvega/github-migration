@@ -21,6 +21,7 @@ test("creates a sandboxed exporter and verifies its archive", async () => {
     },
     hash: async () => "a".repeat(64),
     stat: async () => ({ isFile: () => true, isSymbolicLink: () => false }),
+    statDirectory: async () => ({ isDirectory: () => true, uid: 100, gid: 101 }),
     remove: async (path) => {
       removed.push(path);
     },
@@ -66,6 +67,8 @@ test("creates a sandboxed exporter and verifies its archive", async () => {
   expect(removed).toEqual(["/archives/gh-migrate-gl-migration-1.tar.gz"]);
   expect(calls.map(({ args }) => args[1])).toEqual(["create", "start", "inspect"]);
   expect(calls[0]?.args).toContain("--read-only");
+  expect(calls[0]?.args).toContain("--user");
+  expect(calls[0]?.args).toContain("100:101");
   expect(calls[0]?.args).toContain("no-new-privileges");
   expect(calls[0]?.args).toContain("none");
   expect(calls[0]?.args).toContain("EXPORT_TOKEN");

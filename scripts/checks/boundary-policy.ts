@@ -28,3 +28,26 @@ export function checkBoundary(from: Layer, to: TargetLayer | null): string | nul
   }
   return null;
 }
+
+function sourceProviderOfModule(path: string): string | null {
+  const [domain, area, module] = path.split("/");
+  const provider =
+    domain === "source"
+      ? area
+      : domain === "migrate" && (area === "executors" || area === "exporters")
+        ? module?.split(/[-.]/)[0]
+        : domain === "migrate" && area === "github" && module?.split(".")[0] === "exports"
+          ? "github"
+          : null;
+  return provider === "bitbucket" || provider === "gitlab" || provider === "github"
+    ? provider
+    : null;
+}
+
+export function checkSourceProviderBoundary(from: string, to: string | null): string | null {
+  const source = sourceProviderOfModule(from);
+  const target = to === null ? null : sourceProviderOfModule(to);
+  return source && target && source !== target
+    ? `source provider '${source}' must not import '${target}' implementation`
+    : null;
+}

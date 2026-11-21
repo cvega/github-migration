@@ -32,7 +32,7 @@ to that exact browser-visible origin before starting the containers.
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
 | Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
-| Attribute mannequins | Migrated source identities in a GHEC organization | Configure a GHEC target organization and credential, open **Mannequins**, map each source identity to a visible target member, and send the attribution invitation. |
+| Map identities | GHES import users or mannequins exposed by GHEC or GHES | Open **Mannequins**, select a target organization, and save mappings before migration. Check membership and apply unique mannequin matches, or use approved user URLs during a GHES import. |
 
 GitHub-to-GHES migration is not supported. See the generated
 [support matrix](architecture.md#migration-pipeline) for the authoritative
@@ -74,6 +74,13 @@ The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
 
+After success, **Resource verification** shows recorded destination totals, not
+the number of items transferred. Commit counts cover the default branch's
+history. If counts are unavailable, use **Fetch counts** to read and save the
+target totals without rerunning the import. This uses the configured target
+credential and also updates Statistics coverage; existing recorded counts are
+not overwritten.
+
 ## Export Statistics
 
 Open **Statistics**, select the report filters, and choose the printer icon
@@ -91,13 +98,23 @@ repository totals, not a count of items transferred. Coverage is shown beside
 the totals. Commit counts represent default-branch history; older counts may
 contain zeros from unavailable API data.
 
-## Attribute Mannequins
+## Map Identities
 
-Choose **Mannequins**, select a configured GHEC organization, and map each
-unclaimed source identity to a visible organization member. The dashboard sends
-the invitation through GitHub and records the operator action, but GitHub owns
-acceptance. Invitation status is not persisted or polled by the dashboard, so
-review pending or rejected invitations in GitHub before sending another.
+Choose **Mannequins**, select the target and organization, and add mappings
+individually or import a CSV with the exact header
+`source_identity,target_username`. Select the source identity type for all CSV
+rows. GHES `ghe-migrator` mappings use the exact source user URL reported by
+the exporter; mannequin mappings use the exact mannequin login or node ID.
+Mappings can be saved before the target user joins or the mannequin exists.
+
+Use **Check mappings** to check target users, organization membership, and
+mannequin matches. GHES imports apply matching user URLs after checking that
+the target account exists. For mannequin mappings, **Send matched invitations**
+sends invitations only for unique matches with active organization members.
+Ambiguous, missing, and pending matches are skipped and reported. GitHub owns
+acceptance; run the check again to see claimants. The dashboard does not detect
+rejections, so verify uncertain or rejected invitations in GitHub before
+taking further action.
 
 ## Stop The Dashboard
 

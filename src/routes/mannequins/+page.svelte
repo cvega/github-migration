@@ -1,189 +1,202 @@
 <script lang="ts">
+	import { untrack } from "svelte";
 	import { enhance } from "$app/forms";
 	import { goto } from "$app/navigation";
-	import { page } from "$app/state";
 	import Octicon from "$lib/components/Octicon.svelte";
-	import Pagination from "$lib/components/Pagination.svelte";
 
 	let { data, form } = $props();
-	let filter = $state<"all" | "unmapped" | "mapped">("all");
-	let search = $state("");
-	let submittingId = $state<string | null>(null);
+	let sourceKind = $state(untrack(() => data.target.platform === "ghes" ? "ghe-migrator:bitbucket-server" : "mannequin-login"));
+	let busy = $state(false);
+	const mappings = $derived(data.identityMappings.filter((mapping) => mapping.sourceKind !== "mannequin"));
+	const priorInvitations = $derived(data.identityMappings.filter((mapping) => mapping.sourceKind === "mannequin"));
+	const hasMannequinMappings = $derived(mappings.some((mapping) => mapping.sourceKind.startsWith("mannequin-") && mapping.targetLogin));
+	const actionSuffix = $derived(`target=${encodeURIComponent(data.target.id)}&org=${encodeURIComponent(data.organization ?? "")}`);
 
-	const mannequins = $derived(data.result?.mannequins ?? []);
-	const unmappedCount = $derived(mannequins.filter((mannequin) => !mannequin.claimant).length);
-	const mappedCount = $derived(mannequins.length - unmappedCount);
-	const suggestedTargetLogins = $derived(
-		new Set(data.targetMembers.map((member) => member.login.toLowerCase())),
-	);
-	const filteredMannequins = $derived(
-		mannequins.filter((mannequin) => {
-			if (filter === "unmapped" && mannequin.claimant) return false;
-			if (filter === "mapped" && !mannequin.claimant) return false;
-			const query = search.trim().toLowerCase();
-			if (!query) return true;
-			return [mannequin.login, mannequin.email, mannequin.claimant?.login].some((value) =>
-				value?.toLowerCase().includes(query),
-			);
-		}),
-	);
-
-	function selectOrganization(event: Event) {
-		const organization = (event.currentTarget as HTMLSelectElement).value;
-		goto(`/mannequins?org=${encodeURIComponent(organization)}`);
+	function changeTarget(event: Event) {
+		const target = (event.currentTarget as HTMLSelectElement).value;
+		sourceKind = data.targets.find((item) => item.id === target)?.platform === "ghes" ? "ghe-migrator:bitbucket-server" : "mannequin-login";
+		goto(`/mannequins?${new URLSearchParams({ target })}`);
 	}
 
-	function goToPage(nextPage: number) {
-		const params = new URLSearchParams(page.url.searchParams.toString());
-		params.set("page", String(nextPage));
-		goto(`/mannequins?${params.toString()}`);
+	function changeOrganization(event: Event) {
+		const org = (event.currentTarget as HTMLSelectElement).value;
+		goto(`/mannequins?${new URLSearchParams({ target: data.target.id, org })}`);
+	}
+
+	function enhanceAction() {
+		busy = true;
+		return async ({ update }: { update: () => Promise<void> }) => {
+			try { await update(); } finally { busy = false; }
+		};
+	}
+
+	function labelKind(kind: string) {
+		return ({
+			"ghe-migrator:bitbucket-server": "Bitbucket user URL",
+			"ghe-migrator:gitlab": "GitLab user URL",
+			"mannequin-login": "Mannequin login",
+			"mannequin-id": "Mannequin node ID",
+		} as Record<string, string>)[kind] ?? kind;
+	}
+
+	function userLabel(state: string) {
+		return ({
+			ready: "Organization member",
+			pending: "Organization invitation pending",
+			not_member: "Not a visible organization member",
+			not_found: "User not found or not visible",
+			unmapped: "Target needed",
+		} as Record<string, string>)[state] ?? state;
 	}
 </script>
 
-<svelte:head><title>Mannequins - GitHub Migration Toolkit</title></svelte:head>
+<svelte:head><title>Identity mappings - GitHub Migration Toolkit</title></svelte:head>
 
 <div class="space-y-6">
-	<header class="flex flex-col gap-4 border-b border-gray-700 pb-5 sm:flex-row sm:items-end sm:justify-between">
+	<header class="flex flex-col gap-4 border-b border-gray-700 pb-5 lg:flex-row lg:items-end lg:justify-between">
 		<div>
-			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50">
-				<Octicon name="people" size={24} class="text-gray-300" />
-				Mannequins
-			</h1>
-			<p class="mt-1 max-w-2xl text-sm leading-6 text-gray-400">
-				Map source users to target users and send attribution invitations.
-			</p>
+			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50"><Octicon name="people" size={24} class="text-gray-300" />Identity mappings</h1>
+			<p class="mt-1 max-w-2xl text-sm leading-6 text-gray-400">Prepare source-to-target identities, then check users and apply mannequin invitations.</p>
 		</div>
-		{#if data.targetOrganizations.length > 0}
-			<label class="flex min-w-0 flex-col gap-1 text-xs font-medium text-gray-400">
-				Target organization
-				<span class="relative">
-					<select
-						value={data.organization ?? ""}
-						onchange={selectOrganization}
-						class="h-9 w-full min-w-52 appearance-none rounded-md border border-gray-600 bg-gray-900 py-1 pr-9 pl-3 text-sm text-gray-100 outline-none hover:border-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-					>
-						{#each data.targetOrganizations as organization (organization)}
-							<option value={organization}>{organization}</option>
-						{/each}
-					</select>
-					<span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-gray-500">
-						<Octicon name="chevron-down" size={16} />
-					</span>
-				</span>
+		<div class="flex flex-col gap-3 sm:flex-row">
+			<label class="flex flex-col gap-1 text-xs font-medium text-gray-400">Target platform
+				<select value={data.target.id} onchange={changeTarget} class="h-9 min-w-52 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100">
+					{#each data.targets as target (target.id)}
+						<option value={target.id}>{target.platform === "ghec" ? "GitHub Enterprise Cloud" : `GitHub Enterprise Server · ${target.displayName}`}</option>
+					{/each}
+				</select>
 			</label>
-		{/if}
+			{#if data.targetOrganizations.length}
+				<label class="flex flex-col gap-1 text-xs font-medium text-gray-400">Target organization
+					<select value={data.organization ?? ""} onchange={changeOrganization} class="h-9 min-w-52 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100">
+						{#each data.targetOrganizations as organization (organization)}<option value={organization}>{organization}</option>{/each}
+					</select>
+				</label>
+			{/if}
+		</div>
 	</header>
 
-	{#if data.targetOrganizations.length === 0}
-		<section class="py-14 text-center" aria-labelledby="no-target-heading">
-			<Octicon name="organization" size={24} class="text-gray-600" />
-			<h2 id="no-target-heading" class="mt-3 text-base font-semibold text-gray-100">No target organization configured</h2>
-			<p class="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-400">Add at least one GitHub Enterprise Cloud organization before discovering mannequins.</p>
-			<a href="/setup#targets" class="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-gray-600 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800"><Octicon name="gear" size={16} />Open Setup</a>
-		</section>
-	{:else if !data.targetAuthReady}
-		<section class="py-14 text-center" aria-labelledby="auth-heading">
-			<Octicon name="key" size={24} class="text-gray-600" />
-			<h2 id="auth-heading" class="mt-3 text-base font-semibold text-gray-100">No server target credential configured</h2>
-			<p class="mx-auto mt-1 max-w-md text-sm leading-6 text-gray-400">Set <code class="font-mono text-gray-300">GH_TARGET_PAT</code> or the target GitHub App environment variables, then restart the service.</p>
-			<a href="/setup#targets" class="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-gray-600 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800"><Octicon name="gear" size={16} />Open Setup</a>
-		</section>
-	{:else if data.error}
-		<div role="alert" class="flex items-start gap-3 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-			<Octicon name="alert" size={16} class="mt-0.5 shrink-0" />
-			<div class="min-w-0 flex-1"><p class="font-medium">Unable to load mannequins</p><p class="mt-0.5 text-red-200/80">{data.error}</p></div>
-			<a href={page.url.pathname + page.url.search} aria-label="Retry" title="Retry" class="rounded p-1 text-red-200 hover:bg-red-500/10"><Octicon name="sync" size={16} /></a>
-		</div>
-	{:else if data.result}
-		<section aria-labelledby="mapping-heading">
-			<div class="grid grid-cols-[minmax(0,1fr)_2.5rem_minmax(0,1fr)] items-center border-y border-gray-700 bg-gray-900/40 px-3 py-4 sm:px-4">
-				<div class="min-w-0">
-					<p class="text-xs font-medium text-gray-500">Source users</p>
-					<p class="mt-1 truncate text-sm font-semibold text-gray-100">{data.result.totalCount.toLocaleString()} migrated users</p>
-				</div>
-				<Octicon name="arrow-right" size={16} class="mx-auto text-gray-500" />
-				<div class="min-w-0 text-right">
-					<p class="text-xs font-medium text-gray-500">Target users</p>
-					<p class="mt-1 truncate text-sm font-semibold text-gray-100">{data.organization}</p>
-				</div>
+	{#if !data.organization}
+		<p class="text-sm text-gray-400">Configure a target organization in <a class="text-blue-400 underline" href="/setup#targets">Setup</a> to manage mappings.</p>
+	{:else}
+		<section class="space-y-4" aria-labelledby="add-heading">
+			<div>
+				<h2 id="add-heading" class="text-base font-semibold text-gray-100">Add mappings</h2>
+				<p class="mt-1 text-sm text-gray-400">Save mappings before users join or mannequins exist. Source identities must match exactly.</p>
 			</div>
-
-			<div class="flex flex-col gap-3 border-b border-gray-700 py-4 sm:flex-row sm:items-center sm:justify-between">
-				<div class="min-w-0">
-					<h2 id="mapping-heading" class="text-base font-semibold text-gray-100">User map</h2>
-					<p class="mt-0.5 text-xs text-gray-500">{mappedCount} mapped · {unmappedCount} need a target on this page</p>
-				</div>
-				<div class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-					<label class="relative min-w-0 sm:w-56">
-						<span class="sr-only">Search user mappings</span>
-						<span class="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-gray-500"><Octicon name="search" size={16} /></span>
-						<input bind:value={search} type="search" placeholder="Search users" class="h-8 w-full rounded-md border border-gray-700 bg-gray-900 pr-2 pl-8 text-sm text-gray-100 outline-none placeholder:text-gray-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+			<label class="flex max-w-sm flex-col gap-1 text-sm text-gray-300">Source identity type
+				<select bind:value={sourceKind} class="h-9 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100">
+					{#if data.target.platform === "ghes"}
+						<option value="ghe-migrator:bitbucket-server">Bitbucket user URL · GHES import</option>
+						<option value="ghe-migrator:gitlab">GitLab user URL · GHES import</option>
+					{/if}
+					<option value="mannequin-login">Mannequin login · attribution invitation</option>
+					<option value="mannequin-id">Mannequin node ID · attribution invitation</option>
+				</select>
+			</label>
+			<form method="POST" action="?/saveMappings&{actionSuffix}" use:enhance={enhanceAction} class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-end">
+				<input type="hidden" name="target" value={data.target.id} />
+				<input type="hidden" name="organization" value={data.organization} />
+				<input type="hidden" name="sourceKind" value={sourceKind} />
+				<label class="flex min-w-0 flex-[2] flex-col gap-1 text-sm text-gray-300">Source identity
+					<input name="sourceIdentity" required maxlength="2048" placeholder={sourceKind.startsWith("ghe-migrator:") ? "https://source.example/users/alice" : "Exact mannequin login or node ID"} class="h-9 min-w-0 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100" />
+				</label>
+				<label class="flex min-w-0 flex-1 flex-col gap-1 text-sm text-gray-300">Target username
+					<input name="targetLogin" required maxlength="39" placeholder="GitHub username" class="h-9 min-w-0 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100" />
+				</label>
+				<button type="submit" disabled={busy} class="h-9 rounded-md bg-green-700 px-4 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-50">Add mapping</button>
+			</form>
+			<details class="text-sm">
+				<summary class="cursor-pointer text-blue-400">Import CSV instead</summary>
+				<form method="POST" enctype="multipart/form-data" action="?/saveMappings&{actionSuffix}" use:enhance={enhanceAction} class="mt-3 flex flex-wrap items-end gap-3">
+					<input type="hidden" name="target" value={data.target.id} />
+					<input type="hidden" name="organization" value={data.organization} />
+					<input type="hidden" name="sourceKind" value={sourceKind} />
+					<label class="flex flex-col gap-1 text-gray-300">CSV file
+						<input type="file" name="csv" accept=".csv,text/csv" required class="max-w-full text-sm text-gray-300" />
 					</label>
-					<fieldset class="inline-flex self-start rounded-md border border-gray-700 bg-gray-900 p-0.5">
-						<legend class="sr-only">Filter user mappings</legend>
-						{#each [
-							{ id: "all", label: "All", count: mannequins.length },
-							{ id: "unmapped", label: "Unmapped", count: unmappedCount },
-							{ id: "mapped", label: "Mapped", count: mappedCount },
-						] as option (option.id)}
-							<button type="button" onclick={() => (filter = option.id as typeof filter)} aria-pressed={filter === option.id} class="rounded px-2.5 py-1 text-xs font-medium transition-colors {filter === option.id ? 'bg-gray-700 text-gray-50 shadow-sm' : 'text-gray-400 hover:text-gray-200'}">{option.label} <span class="ml-1 tabular-nums text-gray-500">{option.count}</span></button>
-						{/each}
-					</fieldset>
+					<button type="submit" disabled={busy} class="h-9 rounded-md border border-gray-600 px-3 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50">Import mappings</button>
+					<p class="w-full text-xs text-gray-400">Header: <code>source_identity,target_username</code>. Up to 500 rows; use the selected identity type for every row.</p>
+				</form>
+			</details>
+		</section>
+
+		{#if form?.error || form?.success}
+			<p role="status" class="text-sm {form.error ? 'text-red-400' : 'text-green-400'}">{form.error ?? form.success}</p>
+		{/if}
+		{#if data.error || !data.targetAuthReady}
+			<p role="alert" class="text-sm text-amber-400">{data.error ?? "Target authentication is not configured. You can save mappings, but checks and invitations need a target credential."}</p>
+		{/if}
+
+		<section aria-labelledby="mappings-heading" class="space-y-3 border-t border-gray-700 pt-5">
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+				<div><h2 id="mappings-heading" class="text-base font-semibold text-gray-100">Saved mappings <span class="text-gray-500">({mappings.length})</span></h2>
+					<p class="mt-1 text-sm text-gray-400">Check organization membership and find exact mannequin matches.</p></div>
+				<div class="flex flex-wrap gap-2">
+					<form method="POST" action="?/checkMappings&{actionSuffix}" use:enhance={enhanceAction}>
+						<input type="hidden" name="target" value={data.target.id} /><input type="hidden" name="organization" value={data.organization} />
+						<button type="submit" disabled={busy || mappings.length === 0} class="h-9 rounded-md border border-gray-600 px-3 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50">{busy ? "Working…" : "Check mappings"}</button>
+					</form>
+					{#if hasMannequinMappings}
+						<form method="POST" action="?/applyMappings&{actionSuffix}" use:enhance={enhanceAction}>
+							<input type="hidden" name="target" value={data.target.id} /><input type="hidden" name="organization" value={data.organization} />
+							<button type="submit" disabled={busy} class="h-9 rounded-md border border-gray-600 px-3 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50">Send matched invitations</button>
+						</form>
+					{/if}
 				</div>
 			</div>
-
-			{#if data.memberDiscoveryLimited || data.targetMembers.length >= 100}
-				<p class="border-b border-gray-800 px-3 py-2 text-xs text-gray-500">Target suggestions are limited. You can still enter any organization member’s login.</p>
-			{/if}
-			<datalist id="target-members">
-				{#each data.targetMembers as member (member.id)}<option value={member.login}></option>{/each}
-			</datalist>
-
-			{#if mannequins.length === 0}
-				<div class="py-14 text-center">
-					<Octicon name="check-circle" size={24} class="text-green-400" />
-					<h3 class="mt-3 text-base font-semibold text-gray-100">No source users found</h3>
-					<p class="mt-1 text-sm text-gray-400">GitHub has no migrated users to map in this organization.</p>
-				</div>
+			{#if mappings.length === 0}
+				<p class="py-6 text-sm text-gray-500">No mappings saved. Add one above or import a CSV.</p>
 			{:else}
-				<div class="hidden grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)_8rem] items-center gap-4 border-b border-gray-800 px-3 py-2 text-xs font-medium text-gray-500 sm:grid">
-					<span>Source user</span><span></span><span>Target user</span><span>Status</span>
-				</div>
-				<ul class="divide-y divide-gray-800">
-					{#each filteredMannequins as mannequin (mannequin.id)}
-						<li class="grid gap-3 px-3 py-4 sm:grid-cols-[minmax(0,1fr)_2rem_minmax(0,1fr)_8rem] sm:items-center sm:gap-4">
+				<ul class="divide-y divide-gray-800 border-y border-gray-800">
+					{#each mappings as mapping (`${mapping.sourceKind}:${mapping.sourceIdentity}`)}
+						{@const check = form?.checked?.find((item) => item.sourceKind === mapping.sourceKind && item.sourceIdentity === mapping.sourceIdentity)}
+						{@const outcome = form?.outcomes?.find((item) => item.sourceKind === mapping.sourceKind && item.sourceIdentity === mapping.sourceIdentity)}
+						<li class="grid gap-3 py-4 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] sm:items-start">
+							<div class="min-w-0"><p class="break-all font-mono text-sm text-gray-100">{mapping.sourceIdentity}</p><p class="mt-1 text-xs text-gray-500">{labelKind(mapping.sourceKind)}</p></div>
 							<div class="min-w-0">
-								<p class="truncate font-mono text-sm font-medium text-gray-100">{mannequin.login}</p>
-								<p class="mt-0.5 truncate text-xs text-gray-500">{mannequin.email ?? "No source email"}</p>
+								{#if mapping.targetLogin}<p class="break-all text-sm text-gray-200">@{mapping.targetLogin}</p>
+								{:else}
+									<form method="POST" action="?/saveMappings&{actionSuffix}" use:enhance={enhanceAction} class="flex gap-2">
+										<input type="hidden" name="target" value={data.target.id} /><input type="hidden" name="organization" value={data.organization} />
+										<input type="hidden" name="sourceKind" value={mapping.sourceKind} /><input type="hidden" name="sourceIdentity" value={mapping.sourceIdentity} />
+										<input name="targetLogin" required maxlength="39" placeholder="GHES username" aria-label={`Target username for ${mapping.sourceIdentity}`} class="h-9 min-w-0 flex-1 rounded-md border border-gray-600 bg-gray-900 px-3 text-sm text-gray-100" />
+										<button type="submit" disabled={busy} class="h-9 rounded-md border border-gray-600 px-3 text-sm text-gray-200 disabled:opacity-50">Save</button>
+									</form>
+								{/if}
+								{#if check}<p class="mt-1 text-xs text-gray-400">{userLabel(check.user)}{#if check.match} · Mannequin: {check.match}{/if}{#if check.claimant} · Claimed by @{check.claimant}{:else if check.invitationStatus} · {check.invitationStatus.replaceAll("_", " ")}{#if check.invitationTarget} to @{check.invitationTarget}{/if}{/if}</p>{/if}
+								{#if outcome}<p class="mt-1 text-xs text-gray-400">Result: {outcome.outcome}</p>{/if}
 							</div>
-							<Octicon name="arrow-right" size={16} class="text-gray-600" />
-							{#if mannequin.claimant}
-								<div class="flex min-w-0 items-center gap-2">
-									<img src={mannequin.claimant.avatarUrl} alt="" class="h-7 w-7 rounded-full" />
-									<span class="truncate text-sm text-gray-200">@{mannequin.claimant.login}</span>
-								</div>
-								<span class="inline-flex items-center gap-1.5 text-xs font-medium text-green-400"><Octicon name="check-circle-fill" size={16} />Mapped</span>
-							{:else}
-								<form method="POST" action="?/invite" use:enhance={() => { submittingId = mannequin.id; return async ({ update }) => { await update(); submittingId = null; }; }} class="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_8rem]">
-									<input type="hidden" name="organization" value={data.organization ?? ""} />
-									<input type="hidden" name="mannequinId" value={mannequin.id} />
-									<div class="min-w-0">
-										<div class="relative"><span class="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-gray-500">@</span><input list="target-members" name="targetLogin" required maxlength="39" value={suggestedTargetLogins.has(mannequin.login.toLowerCase()) ? mannequin.login : ""} aria-label={`Target GitHub user for ${mannequin.login}`} placeholder="Choose target member" class="h-9 w-full rounded-md border border-gray-600 bg-gray-900 pr-2 pl-7 text-sm text-gray-100 outline-none placeholder:text-gray-600 hover:border-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500" /></div>
-										{#if form?.mannequinId === mannequin.id}<p aria-live="polite" class="mt-1.5 text-xs {form.error ? 'text-red-400' : 'text-green-400'}">{form.error ?? form.success}</p>{/if}
-									</div>
-									<button type="submit" disabled={submittingId !== null} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-gray-600 bg-gray-800 px-3 text-sm font-medium text-gray-100 hover:bg-gray-700 disabled:cursor-wait disabled:opacity-50">{#if submittingId === mannequin.id}<Octicon name="sync" size={16} class="animate-spin" />{:else}<Octicon name="plus" size={16} />{/if}Send invite</button>
-								</form>
-							{/if}
+							<form method="POST" action="?/removeMapping&{actionSuffix}" use:enhance={enhanceAction}>
+								<input type="hidden" name="target" value={data.target.id} /><input type="hidden" name="organization" value={data.organization} />
+								<input type="hidden" name="sourceKind" value={mapping.sourceKind} /><input type="hidden" name="sourceIdentity" value={mapping.sourceIdentity} />
+								<button type="submit" disabled={busy} class="h-9 rounded-md px-2 text-sm text-gray-400 hover:text-red-400 disabled:opacity-50" aria-label={`Remove mapping for ${mapping.sourceIdentity}`}>Remove</button>
+							</form>
 						</li>
 					{/each}
 				</ul>
-				{#if filteredMannequins.length === 0}<p class="py-10 text-center text-sm text-gray-500">No mappings match this view.</p>{/if}
-				<Pagination page={data.result.page} totalPages={data.result.totalPages} total={data.result.totalCount} limit={50} onPageChange={goToPage} />
 			{/if}
+			<p class="text-xs leading-5 text-gray-500">GHES user URLs are applied during import. Mannequin invitations are sent only for unique matches and active organization members; acceptance is shown on the next check. Verify uncertain or rejected invitations in GitHub.</p>
 		</section>
-	{/if}
 
-	<aside class="border-t border-gray-800 pt-4 text-xs leading-5 text-gray-500">
-		Reclaiming changes attribution for migrated issues, pull requests, and comments. It does not add the claimant to repositories, teams, or the organization.
-	</aside>
+		{#if data.target.platform === "ghes" && data.failedGhesJobs.length}
+			<details class="border-t border-gray-800 pt-4 text-sm">
+				<summary class="cursor-pointer text-blue-400">Discover conflicts from a failed GHES migration</summary>
+				<p class="mt-2 text-gray-400">This reads conflicts over SSH and can take several minutes. Only run one at a time.</p>
+				<div class="mt-3 flex flex-wrap gap-2">
+					{#each data.failedGhesJobs as job (job.migrationId)}
+						<form method="POST" action="?/discover&{actionSuffix}" use:enhance={enhanceAction}>
+							<input type="hidden" name="target" value={data.target.id} /><input type="hidden" name="organization" value={data.organization} /><input type="hidden" name="migrationId" value={job.migrationId} />
+							<button type="submit" disabled={busy} class="rounded-md border border-gray-600 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50">{busy ? "Working…" : `Load ${job.source} · ${job.startedAt.slice(0, 16).replace("T", " ")} UTC`}</button>
+						</form>
+					{/each}
+				</div>
+			</details>
+		{/if}
+		{#if priorInvitations.length}
+			<details class="text-sm"><summary class="cursor-pointer text-gray-400">Previously recorded invitations ({priorInvitations.length})</summary>
+				<ul class="mt-2 space-y-1 text-xs text-gray-500">{#each priorInvitations as invitation (invitation.sourceIdentity)}<li>{invitation.sourceIdentity}: {invitation.status.replaceAll("_", " ")} to @{invitation.targetLogin}</li>{/each}</ul>
+			</details>
+		{/if}
+	{/if}
 </div>

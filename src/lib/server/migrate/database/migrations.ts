@@ -19,6 +19,7 @@ import {
 } from "$lib/migration-state";
 import { isTargetPlatform } from "$lib/migration-target";
 import { getDb } from "$lib/server/core/db";
+import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
 import { MIGRATION_COLS } from "./columns";
@@ -301,7 +302,7 @@ export function rowsToMigrations(rows: Record<string, unknown>[]): Migration[] {
 }
 
 export function insertMigration(migration: Migration): void {
-  assertPersistableSourceApiUrl(migration.sourceApiUrl);
+  assertMigrationSourceApiUrl(migration.sourceApiUrl, migration.sourceProvider);
   const targetProfileId = migration.targetProfileId || "ghec";
   const targetPlatform = migration.targetPlatform || "ghec";
   const targetApiUrl = migration.targetApiUrl || "https://api.github.com";
@@ -424,6 +425,16 @@ export function claimMigrationCancellation(id: string): boolean {
 			 WHERE id = ? AND state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})`,
     )
     .run(id);
+  return result.changes === 1;
+}
+
+export function backfillMigrationTargetCounts(id: string, counts: Counts): boolean {
+  const result = getDb()
+    .prepare(
+      `UPDATE migrations SET target_counts = ?
+       WHERE id = ? AND state = 'succeeded' AND target_counts IS NULL`,
+    )
+    .run(JSON.stringify(counts), id);
   return result.changes === 1;
 }
 

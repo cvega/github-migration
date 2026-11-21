@@ -107,8 +107,9 @@ Important current-state constraints are:
   separate profile-analyzer image contains pinned versions of those tools.
 - `src/lib/server/migrate/exporters/docker.ts` already demonstrates the
   repository's sandboxed external-tool execution pattern.
-- The standalone `/mannequins` workspace lists GHEC mannequins and members and
-  submits attribution invitations, but it does not persist invitation status.
+- The standalone `/mannequins` workspace supports approved identity mappings,
+  GHES import conflicts, and attribution invitations for selected target profiles.
+  Invitation acceptance and rejection tracking remains operator-managed.
 
 The design extends these existing boundaries rather than creating another
 GitHub client abstraction. `createClients` already supplies source and target

@@ -245,7 +245,14 @@ export class GhesSshClient {
   }
 
   async #exec(command: string, input?: string): Promise<GhesCommandResult> {
-    return collectChannel(await this.#openChannel(command), input);
+    const result = await collectChannel(await this.#openChannel(command), input);
+    if (
+      command.startsWith("ghe-migrator ") &&
+      /ghe-migrator already running/i.test(`${result.stdout}\n${result.stderr}`)
+    ) {
+      throw new Error("ghe-migrator is already running on GHES; retry after it finishes");
+    }
+    return result;
   }
 
   async #openChannel(command: string): Promise<ClientChannel> {

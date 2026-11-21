@@ -38,6 +38,47 @@ describe("migration request schemas", () => {
     });
   });
 
+  test("accepts only the explicitly configured insecure Bitbucket URL", () => {
+    const previousUrl = process.env.BITBUCKET_SERVER_URL;
+    const previousAllow = process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP;
+    try {
+      process.env.BITBUCKET_SERVER_URL = "http://bitbucket:7990";
+      process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP = "true";
+      const request = {
+        sourceProvider: "bitbucket-server",
+        sourceRepo: "TEST/repo-01",
+        targetOrg: "target",
+        sourceApiUrl: "http://bitbucket:7990/rest/api/1.0",
+      };
+      expect(validateBody(createMigrationSchema, request)).toMatchObject({ ok: true });
+      expect(
+        validateBody(batchMigrationSchema, { ...request, repos: ["TEST/repo-01"] }),
+      ).toMatchObject({ ok: true });
+      expect(
+        validateBody(createMigrationSchema, {
+          ...request,
+          sourceApiUrl: "http://other:7990/rest/api/1.0",
+        }),
+      ).toMatchObject({ ok: false });
+      expect(
+        validateBody(createMigrationSchema, { ...request, sourceProvider: "gitlab" }),
+      ).toMatchObject({ ok: false });
+      expect(
+        validateBody(createMigrationSchema, {
+          ...request,
+          sourceApiUrl: "http://user:pass@bitbucket:7990/rest/api/1.0",
+        }),
+      ).toMatchObject({ ok: false });
+      process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP = "false";
+      expect(validateBody(createMigrationSchema, request)).toMatchObject({ ok: false });
+    } finally {
+      if (previousUrl === undefined) delete process.env.BITBUCKET_SERVER_URL;
+      else process.env.BITBUCKET_SERVER_URL = previousUrl;
+      if (previousAllow === undefined) delete process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP;
+      else process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP = previousAllow;
+    }
+  });
+
   test("applies provider-specific project path validation", () => {
     expect(
       validateBody(createMigrationSchema, {

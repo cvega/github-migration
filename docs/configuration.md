@@ -170,3 +170,23 @@ never passed to exporter containers.
 
 Exporter processes run without target credentials. Their network, memory, CPU,
 PID, and temporary-storage limits should remain bounded in production.
+
+For Bitbucket-to-GHES migrations, Compose defaults to the local image
+`gh-migrate/bbs-exporter:1.13.0-validation`. Place the exporter source outside
+this repository at `../bbs-exporter-1.13.0`, or set
+`BBS_EXPORTER_BUILD_CONTEXT` to its location, then build the image:
+
+```sh
+docker compose --profile tools build bbs-exporter-image
+```
+
+The tools profile builds the image; it is not a long-running exporter service.
+The dashboard creates a container for each migration and shares the archive
+volume with it. Set `BBS_EXPORTER_IMAGE` to use a different image, and ensure
+the exporter network can reach Bitbucket. A real export and GHES import must be
+validated separately.
+
+The Compose dashboard also joins the external `bitbucket-local_default`
+network for the local Bitbucket instance. Start that Bitbucket Compose project
+first so the network exists; set `EXPORTER_NETWORK=bitbucket-local_default` to
+connect exporter containers to it as well.

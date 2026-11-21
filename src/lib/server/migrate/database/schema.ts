@@ -50,6 +50,11 @@ export const MIGRATE_DURABLE_TABLES = [
     purpose: "Durable batch membership",
     notes: "Enforces unique source and target identities per batch",
   },
+  {
+    name: "migration_identity_mappings",
+    purpose: "Approved source-to-target identity decisions",
+    notes: "Scoped by target API, organization, source kind, and source identity",
+  },
 ] as const satisfies readonly DurableTableContract[];
 
 const MIGRATE_DDL = `
@@ -108,6 +113,17 @@ const MIGRATE_DDL = `
     failure_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS migration_identity_mappings (
+    target_api_url TEXT NOT NULL,
+    target_org TEXT NOT NULL COLLATE NOCASE,
+    source_kind TEXT NOT NULL,
+    source_identity TEXT NOT NULL,
+    target_login TEXT,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (target_api_url, target_org, source_kind, source_identity)
   );
 
   CREATE INDEX IF NOT EXISTS idx_events_migration_id ON events(migration_id);

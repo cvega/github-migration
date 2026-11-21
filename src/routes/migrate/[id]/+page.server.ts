@@ -1,6 +1,10 @@
-import { error } from "@sveltejs/kit";
+import { error, fail } from "@sveltejs/kit";
+import type { Counts } from "$lib/migrate/types";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { backfillMigrationTargetCounts } from "$lib/server/migrate/database/migrations";
 import { events, get } from "$lib/server/migrate/manager";
-import type { PageServerLoad } from "./$types";
+import { fetchMigrationTargetCounts } from "$lib/server/migrate/target-counts";
+import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ params }) => {
   const migration = get(params.id);
@@ -13,4 +17,34 @@ export const load: PageServerLoad = async ({ params }) => {
     events: migrationEvents,
     eventCursor: migrationEvents.at(-1)?.id ?? 0,
   };
+};
+
+export const actions: Actions = {
+  refreshCounts: async ({ params, locals }) => {
+    const migration = get(params.id);
+    if (!migration) return fail(404, { countsError: "Migration not found." });
+    if (migration.state !== "succeeded") {
+      return fail(409, { countsError: "Counts can only be fetched for a successful migration." });
+    }
+    if (migration.targetCounts) return { countsCollected: true };
+
+    let counts: Counts;
+    try {
+      counts = await fetchMigrationTargetCounts(migration);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`Could not fetch target resource counts for migration ${params.id}: ${reason}`);
+      return fail(502, { countsError: `Could not fetch target resource counts: ${reason}` });
+    }
+    if (!backfillMigrationTargetCounts(migration.id, counts)) {
+      return fail(409, { countsError: "The migration changed. Reload to see its latest counts." });
+    }
+    recordOperatorAuditEvent(locals, {
+      action: "migration.counts_collected",
+      resourceType: "migration",
+      resourceId: migration.id,
+      metadata: { targetApiUrl: migration.targetApiUrl, counts },
+    });
+    return { countsCollected: true };
+  },
 };

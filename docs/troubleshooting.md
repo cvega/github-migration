@@ -39,7 +39,8 @@ override is disabled.
 A configured target credential can still be invalid, expired, installed on the
 wrong organization, or missing migration permissions. A `401` means GitHub
 rejected the PAT or App installation token; replace the credential or verify the
-App installation. A `403` usually means the credential is valid but cannot view
+App installation. The Mannequins page uses `GH_TARGET_PAT` or the target GitHub
+App for GHEC, and `GHES_TARGET_ADMIN_PAT` for GHES. A `403` usually means the credential is valid but cannot view
 the organization, mannequins, or members, or cannot create attribution
 invitations.
 

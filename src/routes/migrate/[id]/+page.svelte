@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { enhance } from "$app/forms";
 	import { page } from "$app/state";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 	import ErrorDetail from "$lib/components/ErrorDetail.svelte";
@@ -22,7 +23,8 @@
 	import { getTargetPlatformPresentation } from "$lib/migration-target";
 	import { getSourceProviderAdapter, sourceBaseUrl, sourceProjectUrl } from "$lib/source-provider";
 
-	let { data } = $props();
+	let { data, form } = $props();
+	let countsSubmitting = $state(false);
 	let polledMigration = $state<Migration | null>(null);
 	const freshMigration = $derived(
 		polledMigration?.id === data.migration.id ? polledMigration : null,
@@ -66,6 +68,7 @@
 
 	$effect(() => {
 		const migrationId = data.migration.id;
+		pollSequence += 1;
 		polledMigration = null;
 		eventLog = [...data.events];
 		currentPhase = "PENDING_VALIDATION";
@@ -188,26 +191,32 @@
 	};
 	const stateMeta = $derived(statePresentation[migration.state]);
 	const displayTargetCounts = $derived<Counts | null>(
-		latestProgress?.current
-			? {
-					commits: latestProgress.current.commits,
-					branches: latestProgress.current.branches,
-					tags: latestProgress.current.tags,
-					issues: latestProgress.current.issues,
-					pullRequests: latestProgress.current.pullRequests,
-					releases: latestProgress.current.releases,
-				}
-			: migration.targetCounts,
+		migration.state === "succeeded"
+			? migration.targetCounts
+			: latestProgress?.current.countsAuthoritative
+				? {
+						commits: latestProgress.current.commits,
+						branches: latestProgress.current.branches,
+						tags: latestProgress.current.tags,
+						issues: latestProgress.current.issues,
+						pullRequests: latestProgress.current.pullRequests,
+						releases: latestProgress.current.releases,
+					}
+				: migration.targetCounts,
 	);
 	const progressSourceCounts = $derived(sourceCounts ?? migration.sourceCounts);
-	const completionResources = $derived<[string, number][]>([
-		["Commits", displayTargetCounts?.commits ?? 0],
-		["Branches", displayTargetCounts?.branches ?? 0],
-		["Tags", displayTargetCounts?.tags ?? 0],
-		["Issues", displayTargetCounts?.issues ?? 0],
-		["PRs", displayTargetCounts?.pullRequests ?? 0],
-		["Releases", displayTargetCounts?.releases ?? 0],
-	]);
+	const completionResources = $derived<[string, number][]>(
+		displayTargetCounts
+			? [
+					["Commits", displayTargetCounts.commits],
+					["Branches", displayTargetCounts.branches],
+					["Tags", displayTargetCounts.tags],
+					["Issues", displayTargetCounts.issues],
+					["PRs", displayTargetCounts.pullRequests],
+					["Releases", displayTargetCounts.releases],
+				]
+			: [],
+	);
 
 	async function refreshMigration(migrationId = migration.id): Promise<boolean> {
 		const sequence = ++pollSequence;
@@ -499,17 +508,35 @@
 	{#if migration.state === "succeeded"}
 		<section aria-labelledby="resource-verification-title">
 			<h2 id="resource-verification-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
-				<Octicon name="check-circle" size={16} class="text-green-400" />Resource verification
+				<Octicon name={displayTargetCounts ? "check-circle" : "info"} size={16} class={displayTargetCounts ? "text-green-400" : "text-gray-400"} />Resource verification
 			</h2>
-			<p class="mt-1 text-sm text-gray-400">Migration completed. Target resource totals are shown below.</p>
-			<dl class="mt-4 grid grid-cols-2 border-y border-gray-700 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-gray-700">
-				{#each completionResources as resource (resource[0])}
-					<div class="px-3 py-3 first:pl-0">
-						<dd class="text-base font-semibold tabular-nums text-gray-100">{resource[1].toLocaleString()}</dd>
-						<dt class="text-xs text-gray-500">{resource[0]}</dt>
-					</div>
-				{/each}
-			</dl>
+			{#if displayTargetCounts}
+				<p class="mt-1 text-sm text-gray-400">Recorded target repository totals. Commits count the default branch's history.</p>
+				<dl class="mt-4 grid grid-cols-2 border-y border-gray-700 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-gray-700">
+					{#each completionResources as resource (resource[0])}
+						<div class="px-3 py-3 first:pl-0">
+							<dd class="text-base font-semibold tabular-nums text-gray-100">{resource[1].toLocaleString()}</dd>
+							<dt class="text-xs text-gray-500">{resource[0]}</dt>
+						</div>
+					{/each}
+				</dl>
+			{:else}
+				<p class="mt-1 text-sm text-gray-400">Migration completed, but target resource totals have not been collected.</p>
+				<form method="POST" action="?/refreshCounts" class="mt-3 flex flex-wrap items-center gap-3" use:enhance={() => {
+					countsSubmitting = true;
+					return async ({ update }) => {
+						try { await update(); } finally { countsSubmitting = false; }
+					};
+				}}>
+					<button type="submit" disabled={countsSubmitting} class="h-9 rounded-md border border-gray-600 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50">
+						{countsSubmitting ? "Fetching counts..." : "Fetch counts"}
+					</button>
+					<p class="text-sm text-gray-400">Reads the target repository without rerunning the migration.</p>
+				</form>
+				{#if form?.countsError}
+					<p role="alert" class="mt-3 text-sm text-red-400">{form.countsError}</p>
+				{/if}
+			{/if}
 		</section>
 	{/if}
 

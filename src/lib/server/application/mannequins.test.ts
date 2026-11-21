@@ -107,7 +107,12 @@ describe("mannequin operations", () => {
       },
       graphql: async (_query: string, variables: Record<string, unknown>) => {
         calls.push("mutation");
-        expect(variables).toEqual({ ownerId: "ORG", sourceId: "MANNEQUIN", targetId: "USER" });
+        expect(variables).toEqual({
+          ownerId: "ORG",
+          sourceId: "MANNEQUIN",
+          targetId: "USER",
+          request: { retries: 0 },
+        });
         return {
           createAttributionInvitation: {
             source: { login: "source-octocat" },

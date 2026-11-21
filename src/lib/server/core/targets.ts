@@ -1,6 +1,13 @@
 import { env } from "node:process";
 import { DEFAULT_TARGET_PROFILE_ID, type MigrationTargetProfile } from "$lib/migration-target";
-import { isGhecSource, normalizeGitHubApiUrl, sourceBaseUrl } from "./github";
+import { isTargetAppConfigured, resolveTargetAuth } from "./auth";
+import {
+  createSingleClient,
+  type GitHubClient,
+  isGhecSource,
+  normalizeGitHubApiUrl,
+  sourceBaseUrl,
+} from "./github";
 
 const TARGET_PROFILE_ID = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 
@@ -55,4 +62,25 @@ export function requireMigrationTargetProfile(id?: string): MigrationTargetProfi
   const profile = getMigrationTargetProfile(id);
   if (!profile) throw new TypeError(`Migration target profile '${id}' is not configured`);
   return profile;
+}
+
+export function migrationTargetCredentialError(target: MigrationTargetProfile): string | null {
+  if (
+    target.platform === "ghec" &&
+    !isTargetAppConfigured() &&
+    env.GH_TARGET_PAT?.trim() &&
+    env.GH_TARGET_PAT.trim() === env.GHES_TARGET_ADMIN_PAT?.trim()
+  ) {
+    return "GH_TARGET_PAT matches the GHES administrator token. Configure a separate GitHub.com credential for the cloud target.";
+  }
+  return null;
+}
+
+export function getMigrationTargetClient(target: MigrationTargetProfile): GitHubClient {
+  const credentialError = migrationTargetCredentialError(target);
+  if (credentialError) throw new Error(credentialError);
+  if (target.platform === "ghec") return createSingleClient(resolveTargetAuth(), target.apiUrl);
+  const token = env.GHES_TARGET_ADMIN_PAT?.trim();
+  if (!token) throw new Error("GHES_TARGET_ADMIN_PAT is required for GHES target operations");
+  return createSingleClient({ token }, target.apiUrl);
 }

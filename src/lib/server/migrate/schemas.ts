@@ -1,20 +1,11 @@
 import { z } from "zod";
-import { assertPersistableSourceApiUrl } from "$lib/source/url";
+import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { getSourceProviderAdapter, SOURCE_PROVIDERS } from "$lib/source-provider";
 
 const MAX_FIELD_LENGTH = 255;
 
 const boundedString = () =>
   z.string().max(MAX_FIELD_LENGTH, `must be at most ${MAX_FIELD_LENGTH} characters`);
-
-const apiUrl = boundedString().refine((value) => {
-  try {
-    assertPersistableSourceApiUrl(value);
-    return true;
-  } catch {
-    return false;
-  }
-}, "must be an HTTPS URL without credentials, query, or fragment");
 
 const positiveDecimalId = boundedString().regex(/^[1-9]\d*$/, "must be a positive integer");
 const targetProfileId = boundedString().regex(
@@ -63,6 +54,22 @@ function validateProviderProjectPaths(
   }
 }
 
+function validateSourceUrl(
+  value: { sourceProvider?: (typeof SOURCE_PROVIDERS)[number]; sourceApiUrl?: string },
+  context: z.RefinementCtx,
+): void {
+  if (value.sourceApiUrl === undefined) return;
+  try {
+    assertMigrationSourceApiUrl(value.sourceApiUrl, value.sourceProvider);
+  } catch {
+    context.addIssue({
+      code: "custom",
+      path: ["sourceApiUrl"],
+      message: "must be an HTTPS URL without credentials, query, or fragment",
+    });
+  }
+}
+
 const optionFields = {
   sourceToken: boundedString().optional(),
   targetToken: boundedString().optional(),
@@ -86,7 +93,7 @@ export const createMigrationSchema = z
   .object({
     ...optionFields,
     sourceProvider: z.enum(SOURCE_PROVIDERS).optional(),
-    sourceApiUrl: apiUrl.optional(),
+    sourceApiUrl: boundedString().optional(),
     targetProfileId: targetProfileId.optional(),
     sourceRepo: repository,
     targetOrg: boundedString().min(1, "targetOrg is required"),
@@ -94,7 +101,10 @@ export const createMigrationSchema = z
     gitArchivePath: boundedString().optional(),
     metadataArchivePath: boundedString().optional(),
   })
-  .superRefine(validateProviderProjectPaths);
+  .superRefine((value, context) => {
+    validateSourceUrl(value, context);
+    validateProviderProjectPaths(value, context);
+  });
 
 const MAX_BATCH_REPOSITORIES = 500;
 
@@ -113,7 +123,7 @@ export const batchMigrationSchema = z
     ...optionFields,
     profileRunId: boundedString().optional(),
     sourceProvider: z.enum(SOURCE_PROVIDERS).optional(),
-    sourceApiUrl: apiUrl.optional(),
+    sourceApiUrl: boundedString().optional(),
     targetProfileId: targetProfileId.optional(),
     repos: z
       .array(repository)
@@ -124,6 +134,7 @@ export const batchMigrationSchema = z
     targetOrg: boundedString().min(1, "targetOrg is required"),
   })
   .superRefine((value, context) => {
+    validateSourceUrl(value, context);
     validateProviderProjectPaths(value, context);
     if (!value.repos && !value.items) {
       context.addIssue({ code: "custom", path: ["repos"], message: "repos or items is required" });

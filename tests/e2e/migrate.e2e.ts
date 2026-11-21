@@ -114,6 +114,10 @@ test("renders terminal migration detail with canonical provider links", async ({
 		"6 of 6 complete",
 	);
 	await expect(page.getByRole("heading", { name: "Resource Verification" })).toBeVisible();
+	const resources = page.getByRole("region", { name: "Resource verification" });
+	await expect(resources).toContainText("target resource totals have not been collected");
+	await expect(resources.locator("dd")).toHaveCount(0);
+	await expect(resources.getByRole("button", { name: "Fetch counts" })).toBeVisible();
 	await expect(page.getByRole("heading", { name: "Event Log" })).toBeVisible();
 	await expect(page.getByText("No events recorded")).toBeVisible();
 
@@ -128,6 +132,37 @@ test("renders terminal migration detail with canonical provider links", async ({
 		),
 	).toBe(true);
 	expect(browserErrors).toEqual([]);
+});
+
+test("reports count-fetch failures without changing a successful migration", async ({ page }) => {
+	await page.goto("/migrate/seed-e2e-ghes-detail");
+	const resources = page.getByRole("region", { name: "Resource verification" });
+	await resources.getByRole("button", { name: "Fetch counts" }).click();
+	await expect(resources.getByRole("alert")).toContainText("Could not fetch target resource counts");
+	await expect(resources.locator("dd")).toHaveCount(0);
+	await expect(resources.getByRole("button", { name: "Fetch counts" })).toBeEnabled();
+	const migration = await page.request.get("/api/migrate/seed-e2e-ghes-detail");
+	expect(await migration.json()).toMatchObject({ state: "succeeded", targetCounts: null, elapsedSeconds: 90 });
+});
+
+test("shows recorded counts instead of unverified completion snapshots, including real zeros", async ({ page }) => {
+	const response = await page.request.get("/api/migrate/seed-e2e-migration-two");
+	const migration = await response.json();
+	let targetCounts = { commits: 1, branches: 3, tags: 0, issues: 0, pullRequests: 2, releases: 0 };
+	await page.route("**/api/migrate/seed-e2e-migration-two", (route) =>
+		route.fulfill({ json: { ...migration, targetCounts } }),
+	);
+
+	await page.goto("/migrate/seed-e2e-migration-two");
+	const resources = page.getByRole("region", { name: "Resource verification" });
+	await expect(resources.locator("dd")).toHaveText(["1", "3", "0", "0", "2", "0"], { timeout: 10_000 });
+	await expect(resources.getByRole("button", { name: "Fetch counts" })).toHaveCount(0);
+	await expect(resources).toContainText("Commits count the default branch's history.");
+
+	targetCounts = { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
+	await page.reload();
+	await expect(resources.locator("dd")).toHaveText(["0", "0", "0", "0", "0", "0"], { timeout: 10_000 });
+	await expect(resources.getByRole("button", { name: "Fetch counts" })).toHaveCount(0);
 });
 
 test("opens active migration cancellation confirmation without changing state", async ({ page }) => {

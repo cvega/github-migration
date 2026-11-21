@@ -1,7 +1,9 @@
 import { rm } from "node:fs/promises";
 import type { Migration } from "$lib/migrate/types";
 import type { GhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
+import { createSingleClient } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
+import { discoverIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import {
   deleteGhesImportJob,
   getGhesImportJobByMigrationId,
@@ -16,10 +18,12 @@ import {
   submitExporterArchive,
 } from "../exporters/worker";
 import type { MigrationEventEmitter } from "../github/monitor";
-import { buildGhesMigrationMap, countGhesAuditFailures } from "./mapping";
+import { fetchMigrationTargetCounts } from "../target-counts";
+import { buildGhesMigrationMap, countGhesAuditFailures, getGhesUserConflicts } from "./mapping";
 import type { GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
+const MAX_MAPPING_PASSES = 3;
 class ReconciliationRequiredError extends Error {}
 
 export type GhesImportClient = Pick<
@@ -45,6 +49,8 @@ export interface ExporterGhesSourceAdapter {
   assertSource(migration: Migration): void;
   createWorker(config: GhesTargetConnectionConfig): ExporterWorker;
   createSshClient(config: GhesTargetConnectionConfig): GhesImportClient;
+  verifyTargetUser?(config: GhesTargetConnectionConfig, login: string): Promise<void>;
+  fetchTargetCounts?: typeof fetchMigrationTargetCounts;
   sourceWasLocked(migration: Migration, signal?: AbortSignal): Promise<boolean>;
   unlockSource?(migration: Migration): Promise<void>;
   wait(milliseconds: number, signal?: AbortSignal): Promise<void>;
@@ -194,22 +200,74 @@ async function execute(
     if (!guid) throw new ReconciliationRequiredError("GHES Migration GUID is missing");
     if (job.phase === "preparing") {
       emitNativeStep(options.emit, migration.id, "Generating and applying GHES mappings");
-      const [conflicts, records] = await Promise.all([
-        ssh.conflicts(guid),
-        ssh.mappingRecords(guid),
-      ]);
+      const conflicts = await ssh.conflicts(guid);
+      const sourceKind = `ghe-migrator:${migration.sourceProvider}`;
+      for (const identity of getGhesUserConflicts(conflicts.stdout)) {
+        discoverIdentityMapping(migration.targetApiUrl, migration.targetOrg, sourceKind, identity);
+      }
+      const records = await ssh.mappingRecords(guid);
       options.signal?.throwIfAborted();
-      const mapping = buildGhesMigrationMap(
+      const userMappings = new Map(
+        listIdentityMappings(migration.targetApiUrl, migration.targetOrg).flatMap((mapping) =>
+          mapping.sourceKind === sourceKind && mapping.targetLogin
+            ? [[mapping.sourceIdentity, mapping.targetLogin] as const]
+            : [],
+        ),
+      );
+      const sourceUsers = new Set([
+        ...getGhesUserConflicts(conflicts.stdout),
+        ...getGhesUserConflicts(records.stdout),
+      ]);
+      const targetUsers = new Set(
+        [...userMappings]
+          .filter(([identity]) => sourceUsers.has(identity))
+          .map(([, login]) => login),
+      );
+      if (targetUsers.size > 0) {
+        const client = source.verifyTargetUser
+          ? null
+          : createSingleClient({ token: config.siteAdminToken }, config.profile.apiUrl);
+        for (const login of targetUsers) {
+          if (source.verifyTargetUser) await source.verifyTargetUser(config, login);
+          else if (client) await client.users.getByUsername({ username: login });
+        }
+      }
+      let mapping = buildGhesMigrationMap(
         conflicts.stdout,
         records.stdout,
         config.profile.webUrl,
         migration.targetOrg,
         migration.targetRepo,
+        userMappings,
       );
-      if (mapping) {
+      const appliedMappings = new Set<string>();
+      while (mapping) {
+        if (appliedMappings.size >= MAX_MAPPING_PASSES || appliedMappings.has(mapping)) {
+          throw new Error(
+            "GHES conflicts remain after applying target mappings; resolve them before importing",
+          );
+        }
+        if (appliedMappings.size > 0) {
+          emitNativeStep(
+            options.emit,
+            migration.id,
+            "Resolving conflicts revealed by GHES target mappings",
+          );
+        }
         updateGhesImportJobCheckpoint(job.id, "mapping");
         await ssh.map(guid, mapping);
+        appliedMappings.add(mapping);
         options.signal?.throwIfAborted();
+        const remaining = await ssh.conflicts(guid);
+        options.signal?.throwIfAborted();
+        mapping = buildGhesMigrationMap(
+          remaining.stdout,
+          "",
+          config.profile.webUrl,
+          migration.targetOrg,
+          migration.targetRepo,
+          userMappings,
+        );
       }
       updateGhesImportJobCheckpoint(job.id, "importing");
       emitNativeStep(options.emit, migration.id, "Importing archive into GHES");
@@ -279,6 +337,19 @@ async function execute(
         }
         result = settled(migration, "reconciliation_required", reason);
       }
+    }
+  }
+  if (result?.state === "succeeded") {
+    try {
+      result.targetCounts = await (source.fetchTargetCounts ?? fetchMigrationTargetCounts)(result);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`Target resource counts unavailable for migration ${migration.id}: ${reason}`);
+      emitNativeStep(
+        options.emit,
+        migration.id,
+        `Migration succeeded, but target resource counts could not be collected: ${reason}. Use Fetch counts on the migration detail page to retry.`,
+      );
     }
   }
   return result ?? settled(migration, "failed", "GHES migration did not settle");

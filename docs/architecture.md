@@ -63,6 +63,13 @@ do not use this gate.
 The migration manager selects an executor from the source provider and target
 platform, persists the request, and submits it to an app-wide FIFO queue.
 
+Bitbucket, GitLab, and GitHub use separate source-specific executors. Bitbucket
+and GitLab clients and exporters stay in their own provider modules; GitHub
+source archive operations stay separate from them. The executor registry and
+application adapters compose these implementations. Common GHEC import APIs,
+GHES import orchestration, target authentication, and resource counts are shared
+target infrastructure, not calls into another source provider.
+
 <!-- BEGIN GENERATED: support-matrix -->
 | Source | Target | Executor |
 |---|---|---|
@@ -118,6 +125,20 @@ The dashboard verifies its hash, transfers it over host-key-pinned SSH, then
 runs the prepare, mapping, import, audit, unlock, and cleanup operations.
 Exporter containers never receive GHES credentials.
 
+Target remapping can reveal further conflicts, such as an existing team in
+the destination organization. The importer rechecks conflicts after each map
+and applies the same mapping policy, including GHES-recommended team merges.
+Repeated unresolved mappings or more than three mapping passes stop for
+operator review before import.
+
+After a successful import and source unlock, GHES resource counts are read
+through the target's REST and GraphQL APIs and persisted with the result.
+A count lookup failure is reported without changing the successful import
+state. The detail page distinguishes unavailable counts from zero and lets
+operators backfill missing totals for completed GHEC or GHES migrations.
+Backfill validates the stored target against its current profile and never
+overwrites an existing count snapshot or reruns an import.
+
 <!-- BEGIN GENERATED: ghes-import-phases -->
 **GHES import phases:** `pending`, `exporting`, `archive_ready`, `transferring`, `preparing`, `mapping`, `importing`, `auditing`, `unlocking`, `succeeded`, `failed`, `cancelled`, `reconciliation_required`.
 <!-- END GENERATED: ghes-import-phases -->
@@ -128,16 +149,24 @@ dashboard cannot prove whether the remote operation completed.
 
 ## Mannequin attribution
 
-The Mannequins workspace uses the configured GHEC target credential to list a
-target organization's mannequins and visible members. Operators can filter the
-source identities, select a target member, and submit GitHub's attribution
-invitation mutation. Successful submissions append an operator audit event.
+The identity workspace supports configured GHEC and GHES target profiles.
+Operators can save mappings manually or import a CSV before accounts and
+mannequins exist. Decisions are scoped to the target API, organization, source
+type, and exact source identity; unrelated source URLs and mannequin logins are
+not automatically equated. Operators can check user and membership readiness.
+GHES imports performed with `ghe-migrator` discover user conflicts over SSH and
+apply matching approved URLs after checking target users exist.
+
+For mannequin attribution, the workspace matches IDs or unique logins across
+the complete organization list and sends invitations only to active members.
+It skips duplicate or ambiguous matches and records invitation attempts and
+operator audit events.
 
 Discovery and invitation submission are live GitHub operations, not durable
-migration jobs. The dashboard shows GitHub's current claimant when available,
-but it does not persist invitation state or poll `Invited`, `Completed`, and
-`Rejected` transitions. Retries and rejected-invitation replacement therefore
-remain operator-managed in GitHub.
+migration jobs. The dashboard records approved decisions and whether an
+invitation was sent or has an uncertain outcome. It shows GitHub's current
+claimant when available, but does not poll invitation rejection transitions.
+Verify uncertain or rejected invitations in GitHub before taking further action.
 
 ## Concurrency and recovery
 
@@ -259,6 +288,7 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `events` | Append-only migration event log | Replayed for SSE catch-up |
 | `ghes_import_jobs` | Durable exporter-to-GHES import state | Stores exporter identity, archive path and hash, ghe-migrator GUID, source lock state, phase, and failure reason |
 | `migration_batch_items` | Durable batch membership | Enforces unique source and target identities per batch |
+| `migration_identity_mappings` | Approved source-to-target identity decisions | Scoped by target API, organization, source kind, and source identity |
 | `profile_runs` | Profile lifecycle and rollups | Stores provider, namespace, counters, API calls, timestamps, and terminal failure |
 | `profile_repos` | Repository analysis within a profile | Idempotent per run and repository; queried in filtered pages |
 | `profile_source_inventories` | Provider-neutral inventory summary | One normalized summary per profile run |
@@ -302,6 +332,8 @@ root.
 Every production module under `src/lib/server/` must belong to one of these
 classified layers. Browser-capable modules cannot import server modules. The
 `boundaries` gate enforces these constraints for absolute and relative imports.
+It also rejects cross-provider imports between source clients, exporters, and
+executors, while allowing shared target protocols and composition modules.
 
 Client-facing provider, migration, and profile contracts live outside
 `src/lib/server` so Svelte components can consume them without pulling server
