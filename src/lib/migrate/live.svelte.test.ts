@@ -137,7 +137,7 @@ describe("migration live state", () => {
     expect(eventSources.every(({ closed }) => closed)).toBe(true);
   });
 
-  test("tracks per-migration messages and closes on terminal or done frames", async () => {
+  test("keeps lifecycle events after a terminal event until the done frame", async () => {
     globalThis.fetch = mock(async () =>
       Response.json({ data: [migration("failed")], total: 1 }),
     ) as unknown as typeof fetch;
@@ -154,11 +154,16 @@ describe("migration live state", () => {
     source.emitMessage(event("failure", 16));
     await Promise.resolve();
     expect(stream.events).toHaveLength(2);
+    expect(source.closed).toBe(false);
+    source.emitMessage(event("step", 17));
+    source.emitMessage({ type: "done", state: "reconciliation_required" });
+    expect(stream.events).toHaveLength(3);
     expect(source.closed).toBe(true);
     expect(stream.connected).toBe(false);
 
-    const doneStream = createMigrationEventSource("migration-1");
+    const doneStream = createMigrationEventSource("migration-1", 0);
     const doneSource = eventSources.at(-1)!;
+    expect(doneSource.url).toBe("/api/migrate/migration-1/events?after=0");
     doneSource.emitControl("cursor-stale", "malformed");
     doneSource.emitMessage({ type: "done", state: "succeeded" });
     expect(doneSource.closed).toBe(true);

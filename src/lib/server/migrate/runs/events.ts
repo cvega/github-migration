@@ -23,6 +23,18 @@ export function emitNativeStep(
 const migrationSubscribers = new Map<string, Set<ReadableStreamDefaultController<string>>>();
 const globalSubscribers = new Set<ReadableStreamDefaultController<string>>();
 
+export function insertLifecycleStep(migrationId: string, message: string): MigrationEvent {
+  const event: MigrationEvent = {
+    migrationId,
+    eventType: "step",
+    phase: null,
+    payload: { message },
+    createdAt: new Date().toISOString(),
+  };
+  event.id = insertEvent(event);
+  return event;
+}
+
 export function subscribeToMigrationEvents(
   migrationId: string,
   controller: ReadableStreamDefaultController<string>,

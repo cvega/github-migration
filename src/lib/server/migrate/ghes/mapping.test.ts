@@ -4,6 +4,17 @@ import { buildGhesMigrationMap, countGhesAuditFailures } from "./mapping";
 const header = "model_name,source_url,target_url,state\n";
 
 describe("GHES migration mapping", () => {
+  test("never merges an unapproved team based on a recommended target", () => {
+    expect(() =>
+      buildGhesMigrationMap(
+        `${header}team,https://old/groups/a,https://target/orgs/org/teams/a,merge\n`,
+        "",
+        "https://target",
+        "org",
+        "repo",
+      ),
+    ).toThrow("add an approved team mapping");
+  });
   test("maps organizations, renames repositories, and deduplicates records", () => {
     const conflicts = `${header}organization,https://old/org,https://old/org,conflict\nrepository,https://old/org/repo,https://old/org/repo,conflict\n`;
     const records = `${header}organization,https://old/org,https://old/org,pending\n`;

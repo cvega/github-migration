@@ -157,6 +157,7 @@ export interface FailureDetail {
 
 interface StepPayload {
   message: string;
+  executorPhase?: string;
   counts?: Counts;
   postTerminal?: {
     operation: "source_archive";

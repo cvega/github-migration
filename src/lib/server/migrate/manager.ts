@@ -47,6 +47,7 @@ import {
   broadcastMigrationEvent,
   closeMigrationEventStream,
   createMigrationEventHandler,
+  insertLifecycleStep,
   subscribeToGlobalMigrationEvents,
   subscribeToMigrationEvents,
 } from "./runs/events";
@@ -193,14 +194,23 @@ export function cancel(migrationId: string): boolean {
   } catch {
     return false;
   }
-  if (migration.state === "queued") {
-    if (!claimQueuedMigrationCancellation(migrationId)) return false;
+  const queued = migration.state === "queued";
+  if (!queued && !isExecutingMigrationState(migration.state)) return false;
+  const event = getDb().transaction(() => {
+    const claim = queued ? claimQueuedMigrationCancellation : claimMigrationCancellation;
+    if (!claim(migrationId)) return null;
+    return insertLifecycleStep(
+      migrationId,
+      queued ? "Queued migration cancelled before execution" : "Migration cancellation requested",
+    );
+  })();
+  if (!event) return false;
+  broadcastMigrationEvent(migrationId, event);
+  if (queued) {
     activeMigrationRuns.dropQueued(migrationId);
     closeMigrationEventStream(migrationId, "cancelled");
     return true;
   }
-  if (!isExecutingMigrationState(migration.state)) return false;
-  if (!claimMigrationCancellation(migrationId)) return false;
   activeMigrationRuns.abort(migrationId);
   return true;
 }
@@ -274,7 +284,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     phase: null,
     payload: {
       message:
-        "Operator confirmed the remote migration is not active; migration is now eligible for restart.",
+        "Manual review submitted: remote migration reported inactive; migration is now eligible for restart.",
     },
     createdAt: new Date().toISOString(),
   };

@@ -102,7 +102,7 @@ test("renders terminal migration detail with canonical provider links", async ({
 		const pipeline = await page.getByRole("heading", { name: "Migration pipeline" }).boundingBox();
 		const log = await page.getByRole("heading", { name: "Event log" }).boundingBox();
 		const logRegion = await page.getByRole("region", { name: "Event log" }).boundingBox();
-		const verification = await page.getByRole("region", { name: "Resource verification" }).boundingBox();
+		const verification = await page.getByRole("region", { name: "Target repository contents" }).boundingBox();
 		expect(verification?.x).toBe(logRegion?.x);
 		expect(verification?.width).toBe(logRegion?.width);
 		if (!pipeline || !log) throw new Error("Missing migration detail heading");
@@ -126,8 +126,8 @@ test("renders terminal migration detail with canonical provider links", async ({
 	await expect(page.getByRole("region", { name: "Migration pipeline" })).toContainText(
 		"6 of 6 complete",
 	);
-	await expect(page.getByRole("heading", { name: "Resource Verification" })).toBeVisible();
-	const resources = page.getByRole("region", { name: "Resource verification" });
+	await expect(page.getByRole("heading", { name: "Target repository contents" })).toBeVisible();
+	const resources = page.getByRole("region", { name: "Target repository contents" });
 	await expect(resources).toContainText("target resource totals have not been collected");
 	await expect(resources.locator("dd")).toHaveCount(0);
 	await expect(resources.getByRole("button", { name: "Fetch counts" })).toBeVisible();
@@ -149,7 +149,7 @@ test("renders terminal migration detail with canonical provider links", async ({
 
 test("reports count-fetch failures without changing a successful migration", async ({ page }) => {
 	await page.goto("/migrate/seed-e2e-ghes-detail");
-	const resources = page.getByRole("region", { name: "Resource verification" });
+	const resources = page.getByRole("region", { name: "Target repository contents" });
 	await resources.getByRole("button", { name: "Fetch counts" }).click();
 	await expect(resources.getByRole("alert")).toContainText("Could not fetch target resource counts");
 	await expect(resources.locator("dd")).toHaveCount(0);
@@ -173,22 +173,36 @@ test("GHES export events stay in the log rather than adding pipeline stages", as
 			text.selectNodeContents(element);
 			return text.getClientRects().length;
 		})).toBe(1);
+		const unusedHeight = await time.evaluate(element => {
+			const box = element.parentElement!.parentElement!;
+			return box.getBoundingClientRect().bottom - box.lastElementChild!.getBoundingClientRect().bottom;
+		});
+		expect(unusedHeight).toBeLessThanOrEqual(1);
 	}
 });
 
 test("shows recorded counts instead of unverified completion snapshots, including real zeros", async ({ page }) => {
 	const response = await page.request.get("/api/migrate/seed-e2e-migration-two");
 	const migration = await response.json();
-	let targetCounts = { commits: 1, branches: 3, tags: 0, issues: 0, pullRequests: 2, releases: 0 };
+	let targetCounts = { commits: 1204816, branches: 184, tags: 2408, issues: 128904, pullRequests: 106372, releases: 0 };
 	await page.route("**/api/migrate/seed-e2e-migration-two", (route) =>
 		route.fulfill({ json: { ...migration, targetCounts } }),
 	);
 
 	await page.goto("/migrate/seed-e2e-migration-two");
-	const resources = page.getByRole("region", { name: "Resource verification" });
-	await expect(resources.locator("dd")).toHaveText(["1", "3", "0", "0", "2", "0"], { timeout: 10_000 });
+	const resources = page.getByRole("region", { name: "Target repository contents" });
+	await expect(resources.locator("dd")).toHaveText(["1,204,816", "184", "2,408", "128,904", "106,372", "0"], { timeout: 10_000 });
+	await expect(resources.locator('dt > svg[aria-hidden="true"]')).toHaveCount(6);
+	for (const width of [1146, 390, 320]) {
+		await page.setViewportSize({ width, height: 900 });
+		expect(await resources.locator("dd").evaluateAll(values => {
+			const boxes = values.map(el => el.getBoundingClientRect());
+			return boxes.every((box, i) => box.right === boxes[0]?.right && box.top >= (boxes[i - 1]?.bottom ?? -Infinity));
+		})).toBe(true);
+		expect(await resources.locator("dd").evaluateAll(values => values.every(el => el.scrollWidth <= el.clientWidth))).toBe(true);
+	}
 	await expect(resources.getByRole("button", { name: "Fetch counts" })).toHaveCount(0);
-	await expect(resources).toContainText("Commits count the default branch's history.");
+	await expect(resources).toContainText("Commits count the default branch only.");
 
 	targetCounts = { commits: 0, branches: 0, tags: 0, issues: 0, pullRequests: 0, releases: 0 };
 	await page.reload();
@@ -198,7 +212,7 @@ test("shows recorded counts instead of unverified completion snapshots, includin
 
 test("opens active migration cancellation confirmation without changing state", async ({ page }) => {
 	const eventStream = page.waitForRequest(
-		(request) => request.url().endsWith("/api/migrate/seed-e2e-ghe-active/events"),
+		(request) => request.url().endsWith("/api/migrate/seed-e2e-ghe-active/events?after=0"),
 	);
 	await page.goto("/migrate/seed-e2e-ghe-active");
 	await eventStream;
@@ -218,4 +232,36 @@ test("opens active migration cancellation confirmation without changing state", 
 
 	const migration = await page.request.get("/api/migrate/seed-e2e-ghe-active");
 	expect((await migration.json()).state).toBe("pending");
+});
+
+test("a streamed native step advances the shared rail before completion", async ({ page }) => {
+	const id = "seed-e2e-ghe-active";
+	await page.route(`**/api/migrate/${id}/events*`, route => route.fulfill({
+		contentType: "text/event-stream",
+		body: `id: 1\ndata: ${JSON.stringify({ id: 1, migrationId: id, eventType: "step", phase: "EXPORTING", payload: { executorPhase: "exporting", message: "Starting Bitbucket Server export" }, createdAt: "2026-11-21T23:57:49Z" })}\n\n`,
+	}));
+	await page.goto(`/migrate/${id}`);
+	const rail = page.getByRole("region", { name: "Migration pipeline" });
+	await expect(rail.getByRole("listitem").filter({ hasText: "Exporting" })).toContainText("In progress");
+	await expect(page.getByRole("region", { name: "Event log" })).toContainText("Starting Bitbucket Server export");
+});
+
+test("GHES preparation after archive ready is not an active export or import", async ({ page }) => {
+	const id = "seed-e2e-ghe-active";
+	const steps = [
+		["EXPORTING", "archive_ready", "Archive ready"],
+		[null, "transferring", "Transferring archive to GHES with SCP"],
+		[null, "preparing", "Preparing archive on GHES"],
+	];
+	await page.route(`**/api/migrate/${id}/events*`, route => route.fulfill({
+		contentType: "text/event-stream",
+		body: steps.map(([phase, executorPhase, message], i) => `id: ${i + 1}\ndata: ${JSON.stringify({
+			id: i + 1, migrationId: id, eventType: "step", phase, payload: { executorPhase, message }, createdAt: "2026-11-21T23:57:49Z",
+		})}\n\n`).join(""),
+	}));
+	await page.goto(`/migrate/${id}`);
+	const rail = page.getByRole("region", { name: "Migration pipeline" });
+	await expect(rail).toContainText("Preparing archive on GHES");
+	await expect(rail.getByRole("listitem").filter({ hasText: "Exporting" })).toContainText("Complete");
+	await expect(rail.getByRole("listitem").filter({ hasText: "Git Import" })).toContainText("Not started");
 });

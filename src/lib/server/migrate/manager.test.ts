@@ -122,6 +122,15 @@ describe("migration manager", () => {
     expect(queued.requestOptions).not.toContain("source-token");
     expect(cancel(queued.id)).toBe(true);
     expect(getMigration(queued.id)?.state).toBe("cancelled");
+    expect(cancel(queued.id)).toBe(false);
+    expect(getEvents(queued.id).map((e) => e.payload)).toEqual([
+      { message: "Queued migration cancelled before execution" },
+    ]);
+    expect(cancel("active-0")).toBe(true);
+    expect(cancel("active-0")).toBe(false);
+    expect(getEvents("active-0").map((e) => e.payload)).toEqual([
+      { message: "Migration cancellation requested" },
+    ]);
   });
 
   test("requires exact target confirmation before restart eligibility", () => {

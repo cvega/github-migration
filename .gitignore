@@ -12,6 +12,7 @@ build/
 # Test output and generated reports
 coverage/
 playwright-report/
+.playwright-mcp/
 test-results/
 .e2e-data/
 .stryker-tmp/

@@ -100,6 +100,7 @@ const eventPayloadSchemas = {
   step: z
     .object({
       message: z.string(),
+      executorPhase: z.string().optional(),
       counts: countsSchema.optional(),
       postTerminal: z
         .object({

@@ -32,7 +32,7 @@ to that exact browser-visible origin before starting the containers.
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
 | Migrate to GHES | Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
-| Map identities | GHES import users or mannequins exposed by GHEC or GHES | Open **Mannequins**, select a target organization, and save mappings before migration. Check membership and apply unique mannequin matches, or use approved user URLs during a GHES import. |
+| Map identities | GHES users and teams, or mannequin attribution | Open **Mappings**. Save an exact match manually or by CSV. GHES resolves archive conflicts before import; mannequin attribution happens after import. |
 
 GitHub-to-GHES migration is not supported. GitLab-to-GHES execution is paused;
 GitLab profiling and migration to GHEC remain available. See the generated
@@ -78,7 +78,16 @@ The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
 
-After success, **Resource verification** shows recorded destination totals, not
+The event log grows with its rows and scrolls once it reaches its maximum
+height. Use the download icon beside the event count to save the full log for one
+migration as newline-delimited JSON, oldest first. A download during a run
+includes events recorded up to the start of the download. Cancellation requests
+are distinct from confirmed cancellations: if the remote outcome is uncertain,
+the log records that review is required. Review and restart appear in the same
+log before the next attempt's steps.
+
+After success, **Target repository contents** lists one resource per row with
+its exact destination total, not
 the number of items transferred. Commit counts cover the default branch's
 history. If counts are unavailable, **Fetch counts** shows the current
 repository at the target path. It does not backdate those counts or update
@@ -86,6 +95,13 @@ Statistics: the repository could have changed or been recreated since import.
 
 All migration directions use the same six-stage pipeline. The event log shows
 provider-specific operations; they do not add stages to the pipeline.
+For new GHES archive imports, export and archive import events advance the rail
+as they happen. The downloaded step's `payload.executorPhase` identifies the
+specific operation (for example, `mapping` or `auditing`), even when there is
+no corresponding shared `phase`. Once the archive is ready, the rail marks
+Exporting complete and shows the current transfer, preparation, or mapping
+operation above the steps. Git Import starts when GHES starts the import,
+not when the archive is uploaded. GHES imports Git and metadata together.
 “Queue” represents the queued phase. A completed rail is a summary, not
 evidence that the run spent time in a queue. “Checking for GHES import
 errors” announces the post-import audit, not a finding.
@@ -113,11 +129,16 @@ contain zeros from unavailable API data.
 
 ## Map Identities
 
-Choose **Mannequins**, select the target and organization, and add mappings
-individually or import a CSV with the exact header
-`source_identity,target_username`. Select the source identity type for all CSV
-rows. GHES `ghe-migrator` mappings use the exact source user URL reported by
-the exporter; mannequin mappings use the exact mannequin login or node ID.
+Choose **Mappings**. The **Users** and **Teams** lists show approved decisions across
+configured organizations, not a feed of migration conflicts. Choose **Add** or **Import CSV**;
+the organization and source type in the form scope that decision across repos.
+User CSV header: `source_identity,target_username`. Team CSV header:
+`source_identity,target_team_slug`. Keep the exact source URL, including a Bitbucket
+group's project fragment. Mannequin mappings use an exact mannequin login or node ID.
+GHES prepares the archive, queries conflicts, applies matching approved users and teams
+and rechecks before import. A team merge requires a saved decision. If a decision is
+missing, the run stops before import: save the indicated mapping, review the run status,
+then restart. Team mappings are not GHEC mannequin invitations.
 Mappings can be saved before the target user joins or the mannequin exists.
 
 Use **Check mappings** to check target users, organization membership, and

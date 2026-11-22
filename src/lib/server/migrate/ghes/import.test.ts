@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Counts, Migration, MigrationEvent } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { getEvents, insertEvent } from "../database/events";
 import { approveIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
 import { insertMigration } from "../database/migrations";
@@ -149,11 +150,26 @@ describe("GHES import execution", () => {
     };
     source.createSshClient = () => ssh;
     const result = await runExporterGhesMigration(
-      { id: record.id, sourceProvider: "gitlab", emit: () => {} },
+      { id: record.id, sourceProvider: "gitlab", emit: insertEvent },
       source,
     );
     expect(result.state).toBe("succeeded");
     expect(result.targetCounts).toEqual(targetCounts);
+    expect(
+      getEvents(record.id).flatMap((event) =>
+        event.eventType === "step" ? [[event.payload.executorPhase, event.phase]] : [],
+      ),
+    ).toEqual([
+      ["exporting", "EXPORTING"],
+      ["archive_ready", "EXPORTING"],
+      ["transferring", null],
+      ["preparing", null],
+      ["mapping", null],
+      ["importing", "IMPORTING_GIT"],
+      ["auditing", null],
+      ["unlocking", null],
+      ["succeeded", "SUCCEEDED"],
+    ]);
     expect(getGhesImportJobByMigrationId(record.id)?.phase).toBe("succeeded");
     expect(calls).toEqual([
       "conflicts-start",
@@ -177,6 +193,13 @@ describe("GHES import execution", () => {
   test("resolves team conflicts revealed by organization mapping before importing", async () => {
     const record = migration("ghes-team-conflict");
     insertMigration(record);
+    approveIdentityMapping({
+      targetApiUrl: record.targetApiUrl,
+      targetOrg: record.targetOrg,
+      sourceKind: `ghe-migrator:${record.sourceProvider}:team`,
+      sourceIdentity: "https://gitlab.example/groups/admin",
+      targetLogin: "approved-team",
+    });
     const source = adapter({
       submit: async () => ({ jobId: "export-job" }),
       inspect: async (jobId) => ({
@@ -206,7 +229,8 @@ describe("GHES import execution", () => {
     });
     ssh.map = async (_guid, csv) => {
       calls.push(csv.includes("team,") ? "merge-team" : "map-organization");
-      if (csv.includes("team,")) expect(csv).toContain("/orgs/target/teams/admin,merge");
+      if (csv.includes("team,"))
+        expect(csv).toContain(`/orgs/${record.targetOrg}/teams/approved-team,merge`);
       return { stdout: "", stderr: "" };
     };
     ssh.import = async () => {
@@ -242,6 +266,15 @@ describe("GHES import execution", () => {
     async ({ changing, cancel, expectedPasses }) => {
       const record = migration("ghes-persistent-conflict");
       insertMigration(record);
+      for (let index = 0; index <= 3; index++) {
+        approveIdentityMapping({
+          targetApiUrl: record.targetApiUrl,
+          targetOrg: record.targetOrg,
+          sourceKind: `ghe-migrator:${record.sourceProvider}:team`,
+          sourceIdentity: `https://gitlab.example/groups/admin-${index}`,
+          targetLogin: "admin",
+        });
+      }
       const source = adapter({
         submit: async () => ({ jobId: "export-job" }),
         inspect: async (jobId) => ({

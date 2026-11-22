@@ -41,31 +41,6 @@ export function listIdentityMappings(targetApiUrl: string, targetOrg: string): I
   return rows.map(mapRow);
 }
 
-export function listFailedGhesIdentityJobs(
-  targetApiUrl: string,
-  targetOrg: string,
-): Array<{ migrationId: string; source: string; startedAt: string }> {
-  const rows = getDb()
-    .prepare(
-      `SELECT m.id, m.source_org, m.source_repo, m.started_at FROM migrations m
-       JOIN ghes_import_jobs j ON j.migration_id = m.id
-       WHERE m.target_api_url = ? AND m.target_org = ? AND m.target_platform = 'ghes'
-       AND m.state = 'failed' AND j.ghes_import_id IS NOT NULL
-       ORDER BY m.started_at DESC LIMIT 20`,
-    )
-    .all(targetApiUrl, targetOrg) as Array<{
-    id: string;
-    source_org: string;
-    source_repo: string;
-    started_at: string;
-  }>;
-  return rows.map((row) => ({
-    migrationId: row.id,
-    source: `${row.source_org}/${row.source_repo}`,
-    startedAt: row.started_at,
-  }));
-}
-
 export function discoverIdentityMapping(
   targetApiUrl: string,
   targetOrg: string,

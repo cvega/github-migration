@@ -2,13 +2,17 @@ import { expect, test } from "@playwright/test";
 
 test("saves and imports mappings before target users exist", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
   await page.goto("/mannequins?target=ghec");
-  await expect(page.getByRole("heading", { name: "Identity mappings" })).toBeVisible();
+  await hydrated;
+  await expect(page.getByRole("heading", { name: "Mappings", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add user mapping" }).click();
   await page.getByLabel("Source identity", { exact: true }).fill("identity-e2e-alice");
   await page.getByLabel("Target username", { exact: true }).fill("target-alice");
-  await page.getByRole("button", { name: "Add mapping" }).click();
+  await page.getByRole("button", { name: "Save mapping" }).click();
   await expect(page.getByText("identity-e2e-alice", { exact: true })).toBeVisible();
-  await page.getByText("Import CSV instead").click();
+  await page.getByRole("button", { name: "Import CSV" }).click();
   await page.getByLabel("CSV file").setInputFiles({
     name: "mappings.csv",
     mimeType: "text/csv",

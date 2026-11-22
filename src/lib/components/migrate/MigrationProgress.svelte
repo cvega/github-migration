@@ -6,6 +6,7 @@
 
 	let {
 		currentPhase,
+		handoff = null,
 		failed = false,
 		active = false,
 		progress = null,
@@ -15,6 +16,7 @@
 		view = "all",
 	}: {
 		currentPhase: Phase;
+		handoff?: { completed: Phase; operation: string } | null;
 		failed?: boolean;
 		active?: boolean;
 		progress?: Progress | null;
@@ -36,7 +38,7 @@
 	const currentStepIndex = $derived(Math.max(0, phaseOrder.indexOf(currentPhase)));
 	const currentStepLabel = $derived(steps[currentStepIndex]?.label ?? "Preparing");
 	const pipelineSummary = $derived(
-		failed
+		handoff ? (failed ? `Stopped: ${handoff.operation}` : handoff.operation) : failed
 			? `Stopped at ${currentStepLabel}`
 			: currentPhase === "SUCCEEDED"
 				? `${steps.length} of ${steps.length} complete`
@@ -88,6 +90,7 @@
 	]);
 
 	function phaseStatus(phase: Phase): "completed" | "active" | "upcoming" | "failed" {
+		if (handoff) return phaseOrder.indexOf(phase) <= phaseOrder.indexOf(handoff.completed) ? "completed" : "upcoming";
 		if (failed && phase === currentPhase) return "failed";
 		const currentIndex = phaseOrder.indexOf(currentPhase);
 		const stepIndex = phaseOrder.indexOf(phase);

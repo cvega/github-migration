@@ -2,7 +2,7 @@ import type { Migration, MigrationState } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getMigration, updateMigrationState } from "../database/migrations";
 import { activeMigrationRuns } from "./active";
-import { closeMigrationEventStream } from "./events";
+import { broadcastMigrationEvent, closeMigrationEventStream, insertLifecycleStep } from "./events";
 
 export interface MigrationRunFinisher {
   settleResult(id: string, runToken: symbol, result: Migration): void;
@@ -11,6 +11,13 @@ export interface MigrationRunFinisher {
 
 export function createMigrationRunFinisher(drainQueue: () => void): MigrationRunFinisher {
   function finish(id: string, runToken: symbol, closeState?: MigrationState): void {
+    if (closeState === "cancelled" || closeState === "reconciliation_required") {
+      const message =
+        closeState === "cancelled"
+          ? "Migration cancelled"
+          : "Remote migration status requires review before restart";
+      broadcastMigrationEvent(id, insertLifecycleStep(id, message));
+    }
     if (closeState) closeMigrationEventStream(id, closeState);
     activeMigrationRuns.finish(id, runToken);
     drainQueue();

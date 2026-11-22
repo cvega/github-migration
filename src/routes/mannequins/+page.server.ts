@@ -14,7 +14,6 @@ import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/serv
 import {
   approveIdentityMapping,
   discoverIdentityMapping,
-  listFailedGhesIdentityJobs,
   listIdentityMappings,
   removeIdentityMapping,
   saveIdentityMappings,
@@ -58,17 +57,33 @@ export const load: PageServerLoad = async ({ url }) => {
   const organization = selectedOrganization(url, targetOrganizations);
   const targetAuthReady = isMannequinTargetAuthAvailable(target);
   const credentialError = mannequinTargetCredentialError(target);
-  const identityMappings = organization ? listIdentityMappings(target.apiUrl, organization) : [];
-  const failedGhesJobs =
-    target.platform === "ghes" && organization
-      ? listFailedGhesIdentityJobs(target.apiUrl, organization)
-      : [];
+  const scopes = targets.flatMap((profile) =>
+    profile.organizations.map((org) => ({
+      target: profile.id,
+      platform: profile.platform,
+      organization: org,
+      host: new URL(profile.webUrl).host,
+    })),
+  );
+  const identityMappings = targets.flatMap((profile) =>
+    profile.organizations.flatMap((org) =>
+      listIdentityMappings(profile.apiUrl, org)
+        .filter(
+          (mapping) => mapping.status === "approved" && isIdentitySourceKind(mapping.sourceKind),
+        )
+        .map((mapping) => ({
+          ...mapping,
+          targetId: profile.id,
+          host: new URL(profile.webUrl).host,
+        })),
+    ),
+  );
 
   return {
     targets,
     target,
     identityMappings,
-    failedGhesJobs,
+    scopes,
     targetOrganizations,
     organization,
     targetAuthReady,
@@ -132,7 +147,7 @@ export const actions: Actions = {
         metadata: { targetProfileId: target.id, organization, sourceKind, count: mappings.length },
       });
       return {
-        success: `Saved ${mappings.length} mapping(s). Check target users before applying them.`,
+        success: `Saved ${mappings.length} mapping(s).`,
       };
     } catch (error) {
       return fail(400, {
@@ -154,7 +169,7 @@ export const actions: Actions = {
       });
     }
     const mappings = listIdentityMappings(target.apiUrl, organization).filter(
-      (mapping) => mapping.sourceKind !== "mannequin",
+      (mapping) => mapping.sourceKind !== "mannequin" && !mapping.sourceKind.endsWith(":team"),
     );
     try {
       const client = getTargetMannequinClient(target);
@@ -397,7 +412,7 @@ export const actions: Actions = {
     if (
       target?.platform !== "ghes" ||
       !target.organizations.includes(organization) ||
-      !sourceKind.startsWith("ghe-migrator:")
+      !["ghe-migrator:bitbucket-server", "ghe-migrator:gitlab"].includes(sourceKind)
     ) {
       return fail(400, { sourceIdentity, error: "Choose a configured GHES target and source." });
     }

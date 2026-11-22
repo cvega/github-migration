@@ -13,7 +13,7 @@ const APP_TABS = [
   { id: "profile", label: "Profile", href: "/profile", icon: "telescope" },
   { id: "migrations", label: "Migrations", href: "/migrate", icon: "repo-push" },
   { id: "statistics", label: "Statistics", href: "/migrate/stats", icon: "graph" },
-  { id: "mannequins", label: "Mannequins", href: "/mannequins", icon: "people" },
+  { id: "mannequins", label: "Mappings", href: "/mannequins", icon: "people" },
   { id: "setup", label: "Setup", href: "/setup", icon: "gear" },
 ] as const satisfies readonly AppTab[];
 

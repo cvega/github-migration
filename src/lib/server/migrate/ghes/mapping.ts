@@ -46,6 +46,7 @@ export function buildGhesMigrationMap(
   targetOrg: string,
   targetRepo: string,
   userMappings: ReadonlyMap<string, string> = new Map(),
+  teamMappings: ReadonlyMap<string, string> = new Map(),
 ): string {
   const deduplicated = new Map<string, MappingRow>();
   for (const original of [...parseRows(conflictsCsv), ...parseRows(recordsCsv)]) {
@@ -56,6 +57,19 @@ export function buildGhesMigrationMap(
     if (targetLogin) {
       row.target_url = targetUrl(webUrl, targetLogin);
       row[actionColumn] = "map";
+    } else if (row.model_name === "team") {
+      const slug = teamMappings.get(row.source_url);
+      if (!slug) {
+        throw new Error(
+          `GHES team conflict for ${row.source_url}: add an approved team mapping in Mappings before restarting.`,
+        );
+      }
+      row.target_url = targetUrl(webUrl, "orgs", targetOrg, "teams", slug);
+      row[actionColumn] = "merge";
+    } else if (row.model_name === "user") {
+      throw new Error(
+        `GHES user conflict requires a target URL for ${row.source_url}; add an approved user mapping in Mappings before restarting.`,
+      );
     } else if (row.model_name === "organization") {
       row.target_url = targetUrl(webUrl, targetOrg);
       row[actionColumn] = "map";

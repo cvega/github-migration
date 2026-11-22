@@ -5,13 +5,39 @@ import {
   parseSseLastEventId,
   sseResponse,
 } from "$lib/server/core/sse";
-import { getMigrationEventReplayWindow } from "$lib/server/migrate/database/events";
+import {
+  eventDownloadPages,
+  getMigrationEventReplayWindow,
+} from "$lib/server/migrate/database/events";
 import { get, subscribe } from "$lib/server/migrate/manager";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = ({ params, url, request }) => {
   const migration = get(params.id);
   if (!migration) return new Response("Not found", { status: 404 });
+  if (url.searchParams.get("download") === "1") {
+    const pages = eventDownloadPages(migration.id);
+    const encoder = new TextEncoder();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          const page = pages.next();
+          if (page.done) controller.close();
+          else
+            controller.enqueue(
+              encoder.encode(page.value.map((event) => `${JSON.stringify(event)}\n`).join("")),
+            );
+        },
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Content-Disposition": `attachment; filename="migration-${migration.id.replace(/[^a-zA-Z0-9_-]/g, "_")}-events.ndjson"`,
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  }
   let afterId: number | undefined;
   try {
     afterId = parseSseLastEventId(

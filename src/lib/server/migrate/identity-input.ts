@@ -3,6 +3,8 @@ import { parse } from "csv-parse/sync";
 const IDENTITY_SOURCE_KINDS = [
   "ghe-migrator:bitbucket-server",
   "ghe-migrator:gitlab",
+  "ghe-migrator:bitbucket-server:team",
+  "ghe-migrator:gitlab:team",
   "mannequin-login",
   "mannequin-id",
 ] as const;
@@ -41,8 +43,14 @@ export function validateIdentityInput(
       !["http:", "https:"].includes(url.protocol) ||
       url.username ||
       url.password ||
-      url.search ||
-      url.hash
+      (!kind.endsWith(":team") && (url.search || url.hash)) ||
+      (kind.endsWith(":team") &&
+        url.search &&
+        !(
+          kind === "ghe-migrator:bitbucket-server:team" &&
+          url.pathname.endsWith("/admin/groups/view") &&
+          [...url.searchParams.keys()].every((key) => key === "name")
+        ))
     ) {
       throw new Error(
         "GHES source identities must be HTTP(S) user URLs without credentials, query, or fragment.",
@@ -56,27 +64,32 @@ export function validateIdentityInput(
   ) {
     throw new Error("Enter an exact mannequin login.");
   }
-  if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})$/.test(targetLogin)) {
+  if (kind.endsWith(":team")) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(targetLogin)) {
+      throw new Error("Enter the exact target GitHub team slug.");
+    }
+  } else if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})$/.test(targetLogin)) {
     throw new Error("Enter a valid target GitHub username.");
   }
   return { sourceIdentity, targetLogin };
 }
 
 export function parseIdentityCsv(kind: IdentitySourceKind, csv: string): IdentityInput[] {
+  const targetHeader = kind.endsWith(":team") ? "target_team_slug" : "target_username";
   let rows: string[][];
   try {
     rows = parse(csv, { bom: true, skip_empty_lines: true, trim: true, relax_column_count: false });
   } catch {
-    throw new Error("The CSV is malformed. Use source_identity,target_username as the header.");
+    throw new Error(`The CSV is malformed. Use source_identity,${targetHeader} as the header.`);
   }
   if (
     rows.length < 2 ||
     rows[0]?.length !== 2 ||
     rows[0][0] !== "source_identity" ||
-    rows[0][1] !== "target_username"
+    rows[0][1] !== targetHeader
   ) {
     throw new Error(
-      "The CSV must have source_identity,target_username headers and at least one mapping.",
+      `The CSV must have source_identity,${targetHeader} headers and at least one mapping.`,
     );
   }
   if (rows.length > 501) throw new Error("The CSV cannot contain more than 500 mappings.");

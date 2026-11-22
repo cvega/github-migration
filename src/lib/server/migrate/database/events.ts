@@ -64,6 +64,28 @@ export function getEvents(migrationId: string, afterId?: number): MigrationEvent
 
 export const GLOBAL_EVENT_REPLAY_LIMIT = 1_000;
 
+/** Page a finite snapshot without holding a SQLite read cursor during network writes. */
+export function eventDownloadPages(migrationId: string) {
+  const db = getDb();
+  const { last } = db
+    .query<{ last: number }, [string]>(
+      "SELECT COALESCE(MAX(id), 0) AS last FROM events WHERE migration_id = ?",
+    )
+    .get(migrationId)!;
+  return (function* () {
+    let cursor = 0;
+    const query = db.query<Record<string, unknown>, [string, number, number]>(
+      `SELECT ${EVENT_COLS} FROM events WHERE migration_id = ? AND id > ? AND id <= ? ORDER BY id LIMIT 128`,
+    );
+    while (cursor < last) {
+      const rows = query.all(migrationId, cursor, last);
+      if (!rows.length) return;
+      cursor = Number(rows.at(-1)?.id);
+      yield rowsToEvents(rows);
+    }
+  })();
+}
+
 export interface EventReplayWindow {
   events: MigrationEvent[];
   highWater: number;
