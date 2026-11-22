@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" data-color-mode="dark" data-dark-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile · Migration Toolkit · Design preview</title>
+<link rel="stylesheet" href="../../node_modules/@primer/primitives/dist/css/functional/themes/dark.css">
+<style>
+@font-face{font-family:Mona;src:url('../../static/fonts/MonaSans-Variable.woff2') format('woff2');font-weight:200 900;font-display:swap}
+*{box-sizing:border-box}body{margin:0;color-scheme:dark;background:var(--bgColor-default,#0d1117);color:var(--fgColor-default,#f0f6fc);font:14px/1.5 Mona,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header,.boxhead{background:var(--bgColor-muted,#151b23)}header,.boxhead,summary+div{border-bottom:1px solid var(--borderColor-default,#3d444d)}
+.brand,nav,.line,.boxhead,summary,.buttons{display:flex;align-items:center;gap:8px}.brand{height:54px;padding:0 24px;font-weight:600}.brand small{margin-left:auto;color:var(--fgColor-muted);font-weight:400}
+nav{gap:12px;padding:0 18px;overflow-x:auto}nav span{display:inline-flex;align-items:center;gap:6px;padding:8px 6px 10px;color:var(--fgColor-muted);white-space:nowrap}nav .active{color:var(--fgColor-default);border-bottom:2px solid var(--underlineNav-borderColor-active,#f78166);font-weight:600}
+.icon{width:16px;height:16px;flex:none;filter:invert(.72)}.brand .icon{width:26px;height:26px;filter:invert(.94)}
+main{max-width:1024px;margin:auto;padding:24px 32px 40px}h1,h2,p{margin:0}h1{font-weight:600;font-size:24px;line-height:32px}h2{font-size:16px;line-height:24px;font-weight:600}p,small,.muted{color:var(--fgColor-muted,#9198a1)}small{font-size:13px}
+form{margin:20px 0 28px;padding-top:16px;border-top:1px solid var(--borderColor-muted,#30363d)}.fields{display:flex;flex-wrap:wrap;align-items:flex-start;gap:24px}.field{min-width:175px}.field label,legend{display:block;font-weight:600;margin-bottom:5px}fieldset{border:0;margin:0;padding:0}legend{padding:0}.choices{display:flex;gap:16px;min-height:32px;align-items:center}.choices label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}input[type=radio]{margin:0;accent-color:var(--fgColor-accent,#4493f8)}
+select,input[type=text],button{font:inherit;color:inherit;border:1px solid var(--borderColor-default,#3d444d);border-radius:6px;min-height:32px;padding:4px 12px}select,button{background:var(--button-default-bgColor-rest,#212830);cursor:pointer}select{min-width:175px}input[type=text]{background:var(--bgColor-default)}.buttons{margin-top:16px;gap:12px;flex-wrap:wrap}button.primary{background:var(--button-primary-bgColor-rest,#238636);border-color:var(--button-primary-borderColor-rest,#388648);color:white;font-weight:600}button:hover,select:hover{border-color:var(--fgColor-muted)}:focus-visible{outline:2px solid var(--focus-outlineColor,#4493f8);outline-offset:2px}
+.box{border:1px solid var(--borderColor-default,#3d444d);border-radius:6px;overflow:hidden}.boxhead,summary{padding:10px 16px}.boxhead small{margin-left:auto}.count{display:inline-block;background:var(--buttonCounter-default-bgColor,#30363d);border-radius:2em;padding:0 7px;font-weight:500;font-size:12px}details+details{border-top:1px solid var(--borderColor-muted,#30363d)}summary{cursor:pointer;list-style:none;gap:10px}summary::-webkit-details-marker{display:none}summary:hover{background:var(--bgColor-muted)}summary strong{font-weight:600}summary time{margin-left:auto;color:var(--fgColor-muted);font-size:13px}.success{filter:invert(72%) sepia(55%) saturate(490%) hue-rotate(86deg)}summary+div{background:var(--bgColor-muted);padding:8px 42px;color:var(--fgColor-muted);border:0}.extra{margin-top:12px}[hidden]{display:none!important}#feedback{color:var(--fgColor-accent);margin-top:8px}
+@media(max-width:640px){main{padding:18px 16px}.brand{padding-inline:16px}nav{padding-inline:10px}.fields{display:grid;gap:12px}.buttons,summary{align-items:flex-start}.buttons{flex-direction:column}.boxhead,summary{padding:10px}.boxhead small{display:none}summary time{white-space:nowrap}.choices{flex-wrap:wrap}}
+.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:6px 0 26px}.heading h1{font-size:28px;line-height:36px}.heading p{margin-top:4px}.heading button{white-space:nowrap}.boxhead{padding:10px 18px}.boxhead h2{font-size:14px}.box summary{display:grid;grid-template-columns:38px minmax(0,1fr) 120px 82px 10px;align-items:center;gap:14px;padding:14px 18px}.box summary:after{content:"";width:6px;height:6px;border-top:1.5px solid var(--fgColor-muted);border-right:1.5px solid var(--fgColor-muted);transform:rotate(45deg)}details[open]>summary:after{transform:rotate(135deg)}.source-mark{display:grid;place-items:center;width:38px;height:38px;border-radius:8px;background:#132c46}.source-mark img{width:22px;height:22px;filter:brightness(0) saturate(100%) invert(60%) sepia(99%) saturate(1399%) hue-rotate(183deg) brightness(103%)}.identity{display:grid;gap:2px}.identity strong{font-size:16px}.state{display:flex;align-items:center;gap:6px;color:var(--fgColor-muted);font-size:13px}.box time{margin:0;text-align:right}.box summary+div{padding:12px 18px 12px 70px}.metric{display:inline-block;margin-right:22px}.metric b{color:var(--fgColor-default)}
+dialog{color:inherit;background:var(--bgColor-default);padding:22px;border:1px solid var(--borderColor-default);border-radius:12px;width:min(440px,calc(100% - 32px));box-shadow:0 16px 54px #0008}dialog::backdrop{background:#010409b8}dialog form{border:0;padding:0;margin:18px 0 0}dialog .fields{display:grid;gap:16px}dialog select{width:100%}dialog .buttons{justify-content:flex-end;border-top:1px solid var(--borderColor-muted);padding-top:16px;flex-direction:row}dialog #hint{display:block;margin-top:12px}
+@media(max-width:640px){.heading{align-items:start;margin:4px 0 18px}.heading h1{font-size:22px;line-height:28px}.heading p{font-size:13px}.box summary{grid-template-columns:32px minmax(0,1fr) auto;gap:2px 9px;padding:12px}.source-mark{width:32px;height:32px;grid-row:span 2}.identity{grid-row:span 2}.state,.box time{grid-column:3;justify-self:end}.state{grid-row:1}.box time{grid-row:2}.box summary:after{display:none}.identity small{line-height:18px}.box summary+div{padding:10px 12px}.boxhead{padding:9px 12px}}
+.search{margin-left:auto;position:relative;width:min(240px,45%)}.search .icon{position:absolute;left:9px;top:8px;pointer-events:none}.search input{width:100%;height:32px;padding:4px 10px 4px 32px;font:inherit;color:inherit;background:var(--bgColor-default);border:1px solid var(--borderColor-default);border-radius:6px}#empty{text-align:center;padding:24px}.boxhead{flex-wrap:wrap}@media(max-width:540px){.search{width:100%}}
+</style></head><body>
+<header><div class="brand"><img class="icon" data-icon="mark-github" alt="">Migration Toolkit <small>Design preview</small></div>
+<nav aria-label="Toolkit navigation preview"><span class="active"><img class="icon" data-icon="telescope" alt="">Profile</span><span><img class="icon" data-icon="arrow-switch" alt="">Migrations</span><span><img class="icon" data-icon="graph" alt="">Statistics</span><span><img class="icon" data-icon="people" alt="">Mappings</span><span><img class="icon" data-icon="gear" alt="">Setup</span></nav></header>
+<main><div class="heading"><div><h1>Source profiles</h1><p>Repository inventory and activity, by source.</p></div><button type="button" class="primary" id="new">New profile</button></div>
+<dialog id="compose" aria-labelledby="dialogtitle"><h2 id="dialogtitle">New profile</h2>
+<form id="request"><div class="fields"><div class="field"><label for="source">Source connection</label><select id="source"><option>Bitbucket Data Center</option><option>GitHub</option><option>GitLab</option></select></div>
+<fieldset><legend>Profile scope</legend><div class="choices"><label><input type="radio" name="scope" value="all" checked>Entire enterprise</label><label><input type="radio" name="scope" value="one"><span id="one">One project</span></label></div></fieldset></div>
+<div class="field extra" id="extra" hidden><label for="target" id="targetLabel">Project</label><select id="target"></select></div>
+<small id="hint">Includes all 16 projects visible to this connection.</small><div class="buttons"><button type="button" id="cancel">Cancel</button><button class="primary">Start profile</button></div></form></dialog>
+<section class="box"><div class="boxhead"><img class="icon" data-icon="history" alt=""><h2>Recent profiles</h2><span class="count" id="matches" aria-live="polite">3</span><label class="search"><img class="icon" data-icon="search" alt=""><input id="search" type="search" aria-label="Search profiles by project or source" placeholder="Search profiles…" aria-controls="runs"></label></div>
+<div id="runs"></div><p id="empty" hidden>No matching profiles. Try a different project or source.</p></section><p id="feedback" role="status"></p></main>
+<script>
+const el=id=>document.getElementById(id);
+const runs=[['PROF01',5,'8 min ago'],['PROF02',6,'12 min ago'],['TEST',1,'Yesterday']];
+el('runs').innerHTML=runs.map(([name,count,time],i)=>`<details><summary>
+<span class="source-mark"><img src="../../node_modules/simple-icons/icons/bitbucket.svg" alt=""></span>
+<span class="identity"><strong>${name}</strong><small>Bitbucket Data Center · ${count} ${count===1?'repository':'repositories'}</small></span>
+<span class="state"><img class="icon success" data-icon="check-circle-fill" alt="">Completed</span><time>${time}</time></summary>
+<div>${i===0?'<span class="metric"><b>64</b> default-branch commits</span><span class="metric"><b>65</b> pull requests</span><span class="metric"><b>70</b> branches</span>':`Namespace profile · ${count} private ${count===1?'repository':'repositories'} captured`}</div></details>`).join('');
+el('new').onclick=()=>el('compose').showModal();el('cancel').onclick=()=>el('compose').close();
+el('search').oninput=()=>{
+  const terms=el('search').value.trim().toLowerCase().split(/\s+/);
+  let matches=0;
+  for(const row of el('runs').children){
+    const text=row.querySelector('.identity').textContent.toLowerCase();
+    row.hidden=!terms.every(term=>text.includes(term));
+    if(!row.hidden)matches++;
+  }
+  el('matches').textContent=String(matches);
+  el('empty').hidden=matches!==0;
+};
+for(const img of document.querySelectorAll('[data-icon]')) img.src='../../node_modules/@primer/octicons/build/svg/'+img.dataset.icon+'-16.svg';
+const scopes=[
+ {unit:'project',targets:['PROF01','PROF02','TEST'],all:'Includes all 16 projects visible to this connection.'},
+ {unit:'organization',targets:['engineering','platform'],all:'Includes visible organizations in the selected enterprise.'},
+ {unit:'group',targets:['platform','tooling'],all:'Includes the enterprise group and its visible subgroups.'}
+];
+function update(){const i=el('source').selectedIndex,s=scopes[i],one=document.querySelector('[name=scope]:checked').value==='one';el('one').textContent='One '+s.unit;el('extra').hidden=!one&&i===0;el('targetLabel').textContent=one?s.unit[0].toUpperCase()+s.unit.slice(1):i===1?'Enterprise':'Enterprise group';el('target').replaceChildren(...(one?s.targets:['sample-enterprise']).map(t=>new Option(t)));el('hint').textContent=one?'Includes repositories visible in the selected '+s.unit+'.':s.all;el('feedback').textContent=''}
+el('source').onchange=update;for(const radio of document.querySelectorAll('[name=scope]'))radio.onchange=update;el('target').onchange=()=>el('feedback').textContent='';el('request').onsubmit=e=>{e.preventDefault();el('compose').close();el('feedback').textContent='Preview only. No profile was started.'};
+</script></body></html>

@@ -103,6 +103,8 @@ export function validateProfileCredentialScope(
   sourceProvider: SourceProvider,
   namespace: string,
 ): string | null {
+  if (parseConfiguredScopes(process.env.PROFILE_CONNECTION_SCOPE).includes(sourceProvider))
+    return null;
   const configured = (() => {
     if (sourceProvider === "github") return getFormDefaults().sourceOrgs;
     const variable =

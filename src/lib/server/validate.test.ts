@@ -106,6 +106,7 @@ describe("validateAuthAvailable", () => {
     "BITBUCKET_SERVER_USERNAME",
     "BITBUCKET_SERVER_PASSWORD",
     "BITBUCKET_SERVER_PROJECT_KEYS",
+    "PROFILE_CONNECTION_SCOPE",
     "BITBUCKET_SERVER_ALLOW_INSECURE_HTTP",
     "BITBUCKET_SERVER_SSH_USERNAME",
     "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
@@ -135,6 +136,20 @@ describe("validateAuthAvailable", () => {
       if (savedEnv[k] === undefined) delete process.env[k];
       else process.env[k] = savedEnv[k];
     }
+  });
+
+  test("connection-wide profiling does not widen migration or other providers' scope", () => {
+    process.env.PROFILE_CONNECTION_SCOPE = "bitbucket-server";
+    process.env.BITBUCKET_SERVER_PROJECT_KEYS = "TEST";
+    process.env.GITLAB_SOURCE_NAMESPACE = "platform";
+    expect(validateProfileCredentialScope("bitbucket-server", "PROF01")).toBeNull();
+    expect(validateProfileCredentialScope("gitlab", "other")).toContain("not configured");
+    expect(
+      validateCredentialScope({
+        sourceProvider: "bitbucket-server",
+        sourceRepo: "PROF01/service-01",
+      }),
+    ).toContain("not configured");
   });
 
   test("accepts a per-request token on both sides", () => {

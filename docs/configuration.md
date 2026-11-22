@@ -118,6 +118,7 @@ request.
 | `BITBUCKET_SERVER_USERNAME` | Bitbucket API username |
 | `BITBUCKET_SERVER_PASSWORD` | Bitbucket API password or token |
 | `BITBUCKET_SERVER_PROJECT_KEYS` | Optional comma-separated project scope |
+| `PROFILE_CONNECTION_SCOPE` | Optional provider IDs (`bitbucket-server`, `gitlab`, `github`) for credential-wide profiling; migration restrictions remain unchanged |
 | `BITBUCKET_SERVER_ALLOW_INSECURE_HTTP` | Allow plain HTTP for an explicitly trusted source |
 | `BITBUCKET_SERVER_SSH_HOST` | Administrative SSH host used for archive access |
 | `BITBUCKET_SERVER_SSH_PORT` | Administrative SSH port |

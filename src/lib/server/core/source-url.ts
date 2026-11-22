@@ -3,6 +3,10 @@ import type { SourceProvider } from "$lib/source-provider";
 
 export { parseSourceApiUrl } from "$lib/source/url";
 
+export function parseConfiguredSourceInventory(value: unknown) {
+  return parseInventory(value, assertMigrationSourceApiUrl);
+}
+
 export function normalizeGitLabApiUrl(
   value: string,
   options: { allowInsecureHttp?: boolean } = {},
@@ -49,3 +53,5 @@ export function assertMigrationSourceApiUrl(value: string, provider?: SourceProv
   }
   assertPersistableSourceApiUrl(value);
 }
+
+import { parseSourceNamespaceInventory as parseInventory } from "$lib/source/inventory";

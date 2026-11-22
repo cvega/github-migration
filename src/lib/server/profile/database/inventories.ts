@@ -1,5 +1,5 @@
 import { getDb } from "$lib/server/core/db";
-import { parseSourceNamespaceInventory } from "$lib/source/inventory";
+import { parseConfiguredSourceInventory as parseSourceNamespaceInventory } from "$lib/server/core/source-url";
 import { parseBitbucketProfileEnrichment, parseGitLabProfileEnrichment } from "$lib/source/profile";
 import type {
   BitbucketProfileEnrichment,

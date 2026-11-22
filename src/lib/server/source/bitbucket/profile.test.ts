@@ -95,8 +95,22 @@ describe("Bitbucket repository profile metrics", () => {
     expect(Object.fromEntries(calls[0]?.searchParams ?? [])).toMatchObject({
       until: "main",
       withCounts: "true",
-      limit: "1",
+      limit: "100",
     });
+  });
+
+  test("does not report a page-limited commit count as exact", async () => {
+    const { client } = clientWithResponses([
+      page([{}, {}], { totalCount: 3, isLastPage: false, nextPageStart: 2 }),
+    ]);
+    expect(
+      (
+        await collectBitbucketCommitMetric(client, {
+          path: "PC/service-api",
+          defaultBranch: "main",
+        })
+      ).observation,
+    ).toMatchObject({ kind: "at-least", value: 2, reason: "page-cap" });
   });
 
   test("does not invent a commit zero when the default branch is unknown", async () => {

@@ -290,6 +290,7 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `ghes_import_jobs` | Durable exporter-to-GHES import state | Stores exporter identity, archive path and hash, ghe-migrator GUID, source lock state, phase, and failure reason |
 | `migration_batch_items` | Durable batch membership | Enforces unique source and target identities per batch |
 | `migration_identity_mappings` | Approved source-to-target identity decisions | Scoped by target API, organization, source kind, and source identity |
+| `profile_queue` | Namespaces awaiting a profile run | One pending entry per provider and namespace; dispatch failures are retained until retried |
 | `profile_runs` | Profile lifecycle and rollups | Stores provider, namespace, counters, API calls, timestamps, and terminal failure |
 | `profile_repos` | Repository analysis within a profile | Idempotent per run and repository; queried in filtered pages |
 | `profile_source_inventories` | Provider-neutral inventory summary | One normalized summary per profile run |

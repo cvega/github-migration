@@ -105,7 +105,7 @@ export async function collectBitbucketCommitMetric(
   try {
     const response = await client.get<unknown>(
       `${repositoryPath(project)}/commits`,
-      { until: project.defaultBranch, withCounts: true, limit: 1 },
+      { until: project.defaultBranch, withCounts: true, limit: 100 },
       { signal: options.signal },
     );
     const totalCount =
@@ -117,6 +117,26 @@ export async function collectBitbucketCommitMetric(
       response.totalCount >= 0
         ? response.totalCount
         : null;
+    // Bitbucket may count only through the next item when more pages exist.
+    if (
+      response &&
+      typeof response === "object" &&
+      "isLastPage" in response &&
+      response.isLastPage === false &&
+      "values" in response &&
+      Array.isArray(response.values)
+    ) {
+      return metric(
+        "repository-commits",
+        {
+          kind: "at-least",
+          value: response.values.length,
+          reason: "page-cap",
+          scope: BITBUCKET_COMMITS_SCOPE,
+        },
+        nowMs,
+      );
+    }
     return metric(
       "repository-commits",
       totalCount === null

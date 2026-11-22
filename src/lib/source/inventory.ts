@@ -119,15 +119,6 @@ const sourceNamespaceInventorySchema = z
   .strict()
   .superRefine((inventory, context) => {
     const adapter = getSourceProviderAdapter(inventory.provider);
-    try {
-      assertPersistableSourceApiUrl(inventory.sourceApiUrl);
-    } catch {
-      context.addIssue({
-        code: "custom",
-        path: ["sourceApiUrl"],
-        message: "must be an HTTP(S) URL without credentials, query, or fragment",
-      });
-    }
     if (!adapter.isValidNamespace(inventory.namespace)) {
       context.addIssue({
         code: "custom",
@@ -205,8 +196,13 @@ const sourceNamespaceInventorySchema = z
     }
   });
 
-export function parseSourceNamespaceInventory(value: unknown): SourceNamespaceInventory {
-  return sourceNamespaceInventorySchema.parse(value) as SourceNamespaceInventory;
+export function parseSourceNamespaceInventory(
+  value: unknown,
+  validateUrl: (url: string, provider: SourceProvider) => void = assertPersistableSourceApiUrl,
+): SourceNamespaceInventory {
+  const parsed = sourceNamespaceInventorySchema.parse(value);
+  validateUrl(parsed.sourceApiUrl, parsed.provider);
+  return parsed;
 }
 
 export function parseSourceProjectInventory(value: unknown): SourceProjectInventory {

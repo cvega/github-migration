@@ -63,6 +63,39 @@ repositories with warnings or blockers. Start that analysis from the completed
 profile page and wait for the analyzer service to finish, or retry failed
 repository jobs there. Clear repositories remain eligible without analysis.
 
+### Discover namespaces for profiling
+
+In **Profile**, **Recent profiles** shows 10 runs per page. Search by namespace
+or provider across the full history, or use the numbered pager. Expand a row
+to review its observations or open the full report. Choose **New profile**, pick
+the source, select the single-namespace scope, then **Discover namespaces**. Filter the loaded
+results, load another page, or refresh to pick up newly created projects.
+Selecting a row fills the namespace; **Start profile** collects its repository data.
+Counts here describe loaded entries, not the size of the enterprise.
+
+Discovery uses the configured source host and credential: Bitbucket projects,
+GitLab groups (including subgroup paths), and GitHub user organizations or the
+organization owning the configured App installation's visible repositories.
+The existing namespace restrictions apply by default. To authorize all dashboard
+operators to profile what a particular source credential can read, set
+`PROFILE_CONNECTION_SCOPE` to one or more provider IDs (`bitbucket-server`,
+`gitlab`, `github`). Use a least-privilege source credential. This opt-in affects
+discovery and profile submission, not migration authorization.
+
+Select **Entire enterprise** in **New profile** and click **Start profile** to
+discover all eligible namespaces, not just the
+loaded page. On Bitbucket this means visible projects on the configured
+instance. For GitHub enter the enterprise slug; the source credential must be
+able to list its organizations and read the repositories you want to profile.
+For GitLab.com specify the enterprise group; on self-managed GitLab leave it
+blank to cover visible groups. A parent group profile includes its subgroups.
+The server queues work only after discovery finishes, and processes namespaces
+one at a time per provider. You can close the page once queued. Pending work
+survives a restart; interrupted runs are reported as failed in **Profile runs**.
+Running and queued namespaces are not added twice. Completed profiles are
+refreshed. Coverage is limited to the source credential and profile policy;
+an empty result does not certify an empty enterprise.
+
 ## Start A Migration
 
 1. Choose a supported source and target route.

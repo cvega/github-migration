@@ -11,10 +11,16 @@ import {
   type DomainStore,
   type DurableTableContract,
 } from "$lib/server/core/db";
-import { parseSourceNamespaceInventory } from "$lib/source/inventory";
+import { parseConfiguredSourceInventory as parseSourceNamespaceInventory } from "$lib/server/core/source-url";
 import { SOURCE_PROVIDERS } from "$lib/source-provider";
 
 export const PROFILE_DURABLE_TABLES = [
+  {
+    name: "profile_queue",
+    purpose: "Namespaces awaiting a profile run",
+    notes:
+      "One pending entry per provider and namespace; dispatch failures are retained until retried",
+  },
   {
     name: "profile_runs",
     purpose: "Profile lifecycle and rollups",
@@ -63,6 +69,13 @@ export const PROFILE_DURABLE_TABLES = [
 ] as const satisfies readonly DurableTableContract[];
 
 const PROFILE_DDL = `
+  CREATE TABLE IF NOT EXISTS profile_queue (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    namespace TEXT NOT NULL COLLATE NOCASE,
+    failure TEXT,
+    UNIQUE(provider, namespace)
+  );
   -- An organization-scoped readiness crawl. Aggregate counters (profiled_repos,
   -- blockers, warnings) are recomputed from profile_repos at completion, so they
   -- stay correct even if a repo is re-recorded on a resumed run.

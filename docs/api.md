@@ -16,7 +16,10 @@ never returned.
 | `GET` | `/api/metrics` | Token-protected Prometheus migration metrics |
 | `GET` | `/api/rate-limits` | Provider quotas, active count, and GitHub status |
 | `POST` | `/api/profile` | Start a provider profile |
+| `POST` | `/api/profile/queue` | Discover and queue enterprise profiles (`sourceProvider`, `scope: "enterprise"`, `enterprise`: GitHub enterprise slug or GitLab group) |
+| `GET` | `/api/profile/queue` | Read pending and failed-to-start counts for `provider` |
 | `GET` | `/api/profile` | List profile runs |
+| `GET` | `/api/profile/discover` | Discover a page of visible namespaces for `provider`; pass the returned `next` as `cursor` |
 | `GET` | `/api/profile/:id` | Read profile status and paginated repository detail |
 | `GET` | `/api/profile/:id/events` | Stream profile progress and terminal state |
 | `POST` | `/api/migrate` | Start one repository migration |

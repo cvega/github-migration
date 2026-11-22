@@ -252,13 +252,28 @@ export async function* streamBitbucketInventoryPages(
     const projects = repositoryPage.map((repository) =>
       toProjectInventory(repository, canonicalKey),
     );
-    for (const project of projects) {
+    for (const [index, project] of projects.entries()) {
       const canonicalPath = project.path.toLowerCase();
       if (sourceIds.has(project.sourceId) || paths.has(canonicalPath)) {
         throw new TypeError(`Bitbucket inventory contains duplicate repository ${project.path}`);
       }
       sourceIds.add(project.sourceId);
       paths.add(canonicalPath);
+      if (repositoryPage[index]?.defaultBranch === undefined) {
+        const repositorySlug = requiredString(repositoryPage[index]?.slug, "slug");
+        try {
+          project.defaultBranch = defaultBranch(
+            await client.get(
+              `/projects/${encodeBitbucketSegment(canonicalKey, "project key")}/repos/${encodeBitbucketSegment(repositorySlug, "repository slug")}/default-branch`,
+              {},
+              { signal: options.signal },
+            ),
+          );
+        } catch (error) {
+          if (!(error instanceof BitbucketServerApiError && [401, 403, 404].includes(error.status)))
+            throw error;
+        }
+      }
     }
     page += 1;
     discovered += projects.length;
