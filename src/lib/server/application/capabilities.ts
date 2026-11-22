@@ -1,4 +1,8 @@
-import { supportsMigrationTarget, type TargetPlatform } from "$lib/migration-target";
+import {
+  GITLAB_GHES_PAUSE_REASON,
+  supportsMigrationTarget,
+  type TargetPlatform,
+} from "$lib/migration-target";
 import { isBitbucketSftpConfigured } from "$lib/server/source/bitbucket/archive";
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
 import { isGitLabArchiveStorageConfigured } from "$lib/server/source/gitlab/archive";
@@ -143,7 +147,10 @@ export function getMigrationCapability(
       reasons: [
         {
           code: "migration-route-unsupported",
-          message: `${sourceDisplayName(sourceProvider)} migrations to ${targetProfile.displayName} are not supported`,
+          message:
+            sourceProvider === "gitlab" && targetProfile.platform === "ghes"
+              ? GITLAB_GHES_PAUSE_REASON
+              : `${sourceDisplayName(sourceProvider)} migrations to ${targetProfile.displayName} are not supported`,
           environment: [],
         },
       ],

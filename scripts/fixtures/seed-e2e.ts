@@ -532,4 +532,18 @@ insertFailedNativeMigration.run(
   completedAt,
 );
 
+db.prepare(
+  "UPDATE migrations SET target_platform='ghes', target_profile_id='ghes', failure_reason=? WHERE id='seed-e2e-bitbucket-failed'",
+).run(
+  "Bundler will use /tmp temporarily.\nPermission denied @ rb_sysopen - /workspace/export.tar.gz (Errno::EACCES)\nfrom /opt/bbs-exporter/lib/bbs_exporter/archiver.rb",
+);
+const importStep = db.prepare(`INSERT INTO events (migration_id,event_type,payload,created_at)
+  VALUES ('seed-e2e-bitbucket-failed', ?, ?, ?)`);
+for (const [type, message] of [
+  ["step", "Previous attempt"],
+  ["restart", "Migration restarted"],
+  ["step", "Starting Bitbucket Server export"],
+] as const) {
+  importStep.run(type, JSON.stringify({ message }), startedAt);
+}
 db.close();

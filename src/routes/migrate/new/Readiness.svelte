@@ -3,6 +3,7 @@
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 	import LaunchConfirm from "./LaunchConfirm.svelte";
 	import MappingReview from "./MappingReview.svelte";
+	import SourceHandling from "./SourceHandling.svelte";
 	import type { NewMigrationController } from "./workflow.svelte";
 
 	let { controller }: { controller: NewMigrationController } = $props();
@@ -11,11 +12,6 @@
 		getSourceProviderAdapter(controller.sourceProvider || "github").capabilities,
 	);
 
-	function selectMode(mode: "dry-run" | "production"): void {
-		controller.form.state.migrationMode = mode;
-		controller.error = "";
-		if (mode === "dry-run") controller.productionConfirmationOpen = false;
-	}
 </script>
 
 <section class="overflow-hidden rounded-md border border-gray-700 border-t-2 border-t-green-500 bg-gray-950">
@@ -151,46 +147,8 @@
 			<p class="mt-1 text-xs text-gray-500">Execution behavior and current availability.</p>
 
 			<div class="mt-5 border-t border-gray-700 pt-5">
-				<p class="text-xs font-semibold uppercase text-gray-500">Run mode</p>
 				{#if capabilities.migrationMode}
-					<div class="mt-3 space-y-2">
-						<button
-							type="button"
-							aria-pressed={controller.form.state.migrationMode === "dry-run"}
-							onclick={() => selectMode("dry-run")}
-							class="flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors {controller
-								.form.state.migrationMode === 'dry-run'
-								? 'border-blue-500/50 bg-blue-500/10'
-								: 'border-gray-700 bg-gray-950 hover:bg-gray-900'}"
-						>
-							<Octicon name="beaker" size={16} class="mt-0.5 shrink-0 text-blue-400" />
-							<span class="min-w-0 flex-1">
-								<span class="block text-sm font-medium text-gray-100">Dry run</span>
-								<span class="mt-0.5 block text-xs text-gray-500">Test without locking sources</span>
-							</span>
-							{#if controller.form.state.migrationMode === "dry-run"}
-								<Octicon name="check" size={12} class="mt-0.5 shrink-0 text-blue-400" />
-							{/if}
-						</button>
-						<button
-							type="button"
-							aria-pressed={controller.form.state.migrationMode === "production"}
-							onclick={() => selectMode("production")}
-							class="flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors {controller
-								.form.state.migrationMode === 'production'
-								? 'border-amber-500/50 bg-amber-500/10'
-								: 'border-gray-700 bg-gray-950 hover:bg-gray-900'}"
-						>
-							<Octicon name="rocket" size={16} class="mt-0.5 shrink-0 text-amber-400" />
-							<span class="min-w-0 flex-1">
-								<span class="block text-sm font-medium text-gray-100">Production</span>
-								<span class="mt-0.5 block text-xs text-gray-500">Lock and archive sources</span>
-							</span>
-							{#if controller.form.state.migrationMode === "production"}
-								<Octicon name="check" size={12} class="mt-0.5 shrink-0 text-amber-400" />
-							{/if}
-						</button>
-					</div>
+					<SourceHandling {controller} compact />
 				{:else}
 					<div class="mt-3 flex items-start gap-3">
 						<span
@@ -201,7 +159,7 @@
 						<div>
 							<p class="text-sm font-medium text-gray-200">Server managed</p>
 							<p class="mt-0.5 text-xs leading-5 text-gray-500">
-								Execution behavior is set by the source adapter.
+								The source adapter controls source handling. Launching writes repository data to the destination.
 							</p>
 						</div>
 					</div>

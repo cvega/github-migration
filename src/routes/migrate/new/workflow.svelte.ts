@@ -57,17 +57,12 @@ export interface MigrationReviewModel {
   allRepositoryMappings: MigrationRepositoryMapping[];
   repositoryMappings: MigrationRepositoryMapping[];
   additionalRepositoryCount: number;
-  launchLabel:
-    | "Start dry run"
-    | "Start production migration"
-    | "Start batch dry run"
-    | "Start production batch";
+  launchLabel: "Start migration" | "Start batch migration";
   queueMessage: string;
 }
 
 interface MigrationReviewOptions {
   mode: "single" | "batch";
-  migrationMode: "dry-run" | "production";
   sourceRepository: string;
   targetOrganization: string;
   targetRepository: string;
@@ -238,15 +233,7 @@ export function buildMigrationReviewModel(options: MigrationReviewOptions): Migr
     }`,
   }));
   const repositoryMappings = allRepositoryMappings.slice(0, 3);
-  const production = options.migrationMode === "production";
-  const launchLabel =
-    options.mode === "batch"
-      ? production
-        ? "Start production batch"
-        : "Start batch dry run"
-      : production
-        ? "Start production migration"
-        : "Start dry run";
+  const launchLabel = options.mode === "batch" ? "Start batch migration" : "Start migration";
   const queueMessage =
     options.activeMigrations >= options.maxConcurrent
       ? `All ${options.maxConcurrent} migration slots are in use; this work will queue automatically.`
@@ -706,7 +693,6 @@ export class NewMigrationController {
   get reviewModel(): MigrationReviewModel {
     return buildMigrationReviewModel({
       mode: this.mode,
-      migrationMode: this.form.state.migrationMode,
       sourceRepository: this.effectiveSourceRepo,
       targetOrganization: this.targetOrg,
       targetRepository: this.derivedTargetRepo,

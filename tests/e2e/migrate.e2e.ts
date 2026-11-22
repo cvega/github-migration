@@ -97,6 +97,19 @@ test("renders terminal migration detail with canonical provider links", async ({
 
 	await page.goto("/migrate/seed-e2e-ghes-detail");
 
+	for (const width of [1146, 1440, 390]) {
+		await page.setViewportSize({ width, height: 900 });
+		const pipeline = await page.getByRole("heading", { name: "Migration pipeline" }).boundingBox();
+		const log = await page.getByRole("heading", { name: "Event log" }).boundingBox();
+		const logRegion = await page.getByRole("region", { name: "Event log" }).boundingBox();
+		const verification = await page.getByRole("region", { name: "Resource verification" }).boundingBox();
+		expect(verification?.x).toBe(logRegion?.x);
+		expect(verification?.width).toBe(logRegion?.width);
+		if (!pipeline || !log) throw new Error("Missing migration detail heading");
+		if (width >= 1024) expect(Math.abs(log.y - pipeline.y)).toBeLessThanOrEqual(2);
+		else expect(log.y).toBeGreaterThan(pipeline.y + pipeline.height);
+	}
+
 	await expect(
 		page.getByRole("heading", {
 			name: "platform/services/widget to e2e-target/widget",
@@ -143,6 +156,24 @@ test("reports count-fetch failures without changing a successful migration", asy
 	await expect(resources.getByRole("button", { name: "Fetch counts" })).toBeEnabled();
 	const migration = await page.request.get("/api/migrate/seed-e2e-ghes-detail");
 	expect(await migration.json()).toMatchObject({ state: "succeeded", targetCounts: null, elapsedSeconds: 90 });
+});
+
+test("GHES export events stay in the log rather than adding pipeline stages", async ({ page }) => {
+	await page.goto("/migrate/seed-e2e-bitbucket-failed");
+	const pipeline = page.getByRole("region", { name: "Migration pipeline" });
+	const steps = pipeline.getByRole("listitem");
+	await expect(steps).toHaveCount(6);
+	await expect(pipeline).not.toContainText("Starting Bitbucket Server export");
+	await expect(page.getByRole("region", { name: "Event log" })).toContainText("Starting Bitbucket Server export");
+	const time = page.getByRole("region", { name: "Event log" }).locator("time").first();
+	for (const width of [390, 1146]) {
+		await page.setViewportSize({ width, height: 900 });
+		expect(await time.evaluate((element) => {
+			const text = document.createRange();
+			text.selectNodeContents(element);
+			return text.getClientRects().length;
+		})).toBe(1);
+	}
 });
 
 test("shows recorded counts instead of unverified completion snapshots, including real zeros", async ({ page }) => {

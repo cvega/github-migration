@@ -92,6 +92,10 @@
 		{#if run.state === "completed" && planningRepos.length > 0 && provider.capabilities.planning}
 			<Plan {planner} canExport={provider.capabilities.export} />
 		{/if}
+	{:else if run.state !== "completed" || !scale || !summary || !composition}
+		<p class="text-sm text-gray-400">
+			{run.state === "failed" ? "Profile incomplete. Readiness and migration scale are unavailable." : "Collecting profile results…"}
+		</p>
 	{:else}
 		<section aria-labelledby="migration-readiness-heading" class="space-y-4">
 			<h2 id="migration-readiness-heading" class="flex items-center gap-2 text-lg font-semibold text-gray-100">
@@ -118,21 +122,19 @@
 					</div>
 				{/if}
 			</div>
-			{#if run.state === "completed"}
-				<RepositoryAnalysis
-					analysis={repositoryAnalysis}
-					available={data.repositoryAnalysisAvailable}
-					{form}
-				/>
-			{/if}
-			{#if run.state === "completed" && eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
+			<RepositoryAnalysis
+				analysis={repositoryAnalysis}
+				available={data.repositoryAnalysisAvailable}
+				{form}
+			/>
+			{#if eligiblePlanningRepos.length > 0 && provider.capabilities.planning}
 				<Plan {planner} canExport={provider.capabilities.export} embedded />
 			{/if}
 
 			{#if scale.repos === 0 && planningRepos.length === 0}
 				<div class="flex flex-col items-center justify-center rounded-md border border-dashed border-gray-600 py-12 text-gray-400">
-					<Octicon name={run.state === "running" ? "sync" : "inbox"} size={24} class="h-10 w-10 text-gray-500 {run.state === 'running' ? 'animate-spin' : ''}" />
-					<p class="mt-3">{run.state === "running" ? "Discovering and profiling repositories..." : "No repositories profiled"}</p>
+					<Octicon name="inbox" size={24} class="h-10 w-10 text-gray-500" />
+					<p class="mt-3">No repositories profiled</p>
 				</div>
 			{:else if repoPageInfo.total === 0}
 				<div class="rounded-md border border-dashed border-gray-600 py-12 text-center text-gray-400">No repositories match the current filters.</div>
@@ -141,7 +143,7 @@
 					runId={run.id}
 					{repos}
 					analysis={repositoryAnalysis}
-					planning={run.state === "completed" && provider.capabilities.planning}
+					planning={provider.capabilities.planning}
 					canExport={provider.capabilities.export}
 					planningEligibleNames={eligiblePlanningNames}
 					{planner}

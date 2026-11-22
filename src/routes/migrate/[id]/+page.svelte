@@ -20,7 +20,7 @@
 		Progress,
 	} from "$lib/migrate/types";
 	import { isActiveMigrationState, isRestartableMigrationState } from "$lib/migration-state";
-	import { getTargetPlatformPresentation } from "$lib/migration-target";
+	import { getTargetPlatformPresentation, isPausedPersistedRoute, supportsMigrationTarget } from "$lib/migration-target";
 	import { getSourceProviderAdapter, sourceBaseUrl, sourceProjectUrl } from "$lib/source-provider";
 
 	let { data, form } = $props();
@@ -31,6 +31,9 @@
 	);
 	const migration = $derived<Migration>(freshMigration ?? data.migration);
 	const provider = $derived(getSourceProviderAdapter(migration.sourceProvider));
+	const restartSupported = $derived(provider.capabilities.restart &&
+		supportsMigrationTarget(migration.sourceProvider, migration.targetPlatform) &&
+		!isPausedPersistedRoute(migration));
 	const sourcePlatform = $derived(provider.sourcePlatform(migration.sourceApiUrl));
 	const targetPlatform = $derived(getTargetPlatformPresentation(migration.targetPlatform));
 	let eventLog = $state<MigrationEvent[]>([]);
@@ -205,15 +208,17 @@
 				: migration.targetCounts,
 	);
 	const progressSourceCounts = $derived(sourceCounts ?? migration.sourceCounts);
+	const currentTarget = $derived(form?.currentTarget?.id === migration.id ? form.currentTarget : null);
+	const footerCounts = $derived(displayTargetCounts ?? currentTarget?.counts);
 	const completionResources = $derived<[string, number][]>(
-		displayTargetCounts
+		footerCounts
 			? [
-					["Commits", displayTargetCounts.commits],
-					["Branches", displayTargetCounts.branches],
-					["Tags", displayTargetCounts.tags],
-					["Issues", displayTargetCounts.issues],
-					["PRs", displayTargetCounts.pullRequests],
-					["Releases", displayTargetCounts.releases],
+					["Commits", footerCounts.commits],
+					["Branches", footerCounts.branches],
+					["Tags", footerCounts.tags],
+					["Issues", footerCounts.issues],
+					["PRs", footerCounts.pullRequests],
+					["Releases", footerCounts.releases],
 				]
 			: [],
 	);
@@ -325,7 +330,7 @@
 	}
 
 	const isRestartable = $derived(
-		provider.capabilities.restart && isRestartableMigrationState(migration.state),
+		restartSupported && isRestartableMigrationState(migration.state),
 	);
 	const sourceRepoUrl = $derived(
 		sourceProjectUrl(
@@ -420,7 +425,7 @@
 						onclick={() => (showCancelDialog = true)}
 						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-2 focus-visible:outline-red-400"><Octicon name="stop" size={16} />Cancel migration</button
 					>
-				{:else if migration.state === "reconciliation_required" && provider.capabilities.restart}
+				{:else if migration.state === "reconciliation_required" && restartSupported}
 					<button
 						type="button"
 						aria-label="Review remote status"
@@ -454,16 +459,15 @@
 		</aside>
 
 		<div class="min-w-0 space-y-6">
-			<MigrationProgress
-				view="activity"
-				currentPhase={displayedPhase}
-				failed={migration.state === "failed"}
-				active={isActive}
-				progress={latestProgress}
-				source={progressSourceCounts}
-				target={displayTargetCounts}
-				showComparison={false}
-			/>
+			{#if isActive && latestProgress}
+				<MigrationProgress
+					view="activity"
+					currentPhase={displayedPhase}
+					active
+					progress={latestProgress}
+					source={progressSourceCounts}
+				/>
+			{/if}
 
 			<section aria-labelledby="event-log-title">
 				<div class="mb-3 flex items-center justify-between gap-3">
@@ -474,12 +478,12 @@
 				</div>
 				<div class="max-h-128 min-h-64 overflow-y-auto rounded-md border border-gray-700 bg-gray-950">
 					{#each eventLog as event, index (event.id ?? index)}
-						<div class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-gray-800/70 px-4 py-2 font-mono text-xs last:border-0 hover:bg-gray-900/60 sm:grid-cols-[4.5rem_7rem_minmax(0,1fr)]">
-							<time datetime={event.createdAt} class="tabular-nums text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</time>
+						<div class="grid grid-cols-[minmax(11ch,max-content)_minmax(0,1fr)] gap-3 border-b border-gray-800/70 px-4 py-2 font-mono text-xs last:border-0 hover:bg-gray-900/60 sm:grid-cols-[minmax(11ch,max-content)_7rem_minmax(0,1fr)]">
+							<time datetime={event.createdAt} class="whitespace-nowrap tabular-nums text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</time>
 							<span class="hidden truncate text-gray-500 sm:block">{event.eventType}</span>
 							<span class="min-w-0 wrap-break-word text-gray-300">
 								{#if event.eventType === "step"}
-									{event.payload.message || ""}
+									{event.payload.message === "Auditing failed GHES import records" ? "Checking for GHES import errors" : event.payload.message || ""}
 								{:else if event.eventType === "phase_change"}
 									{event.payload.from} to {event.payload.to}
 								{:else if event.eventType === "snapshot"}
@@ -502,16 +506,13 @@
 					{/if}
 				</div>
 			</section>
-		</div>
-	</div>
-
 	{#if migration.state === "succeeded"}
 		<section aria-labelledby="resource-verification-title">
 			<h2 id="resource-verification-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
 				<Octicon name={displayTargetCounts ? "check-circle" : "info"} size={16} class={displayTargetCounts ? "text-green-400" : "text-gray-400"} />Resource verification
 			</h2>
-			{#if displayTargetCounts}
-				<p class="mt-1 text-sm text-gray-400">Recorded target repository totals. Commits count the default branch's history.</p>
+			{#if footerCounts}
+				<p class="mt-1 text-sm text-gray-400">{displayTargetCounts ? "Recorded target repository totals." : `Current repository at this path, observed ${currentTarget?.observedAt}. Totals at migration completion remain unknown.`} Commits count the default branch's history.</p>
 				<dl class="mt-4 grid grid-cols-2 border-y border-gray-700 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-gray-700">
 					{#each completionResources as resource (resource[0])}
 						<div class="px-3 py-3 first:pl-0">
@@ -531,7 +532,7 @@
 					<button type="submit" disabled={countsSubmitting} class="h-9 rounded-md border border-gray-600 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50">
 						{countsSubmitting ? "Fetching counts..." : "Fetch counts"}
 					</button>
-					<p class="text-sm text-gray-400">Reads the target repository without rerunning the migration.</p>
+					<p class="text-sm text-gray-400">Shows current counts only. Does not change the migration record.</p>
 				</form>
 				{#if form?.countsError}
 					<p role="alert" class="mt-3 text-sm text-red-400">{form.countsError}</p>
@@ -539,9 +540,16 @@
 			{/if}
 		</section>
 	{/if}
+		</div>
+	</div>
 
 	{#if migration.state === "failed" && failureDetail}
 		<ErrorDetail detail={failureDetail} {migration} events={eventLog} />
+	{:else if migration.state === "failed" && migration.failureReason}
+		<details>
+			<summary>Recorded failure</summary>
+			<pre class="whitespace-pre-wrap break-words">{migration.failureReason}</pre>
+		</details>
 	{/if}
 
 	<MigrationProgress

@@ -198,7 +198,8 @@ export function startBitbucketServerProfile<Client extends InventoryProfileClien
 interface RepoProfileView extends StoredRepoProfile {
   insights: Insight[];
 }
-export interface ProfileDetail extends ProfileDetailRollup {
+type DetailMetrics = { [K in keyof ProfileDetailRollup]: ProfileDetailRollup[K] | null };
+export interface ProfileDetail extends DetailMetrics {
   run: ProfileRun;
   repos: RepoProfileView[];
   planningRepos: ProfilePlanRepo[];
@@ -223,7 +224,10 @@ export function getProfileRepoPage(
   id: string,
   options: { page?: number; search?: string; readiness?: RepoReadinessFilter } = {},
 ) {
-  if (!getProfileRun(id)) return null;
+  const run = getProfileRun(id);
+  if (!run) return null;
+  if (run.sourceProvider === "github" && run.state !== "completed")
+    return { repos: [], repoPage: { page: 1, totalPages: 1, total: 0, limit: 25 } };
   const page = getRunRepoProfilesPage(id, options);
   return {
     repos: page.repos.map((repo) => ({ ...repo, insights: deriveInsights(repo.signals) })),
@@ -248,15 +252,18 @@ export function getProfileDetail(
   if (!run) return null;
   const page = getProfileRepoPage(id, options);
   if (!page) return null;
-  let rollup = getProfileRunRollup(id);
-  if (!rollup) {
-    rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
-    if (run.state === "completed") backfillProfileRunRollup(id, rollup);
+  let rollup: ProfileDetailRollup | null = null;
+  if (run.sourceProvider !== "github" || run.state === "completed") {
+    rollup = getProfileRunRollup(id);
+    if (!rollup) {
+      rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
+      if (run.state === "completed") backfillProfileRunRollup(id, rollup);
+    }
   }
   return {
     run,
     ...page,
-    ...rollup,
+    ...(rollup ?? { scale: null, composition: null, summary: null, estimate: null }),
     inventorySummary:
       getSourceProviderAdapter(run.sourceProvider).profileKind === "source-inventory"
         ? getProfileInventorySummary(id)

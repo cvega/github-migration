@@ -1,9 +1,9 @@
 import { error, fail } from "@sveltejs/kit";
 import { matchMannequins } from "$lib/server/application/mannequin-matches";
 import {
-  createAttributionInvitation,
   getTargetMannequinClient,
   getTargetUserReadiness,
+  inviteMappedMannequin,
   isMannequinTargetAuthAvailable,
   listAllOrganizationMannequins,
   mannequinTargetCredentialError,
@@ -13,12 +13,9 @@ import { getGhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
 import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/server/core/targets";
 import {
   approveIdentityMapping,
-  beginIdentityInvitation,
   discoverIdentityMapping,
   listFailedGhesIdentityJobs,
   listIdentityMappings,
-  markIdentityInvitationSent,
-  rejectIdentityInvitation,
   removeIdentityMapping,
   saveIdentityMappings,
 } from "$lib/server/migrate/database/identity-mappings";
@@ -273,44 +270,18 @@ export const actions: Actions = {
           outcome(readiness);
           continue;
         }
-        const invitationMapping = {
-          targetApiUrl: target.apiUrl,
-          targetOrg: organization,
-          sourceIdentity: mannequin.id,
-          targetLogin,
-        };
-        if (!beginIdentityInvitation(invitationMapping)) {
-          outcome("invitation already sent or uncertain");
-          continue;
-        }
-        try {
-          await createAttributionInvitation(client, {
-            organization,
-            mannequinId: mannequin.id,
-            targetLogin,
-          });
-          markIdentityInvitationSent(invitationMapping);
-          recordOperatorAuditEvent(locals, {
-            action: "mannequin.invitation_created",
-            resourceType: "mannequin",
-            resourceId: mannequin.id,
-            metadata: { targetProfileId: target.id, organization, targetLogin },
-          });
-          outcome("invitation sent");
-        } catch (error) {
-          const status = statusOf(error);
-          if (status === 401 || status === 403 || status === 404)
-            rejectIdentityInvitation(invitationMapping);
-          else
-            console.error(
-              `[mannequins] invitation outcome requires verification: ${error instanceof Error ? error.message : "unknown error"}`,
-            );
-          outcome(
-            status === 401 || status === 403 || status === 404
-              ? "invitation rejected"
-              : "invitation outcome uncertain",
-          );
-        }
+        outcome(
+          (
+            await inviteMappedMannequin(
+              client,
+              target,
+              organization,
+              mannequin.id,
+              targetLogin,
+              locals,
+            )
+          ).outcome,
+        );
       }
       return { success: "Finished processing mannequin mappings.", outcomes };
     } catch (error) {
@@ -389,32 +360,22 @@ export const actions: Actions = {
     const credentialError = mannequinTargetCredentialError(target);
     if (credentialError) return fail(503, { mannequinId, error: credentialError });
 
-    const invitationMapping = {
-      targetApiUrl: target.apiUrl,
-      targetOrg: organization,
-      sourceIdentity: mannequinId,
+    const invitation = await inviteMappedMannequin(
+      getTargetMannequinClient(target),
+      target,
+      organization,
+      mannequinId,
       targetLogin,
-    };
-    if (!beginIdentityInvitation(invitationMapping)) {
+      locals,
+    );
+    if (invitation.outcome === "invitation already sent or uncertain") {
       return fail(409, {
         mannequinId,
         error: "An invitation is already sent or its outcome is uncertain; verify it in GitHub.",
       });
     }
-    let invitation: Awaited<ReturnType<typeof createAttributionInvitation>>;
-    try {
-      invitation = await createAttributionInvitation(getTargetMannequinClient(target), {
-        organization,
-        mannequinId,
-        targetLogin,
-      });
-    } catch (error) {
-      const status = statusOf(error);
-      if (status === 401 || status === 403 || status === 404) {
-        rejectIdentityInvitation(invitationMapping);
-      } else {
-        console.error("[mannequins] invitation outcome requires verification", error);
-      }
+    if (invitation.outcome !== "invitation sent") {
+      const status = invitation.status;
       const message =
         status === 404
           ? `@${targetLogin} is not a visible member of ${organization}. The mapping was saved.`
@@ -423,13 +384,6 @@ export const actions: Actions = {
             : "The invitation outcome is uncertain. Verify it in GitHub before retrying.";
       return fail(status === 404 ? 400 : 502, { mannequinId, error: message });
     }
-    markIdentityInvitationSent(invitationMapping);
-    recordOperatorAuditEvent(locals, {
-      action: "mannequin.invitation_created",
-      resourceType: "mannequin",
-      resourceId: mannequinId,
-      metadata: { targetProfileId: target.id, organization, targetLogin: invitation.targetLogin },
-    });
     return { mannequinId, success: `Invitation sent to @${invitation.targetLogin}.` };
   },
   approve: async ({ locals, request }) => {

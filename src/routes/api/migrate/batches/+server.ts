@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
     body = { ...body, sourceProvider: run.sourceProvider, sourceApiUrl: run.sourceApiUrl };
   }
-  const authError = validateAuthAvailable(body);
+  const authError = validateAuthAvailable(body, { locals, resourceType: "batch" });
   if (authError) return json({ error: authError }, { status: 400 });
   try {
     const batch = startBatch(body);

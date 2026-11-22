@@ -39,8 +39,13 @@ afterEach(closeStore);
 
 describe("batch detail loader", () => {
   test("loads a bounded page and restart capability through the manager", async () => {
-    insertMigration(migration("one"));
-    insertMigration(migration("two"));
+    insertMigration({ ...migration("one"), state: "failed" });
+    insertMigration({
+      ...migration("two"),
+      state: "cancelled",
+      sourceProvider: "gitlab",
+      targetPlatform: "ghes",
+    });
     const result = await load({
       params: { id: "batch-one" },
       url: new URL("http://localhost/migrate/batches/batch-one?page=0&limit=500"),
@@ -50,8 +55,8 @@ describe("batch detail loader", () => {
     expect(result.batch.totalCount).toBe(2);
     expect(result.migrations.page).toBe(1);
     expect(result.migrations.limit).toBe(100);
-    expect(result.canRestart).toBe(true);
-    expect(result.sourceProvider).toBe("github");
+    expect(result.restartableCount).toBe(1);
+    expect(result.sourceProvider).toBeNull();
   });
 
   test("returns 404 for a missing batch", () => {

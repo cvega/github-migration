@@ -132,6 +132,9 @@ require a pinned host key.
 
 ## GHES Targets
 
+Only Bitbucket Server migrations can use the GHES target. Configuring a
+GitLab exporter does not enable the paused GitLab-to-GHES route.
+
 | Variable | Purpose |
 |---|---|
 | `GHES_TARGET_ID` | Stable identifier for the configured GHES target profile |
@@ -184,7 +187,11 @@ The tools profile builds the image; it is not a long-running exporter service.
 The dashboard creates a container for each migration and shares the archive
 volume with it. Set `BBS_EXPORTER_IMAGE` to use a different image, and ensure
 the exporter network can reach Bitbucket. A real export and GHES import must be
-validated separately.
+validated separately. For production, publish the approved build to your
+registry and set `BBS_EXPORTER_IMAGE` to its immutable `registry/image@sha256:...`
+reference. On a clean worker, pull that exact reference and inspect its
+`RepoDigests` before enabling the route. The local `-validation` tag does not
+establish image provenance or availability on another worker.
 
 The Compose dashboard also joins the external `bitbucket-local_default`
 network for the local Bitbucket instance. Start that Bitbucket Compose project

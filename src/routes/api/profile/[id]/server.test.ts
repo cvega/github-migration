@@ -124,6 +124,17 @@ describe("GET /api/profile/[id]", () => {
       findings: [],
     });
 
+    const incomplete = await GET({
+      params: { id: "github-page" },
+      url: new URL("https://example.test/api/profile/github-page"),
+    } as GetArgs);
+    expect(await incomplete.json()).toMatchObject({
+      repos: [],
+      scale: null,
+      summary: null,
+      estimate: null,
+    });
+    completeProfileRun("github-page");
     const response = await GET({
       params: { id: "github-page" },
       url: new URL(

@@ -19,6 +19,11 @@ import { EXECUTABLE_PROVIDER_SQL } from "./migrations";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function compactFailureSummary(reason: string): string {
+  const line = reason.split(/\r?\n/, 1)[0] ?? "";
+  return line.length === reason.length && line.length <= 140 ? line : `${line.slice(0, 139)}…`;
+}
+
 function buildStatisticsWhere(
   filters: MigrationStatsFilters,
   now: Date,
@@ -118,12 +123,14 @@ export function getMigrationStats(
   const { sql: statisticsWhere, parameters } = buildStatisticsWhere(filters, now);
   const migrationRows = database
     .prepare(
-      `SELECT state, source_provider, source_api_url, target_platform,
+      `SELECT id, started_at, state, source_provider, source_api_url, target_platform,
 				elapsed_seconds, source_size_kb, source_org, source_repo,
 				warnings_count, batch_id, completed_at, failure_reason
 			 FROM migrations WHERE ${statisticsWhere}`,
     )
     .all(parameters) as Array<{
+    id: string;
+    started_at: string;
     state: MigrationState;
     source_provider: MigrationDirectionStats["sourceProvider"];
     source_api_url: string;
@@ -166,7 +173,13 @@ export function getMigrationStats(
   const throughputByDate = new Map<string, { succeeded: number; failed: number }>();
   const failuresByReason = new Map<
     string,
-    { count: number; totalSeconds: number; timedCount: number }
+    {
+      count: number;
+      totalSeconds: number;
+      timedCount: number;
+      latestMigrationId: string;
+      latestRunAt: string;
+    }
   >();
   const successfulDurations: number[] = [];
   let total = 0;
@@ -208,17 +221,33 @@ export function getMigrationStats(
     if (sizeKb === null) sizeUnavailableCount += 1;
     if (row.state === "failed" && !row.failure_reason?.trim()) failuresWithoutReason += 1;
     if (row.state === "failed" && row.failure_reason?.trim()) {
-      const failure = failuresByReason.get(row.failure_reason) ?? {
+      const reason =
+        row.source_provider === "bitbucket-server" &&
+        row.target_platform === "ghes" &&
+        /permission denied[^\n]*\/workspace\//i.test(row.failure_reason)
+          ? "Bitbucket exporter could not write the migration archive"
+          : row.failure_reason.trim();
+      const at = row.completed_at ?? row.started_at;
+      const failure = failuresByReason.get(reason) ?? {
+        latestRunAt: at,
+        latestMigrationId: row.id,
         count: 0,
         totalSeconds: 0,
         timedCount: 0,
       };
       failure.count += 1;
+      if (
+        at > failure.latestRunAt ||
+        (at === failure.latestRunAt && row.id > failure.latestMigrationId)
+      ) {
+        failure.latestRunAt = at;
+        failure.latestMigrationId = row.id;
+      }
       if (row.elapsed_seconds !== null) {
         failure.totalSeconds += row.elapsed_seconds;
         failure.timedCount += 1;
       }
-      failuresByReason.set(row.failure_reason, failure);
+      failuresByReason.set(reason, failure);
     }
     if (row.completed_at !== null && (row.state === "succeeded" || row.state === "failed")) {
       const date = row.completed_at.slice(0, 10);
@@ -318,7 +347,9 @@ export function getMigrationStats(
     .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason))
     .slice(0, 100)
     .map((failure) => ({
-      reason: failure.reason,
+      reason: compactFailureSummary(failure.reason),
+      latestRunAt: failure.latestRunAt,
+      latestMigrationId: failure.latestMigrationId,
       count: failure.count,
       share: Math.round((failure.count / byState.failed) * 1000) / 10,
       avgSeconds: failure.timedCount > 0 ? failure.totalSeconds / failure.timedCount : null,

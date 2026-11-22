@@ -14,6 +14,7 @@ import { updateCheckpoint } from "../database/migrations";
 import { type abortRepositoryMigration, getOrgDatabaseId } from "../github/migration-source";
 import type { MigrationEventEmitter } from "../github/monitor";
 import { uploadArchive } from "../github/upload";
+import { emitNativeStep } from "../runs/events";
 import { executeArchiveToGhec, type monitorGhecMigration } from "./archive-to-ghec";
 
 const PLACEHOLDER_SOURCE_TOKEN = "not-used";
@@ -73,20 +74,6 @@ export function createRunningMigration(input: {
     authMode: null,
     requestOptions: null,
   };
-}
-
-export function emitNativeStep(
-  emit: MigrationEventEmitter,
-  migrationId: string,
-  message: string,
-): void {
-  emit({
-    migrationId,
-    eventType: "step",
-    phase: null,
-    payload: { message },
-    createdAt: new Date().toISOString(),
-  });
 }
 
 function nativeTargetAuthMode(

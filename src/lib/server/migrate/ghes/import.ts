@@ -10,7 +10,6 @@ import {
   updateGhesImportJobCheckpoint,
 } from "../database/import-jobs";
 import { getMigration, updateCheckpoint } from "../database/migrations";
-import { emitNativeStep } from "../executors/native-to-ghec";
 import {
   type ExporterSourceProvider,
   type ExporterWorker,
@@ -18,6 +17,7 @@ import {
   submitExporterArchive,
 } from "../exporters/worker";
 import type { MigrationEventEmitter } from "../github/monitor";
+import { emitNativeStep } from "../runs/events";
 import { fetchMigrationTargetCounts } from "../target-counts";
 import { buildGhesMigrationMap, countGhesAuditFailures, getGhesUserConflicts } from "./mapping";
 import type { GhesSshClient } from "./ssh";
@@ -200,12 +200,9 @@ async function execute(
     if (!guid) throw new ReconciliationRequiredError("GHES Migration GUID is missing");
     if (job.phase === "preparing") {
       emitNativeStep(options.emit, migration.id, "Generating and applying GHES mappings");
-      const conflicts = await ssh.conflicts(guid);
+      let conflicts = await ssh.conflicts(guid);
       const sourceKind = `ghe-migrator:${migration.sourceProvider}`;
-      for (const identity of getGhesUserConflicts(conflicts.stdout)) {
-        discoverIdentityMapping(migration.targetApiUrl, migration.targetOrg, sourceKind, identity);
-      }
-      const records = await ssh.mappingRecords(guid);
+      let records = (await ssh.mappingRecords(guid)).stdout;
       options.signal?.throwIfAborted();
       const userMappings = new Map(
         listIdentityMappings(migration.targetApiUrl, migration.targetOrg).flatMap((mapping) =>
@@ -214,34 +211,42 @@ async function execute(
             : [],
         ),
       );
-      const sourceUsers = new Set([
-        ...getGhesUserConflicts(conflicts.stdout),
-        ...getGhesUserConflicts(records.stdout),
-      ]);
-      const targetUsers = new Set(
-        [...userMappings]
-          .filter(([identity]) => sourceUsers.has(identity))
-          .map(([, login]) => login),
-      );
-      if (targetUsers.size > 0) {
-        const client = source.verifyTargetUser
-          ? null
-          : createSingleClient({ token: config.siteAdminToken }, config.profile.apiUrl);
-        for (const login of targetUsers) {
-          if (source.verifyTargetUser) await source.verifyTargetUser(config, login);
-          else if (client) await client.users.getByUsername({ username: login });
-        }
-      }
-      let mapping = buildGhesMigrationMap(
-        conflicts.stdout,
-        records.stdout,
-        config.profile.webUrl,
-        migration.targetOrg,
-        migration.targetRepo,
-        userMappings,
-      );
+      const verifiedLogins = new Set<string>();
       const appliedMappings = new Set<string>();
-      while (mapping) {
+      let client: ReturnType<typeof createSingleClient> | undefined;
+      for (;;) {
+        const identities = new Set([
+          ...getGhesUserConflicts(conflicts.stdout),
+          ...getGhesUserConflicts(records),
+        ]);
+        for (const identity of identities) {
+          discoverIdentityMapping(
+            migration.targetApiUrl,
+            migration.targetOrg,
+            sourceKind,
+            identity,
+          );
+        }
+        for (const identity of identities) {
+          const login = userMappings.get(identity);
+          if (!login || verifiedLogins.has(login)) continue;
+          if (source.verifyTargetUser) await source.verifyTargetUser(config, login);
+          else {
+            client ??= createSingleClient({ token: config.siteAdminToken }, config.profile.apiUrl);
+            await client.users.getByUsername({ username: login });
+          }
+          verifiedLogins.add(login);
+        }
+        options.signal?.throwIfAborted();
+        const mapping = buildGhesMigrationMap(
+          conflicts.stdout,
+          records,
+          config.profile.webUrl,
+          migration.targetOrg,
+          migration.targetRepo,
+          userMappings,
+        );
+        if (!mapping) break;
         if (appliedMappings.size >= MAX_MAPPING_PASSES || appliedMappings.has(mapping)) {
           throw new Error(
             "GHES conflicts remain after applying target mappings; resolve them before importing",
@@ -258,16 +263,9 @@ async function execute(
         await ssh.map(guid, mapping);
         appliedMappings.add(mapping);
         options.signal?.throwIfAborted();
-        const remaining = await ssh.conflicts(guid);
+        conflicts = await ssh.conflicts(guid);
         options.signal?.throwIfAborted();
-        mapping = buildGhesMigrationMap(
-          remaining.stdout,
-          "",
-          config.profile.webUrl,
-          migration.targetOrg,
-          migration.targetRepo,
-          userMappings,
-        );
+        records = "";
       }
       updateGhesImportJobCheckpoint(job.id, "importing");
       emitNativeStep(options.emit, migration.id, "Importing archive into GHES");
@@ -278,7 +276,7 @@ async function execute(
     }
 
     if (job.phase === "auditing") {
-      emitNativeStep(options.emit, migration.id, "Auditing failed GHES import records");
+      emitNativeStep(options.emit, migration.id, "Checking for GHES import errors");
       const failures = countGhesAuditFailures((await ssh.auditFailures(guid)).stdout);
       if (failures > 0) throw new Error(`GHES import audit found ${failures} failed record(s)`);
       updateGhesImportJobCheckpoint(job.id, "unlocking");

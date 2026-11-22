@@ -79,10 +79,10 @@
 			{ label: "Forks", value: signals.forkCount.toLocaleString(), icon: "repo-forked" },
 			{ label: "Protection rules", value: signals.branchProtectionRuleCount.toLocaleString(), icon: "shield" },
 			{ label: "Rulesets", value: signals.rulesetCount.toLocaleString(), icon: "law" },
-			{ label: "Webhooks", value: signals.webhooksCount.toLocaleString(), icon: "webhook" },
-			{ label: "Collaborators", value: signals.collaboratorsCount.toLocaleString(), icon: "people" },
+			{ label: "Webhooks", value: signals.webhooksCount?.toLocaleString() ?? "Unavailable", icon: "webhook" },
+			{ label: "Collaborators", value: signals.collaboratorsCount?.toLocaleString() ?? "Unavailable", icon: "people" },
 			{ label: "Pages", value: signals.hasPages ? "Yes" : "-", icon: "browser" },
-			{ label: "Code scanning", value: signals.hasCodeScanningAlerts ? "Yes" : "-", icon: "codescan" },
+			{ label: "Code scanning", value: signals.hasCodeScanningAlerts === null ? "Unavailable" : signals.hasCodeScanningAlerts ? "Yes" : "No", icon: "codescan" },
 			{ label: "Size", value: formatRepoSize(signals.diskUsageKb), icon: "database" },
 		];
 		if (analysisJob?.result) {

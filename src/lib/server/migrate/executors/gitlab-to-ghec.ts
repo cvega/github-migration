@@ -11,11 +11,11 @@ import {
 import { getSourceExportId, updateGitLabExportCheckpoint } from "../database/migrations";
 import { abortRepositoryMigration, createGitLabMigrationSource } from "../github/migration-source";
 import type { MigrationEventEmitter } from "../github/monitor";
+import { emitNativeStep } from "../runs/events";
 import { monitorGhecMigration } from "./archive-to-ghec";
 import {
   classifyNativeFailure,
   createRunningMigration,
-  emitNativeStep,
   nativeToGhecDependencies,
   prepareNativeTarget,
   resumeNativeToGhecMigration,

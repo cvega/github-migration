@@ -3,7 +3,22 @@ import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
 import { insertEvent } from "../database/events";
 import { getMigration, updateMigrationState } from "../database/migrations";
+import type { MigrationEventEmitter } from "../github/monitor";
 import { activeMigrationRuns } from "./active";
+
+export function emitNativeStep(
+  emit: MigrationEventEmitter,
+  migrationId: string,
+  message: string,
+): void {
+  emit({
+    migrationId,
+    eventType: "step",
+    phase: null,
+    payload: { message },
+    createdAt: new Date().toISOString(),
+  });
+}
 
 const migrationSubscribers = new Map<string, Set<ReadableStreamDefaultController<string>>>();
 const globalSubscribers = new Set<ReadableStreamDefaultController<string>>();

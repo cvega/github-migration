@@ -1,7 +1,13 @@
 import { env } from "node:process";
 import type { MigrationTargetProfile } from "$lib/migration-target";
 import { isTargetAuthAvailable } from "$lib/server/core/auth";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import type { GitHubClient } from "$lib/server/core/github";
+import {
+  beginIdentityInvitation,
+  markIdentityInvitationSent,
+  rejectIdentityInvitation,
+} from "$lib/server/migrate/database/identity-mappings";
 
 export {
   getMigrationTargetClient as getTargetMannequinClient,
@@ -249,4 +255,49 @@ export async function createAttributionInvitation(
     sourceLogin: result.createAttributionInvitation.source.login,
     targetLogin: result.createAttributionInvitation.target.login,
   };
+}
+
+export async function inviteMappedMannequin(
+  client: GitHubClient,
+  target: MigrationTargetProfile,
+  organization: string,
+  mannequinId: string,
+  targetLogin: string,
+  locals: App.Locals,
+) {
+  const mapping = {
+    targetApiUrl: target.apiUrl,
+    targetOrg: organization,
+    sourceIdentity: mannequinId,
+    targetLogin,
+  };
+  if (!beginIdentityInvitation(mapping))
+    return { outcome: "invitation already sent or uncertain" } as const;
+  let invitation: Awaited<ReturnType<typeof createAttributionInvitation>>;
+  try {
+    invitation = await createAttributionInvitation(client, {
+      organization,
+      mannequinId,
+      targetLogin,
+    });
+  } catch (error) {
+    const status = error instanceof Error && "status" in error ? Number(error.status) : null;
+    if (status === 401 || status === 403 || status === 404) {
+      rejectIdentityInvitation(mapping);
+      return { outcome: "invitation rejected", status } as const;
+    }
+    console.error(
+      "[mannequins] invitation outcome requires verification",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return { outcome: "invitation outcome uncertain" } as const;
+  }
+  markIdentityInvitationSent(mapping);
+  recordOperatorAuditEvent(locals, {
+    action: "mannequin.invitation_created",
+    resourceType: "mannequin",
+    resourceId: mannequinId,
+    metadata: { targetProfileId: target.id, organization, targetLogin: invitation.targetLogin },
+  });
+  return { outcome: "invitation sent", targetLogin: invitation.targetLogin } as const;
 }

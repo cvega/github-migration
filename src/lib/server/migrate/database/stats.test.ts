@@ -68,6 +68,37 @@ function insertOutcome(id: string, state: "succeeded" | "failed", elapsedSeconds
 }
 
 describe("migration statistics", () => {
+  test("groups archive write failures across runs and links to the latest matching trace", () => {
+    for (const [id, day] of [
+      ["new", "20"],
+      ["old", "19"],
+    ] as const) {
+      insertMigration(
+        migration(id, "pending", {
+          sourceProvider: "bitbucket-server",
+          sourceApiUrl: "https://bitbucket.example.com/rest/api/1.0",
+          targetPlatform: "ghes",
+        }),
+      );
+      updateMigrationState(id, "failed", {
+        failureReason: `Bundler will use /tmp/${id}\nPermission denied @ rb_sysopen - /workspace/${id}.tar.gz (Errno::EACCES)\nfrom archiver.rb`,
+        completedAt: `2026-11-${day}T00:00:00Z`,
+        elapsedSeconds: 6,
+      });
+    }
+    expect(getMigrationStats().failuresByReason).toEqual([
+      {
+        reason: "Bitbucket exporter could not write the migration archive",
+        latestMigrationId: "new",
+        latestRunAt: "2026-11-20T00:00:00Z",
+        count: 2,
+        share: 100,
+        avgSeconds: 6,
+        totalSeconds: 12,
+        timedCount: 2,
+      },
+    ]);
+  });
   test("counts every durable state and only slot-consuming active work", () => {
     for (const state of [
       "queued",

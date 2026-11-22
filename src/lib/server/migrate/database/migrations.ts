@@ -22,9 +22,9 @@ import { getDb } from "$lib/server/core/db";
 import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
-import { MIGRATION_COLS } from "./columns";
+import { PAUSED_GITLAB_ROUTE_SQL, MIGRATION_COLS as STORED_COLS } from "./columns";
 
-export { MIGRATION_COLS } from "./columns";
+export const MIGRATION_COLS = `${STORED_COLS}, ${PAUSED_GITLAB_ROUTE_SQL} AS route_paused`;
 
 const countsSchema = z
   .object({
@@ -267,6 +267,7 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
     targetProfileId,
     targetPlatform,
     targetApiUrl,
+    ...(row.route_paused === 1 && { routeExecutionPaused: true as const }),
     sourceOrg,
     sourceRepo,
     targetOrg,
@@ -425,16 +426,6 @@ export function claimMigrationCancellation(id: string): boolean {
 			 WHERE id = ? AND state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})`,
     )
     .run(id);
-  return result.changes === 1;
-}
-
-export function backfillMigrationTargetCounts(id: string, counts: Counts): boolean {
-  const result = getDb()
-    .prepare(
-      `UPDATE migrations SET target_counts = ?
-       WHERE id = ? AND state = 'succeeded' AND target_counts IS NULL`,
-    )
-    .run(JSON.stringify(counts), id);
   return result.changes === 1;
 }
 

@@ -1,7 +1,5 @@
 import { error, fail } from "@sveltejs/kit";
 import type { Counts } from "$lib/migrate/types";
-import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
-import { backfillMigrationTargetCounts } from "$lib/server/migrate/database/migrations";
 import { events, get } from "$lib/server/migrate/manager";
 import { fetchMigrationTargetCounts } from "$lib/server/migrate/target-counts";
 import type { Actions, PageServerLoad } from "./$types";
@@ -20,7 +18,7 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-  refreshCounts: async ({ params, locals }) => {
+  refreshCounts: async ({ params }) => {
     const migration = get(params.id);
     if (!migration) return fail(404, { countsError: "Migration not found." });
     if (migration.state !== "succeeded") {
@@ -36,15 +34,9 @@ export const actions: Actions = {
       console.warn(`Could not fetch target resource counts for migration ${params.id}: ${reason}`);
       return fail(502, { countsError: `Could not fetch target resource counts: ${reason}` });
     }
-    if (!backfillMigrationTargetCounts(migration.id, counts)) {
+    if (get(migration.id)?.state !== "succeeded") {
       return fail(409, { countsError: "The migration changed. Reload to see its latest counts." });
     }
-    recordOperatorAuditEvent(locals, {
-      action: "migration.counts_collected",
-      resourceType: "migration",
-      resourceId: migration.id,
-      metadata: { targetApiUrl: migration.targetApiUrl, counts },
-    });
-    return { countsCollected: true };
+    return { currentTarget: { id: migration.id, observedAt: new Date().toISOString(), counts } };
   },
 };

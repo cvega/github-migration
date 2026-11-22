@@ -47,6 +47,13 @@ function sourceProviderOfModule(path: string): string | null {
 export function checkSourceProviderBoundary(from: string, to: string | null): string | null {
   const source = sourceProviderOfModule(from);
   const target = to === null ? null : sourceProviderOfModule(to);
+  if (
+    target &&
+    !source &&
+    (from.startsWith("migrate/ghes/") || from.startsWith("migrate/github/"))
+  ) {
+    return `shared target code must not import '${target}' implementation`;
+  }
   return source && target && source !== target
     ? `source provider '${source}' must not import '${target}' implementation`
     : null;

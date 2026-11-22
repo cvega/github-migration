@@ -14,13 +14,14 @@ import {
   FINISHED_MIGRATION_STATES,
   migrationStatesSql,
 } from "$lib/migration-state";
+import { GITLAB_GHES_PAUSE_REASON } from "$lib/migration-target";
 import {
   addColumnIfMissing,
   type DomainStore,
   type DurableTableContract,
 } from "$lib/server/core/db";
 import { SOURCE_PROVIDERS } from "$lib/source-provider";
-import { MIGRATION_COLS } from "./columns";
+import { MIGRATION_COLS, PAUSED_GITLAB_ROUTE_SQL } from "./columns";
 
 export const MIGRATE_DURABLE_TABLES = [
   {
@@ -308,6 +309,17 @@ function migrateGhesSourceLockSchema(db: Database): void {
  */
 export function recoverInterruptedMigrations(db: Database, nowMs: number = Date.now()): void {
   const now = new Date(nowMs).toISOString();
+  // Classify paused work before normal recovery or retention can consume its checkpoints.
+  db.prepare(
+    `UPDATE migrations
+     SET state = CASE WHEN state = 'queued' AND github_migration_id IS NULL
+       AND source_export_id IS NULL AND pipeline_step IS NULL
+       AND NOT EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id)
+       THEN 'failed' ELSE 'reconciliation_required' END,
+       failure_reason = ?, completed_at = ?
+     WHERE state IN (${migrationStatesSql(ACTIVE_MIGRATION_STATES)})
+       AND id NOT LIKE 'seed-%' AND ${PAUSED_GITLAB_ROUTE_SQL}`,
+  ).run(GITLAB_GHES_PAUSE_REASON, now);
   const providerBindings: Record<string, string> = { $now: now };
   const providerPlaceholders = SOURCE_PROVIDERS.map((provider, index) => {
     const name = `$provider_${index}`;

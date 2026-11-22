@@ -73,11 +73,9 @@ const finisher = createMigrationRunFinisher(drainQueue);
 
 function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
   const migration = getMigration(id);
-  const executor = getRegisteredMigrationExecutor({
-    sourceProvider: request.sourceProvider,
-    targetPlatform: migration?.targetPlatform,
-  });
-  const registration = activeMigrationRuns.claim(id, migration?.state === "cancelling");
+  if (!migration) throw new Error("Migration not found");
+  const executor = getExecutorForMigration(migration);
+  const registration = activeMigrationRuns.claim(id, migration.state === "cancelling");
   if (!registration) return false;
   const promise = Promise.resolve()
     .then(() =>
@@ -112,7 +110,9 @@ function launchRecoveredPipeline(migration: Migration): boolean {
   return true;
 }
 
-export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+function requireStartRoute(
+  request: Pick<CreateMigrationRequest, "sourceProvider" | "targetProfileId">,
+) {
   const sourceProvider = request.sourceProvider ?? "github";
   const target = requireMigrationTargetProfile(request.targetProfileId);
   if (!supportsMigrationTarget(sourceProvider, target.platform)) {
@@ -121,6 +121,12 @@ export function start(request: CreateMigrationRequest, batchId?: string): Migrat
     );
   }
   getRegisteredMigrationExecutor({ sourceProvider, targetPlatform: target.platform });
+  return target;
+}
+
+export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+  const sourceProvider = request.sourceProvider ?? "github";
+  const target = requireStartRoute(request);
   requireCredentialScope(request);
   const identity = getSourceProjectIdentity(sourceProvider, request.sourceRepo);
   const migration: Migration = {
@@ -294,6 +300,7 @@ export function startBatch(
   requestedBatchId?: string,
 ): BatchSummary {
   const sourceProvider = request.sourceProvider ?? "github";
+  requireStartRoute(request);
   const scopeError = validateCredentialScope(request);
   if (scopeError) throw new TypeError(scopeError);
   const batchId = requestedBatchId ?? Bun.randomUUIDv7();
@@ -328,7 +335,11 @@ export function cancelBatch(batchId: string): number {
   return count;
 }
 
-export function restartBatch(batchId: string, credentials: RestartMigrationRequest) {
+export function restartBatch(
+  batchId: string,
+  credentials: RestartMigrationRequest,
+  validate?: (request: CreateMigrationRequest) => string | null,
+) {
   for (const provider of getRestartableBatchSourceProviderValues(batchId)) {
     if (!getSourceProviderAdapter(provider as Migration["sourceProvider"])) {
       throw new TypeError(`Migration restart is unavailable for source provider '${provider}'`);
@@ -338,6 +349,8 @@ export function restartBatch(batchId: string, credentials: RestartMigrationReque
   for (const migration of getBatchMigrations(batchId)) {
     if (migration.state !== "failed" && migration.state !== "cancelled") continue;
     try {
+      const authError = validate?.(restartRequest(migration, credentials));
+      if (authError) throw new Error(authError);
       restart(migration.id, credentials);
       results.restarted += 1;
     } catch (error) {
@@ -354,6 +367,7 @@ export const get = getMigration;
 export const listPaginated = listMigrationsPaginated;
 export const searchPaginated = searchMigrationsPaginated;
 export const getBatch = getBatchSummary;
+export { getRestartableBatchCount } from "./database/batches";
 export const listBatchesPaginated = listBatchItemsPaginated;
 export const searchBatchesPaginated = searchBatchItemsPaginated;
 export const recentActivity = getRecentActivity;

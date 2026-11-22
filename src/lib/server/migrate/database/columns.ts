@@ -28,3 +28,11 @@ const MIGRATION_COLUMNS = [
 ] as const;
 
 export const MIGRATION_COLS = MIGRATION_COLUMNS.join(", ");
+
+/** A legacy checkpoint or serialized target can contradict the migrated column defaults. */
+export const PAUSED_GITLAB_ROUTE_SQL = `(source_provider = 'gitlab' AND (
+  target_platform != 'ghec' OR target_profile_id != 'ghec' OR target_api_url != 'https://api.github.com'
+  OR CASE WHEN json_valid(request_options)
+    THEN COALESCE(json_extract(request_options, '$.targetProfileId'), 'ghec') != 'ghec' ELSE 0 END
+  OR EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id)
+))`;

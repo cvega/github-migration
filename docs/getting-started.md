@@ -5,9 +5,9 @@
 - Docker Engine with Compose for deployment, or Bun 1.4.4 for development.
 - Source-provider credentials with access to the repositories being profiled or migrated.
 - GitHub target credentials with organization and migration permissions.
-- An absolute `ARCHIVE_DIR` for GitLab-to-GHEC and all GitLab/Bitbucket-to-GHES paths.
+- An absolute `ARCHIVE_DIR` for GitLab-to-GHEC and Bitbucket-to-GHES.
 - Pinned SFTP credentials plus an absolute `ARCHIVE_DIR` for Bitbucket-to-GHEC.
-- The matching exporter image for GitLab/Bitbucket-to-GHES paths.
+- The Bitbucket exporter image for Bitbucket-to-GHES.
 
 ## Start The Dashboard
 
@@ -31,10 +31,11 @@ to that exact browser-visible origin before starting the containers.
 |---|---|---|
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
-| Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
+| Migrate to GHES | Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
 | Map identities | GHES import users or mannequins exposed by GHEC or GHES | Open **Mannequins**, select a target organization, and save mappings before migration. Check membership and apply unique mannequin matches, or use approved user URLs during a GHES import. |
 
-GitHub-to-GHES migration is not supported. See the generated
+GitHub-to-GHES migration is not supported. GitLab-to-GHES execution is paused;
+GitLab profiling and migration to GHEC remain available. See the generated
 [support matrix](architecture.md#migration-pipeline) for the authoritative
 source and target combinations.
 
@@ -68,7 +69,10 @@ repository jobs there. Clear repositories remain eligible without analysis.
 2. Select single or batch mode and enter repository mappings.
 3. Confirm source access, destination, visibility, and execution options.
 4. Resolve readiness errors and review the final mapping.
-5. Type the production confirmation when required, then launch.
+5. Launch the migration. For GitHub sources, **Keep source unlocked** skips both
+   locking and archiving. **Lock and archive source** asks for confirmation:
+   each source is locked during migration and archived after its migration succeeds.
+   Both choices write repository data to the destination, for single and batch migrations.
 
 The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
@@ -76,12 +80,21 @@ after navigation or transient network loss.
 
 After success, **Resource verification** shows recorded destination totals, not
 the number of items transferred. Commit counts cover the default branch's
-history. If counts are unavailable, use **Fetch counts** to read and save the
-target totals without rerunning the import. This uses the configured target
-credential and also updates Statistics coverage; existing recorded counts are
-not overwritten.
+history. If counts are unavailable, **Fetch counts** shows the current
+repository at the target path. It does not backdate those counts or update
+Statistics: the repository could have changed or been recreated since import.
+
+All migration directions use the same six-stage pipeline. The event log shows
+provider-specific operations; they do not add stages to the pipeline.
+“Queue” represents the queued phase. A completed rail is a summary, not
+evidence that the run spent time in a queue. “Checking for GHES import
+errors” announces the post-import audit, not a finding.
 
 ## Export Statistics
+
+**Top failure reasons** groups historical failures within the selected filters.
+Follow the dated run link for the full diagnostic; a reason can remain on the
+report after a later migration succeeds.
 
 Open **Statistics**, select the report filters, and choose the printer icon
 (**Print or save PDF**).

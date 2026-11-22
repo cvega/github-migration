@@ -44,6 +44,8 @@ describe("server architecture boundaries", () => {
     ["migrate/executors/gitlab-to-ghec.ts", "migrate/executors/github-to-ghec"],
     ["migrate/executors/github-to-ghec.ts", "migrate/executors/bitbucket-to-ghec.ts"],
     ["migrate/executors/bitbucket-to-ghec.ts", "migrate/github/exports"],
+    ["migrate/ghes/import.ts", "migrate/executors/bitbucket-to-ghes"],
+    ["migrate/github/upload.ts", "migrate/exporters/gitlab"],
   ])("rejects provider coupling from %s to %s", (from, to) => {
     expect(checkSourceProviderBoundary(from, to)).toContain("must not import");
   });

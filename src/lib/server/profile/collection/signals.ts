@@ -1,38 +1,46 @@
 import type { graphql } from "@octokit/graphql";
+import { z } from "zod";
 import { countByPagination, type GitHubClient } from "$lib/server/core/github";
 import type { DiscoveredRepo, RepoSignals } from "../types";
 
-interface CountsNode {
-  issues: { totalCount: number };
-  pullRequests: { totalCount: number };
-  branches: { totalCount: number };
-  tags: { totalCount: number };
-  releases: { totalCount: number };
-  discussions: { totalCount: number };
-  projectsV2: { totalCount: number };
-  environments: { totalCount: number };
-  stargazerCount: number;
-  forkCount: number;
-  watchers: { totalCount: number };
-  packages: { totalCount: number };
-  rulesets: { totalCount: number } | null;
-  branchProtectionRules: { totalCount: number };
-}
-interface RuleNode {
-  allowsForcePushes: boolean;
-  requiresDeployments: boolean;
-  lockBranch: boolean;
-  blocksCreations: boolean;
-  requireLastPushApproval: boolean;
-  bypassForcePushAllowances: { totalCount: number };
-  bypassPullRequestAllowances: { totalCount: number };
-}
-interface DetailsNode {
-  gitattributes: { text: string | null } | null;
-  workflows: { entries: { name: string }[] } | null;
-  releases?: { nodes: { releaseAssets: { nodes: { size: number }[] } }[] };
-  branchProtectionRules: { nodes: RuleNode[] };
-}
+const count = z.number().int().nonnegative();
+const connection = z.object({ totalCount: count });
+const countsNode = z.object({
+  isEmpty: z.boolean(),
+  issues: connection,
+  pullRequests: connection,
+  branches: connection,
+  tags: connection,
+  releases: connection,
+  discussions: connection,
+  projectsV2: connection,
+  environments: connection,
+  stargazerCount: count,
+  forkCount: count,
+  watchers: connection,
+  packages: connection,
+  rulesets: connection,
+  branchProtectionRules: connection,
+});
+const ruleSchema = z.object({
+  allowsForcePushes: z.boolean(),
+  requiresDeployments: z.boolean(),
+  lockBranch: z.boolean(),
+  blocksCreations: z.boolean(),
+  requireLastPushApproval: z.boolean(),
+  bypassForcePushAllowances: connection,
+  bypassPullRequestAllowances: connection,
+});
+const detailsNode = z.object({
+  gitattributes: z.object({ text: z.string() }).nullable(),
+  workflows: z.object({ entries: z.array(z.object({ name: z.string() })) }).nullable(),
+  branchProtectionRules: z.object({ nodes: z.array(ruleSchema) }),
+});
+const releaseNode = z.object({
+  nodes: z.array(
+    z.object({ releaseAssets: z.object({ nodes: z.array(z.object({ size: count })) }) }),
+  ),
+});
 export interface RepoDetails {
   nameWithOwner: string;
   branchProtectionRulesUsingUnmigratedFeatures: number;
@@ -40,15 +48,13 @@ export interface RepoDetails {
   workflowFileCount: number;
   releaseAssetBytes: number;
 }
-export interface RepoRestSignals {
-  webhooksCount: number;
-  hasCodeScanningAlerts: boolean;
-  collaboratorsCount: number;
-  tagProtectionCount: number;
-}
+export type RepoRestSignals = Pick<
+  RepoSignals,
+  "webhooksCount" | "hasCodeScanningAlerts" | "collaboratorsCount" | "tagProtectionCount"
+>;
 
 const COUNTS = `fragment Counts on Repository {
- issues { totalCount } pullRequests { totalCount }
+ isEmpty issues { totalCount } pullRequests { totalCount }
  branches: refs(refPrefix: "refs/heads/", first: 1) { totalCount }
  tags: refs(refPrefix: "refs/tags/", first: 1) { totalCount }
  releases { totalCount } discussions { totalCount } projectsV2 { totalCount }
@@ -82,39 +88,37 @@ function ownerOf(repo: DiscoveredRepo): string {
   const slash = repo.nameWithOwner.indexOf("/");
   return slash > 0 ? repo.nameWithOwner.slice(0, slash) : repo.nameWithOwner;
 }
-function signals(repo: DiscoveredRepo, node: CountsNode | null): RepoSignals {
+type RepoCounts = Omit<
+  RepoSignals,
+  keyof RepoRestSignals | Exclude<keyof RepoDetails, "nameWithOwner"> | "commitsCount"
+>;
+
+function signals(repo: DiscoveredRepo, node: z.infer<typeof countsNode>): RepoCounts {
   return {
     ...repo,
-    commitsCount: 0,
-    releaseAssetBytes: 0,
-    branchProtectionRulesUsingUnmigratedFeatures: 0,
-    usesLfs: false,
-    workflowFileCount: 0,
-    webhooksCount: 0,
-    hasCodeScanningAlerts: false,
-    collaboratorsCount: 0,
-    tagProtectionCount: 0,
-    issuesCount: node?.issues.totalCount ?? 0,
-    pullRequestsCount: node?.pullRequests.totalCount ?? 0,
-    branchesCount: node?.branches.totalCount ?? 0,
-    tagsCount: node?.tags.totalCount ?? 0,
-    releasesCount: node?.releases.totalCount ?? 0,
-    discussionsCount: node?.discussions.totalCount ?? 0,
-    projectsV2Count: node?.projectsV2.totalCount ?? 0,
-    environmentsCount: node?.environments.totalCount ?? 0,
-    stargazerCount: node?.stargazerCount ?? 0,
-    forkCount: node?.forkCount ?? 0,
-    watcherCount: node?.watchers.totalCount ?? 0,
-    packagesCount: node?.packages.totalCount ?? 0,
-    rulesetCount: node?.rulesets?.totalCount ?? 0,
-    branchProtectionRuleCount: node?.branchProtectionRules.totalCount ?? 0,
+    isEmpty: node.isEmpty,
+    issuesCount: node.issues.totalCount,
+    pullRequestsCount: node.pullRequests.totalCount,
+    branchesCount: node.branches.totalCount,
+    tagsCount: node.tags.totalCount,
+    releasesCount: node.releases.totalCount,
+    discussionsCount: node.discussions.totalCount,
+    projectsV2Count: node.projectsV2.totalCount,
+    environmentsCount: node.environments.totalCount,
+    stargazerCount: node.stargazerCount,
+    forkCount: node.forkCount,
+    watcherCount: node.watchers.totalCount,
+    packagesCount: node.packages.totalCount,
+    rulesetCount: node.rulesets.totalCount,
+    branchProtectionRuleCount: node.branchProtectionRules.totalCount,
   };
 }
-export function baseSignals(repo: DiscoveredRepo): RepoSignals {
-  return signals(repo, null);
-}
-function details(repo: DiscoveredRepo, node: DetailsNode | null): RepoDetails {
-  const usesUnmigrated = (rule: RuleNode) =>
+function details(
+  repo: DiscoveredRepo,
+  node: z.infer<typeof detailsNode>,
+  releases?: z.infer<typeof releaseNode>,
+): RepoDetails {
+  const usesUnmigrated = (rule: z.infer<typeof ruleSchema>) =>
     rule.allowsForcePushes ||
     rule.requiresDeployments ||
     rule.lockBranch ||
@@ -123,15 +127,15 @@ function details(repo: DiscoveredRepo, node: DetailsNode | null): RepoDetails {
     rule.bypassForcePushAllowances.totalCount > 0 ||
     rule.bypassPullRequestAllowances.totalCount > 0;
   let releaseAssetBytes = 0;
-  for (const release of node?.releases?.nodes ?? [])
+  for (const release of releases?.nodes ?? [])
     for (const asset of release.releaseAssets.nodes) releaseAssetBytes += asset.size;
   return {
     nameWithOwner: repo.nameWithOwner,
     branchProtectionRulesUsingUnmigratedFeatures:
-      node?.branchProtectionRules.nodes.filter(usesUnmigrated).length ?? 0,
-    usesLfs: /filter=lfs/.test(node?.gitattributes?.text ?? ""),
+      node.branchProtectionRules.nodes.filter(usesUnmigrated).length,
+    usesLfs: /filter=lfs/.test(node.gitattributes?.text ?? ""),
     workflowFileCount:
-      node?.workflows?.entries.filter((entry) => /\.ya?ml$/i.test(entry.name)).length ?? 0,
+      node.workflows?.entries.filter((entry) => /\.ya?ml$/i.test(entry.name)).length ?? 0,
     releaseAssetBytes,
   };
 }
@@ -145,16 +149,11 @@ function timeout(error: unknown): boolean {
       /timeout|timed out|executing your query|respond to your request in time/i.test(value.message))
   );
 }
-function partial(error: unknown): Record<string, unknown> | null {
-  if (!error || typeof error !== "object" || !("data" in error)) return null;
-  const data = (error as { data?: unknown }).data;
-  return data && typeof data === "object" ? (data as Record<string, unknown>) : null;
-}
-async function augment<TNode, TOut>(
+async function augment<TOut>(
   gql: typeof graphql,
   repos: DiscoveredRepo[],
   build: (count: number) => string,
-  map: (repo: DiscoveredRepo, node: TNode | null) => TOut,
+  map: (repo: DiscoveredRepo, node: unknown) => TOut,
   extra: Record<string, number> = {},
 ): Promise<TOut[]> {
   if (repos.length === 0) return [];
@@ -163,33 +162,40 @@ async function augment<TNode, TOut>(
     variables[`o${index}`] = ownerOf(repo);
     variables[`n${index}`] = repo.name;
   });
-  let data: Record<string, TNode | null>;
+  let data: Record<string, unknown>;
   try {
-    data = await gql<Record<string, TNode | null>>(build(repos.length), variables);
+    data = await gql<Record<string, unknown>>(build(repos.length), variables);
   } catch (error) {
-    if (timeout(error)) {
-      if (repos.length === 1) return [map(repos[0] as DiscoveredRepo, null)];
+    if (timeout(error) && repos.length > 1) {
       const middle = Math.ceil(repos.length / 2);
       return [
         ...(await augment(gql, repos.slice(0, middle), build, map, extra)),
         ...(await augment(gql, repos.slice(middle), build, map, extra)),
       ];
     }
-    const recovered = partial(error);
-    if (!recovered) throw error;
-    data = recovered as Record<string, TNode | null>;
+    throw error;
   }
-  return repos.map((repo, index) => map(repo, data[`r${index}`] ?? null));
+  return repos.map((repo, index) => {
+    try {
+      return map(repo, data?.[`r${index}`]);
+    } catch (error) {
+      if (!(error instanceof z.ZodError)) throw error;
+      const field = error.issues[0]?.path.join(".");
+      throw new Error(
+        `Incomplete GraphQL data for ${repo.nameWithOwner}${field ? `: ${field}` : ""}`,
+      );
+    }
+  });
 }
 export function augmentRepoCounts(
   gql: typeof graphql,
   repos: DiscoveredRepo[],
-): Promise<RepoSignals[]> {
-  return augment<CountsNode, RepoSignals>(
+): Promise<RepoCounts[]> {
+  return augment(
     gql,
     repos,
     (count) => query(count, "Counts", COUNTS, false),
-    signals,
+    (repo, node) => signals(repo, countsNode.parse(node)),
   );
 }
 export function augmentRepoDetails(
@@ -198,19 +204,23 @@ export function augmentRepoDetails(
   options: { scanReleases?: boolean } = {},
 ): Promise<RepoDetails[]> {
   const scan = options.scanReleases ?? true;
-  return augment<DetailsNode, RepoDetails>(
+  const schema = detailsNode.extend({ releases: scan ? releaseNode : releaseNode.optional() });
+  return augment(
     gql,
     repos,
     (count) => query(count, "Details", detailsFragment(scan), true),
-    details,
+    (repo, raw) => {
+      const node = schema.parse(raw);
+      return details(repo, node, node.releases);
+    },
     { rules: 50 },
   );
 }
-async function best<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+async function observe<T>(operation: () => Promise<T>): Promise<T | null> {
   try {
     return await operation();
   } catch {
-    return fallback;
+    return null;
   }
 }
 export async function gatherRepoRestSignals(
@@ -218,41 +228,33 @@ export async function gatherRepoRestSignals(
   repo: DiscoveredRepo,
 ): Promise<RepoRestSignals> {
   const slash = repo.nameWithOwner.indexOf("/");
-  if (slash <= 0)
-    return {
-      webhooksCount: 0,
-      hasCodeScanningAlerts: false,
-      collaboratorsCount: 0,
-      tagProtectionCount: 0,
-    };
+  if (slash <= 0) throw new Error(`Invalid repository path: ${repo.nameWithOwner}`);
   const params = {
     owner: repo.nameWithOwner.slice(0, slash),
     repo: repo.nameWithOwner.slice(slash + 1),
   };
   const [webhooksCount, hasCodeScanningAlerts, collaboratorsCount, tagProtectionCount] =
     await Promise.all([
-      best(() => countByPagination(rest, "GET /repos/{owner}/{repo}/hooks", params), 0),
-      best(async () => {
+      observe(() => countByPagination(rest, "GET /repos/{owner}/{repo}/hooks", params)),
+      observe(async () => {
         const data = (
           await rest.request("GET /repos/{owner}/{repo}/code-scanning/alerts", {
             ...params,
             per_page: 1,
           })
         ).data;
-        return Array.isArray(data) && data.length > 0;
-      }, false),
-      best(
-        () =>
-          countByPagination(rest, "GET /repos/{owner}/{repo}/collaborators", {
-            ...params,
-            affiliation: "direct",
-          }),
-        0,
+        return Array.isArray(data) ? data.length > 0 : null;
+      }),
+      observe(() =>
+        countByPagination(rest, "GET /repos/{owner}/{repo}/collaborators", {
+          ...params,
+          affiliation: "direct",
+        }),
       ),
-      best(async () => {
+      observe(async () => {
         const data = (await rest.request("GET /repos/{owner}/{repo}/tags/protection", params)).data;
-        return Array.isArray(data) ? data.length : 0;
-      }, 0),
+        return Array.isArray(data) ? data.length : null;
+      }),
     ]);
   return { webhooksCount, hasCodeScanningAlerts, collaboratorsCount, tagProtectionCount };
 }

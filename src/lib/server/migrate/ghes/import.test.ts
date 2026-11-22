@@ -361,49 +361,74 @@ describe("GHES import execution", () => {
     ]);
   });
 
-  test("does not apply an approved GHES mapping if the target user cannot be verified", async () => {
-    const record = migration("ghes-missing-user");
-    insertMigration(record);
-    const worker: ExporterWorker = {
-      submit: async () => ({ jobId: "export-job" }),
-      inspect: async (jobId) => ({
-        jobId,
-        state: "succeeded",
-        archive: { path: "/tmp/export.tar.gz", sha256: "a".repeat(64) },
-      }),
-      cancel: async () => {},
-    };
-    const source = adapter(worker);
-    const ssh = source.createSshClient({} as never);
-    approveIdentityMapping({
-      targetApiUrl: record.targetApiUrl,
-      targetOrg: record.targetOrg,
-      sourceKind: "ghe-migrator:gitlab",
-      sourceIdentity: "https://gitlab.example/users/alice",
-      targetLogin: "missing",
-    });
-    ssh.conflicts = async () => ({
-      stdout:
-        "model_name,source_url,target_url,recommended_action\nuser,https://gitlab.example/users/alice,,rename\n",
-      stderr: "",
-    });
-    let mapCalled = false;
-    ssh.map = async () => {
-      mapCalled = true;
-      return { stdout: "", stderr: "" };
-    };
-    source.createSshClient = () => ssh;
-    source.verifyTargetUser = async () => {
-      throw new Error("Target user not found");
-    };
-    const result = await runExporterGhesMigration(
-      { id: record.id, sourceProvider: "gitlab", emit: () => {} },
-      source,
-    );
-    expect(result.state).toBe("failed");
-    expect(result.failureReason).toContain("Target user not found");
-    expect(mapCalled).toBe(false);
-  });
+  test.each(["initial", "late-missing", "late-unmapped", "late-valid"])(
+    "validates and discovers users on the %s conflict pass",
+    async (scenario) => {
+      const record = migration("ghes-missing-user");
+      insertMigration(record);
+      const worker: ExporterWorker = {
+        submit: async () => ({ jobId: "export-job" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/export.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      };
+      const source = adapter(worker);
+      const ssh = source.createSshClient({} as never);
+      if (scenario !== "late-unmapped")
+        approveIdentityMapping({
+          targetApiUrl: record.targetApiUrl,
+          targetOrg: record.targetOrg,
+          sourceKind: "ghe-migrator:gitlab",
+          sourceIdentity: "https://gitlab.example/users/alice",
+          targetLogin: "missing",
+        });
+      const header = "model_name,source_url,target_url,recommended_action\n";
+      const user = `${header}user,https://gitlab.example/users/alice,,rename\n`;
+      const csvs =
+        scenario === "initial"
+          ? [user]
+          : [
+              `${header}organization,https://gitlab.example/group,https://ghes.example/target,map\n`,
+              user,
+              header,
+            ];
+      const calls: string[] = [];
+      ssh.conflicts = async () => ({ stdout: csvs.shift() ?? header, stderr: "" });
+      ssh.map = async (_, csv) => {
+        calls.push(csv.includes("user,") ? "map-user" : "map-org");
+        return { stdout: "", stderr: "" };
+      };
+      ssh.import = async () => {
+        calls.push("import");
+        return { stdout: "", stderr: "" };
+      };
+      source.createSshClient = () => ssh;
+      source.verifyTargetUser = async () => {
+        calls.push("verify");
+        if (scenario !== "late-valid") throw new Error("Target user not found");
+      };
+      const result = await runExporterGhesMigration(
+        { id: record.id, sourceProvider: "gitlab", emit: () => {} },
+        source,
+      );
+      if (scenario === "late-valid") {
+        expect(result.state).toBe("succeeded");
+        expect(calls).toEqual(["map-org", "verify", "map-user", "import"]);
+      } else if (scenario === "late-unmapped") {
+        expect(listIdentityMappings(record.targetApiUrl, record.targetOrg)).toMatchObject([
+          { status: "unmapped", sourceIdentity: "https://gitlab.example/users/alice" },
+        ]);
+        expect(result.state).toBe("reconciliation_required");
+        expect(calls).toEqual(["map-org"]);
+      } else {
+        expect(result.failureReason).toContain("Target user not found");
+        expect(calls).toEqual(scenario === "initial" ? ["verify"] : ["map-org", "verify"]);
+      }
+    },
+  );
 
   test("does not replay an import interrupted at an ambiguous checkpoint", async () => {
     const record = migration("ghes-ambiguous");

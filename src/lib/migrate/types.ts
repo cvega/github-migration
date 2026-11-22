@@ -234,6 +234,8 @@ export interface ActivityItem {
 }
 
 export interface Migration {
+  /** Includes conflicting legacy target fields and durable GHES checkpoints. */
+  routeExecutionPaused?: true;
   id: string;
   batchId: string | null;
   githubMigrationId: string | null;
@@ -285,6 +287,8 @@ export interface MigrationDirectionStats {
 
 interface MigrationFailureStats {
   reason: string;
+  latestMigrationId: string;
+  latestRunAt: string;
   count: number;
   share: number;
   avgSeconds: number | null;

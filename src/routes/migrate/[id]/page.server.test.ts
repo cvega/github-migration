@@ -108,12 +108,14 @@ afterEach(() => {
 
 describe("completed migration resource counts", () => {
   test.each(["ghes", "ghec"] as const)(
-    "backfills %s counts with only the correct target credential",
+    "shows current %s counts without attributing later or replacement repository data to the migration",
     async (platform) => {
       const record = migration(platform);
       persistMigration(record);
 
-      expect(await refresh()).toEqual({ countsCollected: true });
+      expect(await refresh()).toMatchObject({
+        currentTarget: { id: record.id, counts, observedAt: expect.any(String) },
+      });
       expect(reads).toEqual([
         {
           url: record.targetApiUrl,
@@ -126,12 +128,14 @@ describe("completed migration resource counts", () => {
           repo: "repo",
         },
       ]);
-      expect(getMigration(record.id)).toMatchObject({ ...record, targetCounts: counts });
+      expect(getMigration(record.id)).toMatchObject(record);
       expect(await load({ params: { id: record.id } } as never)).toMatchObject({
-        migration: { state: "succeeded", targetCounts: counts, elapsedSeconds: 90 },
+        migration: { state: "succeeded", targetCounts: null, elapsedSeconds: 90 },
       });
-      expect(await refresh()).toEqual({ countsCollected: true });
-      expect(reads).toHaveLength(1);
+      const replacement = { ...counts, branches: 42 };
+      targetCountDependencies.getRepoCounts = async () => replacement;
+      expect(await refresh()).toMatchObject({ currentTarget: { counts: replacement } });
+      expect(getMigration(record.id)?.targetCounts).toBeNull();
     },
   );
 

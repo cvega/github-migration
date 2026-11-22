@@ -10,6 +10,7 @@ import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import { Octokit } from "@octokit/rest";
 import type { AuthInput, Counts } from "$lib/migrate/types";
+import { getGitHubSourcePlatform } from "$lib/source-provider";
 import { parseSourceApiUrl } from "./source-url";
 
 export { sourceBaseUrl } from "$lib/source-provider";
@@ -244,14 +245,14 @@ export async function countByPagination(
   if (typeof link === "string") {
     // The header is a comma-separated list of `<url>; rel="…"` parts. Find the
     // `last` part and read its `page=N` query param (position-independent).
-    for (const part of link.split(",")) {
-      if (/\brel="last"/.test(part)) {
-        const m = part.match(/[?&]page=(\d+)/);
-        if (m?.[1]) return Number.parseInt(m[1], 10);
-      }
-    }
+    const last = link.split(",").find((part) => /\brel="last"/.test(part));
+    const page = Number(last?.match(/[?&]page=(\d+)(?:[&>]|$)/)?.[1]);
+    if (Number.isSafeInteger(page) && page > 0) return page;
+    if (last || /\brel="next"/.test(link))
+      throw new Error(`Cannot determine count from pagination for ${route}`);
   }
-  return Array.isArray(res.data) ? res.data.length : 0;
+  if (!Array.isArray(res.data)) throw new Error(`Invalid count response for ${route}`);
+  return res.data.length;
 }
 
 /**
@@ -322,20 +323,10 @@ async function getResourceCount(
   resource: string,
 ): Promise<number> {
   try {
-    const params: Record<string, unknown> = { owner, repo, per_page: 1 };
-
-    const response = await client.request(`GET /repos/{owner}/{repo}/${resource}`, params);
-    const link = response.headers.link;
-    if (link) {
-      const last = link.split(",").find((part) => /\brel="last"/.test(part));
-      const lastPage = last?.match(/[?&]page=(\d+)/)?.[1];
-      if (lastPage) return Number.parseInt(lastPage, 10);
-      if (last || /\brel="next"/.test(link)) {
-        throw new Error(`Cannot determine ${resource} count from pagination`);
-      }
-    }
-    if (!Array.isArray(response.data)) throw new Error(`Invalid ${resource} count response`);
-    return response.data.length;
+    return await countByPagination(client, `GET /repos/{owner}/{repo}/${resource}`, {
+      owner,
+      repo,
+    });
   } catch (error) {
     if (
       resource === "commits" &&
@@ -384,30 +375,19 @@ export async function getRateLimit(
  * version check and archive export, and their API URL never takes a `/api/v3`
  * path suffix.
  */
-function isCloudApiUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname;
-    if (hostname === "github.com" || hostname === "api.github.com") return true;
-    return hostname === "ghe.com" || hostname.endsWith(".ghe.com");
-  } catch {
-    const u = url.toLowerCase();
-    return u.includes("github.com") || u.includes("ghe.com");
-  }
-}
-
 export function normalizeGitHubApiUrl(value: string): string {
   const parsed = parseSourceApiUrl(value, { label: "GitHub API URL", requireHttps: true });
   const url = parsed.toString().replace(/\/+$/, "");
   // GHES: https://ghes.example.com → https://ghes.example.com/api/v3.
   // Cloud (github.com / *.ghe.com) already uses an `api.` host and takes no path.
-  if (!isCloudApiUrl(url) && !url.endsWith("/api/v3")) {
+  if (!isGhecSource(url) && !url.endsWith("/api/v3")) {
     return `${url}/api/v3`;
   }
   return url;
 }
 
 export function isGhecSource(apiUrl: string): boolean {
-  return isCloudApiUrl(apiUrl);
+  return getGitHubSourcePlatform(apiUrl) === "ghec";
 }
 
 export function isVersionAtLeast(version: string, min: string): boolean {

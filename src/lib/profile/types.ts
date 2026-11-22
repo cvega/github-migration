@@ -41,8 +41,6 @@ export interface DiscoveredRepo {
   visibility: RepoVisibility;
   isArchived: boolean;
   isFork: boolean;
-  /** Proxy for “no commits”: the REST listing reports `size === 0`. */
-  isEmpty: boolean;
   /** REST `size` in KiB; null when the listing omits it. */
   diskUsageKb: number | null;
   hasWiki: boolean;
@@ -73,12 +71,9 @@ export interface DiscoveredRepo {
  * read a number and compare, rather than re-deriving GraphQL schema details.
  */
 export interface RepoSignals extends DiscoveredRepo {
-  /**
-   * Commits on the default branch (`history.totalCount`). Gathered in the
-   * verification pass, not the cheap counts pass: unlike the indexed
-   * `totalCount`s it walks the commit graph, so a timeout degrades it to 0 for
-   * that one repo rather than blocking the cheap counts.
-   */
+  /** GraphQL Repository.isEmpty; disk size is not a commit-history signal. */
+  isEmpty: boolean;
+  /** Commits on the default branch, counted by REST pagination. */
   commitsCount: number;
   /** Repository-level Discussions (`discussions.totalCount`); not migrated. */
   discussionsCount: number;
@@ -129,16 +124,16 @@ export interface RepoSignals extends DiscoveredRepo {
   // degrade to 0/false for a read-only token rather than failing the repo.
   /** Webhooks (`GET …/hooks`); migrate but arrive disabled, and their secrets
    *  are not migrated. Needs `admin:repo_hook`/`repo`; 0 when unreadable. */
-  webhooksCount: number;
+  webhooksCount: number | null;
   /** Whether the repo has code-scanning alerts (`GET …/code-scanning/alerts`).
    *  Scanning history is not migrated. False when scanning is off or unreadable. */
-  hasCodeScanningAlerts: boolean;
+  hasCodeScanningAlerts: boolean | null;
   /** Direct collaborators (`GET …/collaborators?affiliation=direct`); per-repo
    *  user/team access is not migrated and must be re-granted. 0 when unreadable. */
-  collaboratorsCount: number;
+  collaboratorsCount: number | null;
   /** Tag protection rules (`GET …/tags/protection`); not migrated. 0 when none
    *  or unreadable. GitHub now recommends expressing these as rulesets. */
-  tagProtectionCount: number;
+  tagProtectionCount: number | null;
   // ── Content-volume counts (migration scale) ──────────────────────────────
   // Indexed GraphQL `totalCount`s gathered in the cheap counts pass (they live
   // here, not on the REST discovery spine, because REST doesn't expose the

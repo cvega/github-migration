@@ -4,7 +4,15 @@ import { closeStore, initStore } from "$lib/server/core/db";
 import { getEvents } from "./database/events";
 import { getMigration, insertMigration } from "./database/migrations";
 import { migrateStore } from "./database/schema";
-import { cancel, confirmRestart, MAX_CONCURRENT_MIGRATIONS, start } from "./manager";
+import {
+  cancel,
+  confirmRestart,
+  MAX_CONCURRENT_MIGRATIONS,
+  restart,
+  restartBatch,
+  start,
+  startBatch,
+} from "./manager";
 
 function migration(id: string, state: Migration["state"]): Migration {
   return {
@@ -39,6 +47,65 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("migration manager", () => {
+  test.each([
+    ["ghes", "ghec", "https://api.github.com"],
+    ["ghec", "enterprise", "https://api.github.com"],
+    ["ghec", "ghec", "https://enterprise.example/api/v3"],
+  ] as const)(
+    "blocks restarts before resetting conflicting GitLab route %s/%s/%s",
+    (targetPlatform, targetProfileId, targetApiUrl) => {
+      const record: Migration = {
+        ...migration("paused", "failed"),
+        sourceProvider: "gitlab",
+        targetPlatform,
+        targetProfileId,
+        targetApiUrl,
+        batchId: "batch",
+      };
+      insertMigration(record);
+      expect(() => restart(record.id, {})).toThrow("paused");
+      expect(restartBatch("batch", {})).toMatchObject({
+        restarted: 0,
+        errors: [{ id: record.id, error: expect.stringContaining("paused") }],
+      });
+      expect(getMigration(record.id)?.state).toBe("failed");
+      expect(getEvents(record.id)).toEqual([]);
+    },
+  );
+
+  test("rejects direct and batch starts for a custom GitLab GHES profile", () => {
+    const env = { ...process.env };
+    try {
+      process.env.GHES_TARGET_ID = "enterprise";
+      process.env.GHES_TARGET_API_URL = "https://enterprise.example";
+      const request = {
+        sourceProvider: "gitlab",
+        sourceRepo: "org/repo",
+        targetOrg: "dest",
+        targetProfileId: "enterprise",
+      } as const;
+      expect(() => start(request)).toThrow("cannot target GHES");
+      expect(() => startBatch({ ...request, repos: [request.sourceRepo] })).toThrow(
+        "cannot target GHES",
+      );
+    } finally {
+      for (const key of ["GHES_TARGET_ID", "GHES_TARGET_API_URL"]) {
+        if (env[key] === undefined) delete process.env[key];
+        else process.env[key] = env[key];
+      }
+    }
+  });
+  test("a legacy GHES request cannot become restartable by confirming cloud-default columns", () => {
+    const record: Migration = {
+      ...migration("legacy", "reconciliation_required"),
+      sourceProvider: "gitlab",
+      requestOptions: JSON.stringify({ targetProfileId: "retired-enterprise" }),
+    };
+    insertMigration(record);
+    expect(() => confirmRestart(record.id, "target/legacy")).toThrow("paused");
+    expect(getMigration(record.id)?.state).toBe("reconciliation_required");
+    expect(getEvents(record.id)).toEqual([]);
+  });
   test("queues work beyond capacity and cancels it without launching", () => {
     for (let index = 0; index < MAX_CONCURRENT_MIGRATIONS; index += 1) {
       insertMigration(migration(`active-${index}`, "running"));

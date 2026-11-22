@@ -47,7 +47,7 @@
 	const percentComplete = $derived(
 		batch.totalCount > 0 ? Math.round((resolvedCount / batch.totalCount) * 100) : 0,
 	);
-	const restartableCount = $derived(batch.failedCount + batch.cancelledCount);
+	const restartableCount = $derived(data.restartableCount);
 	const restartLabel = $derived(
 		batch.failedCount > 0 && batch.cancelledCount > 0
 			? `Restart ${restartableCount} Failed/Cancelled`
@@ -276,7 +276,7 @@
 
 			{#if restartableCount > 0 || isActive}
 				<div class="flex shrink-0 flex-wrap items-center gap-2">
-					{#if restartableCount > 0 && data.canRestart}
+					{#if restartableCount > 0}
 						<button type="button" onclick={openRestartForm} class="batch-action batch-action-default"><Octicon name="sync" size={16} />{restartLabel}</button>
 					{/if}
 					{#if isActive}

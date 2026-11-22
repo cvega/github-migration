@@ -76,7 +76,7 @@ target infrastructure, not calls into another source provider.
 | GitHub | GitHub Enterprise Cloud | `github-api` |
 | GitHub | GitHub Enterprise Server | Not supported |
 | GitLab | GitHub Enterprise Cloud | `gitlab-native` |
-| GitLab | GitHub Enterprise Server | `gitlab-ghes` |
+| GitLab | GitHub Enterprise Server | Not supported |
 | Bitbucket Server | GitHub Enterprise Cloud | `bitbucket-server-native` |
 | Bitbucket Server | GitHub Enterprise Server | `bitbucket-server-ghes` |
 <!-- END GENERATED: support-matrix -->
@@ -109,7 +109,7 @@ GitLab and Bitbucket Server use provider-native source exports, upload those
 archives through GitHub's archive API, and then start the same repository
 migration mutation. The executor IDs identify the source-side strategy.
 
-GHES targets use containerized GitLab or Bitbucket Server exporters plus
+GHES targets use a containerized Bitbucket Server exporter plus
 `ghe-migrator` instead of the GitHub migration APIs.
 
 For GHEC targets, execution progresses through provider-specific preflight,
@@ -119,7 +119,7 @@ post-migration indexing lag cannot overwrite them with transient zeroes.
 
 ### GHES imports
 
-GitLab and Bitbucket Server can target an administrator-configured GHES
+Bitbucket Server can target an administrator-configured GHES
 profile. A one-shot exporter writes an archive into the shared archive volume.
 The dashboard verifies its hash, transfers it over host-key-pinned SSH, then
 runs the prepare, mapping, import, audit, unlock, and cleanup operations.
@@ -135,9 +135,9 @@ After a successful import and source unlock, GHES resource counts are read
 through the target's REST and GraphQL APIs and persisted with the result.
 A count lookup failure is reported without changing the successful import
 state. The detail page distinguishes unavailable counts from zero and lets
-operators backfill missing totals for completed GHEC or GHES migrations.
-Backfill validates the stored target against its current profile and never
-overwrites an existing count snapshot or reruns an import.
+operators inspect current totals when no completion snapshot exists. The
+read validates the stored target against its current profile and timestamps
+the observation. It never substitutes it for historical counts.
 
 <!-- BEGIN GENERATED: ghes-import-phases -->
 **GHES import phases:** `pending`, `exporting`, `archive_ready`, `transferring`, `preparing`, `mapping`, `importing`, `auditing`, `unlocking`, `succeeded`, `failed`, `cancelled`, `reconciliation_required`.
@@ -210,7 +210,7 @@ than one process.
 
 | Boundary | Current behavior |
 |---|---|
-| Source and target support | GitHub can target GHEC. GitLab and Bitbucket Server can target GHEC or a configured GHES profile. GitHub-to-GHES is not supported. |
+| Source and target support | All three providers can target GHEC. Only Bitbucket Server can target a configured GHES profile. |
 | Migration capacity | At most ten migrations execute app-wide. Additional requests remain durable in FIFO order. |
 | Batch size | A batch accepts at most 500 repository mappings and uses the same queue as single migrations. |
 | Profile capacity | One profile per source provider can run at a time. |
@@ -221,8 +221,9 @@ than one process.
 Provider-specific constraints also apply:
 
 - GitHub sources can target GHEC only.
-- GitLab exports are bounded by archive-size and download-timeout settings;
-	GitLab-to-GHES requires the configured external exporter.
+- GitLab-to-GHEC exports are bounded by archive-size and download-timeout settings.
+  GitLab-to-GHES execution is paused. Recovery fails unstarted queued jobs and
+  retains jobs with uncertain remote outcomes for operator review without resuming them.
 - Bitbucket Server and Data Center discovery enforces the supported server
 	version. Native GHEC exports require pinned SFTP access to shared home, while
 	GHES migrations require the configured external exporter.

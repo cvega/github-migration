@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test("historical exporter trace is summarized and reachable at desktop and mobile widths", async ({page}) => {
+	for (const width of [390,1280,1440]) {
+		await page.setViewportSize({width,height:900});
+		await page.goto("/migrate/stats");
+		const incident = page.locator("#attention :is(td,li):visible").filter({hasText:"Bitbucket exporter could not write the migration archive"});
+		await expect(incident).toHaveCount(1);
+		const link = incident.getByRole("link",{name:/Last failed run · \d{4}-\d{2}-\d{2}/});
+		await expect(link).toHaveAttribute("href","/migrate/seed-e2e-bitbucket-failed");
+		await expect(page.locator("#attention")).not.toContainText("rb_sysopen");
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	}
+	await page.locator("#attention a:visible[href='/migrate/seed-e2e-bitbucket-failed']").click();
+	await page.getByText("Recorded failure", {exact:true}).click();
+	await expect(page.locator("details[open]")).toContainText("Errno::EACCES");
+});
+
 test("statistics groups retain detailed data and path volume", async ({ page }) => {
 	await page.goto("/migrate/stats");
 

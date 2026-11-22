@@ -2,7 +2,6 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { formatElapsed } from "$lib/format";
 	import type { UsedIconName as IconName } from "$lib/icons.generated";
-	import { STATE_LABELS } from "$lib/migrate/migration-display";
 	import type { Counts, Phase, Progress } from "$lib/migrate/types";
 
 	let {
@@ -27,7 +26,7 @@
 
 	const steps: { phase: Phase; label: string; icon: IconName }[] = [
 		{ phase: "PENDING_VALIDATION", label: "Validating", icon: "shield-check" },
-		{ phase: "QUEUED", label: STATE_LABELS.queued, icon: "clock" },
+		{ phase: "QUEUED", label: "Queue", icon: "clock" },
 		{ phase: "EXPORTING", label: "Exporting", icon: "download" },
 		{ phase: "IMPORTING_GIT", label: "Git Import", icon: "repo-push" },
 		{ phase: "IMPORTING_METADATA", label: "Metadata", icon: "note" },
@@ -148,10 +147,10 @@
 							{status === "completed"
 								? "Complete"
 								: status === "active"
-									? "Current"
+									? "In progress"
 									: status === "failed"
 										? "Failed"
-										: "Waiting"}
+										: "Not started"}
 						</span>
 					</span>
 				</li>

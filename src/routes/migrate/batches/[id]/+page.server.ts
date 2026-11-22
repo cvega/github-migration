@@ -1,11 +1,11 @@
 import { error } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
-import { getBatchPaginated, getBatchSourceProviders } from "$lib/server/migrate/manager";
 import {
-  getMigrationExecutor,
-  getSourceProviderAdapter,
-  isSourceProvider,
-} from "$lib/source-provider";
+  getBatchPaginated,
+  getBatchSourceProviders,
+  getRestartableBatchCount,
+} from "$lib/server/migrate/manager";
+import { isSourceProvider } from "$lib/source-provider";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = ({ params, url }) => {
@@ -15,12 +15,7 @@ export const load: PageServerLoad = ({ params, url }) => {
   return {
     batch: result.summary,
     migrations: result.migrations,
-    canRestart: providers.every(
-      (provider) =>
-        isSourceProvider(provider) &&
-        getSourceProviderAdapter(provider).capabilities.restart &&
-        getMigrationExecutor(provider) !== null,
-    ),
+    restartableCount: providers.every(isSourceProvider) ? getRestartableBatchCount(params.id) : 0,
     sourceProvider: providers.length === 1 && isSourceProvider(providers[0]) ? providers[0] : null,
   };
 };

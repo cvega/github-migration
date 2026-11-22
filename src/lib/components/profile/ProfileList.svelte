@@ -47,6 +47,7 @@
 
 	function runCountLabel(run: ProfileRunListItem): string {
 		if (getSourceProviderAdapter(run.sourceProvider).profileKind === "github-readiness") {
+			if (run.state === "failed") return "Profile incomplete";
 			return `${run.profiledRepos}/${run.totalRepos} repos`;
 		}
 		const count = run.inventoryProjectCount;

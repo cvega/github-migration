@@ -15,7 +15,6 @@ type SourcePlatformIcon = "mark-github" | "gitlab-logo" | "bitbucket-logo";
 export type MigrationExecutor =
   | "github-api"
   | "gitlab-native"
-  | "gitlab-ghes"
   | "bitbucket-server-ghes"
   | "bitbucket-server-native";
 
@@ -94,7 +93,10 @@ export function getGitHubSourcePlatform(apiUrl: string | null | undefined): Targ
     }
   })();
   const cloud =
-    hostname === "api.github.com" || hostname === "github.com" || hostname.endsWith(".ghe.com");
+    hostname === "api.github.com" ||
+    hostname === "github.com" ||
+    hostname === "ghe.com" ||
+    hostname.endsWith(".ghe.com");
   return cloud ? "ghec" : "ghes";
 }
 
@@ -245,7 +247,6 @@ export function getMigrationExecutor(
   targetPlatform: TargetPlatform = "ghec",
 ): MigrationExecutor | null {
   if (targetPlatform === "ghes") {
-    if (provider === "gitlab") return "gitlab-ghes";
     if (provider === "bitbucket-server") return "bitbucket-server-ghes";
     return null;
   }
