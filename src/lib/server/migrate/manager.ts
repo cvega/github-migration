@@ -52,7 +52,7 @@ import {
   subscribeToMigrationEvents,
 } from "./runs/events";
 import { createMigrationRunFinisher } from "./runs/finish";
-import { drainMigrationQueue, getCapacityUsage, MAX_CONCURRENT_MIGRATIONS } from "./runs/queue";
+import { drainMigrationQueue, shouldQueueMigration } from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
 import {
   determineAuthModeFromRequest,
@@ -159,7 +159,7 @@ export function start(request: CreateMigrationRequest, batchId?: string): Migrat
   let queued = false;
   let existing: Migration | null = null;
   getDb().transaction(() => {
-    if (getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS) {
+    if (shouldQueueMigration(migration)) {
       queued = true;
       migration.state = "queued";
       migration.authMode = determineAuthModeFromRequest(request);
@@ -242,16 +242,20 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
   }
   const request = restartRequest(existing, credentials);
   requireCredentialScope(request);
+  const payload = {
+    message: `Migration restarted (previously ${existing.state})`,
+    previousState: existing.state,
+  };
   const event: MigrationEvent = {
     migrationId,
     eventType: "restart",
     phase: null,
-    payload: { message: `Migration restarted (previously ${existing.state})` },
+    payload,
     createdAt: new Date().toISOString(),
   };
   let queued = false;
   getDb().transaction(() => {
-    queued = getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS;
+    queued = shouldQueueMigration(existing);
     if (
       !resetMigration(
         migrationId,
@@ -310,6 +314,7 @@ export function startBatch(
   requestedBatchId?: string,
 ): BatchSummary {
   const sourceProvider = request.sourceProvider ?? "github";
+  if (!request.targetProfileId?.trim()) throw new TypeError("Choose a destination for this batch.");
   requireStartRoute(request);
   const scopeError = validateCredentialScope(request);
   if (scopeError) throw new TypeError(scopeError);

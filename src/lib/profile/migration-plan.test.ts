@@ -20,6 +20,7 @@ describe("profile migration plans", () => {
     expect(
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "https://api.github.com",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",
@@ -31,6 +32,7 @@ describe("profile migration plans", () => {
     ).toEqual({
       version: 3,
       profileRunId: "run-1",
+      targetProfileId: "ghec",
       sourceProvider: "github",
       sourceApiUrl: "https://api.github.com",
       sourceOrg: "acme",
@@ -50,6 +52,7 @@ describe("profile migration plans", () => {
     expect(() =>
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",
@@ -60,6 +63,7 @@ describe("profile migration plans", () => {
     expect(() =>
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",
@@ -75,6 +79,7 @@ describe("profile migration plans", () => {
     expect(() =>
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",
@@ -88,6 +93,7 @@ describe("profile migration plans", () => {
     const gitlabRepos = [{ nameWithOwner: "platform/services/widget", blockers: 0, warnings: 0 }];
     const plan = buildProfileMigrationPlan({
       profileRunId: "gitlab-run",
+      targetProfileId: "ghec",
       sourceProvider: "gitlab",
       sourceApiUrl: "https://code.example.com/api/v4",
       sourceOrg: "platform/services",
@@ -102,6 +108,7 @@ describe("profile migration plans", () => {
   test("applies custom target names and rejects collisions", () => {
     const plan = buildProfileMigrationPlan({
       profileRunId: "run-1",
+      targetProfileId: "ghec",
       sourceApiUrl: "",
       sourceOrg: "acme",
       targetOrg: "acme-cloud",
@@ -116,6 +123,7 @@ describe("profile migration plans", () => {
     expect(() =>
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",
@@ -130,6 +138,7 @@ describe("profile migration plans", () => {
     expect(() =>
       buildProfileMigrationPlan({
         profileRunId: "run-1",
+        targetProfileId: "ghec",
         sourceApiUrl: "",
         sourceOrg: "acme",
         targetOrg: "acme-cloud",

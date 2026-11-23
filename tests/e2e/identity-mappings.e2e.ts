@@ -24,4 +24,19 @@ test("saves and imports mappings before target users exist", async ({ page }) =>
   await expect(page.getByText("identity-e2e-alice", { exact: true })).toBeVisible();
   await expect(page.getByText("identity-e2e-bob", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const edit = page.getByRole("button", { name: "Edit mapping for identity-e2e-alice" });
+  const remove = page.getByRole("button", { name: "Remove mapping for identity-e2e-alice" });
+  for (const button of [edit, remove]) {
+    await expect(button).toHaveCSS("width", "32px");
+    await expect(button).toHaveCSS("height", "32px");
+  }
+  await edit.click();
+  await page.getByLabel("Target username").fill("updated-alice");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("@updated-alice", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("@updated-alice", { exact: true })).toBeVisible();
+  await remove.click();
+  await expect(edit).toHaveCount(0);
+  await expect(page.getByText("identity-e2e-bob", { exact: true })).toBeVisible();
 });

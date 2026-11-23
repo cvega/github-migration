@@ -7,6 +7,7 @@ import type {
 import { assertSourceInventoryProjectLimit } from "$lib/server/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import {
+  BitbucketFileNotFoundError,
   BitbucketServerApiError,
   type BitbucketServerClient,
   encodeBitbucketSegment,
@@ -38,6 +39,8 @@ interface BitbucketRepositorySummary {
 }
 
 export interface DiscoverBitbucketInventoryOptions {
+  includeStorage?: boolean;
+  checkLfs?: boolean;
   signal?: AbortSignal;
   onProgress?: (progress: SourceInventoryProgress) => void;
 }
@@ -203,7 +206,7 @@ function toProjectInventory(
     defaultBranch: defaultBranch(repository.defaultBranch),
     lastActivityAt: optionalTimestamp(repository.updatedDate, "updatedDate"),
     repositorySizeBytes: repositorySize,
-    storageSizeBytes: repositorySize,
+    storageSizeBytes: unavailable,
     lfsObjectsSizeBytes: unavailable,
     packagesSizeBytes: unavailable,
     wikiSizeBytes: unavailable,
@@ -227,6 +230,37 @@ function canonicalProjectKey(projectKey: string): string {
     throw new TypeError("Bitbucket project key is invalid");
   }
   return normalized;
+}
+
+async function rootLfsRules(
+  client: BitbucketServerClient,
+  project: string,
+  slug: string,
+  branch: string | null,
+  signal?: AbortSignal,
+): Promise<"found" | "none" | "unknown"> {
+  if (!branch) return "unknown";
+  try {
+    const page = await client.get<{ lines?: Array<{ text?: string }>; isLastPage?: boolean }>(
+      `/projects/${encodeBitbucketSegment(project, "project key")}/repos/${encodeBitbucketSegment(slug, "repository slug")}/browse/.gitattributes`,
+      { at: `refs/heads/${branch}`, limit: 100 },
+      { signal, distinguishMissingFile: true },
+    );
+    if (!Array.isArray(page?.lines) || !page.lines.every((line) => typeof line?.text === "string"))
+      return "unknown";
+    for (const { text } of page.lines) {
+      const line = text?.trim();
+      if (!line || line.startsWith("#") || line.startsWith("[attr]")) continue;
+      if (/^(?:"(?:\\.|[^"\\])*"|[^\s"]+)\s+(?:\S+\s+)*filter=lfs(?:\s|$)/.test(line))
+        return "found";
+    }
+    return page.isLastPage === true ? "none" : "unknown";
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof BitbucketFileNotFoundError) return "none";
+    if (!(error instanceof BitbucketServerApiError)) throw error;
+    return "unknown";
+  }
 }
 
 export async function* streamBitbucketInventoryPages(
@@ -259,6 +293,31 @@ export async function* streamBitbucketInventoryPages(
       }
       sourceIds.add(project.sourceId);
       paths.add(canonicalPath);
+      if (options.includeStorage) {
+        const slug = requiredString(repositoryPage[index]?.slug, "slug");
+        try {
+          const sizes = await client.getRepositorySizes(canonicalKey, slug, options.signal);
+          if (!sizes || typeof sizes !== "object")
+            throw new TypeError("Expected repository size details");
+          if ("repository" in sizes && sizes.repository != null)
+            project.repositorySizeBytes = optionalSize(sizes.repository);
+          if ("attachments" in sizes) project.uploadsSizeBytes = optionalSize(sizes.attachments);
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          if (!(error instanceof BitbucketServerApiError || error instanceof TypeError))
+            throw error;
+          const reason =
+            error instanceof BitbucketServerApiError && [401, 403].includes(error.status)
+              ? "forbidden"
+              : "not-reported";
+          project.uploadsSizeBytes = { kind: "unavailable", reason };
+          if (project.repositorySizeBytes.kind === "unavailable")
+            project.repositorySizeBytes = { kind: "unavailable", reason };
+          console.warn(
+            `[profile] Bitbucket size details unavailable for ${project.path}: ${error.message}`,
+          );
+        }
+      }
       if (repositoryPage[index]?.defaultBranch === undefined) {
         const repositorySlug = requiredString(repositoryPage[index]?.slug, "slug");
         try {
@@ -272,6 +331,19 @@ export async function* streamBitbucketInventoryPages(
         } catch (error) {
           if (!(error instanceof BitbucketServerApiError && [401, 403, 404].includes(error.status)))
             throw error;
+        }
+      }
+    }
+    if (options.checkLfs) {
+      for (const [index, project] of projects.entries()) {
+        if (project.providerDetails?.provider === "bitbucket-server") {
+          project.providerDetails.rootLfsRules = await rootLfsRules(
+            client,
+            canonicalKey,
+            requiredString(repositoryPage[index]?.slug, "slug"),
+            project.defaultBranch,
+            options.signal,
+          );
         }
       }
     }

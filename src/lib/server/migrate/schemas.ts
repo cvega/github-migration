@@ -124,7 +124,7 @@ export const batchMigrationSchema = z
     profileRunId: boundedString().optional(),
     sourceProvider: z.enum(SOURCE_PROVIDERS).optional(),
     sourceApiUrl: boundedString().optional(),
-    targetProfileId: targetProfileId.optional(),
+    targetProfileId,
     repos: z
       .array(repository)
       .min(1, "repos must contain at least one org/repo entry")

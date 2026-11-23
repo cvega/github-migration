@@ -1,4 +1,40 @@
 import { parse } from "csv-parse/sync";
+import { getSourceProviderAdapter } from "$lib/source-provider";
+
+export function bitbucketGroupIdentity(apiUrl: string, project: string, group: string): string {
+  if (!apiUrl) throw new Error("Configure the Bitbucket source before adding a group mapping.");
+  if (!getSourceProviderAdapter("bitbucket-server").isValidNamespace(project))
+    throw new Error("Enter a valid Bitbucket project key.");
+  if (!group || /[\p{Cc}]/u.test(group)) throw new Error("Enter a Bitbucket group name.");
+  return `${apiUrl.replace(/\/rest\/api\/1\.0$/, "")}/admin/groups/view?name=${encodeURIComponent(group)}#${encodeURIComponent(project)}`;
+}
+
+export function bitbucketUserIdentity(apiUrl: string, username: string): string {
+  if (!apiUrl) throw new Error("Configure the Bitbucket source before adding a user mapping.");
+  if (!username || /^[.]{1,2}$/.test(username) || /[/\\?#\p{Cc}]/u.test(username))
+    throw new Error("Enter a Bitbucket username, not a URL.");
+  return `${apiUrl.replace(/\/rest\/api\/1\.0$/, "")}/users/${encodeURIComponent(username)}`;
+}
+
+export function sourceIdentityLabel(kind: string, identity: string): string {
+  if (!URL.canParse(identity)) return identity;
+  const url = new URL(identity);
+  if (kind === "ghe-migrator:bitbucket-server") {
+    const slug = /\/users\/([^/]+)\/?$/.exec(url.pathname)?.[1];
+    if (!slug) return identity;
+    try {
+      return decodeURIComponent(slug);
+    } catch (error) {
+      if (error instanceof URIError) return slug;
+      throw error;
+    }
+  }
+  if (kind !== "ghe-migrator:bitbucket-server:team") return identity;
+  const group = url.searchParams.get("name");
+  return url.pathname.endsWith("/admin/groups/view") && group
+    ? url.hash.slice(1) || group
+    : identity;
+}
 
 const IDENTITY_SOURCE_KINDS = [
   "ghe-migrator:bitbucket-server",

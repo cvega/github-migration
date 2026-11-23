@@ -43,6 +43,10 @@ List endpoints accept positive `page` and `limit` query parameters and clamp
 limits to their route maximum. The migration list accepts `q`. Profile
 repository detail accepts `search` and `readiness`; `view=status` returns only
 run status and `view=repos` returns only the filtered repository page.
+For Bitbucket profiles, `view=lfs` downloads the captured repositories' default
+branches and root LFS tracking-rule observations (`found`, `none`, or `unknown`) as JSON.
+`view=activity&page=1` returns paged repository review
+observations and coverage across the whole captured inventory.
 Statistics routes add their documented UI filters. Responses include the
 selected page, total rows, total pages, and effective limit.
 
@@ -50,7 +54,10 @@ selected page, total rows, total pages, and effective limit.
 
 Single requests identify `sourceProvider`, source API/organization/repository,
 target profile and organization/repository, plus optional credentials and
-execution options. Batch requests carry the common source/target configuration
+execution options. Every new batch requires an explicit `targetProfileId` (`ghec`
+for Cloud, or the configured GHES profile ID). All items share that destination;
+to change platforms, create a new batch rather than restarting the old one.
+Batch requests carry the common source/target configuration
 and either a bounded `repos` path list or an `items` mapping list. Each `items`
 entry identifies `sourceRepo` and may override `targetRepo`. The server
 validates provider scope, target support, duplicate identities, credential

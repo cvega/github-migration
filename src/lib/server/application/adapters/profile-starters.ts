@@ -34,7 +34,12 @@ export const profileStarters = {
       buildSourceClient: getBitbucketServerSourceClient,
       run: (client, input, onProgress) =>
         runBitbucketInventoryProfile(client, input, onProgress, {
-          discover: discoverBitbucketInventory,
+          discover: (client, namespace, options) =>
+            discoverBitbucketInventory(client, namespace, {
+              ...options,
+              includeStorage: true,
+              checkLfs: true,
+            }),
           enrich: collectBitbucketProfileEnrichment,
           isApiError: (error) => error instanceof BitbucketServerApiError,
         }),

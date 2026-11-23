@@ -1,20 +1,13 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { goto, invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
-	import AuthStatus from "$lib/components/AuthStatus.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
-	import GitHubStatus from "$lib/components/GitHubStatus.svelte";
 	import MigrationCard from "$lib/components/migrate/MigrationCard.svelte";
 	import MigrationForm from "$lib/components/migrate/MigrationForm.svelte";
+	import MigrationRouteStatus from "$lib/components/migrate/MigrationRouteStatus.svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import Pagination from "$lib/components/Pagination.svelte";
-	import {
-		AUTH_PILL_KEY,
-		type AuthPillContext,
-		GH_STATUS_KEY,
-		type GhStatusContext,
-	} from "$lib/context-keys";
 	import { formatDateTime } from "$lib/format";
 	import { createGlobalEventSource } from "$lib/migrate/live.svelte";
 	import { STATE_LABELS } from "$lib/migrate/migration-display";
@@ -23,12 +16,14 @@
 	import { getTargetPlatformPresentation } from "$lib/migration-target";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 
-	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
-	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);
 	let { data } = $props();
 
 	const batch = $derived(data.batch);
 	const migrationsResult = $derived(data.migrations);
+	const queueBlocked = $derived(
+		!batch.mixedRoute && batch.sourceProvider === "bitbucket-server" && batch.targetPlatform === "ghes" &&
+			batch.queuedCount > 0 && (batch.failedCount > 0 || batch.reconciliationRequiredCount > 0),
+	);
 	const isActive = $derived(
 		batch.queuedCount > 0 ||
 			batch.pendingCount > 0 ||
@@ -209,7 +204,9 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<Octicon name="stack" size={16} class="text-gray-400" />
 				<h1 class="text-2xl font-bold text-gray-50">Batch Migration</h1>
-				{#if isActive}
+				{#if queueBlocked}
+					<span class="text-xs font-medium text-yellow-400">Queue paused</span>
+				{:else if isActive}
 					<span class="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
 						<span class="relative flex h-2 w-2" aria-hidden="true">
 							<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-40 motion-reduce:animate-none"></span>
@@ -240,9 +237,7 @@
 			</div>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-			<AuthStatus label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
-			<AuthStatus label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
-			<GitHubStatus status={ghStatusCtx.value} />
+			<MigrationRouteStatus routes={[batch]} />
 		</div>
 	</header>
 
@@ -251,6 +246,13 @@
 			<h2 id="batch-progress-title" class="text-sm font-semibold text-gray-200">Batch progress</h2>
 			<strong class="text-sm tabular-nums text-gray-100">{percentComplete}%</strong>
 		</div>
+		{#if queueBlocked}
+			<p class="mt-2 text-sm text-yellow-400">
+				Queued repositories in this batch are waiting.
+				{#if batch.reconciliationRequiredCount > 0}Review the migrations marked for reconciliation and confirm they are safe to restart.{/if}
+				Restart failed migrations to resume the queue.
+			</p>
+		{/if}
 		<div
 			class="mt-2 h-2 overflow-hidden rounded-full bg-gray-800"
 			role="progressbar"

@@ -70,10 +70,28 @@ const gitLabProfileEnrichmentSchema = z
     }
   });
 
+export const bitbucketActivitySchema = z
+  .object({
+    defaultBranch: z.string().nullable(),
+    tipCommittedAt: z.string().datetime().nullable(),
+    review: z
+      .object({
+        open: z.number().int().nonnegative(),
+        merged: z.number().int().nonnegative(),
+        declined: z.number().int().nonnegative(),
+        oldestOpenCreatedAt: z.string().datetime().nullable(),
+        latestUpdatedAt: z.string().datetime().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
 const bitbucketProjectProfileSchema = z
   .object({
     sourceId: z.string().min(1).max(255),
     path: z.string().min(1).max(2_048),
+    activity: bitbucketActivitySchema.optional(),
     metrics: z
       .object({
         commits: profileNumericMetricSchema,

@@ -130,6 +130,32 @@ export function saveIdentityMappings(
   })();
 }
 
+export function editIdentityMapping(
+  targetApiUrl: string,
+  targetOrg: string,
+  sourceKind: IdentitySourceKind,
+  mapping: IdentityInput,
+  previousLogin: string,
+): boolean {
+  return (
+    getDb()
+      .prepare(
+        `UPDATE migration_identity_mappings SET target_login = ?, updated_at = ?
+       WHERE target_api_url = ? AND target_org = ? AND source_kind = ? AND source_identity = ?
+       AND status = 'approved' AND target_login = ?`,
+      )
+      .run(
+        mapping.targetLogin,
+        new Date().toISOString(),
+        targetApiUrl,
+        targetOrg,
+        sourceKind,
+        mapping.sourceIdentity,
+        previousLogin,
+      ).changes === 1
+  );
+}
+
 export function removeIdentityMapping(
   targetApiUrl: string,
   targetOrg: string,

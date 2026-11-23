@@ -221,8 +221,11 @@ export class GhesSshClient {
   conflicts(guid: string): Promise<GhesCommandResult> {
     return this.#exec(`ghe-migrator conflicts -g ${requireGuid(guid)}`);
   }
-  mappingRecords(guid: string): Promise<GhesCommandResult> {
-    return this.#exec(`ghe-migrator audit -m organization,repository -g ${requireGuid(guid)}`);
+  mappingRecords(guid: string, includeIdentities = false): Promise<GhesCommandResult> {
+    const models = includeIdentities
+      ? "organization,repository,user,team"
+      : "organization,repository";
+    return this.#exec(`ghe-migrator audit -m ${models} -g ${requireGuid(guid)}`);
   }
   map(guid: string, csv: string): Promise<GhesCommandResult> {
     return this.#exec(`ghe-migrator map -i /dev/stdin -g ${requireGuid(guid)}`, csv);

@@ -25,6 +25,15 @@
 		</div>
 		<div class="flex flex-wrap items-end gap-2 lg:justify-end">
 			<label class="block w-full text-sm font-medium text-gray-400 sm:w-64">
+				Destination
+				<select required value={planner.targetProfileId} onchange={(event) => planner.setTargetProfileId(event.currentTarget.value)} class="mt-1 block h-9 w-full rounded-md border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100">
+					<option value="" disabled>Choose destination</option>
+					{#each planner.targets as target (target.id)}
+						<option value={target.id}>{target.platform.toUpperCase()} · {target.webUrl}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="block w-full text-sm font-medium text-gray-400 sm:w-64">
 				Target organization
 				<span class="mt-1 flex h-9 items-center gap-2 rounded-md border border-gray-700 bg-gray-950 px-3">
 					<Octicon name="organization" size={16} class="shrink-0 text-blue-400" />
@@ -65,7 +74,14 @@
 				{#each planner.planningRepos as repo (repo.nameWithOwner)}
 					<div class="grid min-h-12 grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)] items-center gap-3 px-3 py-2">
 						<input type="checkbox" checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
-						<span class="text-machine min-w-0 break-all text-gray-300">{repo.nameWithOwner}</span>
+						<div class="min-w-0 break-all">
+							<span class="text-machine text-gray-300">{repo.nameWithOwner}</span>
+							{#if repo.providerDetails?.provider === "bitbucket-server"}
+								{@const details = repo.providerDetails}
+								{#if details.forkedFromPath}<div class="mt-1 flex items-center gap-1 text-xs text-gray-400"><Octicon name="repo-forked" size={12} />Forked from {details.forkedFromPath}</div>{/if}
+								<div class="mt-1 text-xs text-gray-400">{details.rootLfsRules === "found" ? "LFS tracking rule found" : details.rootLfsRules === "none" ? "No root LFS rule found" : "LFS rules not verified"}</div>
+							{/if}
+						</div>
 						<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
 					</div>
 				{/each}

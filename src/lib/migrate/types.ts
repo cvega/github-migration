@@ -470,7 +470,7 @@ export interface BatchMigrationRequest extends MigrationOptions {
   profileRunId?: string;
   sourceProvider?: SourceProvider;
   sourceApiUrl?: string;
-  targetProfileId?: string;
+  targetProfileId: string;
   repos?: string[];
   items?: BatchMigrationItem[];
   targetOrg: string;

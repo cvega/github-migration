@@ -1,6 +1,10 @@
 import { getDb } from "$lib/server/core/db";
 import { parseConfiguredSourceInventory as parseSourceNamespaceInventory } from "$lib/server/core/source-url";
-import { parseBitbucketProfileEnrichment, parseGitLabProfileEnrichment } from "$lib/source/profile";
+import {
+  bitbucketActivitySchema,
+  parseBitbucketProfileEnrichment,
+  parseGitLabProfileEnrichment,
+} from "$lib/source/profile";
 import type {
   BitbucketProfileEnrichment,
   GitLabProfileEnrichment,
@@ -198,6 +202,64 @@ export function getProfileInventorySummary(runId: string): ProfileInventorySumma
       .run({ $summary: JSON.stringify(summary), $run_id: runId });
     return summary;
   }
+}
+
+export function getBitbucketLfsTracking(runId: string) {
+  const coverage = getDb()
+    .query<{ found: number; checked: number; example: string | null }, [string]>(
+      `SELECT count(*) FILTER (WHERE status = 'found') AS found,
+        count(*) FILTER (WHERE status IN ('found', 'none')) AS checked,
+        min(path) FILTER (WHERE status = 'found') AS example
+       FROM (SELECT path, json_extract(payload, '$.providerDetails.rootLfsRules') AS status
+             FROM profile_source_inventory_projects WHERE run_id = ?)`,
+    )
+    .get(runId);
+  if (!coverage) throw new Error("Could not read LFS tracking coverage");
+  return coverage;
+}
+
+export function getBitbucketLfsReportRows(runId: string) {
+  return getDb()
+    .query<{ repository: string; defaultBranch: string | null; rootLfsRules: string }, [string]>(
+      `SELECT path AS repository, json_extract(payload, '$.defaultBranch') AS defaultBranch,
+        coalesce(json_extract(payload, '$.providerDetails.rootLfsRules'), 'unknown') AS rootLfsRules
+       FROM profile_source_inventory_projects WHERE run_id = ? ORDER BY position`,
+    )
+    .all(runId);
+}
+
+export function getBitbucketActivityPage(runId: string, requested: number) {
+  const db = getDb();
+  const from = `FROM profile_source_inventory_projects i LEFT JOIN profile_source_project_profiles p
+      ON p.run_id=i.run_id AND p.source_id=i.source_id WHERE i.run_id=?`;
+  const coverage = db
+    .query<
+      { total: number; collected: number; covered: number; open: number | null; withOpen: number },
+      [string]
+    >(`SELECT count(*) AS total,
+      count(json_extract(p.payload,'$.activity')) AS collected,
+      count(json_extract(p.payload,'$.activity.review.open')) AS covered,
+      sum(json_extract(p.payload,'$.activity.review.open')) AS open,
+      count(*) FILTER (WHERE json_extract(p.payload,'$.activity.review.open')>0) AS withOpen ${from}`)
+    .get(runId);
+  if (!coverage) throw new Error("Could not read review coverage");
+  const limit = 10,
+    totalPages = Math.max(1, Math.ceil(coverage.total / limit));
+  const page = Math.max(1, Math.min(requested, totalPages));
+  const rows = db
+    .query<{ path: string; activity: string | null }, [string, number, number]>(
+      `SELECT i.path,json_extract(p.payload,'$.activity') AS activity ${from} ORDER BY i.position LIMIT ? OFFSET ?`,
+    )
+    .all(runId, limit, (page - 1) * limit);
+  return {
+    coverage,
+    pagination: { page, totalPages, total: coverage.total, limit },
+    rows: rows.map((row) => ({
+      path: row.path,
+      activity:
+        row.activity === null ? null : bitbucketActivitySchema.parse(JSON.parse(row.activity)),
+    })),
+  };
 }
 
 export function settleProfileInventoryRun(

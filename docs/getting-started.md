@@ -73,6 +73,32 @@ results, load another page, or refresh to pick up newly created projects.
 Selecting a row fills the namespace; **Start profile** collects its repository data.
 Counts here describe loaded entries, not the size of the enterprise.
 
+Bitbucket Data Center profiles aggregate commits on the default branch, incoming
+pull requests, branches, tags and forks from separate repository APIs. The profile
+shows private and public repository counts; Bitbucket has no internal visibility
+category. Archived status is counted separately. These
+counts describe repository contents, not programming languages. Unlike GitHub's
+repository languages API, Bitbucket Data Center has no documented equivalent
+that returns bytes per language; that breakdown requires analyzing source files.
+
+Bitbucket profiles also request **Retrieve size details** from each repository's
+settings (one additional read per repository). Source storage shows the reported
+repository and attachment bytes, not a clone estimate or total disk usage.
+This settings endpoint varies by version and access; missing measurements are
+not counted as zero. Partial sums are labeled “At least.” Older snapshots are
+not backfilled.
+
+Bitbucket repository rows identify a fork's immediate upstream when Bitbucket
+reports one. New profiles also read up to 100 lines of the default branch's
+root `.gitattributes` through the browse API, looking for explicit `filter=lfs`
+rules. **Source storage → Repos with LFS tracking rules** shows how many checked
+repositories have a rule. **Export** downloads each captured repository's name,
+default branch, and tracking result as JSON. Unverified repositories are excluded from
+the denominator. This is not an object count or byte total.
+A missing root file is not proof that a repository has no LFS objects.
+Unreadable or incomplete checks without a match are shown as not verified.
+No clone, history scan, file listing, or LFS payload download is required.
+
 Discovery uses the configured source host and credential: Bitbucket projects,
 GitLab groups (including subgroup paths), and GitHub user organizations or the
 organization owning the configured App installation's visible repositories.
@@ -165,7 +191,24 @@ contain zeros from unavailable API data.
 Choose **Mappings**. The **Users** and **Teams** lists show approved decisions across
 configured organizations, not a feed of migration conflicts. Choose **Add** or **Import CSV**;
 the organization and source type in the form scope that decision across repos.
-User CSV header: `source_identity,target_username`. Team CSV header:
+For a manual Bitbucket user mapping, enter the **Bitbucket username**. Saved rows
+show that source username beside the target GitHub login; no source URL is needed.
+Bitbucket → GHES applies approved identities present in the prepared archive
+with the organization and repository mappings, then checks for remaining conflicts.
+Different Bitbucket groups in the same project require separate approvals when they conflict.
+Each repository migration processes only its own archive, including when it belongs to a batch.
+Bitbucket → GHES preserves Git tags in the mirrored repository but excludes release
+metadata, so tags do not create GitHub Releases.
+For Bitbucket → GHES the worker reads that archive's identity records locally instead
+of launching a GHES mapping audit. If it cannot read the manifests within five
+seconds it falls back to the remote audit. GHES still applies the map and checks
+for unresolved conflicts before import.
+Use the pencil on a saved user or team mapping to change its GitHub target without
+changing the source identity. The trash button removes the saved mapping.
+For a manual Bitbucket team mapping, enter the **Bitbucket project key** and
+**Bitbucket group name**. Project-scoped rows show the Bitbucket project key
+in the source column and only the GitHub team slug in the destination column. The importer still
+matches the exact archive identity. User CSV header: `source_identity,target_username`. Team CSV header:
 `source_identity,target_team_slug`. Keep the exact source URL, including a Bitbucket
 group's project fragment. Mannequin mappings use an exact mannequin login or node ID.
 GHES prepares the archive, queries conflicts, applies matching approved users and teams

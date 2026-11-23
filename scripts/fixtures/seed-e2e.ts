@@ -533,7 +533,7 @@ insertFailedNativeMigration.run(
 );
 
 db.prepare(
-  "UPDATE migrations SET target_platform='ghes', target_profile_id='ghes', failure_reason=? WHERE id='seed-e2e-bitbucket-failed'",
+  "UPDATE migrations SET batch_id='seed-e2e-batch-bitbucket', target_platform='ghes', target_profile_id='ghes', failure_reason=? WHERE id='seed-e2e-bitbucket-failed'",
 ).run(
   "Bundler will use /tmp temporarily.\nPermission denied @ rb_sysopen - /workspace/export.tar.gz (Errno::EACCES)\nfrom /opt/bbs-exporter/lib/bbs_exporter/archiver.rb",
 );

@@ -1,4 +1,5 @@
 import { goto } from "$app/navigation";
+import { type MigrationTargetProfile, supportsMigrationTarget } from "$lib/migration-target";
 import {
   buildProfileMigrationPlan,
   defaultProfilePlanSelection,
@@ -12,6 +13,7 @@ interface PlannerOptions {
   getRepos(): PageData["repos"];
   getPlanningRepos(): PageData["planningRepos"];
   getDefaultTargetOrg(): string;
+  getTargets(): MigrationTargetProfile[];
   isRepoEligible?(name: string): boolean;
 }
 
@@ -30,6 +32,7 @@ export class ProfileMigrationPlannerController {
   private repoOverrides = $state<RunValue<Record<string, ProfilePlanRepo>> | null>(null);
   private targetNames = $state<RunValue<Record<string, string>> | null>(null);
   private targetOrgValue = $state<RunValue<string | null> | null>(null);
+  private targetChoice = $state<RunValue<string> | null>(null);
   private blockersAcceptedValue = $state<RunValue<boolean> | null>(null);
   private errorValue = $state<RunValue<string> | null>(null);
   private launchingValue = $state<RunValue<boolean> | null>(null);
@@ -67,6 +70,29 @@ export class ProfileMigrationPlannerController {
   get targetOrg(): string {
     const override = this.targetOrgValue?.runId === this.runId ? this.targetOrgValue.value : null;
     return override ?? this.options.getDefaultTargetOrg();
+  }
+
+  get targets() {
+    return this.options
+      .getTargets()
+      .filter((target) =>
+        supportsMigrationTarget(this.options.getRun().sourceProvider, target.platform),
+      );
+  }
+
+  get targetProfileId(): string {
+    return (
+      this.targets.find(
+        (target) =>
+          this.targetChoice?.runId === this.runId && this.targetChoice.value === target.id,
+      )?.id ?? ""
+    );
+  }
+
+  setTargetProfileId(id: string): void {
+    this.targetChoice = { runId: this.runId, value: id };
+    this.setTargetOrg("");
+    this.setError("");
   }
 
   get blockersAccepted(): boolean {
@@ -117,6 +143,7 @@ export class ProfileMigrationPlannerController {
   get submitDisabled(): boolean {
     return (
       this.selectedNames.length === 0 ||
+      !this.targetProfileId ||
       !this.targetOrg.trim() ||
       !!this.targetNameError ||
       (this.selectedBlockers > 0 && !this.blockersAccepted)
@@ -224,6 +251,7 @@ export class ProfileMigrationPlannerController {
           profileRunId: plan.profileRunId,
           sourceProvider: plan.sourceProvider,
           sourceApiUrl: plan.sourceApiUrl,
+          targetProfileId: plan.targetProfileId,
           targetOrg: plan.targetOrg,
           items: plan.items,
         }),
@@ -261,8 +289,10 @@ export class ProfileMigrationPlannerController {
 
   private createPlan() {
     const run = this.options.getRun();
+    if (!this.targetProfileId) throw new Error("Choose a destination for this batch.");
     return buildProfileMigrationPlan({
       profileRunId: run.id,
+      targetProfileId: this.targetProfileId,
       sourceProvider: run.sourceProvider,
       sourceApiUrl: run.sourceApiUrl,
       sourceOrg: run.org,

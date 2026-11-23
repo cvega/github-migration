@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test("batch header reports only indicators for its migration route", async ({ page }) => {
+	const header = page.locator("main header");
+	for (const width of [390, 1174, 1440]) {
+		await page.setViewportSize({ width, height: 900 });
+		await page.goto("/migrate/batches/seed-e2e-batch-bitbucket");
+		await expect(header.getByText("Bitbucket API", { exact: true })).toBeVisible();
+		await expect(header.getByText("GHES import over SSH")).toBeVisible();
+		await expect(header).not.toContainText(/API token|GitHub App|GitHub operational|active incidents?/);
+	}
+	await page.goto("/migrate/batches/seed-e2e-batch-one");
+	await expect(header.getByText(/^Source (API token|GitHub App)$/)).toBeVisible();
+	await expect(header.getByText(/^Target (API token|GitHub App)$/)).toBeVisible();
+	await expect(header.getByText(/GitHub operational|active incidents?/)).toBeVisible();
+	await expect(header).not.toContainText("GHES import over SSH");
+});
+
 test("searches migrations from the application header", async ({ page }) => {
 	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate");
@@ -25,6 +41,9 @@ test("searches migrations from the application header", async ({ page }) => {
 	await search.fill("repository-one");
 
 	await expect(page).toHaveURL(/\/migrate\?q=repository-one$/);
+	await expect(page.getByText(/^Source (API token|GitHub App)$/)).toBeVisible();
+	await expect(page.getByText(/^Target (API token|GitHub App)$/)).toBeVisible();
+	await expect(page.getByText("GHES import over SSH")).toHaveCount(0);
 	await expect(page.getByRole("heading", { name: "Matching batches (1)" })).toBeVisible();
 	await expect(page.getByRole("heading", { name: "Repositories (1)" })).toBeVisible();
 	await expect(page.getByText("source-one/repository-one", { exact: true })).toBeVisible();
@@ -38,6 +57,7 @@ test("searches migrations from the application header", async ({ page }) => {
 	);
 	await header.getByRole("button", { name: "Clear migration search" }).click();
 	await expect(page).toHaveURL(/\/migrate$/);
+	await expect(page.getByText(/^Source (API token|GitHub App)$/)).toHaveCount(0);
 	await expect(header.getByRole("searchbox", { name: "Search migrations" })).toHaveValue("");
 	await expect(search).toBeFocused();
 });

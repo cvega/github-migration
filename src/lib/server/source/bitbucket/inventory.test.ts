@@ -49,6 +49,80 @@ function repository(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Bitbucket Server inventory", () => {
+  test("distinguishes explicit root LFS rules from missing files and incomplete evidence", async () => {
+    for (const [attributes, expected] of [
+      [
+        response({ lines: [{ text: '"assets/*.bin" diff=lfs filter=lfs' }], isLastPage: false }),
+        "found",
+      ],
+      [
+        response({
+          lines: [{ text: "# *.bin filter=lfs" }, { text: "*.png diff=lfs" }],
+          isLastPage: true,
+        }),
+        "none",
+      ],
+      [
+        response(
+          { errors: [{ exceptionName: "com.atlassian.bitbucket.content.NoSuchPathException" }] },
+          404,
+        ),
+        "none",
+      ],
+      [response({}, 404), "unknown"],
+      [response({}, 403), "unknown"],
+      [response({ lines: [], isLastPage: false }), "unknown"],
+    ] as const) {
+      const api = client([
+        response({ version: "9.4.14" }),
+        response({ values: [repository()], isLastPage: true }),
+        attributes,
+      ]);
+      const result = await discoverBitbucketInventory(api, "PLATFORM", { checkLfs: true });
+      expect(result.projects[0]?.providerDetails).toMatchObject({
+        rootLfsRules: expected,
+        forkedFromPath: "PLATFORM/template",
+      });
+      expect(api.getApiCalls()).toBe(3);
+    }
+  });
+  test("reads repository settings sizes under the configured context without assuming total or LFS bytes", async () => {
+    const paths: string[] = [];
+    const api = new BitbucketServerClient({
+      baseUrl: "https://bitbucket.example.com/stash",
+      username: "user",
+      password: "secret",
+      maxRetries: 0,
+      fetch: async (input) => {
+        const path = new URL(input.toString()).pathname;
+        paths.push(path);
+        if (path.endsWith("/application-properties")) return response({ version: "9.0" });
+        if (path.endsWith("/repos"))
+          return response({
+            values: [
+              repository({ size: undefined }),
+              repository({ id: 8, slug: "hidden", size: undefined }),
+            ],
+            isLastPage: true,
+          });
+        return path.endsWith("/widget/sizes")
+          ? response({ repository: 13312, attachments: 0 })
+          : response({}, 403);
+      },
+    });
+    const result = await discoverBitbucketInventory(api, "PLATFORM", { includeStorage: true });
+    expect(paths).toContain("/stash/projects/PLATFORM/repos/widget/sizes");
+    expect(result.projects[1]).toMatchObject({
+      repositorySizeBytes: { kind: "exact", value: 13312 },
+      uploadsSizeBytes: { kind: "exact", value: 0 },
+      storageSizeBytes: { kind: "unavailable" },
+      lfsObjectsSizeBytes: { kind: "unavailable" },
+    });
+    expect(result.projects[0]).toMatchObject({
+      repositorySizeBytes: { kind: "unavailable", reason: "forbidden" },
+      uploadsSizeBytes: { kind: "unavailable", reason: "forbidden" },
+    });
+  });
   test("normalizes paginated repositories and reports progress", async () => {
     const api = client([
       response({ version: "8.19.2" }),

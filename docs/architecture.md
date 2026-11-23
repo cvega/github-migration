@@ -173,7 +173,11 @@ Verify uncertain or rejected invitations in GitHub before taking further action.
 The manager enforces one app-wide limit of ten executing migrations. Requests
 beyond capacity remain durable in `queued` state. When an execution promise
 settles, a transactional dequeue claims the oldest recoverable item and starts
-it. Batch migrations use the same queue; a batch is durable membership and
+it. The configured GHES appliance runs one dashboard migration at a time because
+`ghe-migrator` holds an appliance-wide lock. Other GHES requests wait in order,
+including single runs and restarts. Cloud work can use the remaining slots.
+This does not coordinate imports started outside the dashboard.
+Batch migrations use the same queue; a batch is durable membership and
 identity metadata rather than a second execution mechanism.
 
 On startup, queued requests using server-owned environment PAT or GitHub App

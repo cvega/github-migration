@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { closeStore, initStore } from "$lib/server/core/db";
-import type { SourceNamespaceInventory } from "$lib/source/types";
+import type {
+  BitbucketProfileEnrichment,
+  ProfileNumericMetric,
+  SourceNamespaceInventory,
+} from "$lib/source/types";
 import {
+  getBitbucketActivityPage,
+  getBitbucketLfsReportRows,
+  getBitbucketLfsTracking,
   getProfileInventory,
   getProfileInventorySummary,
   saveProfileInventory,
@@ -54,6 +61,109 @@ function createRun(): void {
 }
 
 describe("profile source inventories", () => {
+  test("counts LFS rules across captured Bitbucket repositories, excluding unknown and legacy checks", () => {
+    const provider = "bitbucket-server";
+    const sourceApiUrl = "https://bb.example.com/rest/api/1.0";
+    createProfileRun({ id: "bb", org: "PC", sourceProvider: provider, sourceApiUrl });
+    const base = inventory().projects[0]!;
+    const states = ["none", undefined, "unknown", "found"] as const;
+    saveProfileInventory("bb", {
+      version: 1,
+      provider,
+      sourceApiUrl,
+      namespace: "PC",
+      projectCount: { kind: "exact", value: states.length },
+      projects: states.map((state, i) => ({
+        ...base,
+        provider,
+        sourceId: String(i),
+        path: `PC/repo-${i}`,
+        ...(state ? { providerDetails: { provider, rootLfsRules: state } } : {}),
+      })),
+    });
+    expect(getBitbucketLfsTracking("bb")).toEqual({ checked: 2, found: 1, example: "PC/repo-3" });
+    expect(getBitbucketLfsReportRows("bb")).toEqual(
+      states.map((state, i) => ({
+        repository: `PC/repo-${i}`,
+        defaultBranch: "main",
+        rootLfsRules: state ?? "unknown",
+      })),
+    );
+  });
+  test("pages Bitbucket activity with inventory-wide coverage and preserves legacy rows", () => {
+    const provider = "bitbucket-server";
+    const sourceApiUrl = "https://bb.example.com/rest/api/1.0";
+    const namespace = "PC";
+    createProfileRun({ id: "bb", org: namespace, sourceProvider: provider, sourceApiUrl });
+    const base = inventory().projects[0];
+    if (!base) throw new Error("missing fixture");
+    const projects = Array.from({ length: 11 }, (_, i) => ({
+      ...base,
+      provider: "bitbucket-server" as const,
+      sourceId: String(i),
+      path: `PC/repo-${i}`,
+    }));
+    const metric: ProfileNumericMetric = {
+      provider,
+      endpointFamily: "repository-pull-requests",
+      collectedAt: new Date(0).toISOString(),
+      observation: { kind: "exact", value: 2, basis: "enumerated", scope: "visible" },
+    };
+    const metrics = {
+      commits: metric,
+      pullRequests: metric,
+      branches: metric,
+      tags: metric,
+      forks: metric,
+    };
+    const review = {
+      open: 2,
+      merged: 0,
+      declined: 0,
+      oldestOpenCreatedAt: null,
+      latestUpdatedAt: null,
+    };
+    const enrichment: BitbucketProfileEnrichment = {
+      version: 2,
+      provider,
+      sourceApiUrl,
+      namespace,
+      projects: projects.map(({ path, sourceId }, i) => ({
+        path,
+        sourceId,
+        metrics,
+        ...(i === 1
+          ? {}
+          : {
+              activity: {
+                defaultBranch: "main",
+                tipCommittedAt: null,
+                review: i === 10 ? review : null,
+              },
+            }),
+      })),
+    };
+    settleProfileInventoryRun(
+      "bb",
+      {
+        version: 1,
+        provider,
+        sourceApiUrl,
+        namespace,
+        projectCount: { kind: "exact", value: 11 },
+        projects,
+      },
+      50,
+      1,
+      enrichment,
+    );
+    expect(getBitbucketActivityPage("bb", 1).rows[1]?.activity).toBeNull();
+    expect(getBitbucketActivityPage("bb", 99)).toMatchObject({
+      coverage: { total: 11, collected: 10, covered: 1, open: 2, withOpen: 1 },
+      pagination: { page: 2, totalPages: 2 },
+      rows: [{ path: "PC/repo-10", activity: { review } }],
+    });
+  });
   test("round-trips normalized projects in source order and persists a compact summary", () => {
     createRun();
     const snapshot = inventory();

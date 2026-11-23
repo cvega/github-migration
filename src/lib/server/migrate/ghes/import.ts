@@ -19,7 +19,12 @@ import {
 import type { MigrationEventEmitter } from "../github/monitor";
 import { fetchMigrationTargetCounts } from "../target-counts";
 import type { GhesImportJobPhase } from "./job";
-import { buildGhesMigrationMap, countGhesAuditFailures, getGhesUserConflicts } from "./mapping";
+import {
+  approvedBitbucketRecords,
+  buildGhesMigrationMap,
+  countGhesAuditFailures,
+  getGhesUserConflicts,
+} from "./mapping";
 import type { GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
@@ -66,6 +71,7 @@ export interface ExporterGhesSourceAdapter {
   createWorker(config: GhesTargetConnectionConfig): ExporterWorker;
   createSshClient(config: GhesTargetConnectionConfig): GhesImportClient;
   verifyTargetUser?(config: GhesTargetConnectionConfig, login: string): Promise<void>;
+  localMappingRecords?(archivePath: string, signal?: AbortSignal): Promise<string>;
   fetchTargetCounts?: typeof fetchMigrationTargetCounts;
   sourceWasLocked(migration: Migration, signal?: AbortSignal): Promise<boolean>;
   unlockSource?(migration: Migration): Promise<void>;
@@ -230,9 +236,34 @@ async function execute(
         "mapping",
         "Generating and applying GHES mappings",
       );
-      let conflicts = await ssh.conflicts(guid);
+      const upfront = source.provider === "bitbucket-server";
+      let conflicts = upfront ? { stdout: "", stderr: "" } : await ssh.conflicts(guid);
       const sourceKind = `ghe-migrator:${migration.sourceProvider}`;
-      let records = (await ssh.mappingRecords(guid)).stdout;
+      let records: string;
+      if (upfront && source.localMappingRecords) {
+        const start = performance.now();
+        try {
+          // If a large archive takes longer to scan, use the supported GHES audit instead.
+          const timeout = AbortSignal.timeout(5_000);
+          const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
+          records = await source.localMappingRecords(job.archivePath!, signal);
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            `Read this repository's mapping records locally in ${Math.round(performance.now() - start)} ms; skipped GHES mapping audit`,
+          );
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            `Using GHES mapping audit: ${error instanceof Error ? error.message : "archive metadata unavailable"}`,
+          );
+          records = (await ssh.mappingRecords(guid, true)).stdout;
+        }
+      } else records = (await ssh.mappingRecords(guid, upfront)).stdout;
       options.signal?.throwIfAborted();
       const approved = listIdentityMappings(migration.targetApiUrl, migration.targetOrg).filter(
         (mapping) => mapping.status === "approved",
@@ -247,6 +278,7 @@ async function execute(
         );
       const userMappings = mappingsFor(sourceKind);
       const teamMappings = mappingsFor(`${sourceKind}:team`);
+      if (upfront) records = approvedBitbucketRecords(records, userMappings, teamMappings);
       const verifiedLogins = new Set<string>();
       const appliedMappings = new Set<string>();
       let client: ReturnType<typeof createSingleClient> | undefined;
@@ -298,9 +330,23 @@ async function execute(
           );
         }
         updateGhesImportJobCheckpoint(job.id, "mapping");
+        if (upfront)
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            "Applying mappings to the prepared Bitbucket archive",
+          );
         await ssh.map(guid, mapping);
         appliedMappings.add(mapping);
         options.signal?.throwIfAborted();
+        if (upfront)
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            "Checking GHES for remaining conflicts",
+          );
         conflicts = await ssh.conflicts(guid);
         options.signal?.throwIfAborted();
         records = "";

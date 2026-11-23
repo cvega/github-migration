@@ -81,6 +81,7 @@ const sourceProjectProviderDetailsSchema = z.discriminatedUnion("provider", [
       description: z.string().max(10_000).nullable().optional(),
       scmId: z.string().min(1).max(255).optional(),
       forkable: z.boolean().optional(),
+      rootLfsRules: z.enum(["found", "none", "unknown"]).optional(),
       forkedFromPath: z.string().min(1).max(2_048).optional(),
       state: z.string().min(1).max(255).optional(),
     })

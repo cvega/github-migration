@@ -14,6 +14,7 @@ import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/serv
 import {
   approveIdentityMapping,
   discoverIdentityMapping,
+  editIdentityMapping,
   listIdentityMappings,
   removeIdentityMapping,
   saveIdentityMappings,
@@ -23,10 +24,14 @@ import { getMigration } from "$lib/server/migrate/database/migrations";
 import { getGhesUserConflicts } from "$lib/server/migrate/ghes/mapping";
 import { GhesSshClient } from "$lib/server/migrate/ghes/ssh";
 import {
+  bitbucketGroupIdentity,
+  bitbucketUserIdentity,
   isIdentitySourceKind,
   parseIdentityCsv,
+  sourceIdentityLabel,
   validateIdentityInput,
 } from "$lib/server/migrate/identity-input";
+import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
 import type { Actions, PageServerLoad } from "./$types";
 
 const LOGIN_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})$/;
@@ -73,6 +78,7 @@ export const load: PageServerLoad = async ({ url }) => {
         )
         .map((mapping) => ({
           ...mapping,
+          sourceLabel: sourceIdentityLabel(mapping.sourceKind, mapping.sourceIdentity),
           targetId: profile.id,
           host: new URL(profile.webUrl).host,
         })),
@@ -92,6 +98,40 @@ export const load: PageServerLoad = async ({ url }) => {
 };
 
 export const actions: Actions = {
+  editMapping: async ({ request, locals }) => {
+    const data = await request.formData();
+    const targetId = String(data.get("target") ?? "");
+    const target = targetId ? getMigrationTargetProfile(targetId) : null;
+    const organization = String(data.get("organization") ?? "");
+    const sourceKind = String(data.get("sourceKind") ?? "");
+    if (!target?.organizations.includes(organization) || !isIdentitySourceKind(sourceKind))
+      return fail(400, { error: "Choose a configured target and saved mapping." });
+    let mapping: ReturnType<typeof validateIdentityInput>;
+    try {
+      mapping = validateIdentityInput(sourceKind, {
+        sourceIdentity: String(data.get("sourceIdentity") ?? ""),
+        targetLogin: String(data.get("targetLogin") ?? ""),
+      });
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : "Invalid mapping." });
+    }
+    const previous = String(data.get("previousLogin") ?? "");
+    if (!editIdentityMapping(target.apiUrl, organization, sourceKind, mapping, previous))
+      return fail(409, { error: "The mapping changed or was removed. Reload before editing." });
+    recordOperatorAuditEvent(locals, {
+      action: "migration.identity_mapping_edited",
+      resourceType: "migration_identity",
+      resourceId: mapping.sourceIdentity,
+      metadata: {
+        targetProfileId: target.id,
+        organization,
+        sourceKind,
+        previous,
+        targetLogin: mapping.targetLogin,
+      },
+    });
+    return { success: "Mapping updated. Existing GitHub invitations are unchanged." };
+  },
   removeMapping: async ({ request, locals }) => {
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "").trim();
@@ -135,7 +175,19 @@ export const actions: Actions = {
         ? parseIdentityCsv(sourceKind, await file.text())
         : [
             validateIdentityInput(sourceKind, {
-              sourceIdentity: String(data.get("sourceIdentity") ?? ""),
+              sourceIdentity:
+                sourceKind === "ghe-migrator:bitbucket-server:team" && data.has("projectKey")
+                  ? bitbucketGroupIdentity(
+                      getBitbucketServerSourceConfig().apiUrl,
+                      String(data.get("projectKey") ?? "").trim(),
+                      String(data.get("groupName") ?? "").trim(),
+                    )
+                  : sourceKind === "ghe-migrator:bitbucket-server" && data.has("sourceUsername")
+                    ? bitbucketUserIdentity(
+                        getBitbucketServerSourceConfig().apiUrl,
+                        String(data.get("sourceUsername") ?? "").trim(),
+                      )
+                    : String(data.get("sourceIdentity") ?? ""),
               targetLogin: String(data.get("targetLogin") ?? ""),
             }),
           ];
@@ -206,6 +258,7 @@ export const actions: Actions = {
         checked.push({
           sourceKind: mapping.sourceKind,
           sourceIdentity: mapping.sourceIdentity,
+          sourceLabel: sourceIdentityLabel(mapping.sourceKind, mapping.sourceIdentity),
           user,
           match: match?.kind ?? null,
           claimant: claimant?.login ?? null,

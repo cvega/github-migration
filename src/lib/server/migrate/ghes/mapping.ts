@@ -39,6 +39,23 @@ export function getGhesUserConflicts(conflictsCsv: string): string[] {
     .map((row) => row.source_url);
 }
 
+export function approvedBitbucketRecords(
+  csv: string,
+  users: ReadonlyMap<string, string>,
+  teams: ReadonlyMap<string, string>,
+): string {
+  const records = parseRows(csv).filter(
+    (row) =>
+      row.model_name === "organization" ||
+      row.model_name === "repository" ||
+      (row.model_name === "user" && users.has(row.source_url)) ||
+      (row.model_name === "team" && teams.has(row.source_url)),
+  );
+  if (!records.some((row) => row.model_name === "repository"))
+    throw new Error("GHES mapping audit returned no repository for the prepared Bitbucket archive");
+  return stringify(records, { header: true, columns: Object.keys(records[0]!) });
+}
+
 export function buildGhesMigrationMap(
   conflictsCsv: string,
   recordsCsv: string,

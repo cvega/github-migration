@@ -1,14 +1,18 @@
 import { MAX_PROFILE_PLAN_REPOS, type ProfilePlanRepo } from "$lib/profile/migration-plan";
 import type { RepositoryAnalysisDetail } from "$lib/profile/repository-analysis";
+import type { ProfileInventorySummary } from "$lib/profile/types";
 import { getSourceClients } from "$lib/server/core/auth";
 import type { SourceInventoryProgress } from "$lib/source/types";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import { deriveInsights, type Insight } from "./analysis/insights";
-import type { ProfileInventorySummary } from "./analysis/overview";
 import { buildProfileDetailRollup, type ProfileDetailRollup } from "./analysis/rollup";
 import { getOrgResources } from "./collection/org-resources";
 import { getOrgRulesetCount } from "./collection/rulesets";
-import { failProfileInventoryRun, getProfileInventorySummary } from "./database/inventories";
+import {
+  failProfileInventoryRun,
+  getBitbucketLfsTracking,
+  getProfileInventorySummary,
+} from "./database/inventories";
 import {
   getRunRepoPlanProfiles,
   getRunRepoProfilesPage,
@@ -199,6 +203,14 @@ interface RepoProfileView extends StoredRepoProfile {
   insights: Insight[];
 }
 type DetailMetrics = { [K in keyof ProfileDetailRollup]: ProfileDetailRollup[K] | null };
+function inventorySummaryFor(run: ProfileRun): ProfileInventorySummary | null {
+  if (getSourceProviderAdapter(run.sourceProvider).profileKind !== "source-inventory") return null;
+  const summary = getProfileInventorySummary(run.id);
+  return summary && run.sourceProvider === "bitbucket-server"
+    ? { ...summary, lfsTracking: getBitbucketLfsTracking(run.id) }
+    : summary;
+}
+
 export interface ProfileDetail extends DetailMetrics {
   run: ProfileRun;
   repos: RepoProfileView[];
@@ -214,10 +226,7 @@ export function getProfileStatus(
   if (!run) return null;
   return {
     run,
-    inventorySummary:
-      getSourceProviderAdapter(run.sourceProvider).profileKind === "source-inventory"
-        ? getProfileInventorySummary(id)
-        : null,
+    inventorySummary: inventorySummaryFor(run),
   };
 }
 export function getProfileRepoPage(
@@ -264,10 +273,7 @@ export function getProfileDetail(
     run,
     ...page,
     ...(rollup ?? { scale: null, composition: null, summary: null, estimate: null }),
-    inventorySummary:
-      getSourceProviderAdapter(run.sourceProvider).profileKind === "source-inventory"
-        ? getProfileInventorySummary(id)
-        : null,
+    inventorySummary: inventorySummaryFor(run),
     planningRepos:
       run.state === "completed" &&
       getSourceProviderAdapter(run.sourceProvider).capabilities.planning

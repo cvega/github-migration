@@ -89,6 +89,92 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("GHES import execution", () => {
+  test.each([false, true])(
+    "Bitbucket sends approved archive mappings upfront; remaining conflict: %s",
+    async (blocked) => {
+      const record = migration("bitbucket-upfront");
+      record.sourceProvider = "bitbucket-server";
+      record.batchId = "bitbucket-batch";
+      insertMigration(record);
+      const sibling = {
+        ...record,
+        id: "queued-sibling",
+        state: "queued" as const,
+        sourceRepo: "other",
+        targetRepo: "other",
+      };
+      insertMigration(sibling);
+      approveIdentityMapping({
+        targetApiUrl: record.targetApiUrl,
+        targetOrg: record.targetOrg,
+        sourceKind: "ghe-migrator:bitbucket-server:team",
+        sourceIdentity: "https://bb/known",
+        targetLogin: "approved-team",
+      });
+      const source = adapter({
+        submit: async (request) => {
+          expect(request.migrationId).toBe(record.id);
+          return { jobId: "export-job" };
+        },
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/bitbucket-upfront.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      source.provider = "bitbucket-server";
+      const ssh = source.createSshClient({} as never);
+      const calls: string[] = [];
+      const csv =
+        "model_name,source_url,target_url,state\nrepository,https://bb/repo,,exported\nteam,https://bb/known,,exported\nteam,https://bb/unknown,,exported\n";
+      source.localMappingRecords = async (path) => {
+        expect(path).toBe("/tmp/bitbucket-upfront.tar.gz");
+        calls.push("local");
+        if (blocked) throw new Error("Archive manifests not available");
+        return csv;
+      };
+      ssh.mappingRecords = async (_guid, include) => {
+        expect(include).toBe(true);
+        calls.push("audit");
+        return {
+          stdout: csv,
+          stderr: "",
+        };
+      };
+      ssh.map = async (_guid, csv) => {
+        calls.push("map");
+        expect(csv).toContain(
+          "https://bb/known,https://ghes.example/orgs/target/teams/approved-team,merge",
+        );
+        expect(csv).not.toContain("https://bb/unknown");
+        return { stdout: "", stderr: "" };
+      };
+      ssh.conflicts = async () => {
+        calls.push("conflicts");
+        return {
+          stdout: blocked
+            ? "model_name,source_url,target_url,recommended_action\nteam,https://bb/unknown,,merge\n"
+            : "",
+          stderr: "",
+        };
+      };
+      ssh.import = async () => {
+        calls.push("import");
+        return { stdout: "", stderr: "" };
+      };
+      source.createSshClient = () => ssh;
+      const result = await runExporterGhesMigration(
+        { id: record.id, sourceProvider: record.sourceProvider, emit: () => {} },
+        source,
+      );
+      expect(calls).toEqual(
+        blocked ? ["local", "audit", "map", "conflicts"] : ["local", "map", "conflicts", "import"],
+      );
+      expect(result.state).toBe(blocked ? "reconciliation_required" : "succeeded");
+      expect(getGhesImportJobByMigrationId(sibling.id)).toBeNull();
+    },
+  );
   test("checkpoints exporter, transfer, prepare, import, audit, and unlock", async () => {
     const record = migration("ghes-success");
     insertMigration(record);
@@ -342,6 +428,12 @@ describe("GHES import execution", () => {
     source.fetchTargetCounts = async () => {
       throw new Error("Target API unavailable");
     };
+    const ssh = source.createSshClient({} as never);
+    ssh.mappingRecords = async () => ({
+      stdout: "model_name,source_url,target_url,state\nrepository,https://bb/project,,exported\n",
+      stderr: "",
+    });
+    source.createSshClient = () => ssh;
     const events: MigrationEvent[] = [];
 
     const result = await runExporterGhesMigration(

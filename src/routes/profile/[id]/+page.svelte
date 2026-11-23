@@ -73,6 +73,7 @@
 		getRepos: () => live.repos,
 		getPlanningRepos: () => eligiblePlanningRepos,
 		getDefaultTargetOrg: () => "",
+		getTargets: () => data.targetProfiles ?? [],
 		isRepoEligible: (name) => eligiblePlanningNames.includes(name),
 	});
 </script>
@@ -84,6 +85,8 @@
 
 	{#if provider.profileKind === "source-inventory"}
 		<SourceInventory
+			profileId={run.id}
+			bitbucket={run.sourceProvider === "bitbucket-server"}
 			providerName={provider.displayName}
 			running={run.state === "running"}
 			progress={live.inventoryProgress}

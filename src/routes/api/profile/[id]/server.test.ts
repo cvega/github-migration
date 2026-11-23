@@ -16,6 +16,28 @@ beforeEach(() => {
 type GetArgs = Parameters<typeof GET>[0];
 
 describe("GET /api/profile/[id]", () => {
+  test("downloads a profile-scoped Bitbucket LFS report", async () => {
+    const args = {
+      params: { id: "bb-lfs" },
+      url: new URL("https://example.test/api/profile/bb-lfs?view=lfs"),
+    } as GetArgs;
+    expect((await GET(args)).status).toBe(404);
+    createProfileRun({
+      id: "bb-lfs",
+      sourceProvider: "bitbucket-server",
+      sourceApiUrl: "https://bb.example.com/rest/api/1.0",
+      org: "BB",
+    });
+    const response = await GET(args);
+    expect(response.headers.get("content-disposition")).toContain(
+      'filename="lfs-tracking-bb-lfs.json"',
+    );
+    expect(await response.json()).toMatchObject({
+      profileId: "bb-lfs",
+      project: "BB",
+      repositories: [],
+    });
+  });
   test("returns a compact GitLab summary with uncertainty and no full inventory", async () => {
     createProfileRun({
       id: "gitlab-detail",

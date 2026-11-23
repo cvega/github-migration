@@ -233,6 +233,7 @@ export type ProfileInventoryMetricKey =
   | "forks";
 
 export interface ProfileInventorySummary {
+  lfsTracking?: { found: number; checked: number; example: string | null };
   projectCount: NumericObservation;
   projectsCaptured: number;
   visibility: Record<SourceProjectInventory["visibility"], number>;
@@ -258,6 +259,7 @@ export interface ProfilePlanRepo {
 
 export interface ProfileMigrationPlan {
   version: 3;
+  targetProfileId: string;
   profileRunId: string;
   sourceProvider: SourceProvider;
   sourceApiUrl: string;

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
+	import Octicon from "$lib/components/Octicon.svelte";
 
 	let { data, form } = $props();
 	let teams = $state(false);
-	let editor = $state<"manual" | "csv" | null>(null);
+	let editor = $state<"manual" | "csv" | "edit" | null>(null);
+	let editing = $state.raw<(typeof data.identityMappings)[number] | null>(null);
 	let selection = $state("");
 	let source = $state("");
 	let busy = $state(false);
@@ -13,7 +15,7 @@
 	const scope = $derived(options.find(s => key(s) === selection) ?? options.find(s => s.target === data.target.id && s.organization === data.organization) ?? options[0]);
 	const sources = $derived([
 		...(scope?.platform === "ghes" ? [
-			[`ghe-migrator:bitbucket-server${teams ? ":team" : ""}`, "Bitbucket Server URL"],
+			[`ghe-migrator:bitbucket-server${teams ? ":team" : ""}`, teams ? "Bitbucket group" : "Bitbucket user"],
 			[`ghe-migrator:gitlab${teams ? ":team" : ""}`, "GitLab URL"],
 		] : []),
 		...(!teams ? [["mannequin-login", "Mannequin login"], ["mannequin-id", "Mannequin node ID"]] : []),
@@ -49,7 +51,17 @@
 		<button type="button" class="primary" disabled={!options.length || busy} onclick={() => editor = "manual"}>Add {kind} mapping</button>
 	</div>
 	{#if !options.length}<p class="text-sm text-gray-400">{teams ? "Team merges are supported for GHES imports only." : "No target organizations configured."} <a href="/setup#targets" class="text-blue-400">Open Setup</a></p>{/if}
-	{#if editor && scope}
+	{#if editor === "edit" && editing}
+		<form method="POST" action="?/editMapping" use:enhance={submit} class="space-y-3 rounded-md border border-gray-700 bg-gray-900 p-4">
+			<h3 class="font-semibold">Edit {kind} mapping for {editing.sourceLabel}</h3>
+			<input type="hidden" name="target" value={editing.targetId} /><input type="hidden" name="organization" value={editing.targetOrg} />
+			<input type="hidden" name="sourceKind" value={editing.sourceKind} /><input type="hidden" name="sourceIdentity" value={editing.sourceIdentity} />
+			<input type="hidden" name="previousLogin" value={editing.targetLogin} />
+			<label>{teams ? "Target team slug" : "Target username"}<input name="targetLogin" value={editing.targetLogin} required maxlength={teams ? 100 : 39} /></label>
+			<div class="flex justify-end gap-2"><button type="button" class="secondary" onclick={() => editor = null}>Cancel</button>
+				<button type="submit" class="primary" disabled={busy}>Save changes</button></div>
+		</form>
+	{:else if editor && scope}
 		<form method="POST" enctype="multipart/form-data" action="?/saveMappings" use:enhance={submit} class="space-y-3 rounded-md border border-gray-700 bg-gray-900 p-4">
 			<h3 class="font-semibold">{editor === "csv" ? `Import ${kind} mappings` : `Add ${kind} mapping`}</h3>
 			<input type="hidden" name="target" value={scope.target} /><input type="hidden" name="organization" value={scope.organization} />
@@ -64,7 +76,15 @@
 				</select></label>
 			</div>
 			{#if editor === "manual"}
-				<div class="grid gap-3 sm:grid-cols-2"><label>{teams ? "Source group or team URL" : "Source identity"}<input name="sourceIdentity" required maxlength="2048" /></label>
+				<div class="grid gap-3 {sourceKind === 'ghe-migrator:bitbucket-server:team' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}">
+					{#if sourceKind === "ghe-migrator:bitbucket-server:team"}
+						<label>Bitbucket project key<input name="projectKey" required placeholder="PROF01" /></label>
+						<label>Bitbucket group name<input name="groupName" required placeholder="project_admin_access" maxlength="2048" /></label>
+					{:else if sourceKind === "ghe-migrator:bitbucket-server"}
+						<label>Bitbucket username<input name="sourceUsername" required maxlength="2048" /></label>
+					{:else}
+						<label>{teams ? "Source group or team URL" : "Source identity"}<input name="sourceIdentity" required maxlength="2048" /></label>
+					{/if}
 					<label>{teams ? "Target team slug" : "Target username"}<input name="targetLogin" required maxlength={teams ? 100 : 39} /></label></div>
 			{:else}
 				<label>CSV file<input type="file" name="csv" accept=".csv,text/csv" required /></label>
@@ -79,11 +99,12 @@
 		<div class="hidden grid-cols-[1fr_1fr_5rem] gap-4 bg-gray-900 px-4 py-2 text-sm text-gray-400 sm:grid"><span>Source {teams ? "group or team" : "user"}</span><span>GitHub {kind}</span></div>
 		{#each rows as row ([row.targetApiUrl,row.targetOrg,row.sourceKind,row.sourceIdentity].join("\0"))}
 			<div class="grid items-center gap-2 border-t border-gray-800 px-4 py-3 sm:grid-cols-[1fr_1fr_5rem] sm:gap-4">
-				<span class="min-w-0 break-words font-mono text-sm">{row.sourceIdentity}</span>
-				<div class="min-w-0 break-words"><span class="font-mono text-sm">{teams ? "" : "@"}{row.targetLogin}</span><div class="text-sm text-gray-400">{row.host}/{row.targetOrg}</div></div>
-				<form method="POST" action="?/removeMapping" use:enhance={submit}>
+				<span class="min-w-0 break-words font-mono text-sm">{row.sourceLabel}</span>
+				<span class="min-w-0 break-words font-mono text-sm">{teams ? "" : "@"}{row.targetLogin}</span>
+				<form method="POST" action="?/removeMapping" use:enhance={submit} class="flex gap-2 sm:justify-end">
 					<input type="hidden" name="target" value={row.targetId} /><input type="hidden" name="organization" value={row.targetOrg} /><input type="hidden" name="sourceKind" value={row.sourceKind} /><input type="hidden" name="sourceIdentity" value={row.sourceIdentity} />
-					<button type="submit" disabled={busy} aria-label={`Remove mapping for ${row.sourceIdentity}`} class="text-sm text-gray-400 hover:text-red-400">Remove</button>
+					<button type="button" disabled={busy} aria-label={`Edit mapping for ${row.sourceLabel}`} title="Edit mapping" class="row-action hover:text-blue-400" onclick={() => { editing = row; editor = "edit"; }}><Octicon name="pencil" /></button>
+					<button type="submit" disabled={busy} aria-label={`Remove mapping for ${row.sourceLabel}`} title="Remove mapping" class="row-action hover:text-red-400"><Octicon name="trash" /></button>
 				</form>
 			</div>
 		{:else}<p class="px-4 py-3 text-sm text-gray-400">No saved {kind} mappings.</p>{/each}
@@ -97,7 +118,7 @@
 					<button type="submit" formaction="?/applyMappings" disabled={busy} class="secondary">Send matched invitations</button>
 				</form>
 			{/each}
-			{#each form?.checked ?? [] as item (item.sourceKind + item.sourceIdentity)}<p class="mt-2 text-sm">{item.sourceIdentity}: {item.user}{item.match ? ` · ${item.match}` : ""}{item.invitationStatus ? ` · ${item.invitationStatus}` : ""}{item.claimant ? ` · @${item.claimant}` : ""}</p>{/each}
+			{#each form?.checked ?? [] as item (item.sourceKind + item.sourceIdentity)}<p class="mt-2 text-sm">{item.sourceLabel}: {item.user}{item.match ? ` · ${item.match}` : ""}{item.invitationStatus ? ` · ${item.invitationStatus}` : ""}{item.claimant ? ` · @${item.claimant}` : ""}</p>{/each}
 			{#each form?.outcomes ?? [] as item (item.sourceKind + item.sourceIdentity)}<p class="mt-2 text-sm">{item.sourceIdentity}: {item.outcome}</p>{/each}
 		</details>
 	{/if}
@@ -106,6 +127,7 @@
 	.secondary,.primary { border:1px solid var(--color-gray-600);border-radius:6px;padding:6px 12px;font-size:14px;font-weight:500;background:var(--color-gray-900); }
 	.primary {border-color:var(--color-green-700);background:var(--color-green-700);color:white}
 	button:disabled {opacity:.5}
+	.row-action {display:inline-grid;place-items:center;width:2rem;height:2rem;border:1px solid var(--color-gray-600);border-radius:6px;background:var(--color-gray-900)}
 	label {display:block;min-width:0;font-size:14px;font-weight:500}
 	select,input:not([type=hidden]) {display:block;width:100%;min-width:0;margin-top:4px;border-radius:6px;border:1px solid var(--color-gray-600);background:var(--color-gray-950);padding:8px 12px;font-size:14px}
 </style>

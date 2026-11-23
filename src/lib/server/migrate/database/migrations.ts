@@ -13,6 +13,7 @@ import {
 } from "$lib/migrate/types";
 import {
   ALL_MIGRATION_STATES,
+  CAPACITY_MIGRATION_STATES,
   EXECUTING_MIGRATION_STATES,
   migrationStatesSql,
   RESTARTABLE_MIGRATION_STATES,
@@ -128,7 +129,9 @@ const eventPayloadSchemas = {
       detail: failureDetailSchema.optional(),
     })
     .strict(),
-  restart: z.object({ message: z.string() }).strict(),
+  restart: z
+    .object({ message: z.string(), previousState: z.enum(["failed", "cancelled"]).optional() })
+    .strict(),
 } satisfies Record<EventType, z.ZodType>;
 
 const persistedRequestOptionsSchema = z
@@ -618,12 +621,57 @@ export function searchMigrationsPaginated(
   };
 }
 
-export function getNextQueuedMigration(): Migration | null {
+export function hasExecutingGhesMigration(): boolean {
+  return !!getDb()
+    .prepare(`SELECT 1 FROM migrations WHERE target_platform = 'ghes'
+      AND state IN (${migrationStatesSql(CAPACITY_MIGRATION_STATES)}) LIMIT 1`)
+    .get();
+}
+
+// resetMigration refreshes started_at. Use the durable restart event rather than FIFO
+// to keep untouched siblings behind a failed row that is itself waiting for a slot.
+// Older restart events didn't record the previous state; prioritize those retries too.
+const RETRYING_FAILURE = `(SELECT CASE WHEN json_valid(e.payload)
+    THEN COALESCE(json_extract(e.payload, '$.previousState'), 'failed') = 'failed' ELSE 1 END
+    FROM events e WHERE e.migration_id = migrations.id AND e.event_type = 'restart'
+    ORDER BY e.id DESC LIMIT 1)`;
+
+const BLOCKER_STATES = "'failed', 'reconciliation_required'";
+
+export function isBatchAdmissionBlocked(
+  migration: Pick<Migration, "id" | "batchId" | "sourceProvider" | "targetPlatform" | "state">,
+): boolean {
+  if (
+    migration.batchId === null ||
+    migration.sourceProvider !== "bitbucket-server" ||
+    migration.targetPlatform !== "ghes"
+  )
+    return false;
+  return !!getDb()
+    .prepare(`SELECT 1 FROM migrations WHERE batch_id = $batch AND id != $id
+    AND (state IN (${BLOCKER_STATES}) OR (state = 'queued' AND NOT $retry AND ${RETRYING_FAILURE})) LIMIT 1`)
+    .get({
+      $batch: migration.batchId,
+      $id: migration.id,
+      $retry: Number(migration.state === "failed"),
+    });
+}
+
+export function getNextQueuedMigration(skipGhes = false): Migration | null {
   const row = getDb()
     .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
+      `WITH retries AS MATERIALIZED (
+         SELECT id, batch_id FROM migrations WHERE batch_id IS NOT NULL AND state = 'queued'
+           AND ${RETRYING_FAILURE}
+       )
+       SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE state = 'queued' AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-			 ORDER BY started_at ASC LIMIT 1`,
+			 ${skipGhes ? "AND target_platform != 'ghes'" : ""}
+			 AND NOT (batch_id IS NOT NULL AND source_provider = 'bitbucket-server'
+			   AND target_platform = 'ghes'
+			   AND (batch_id IN (SELECT batch_id FROM migrations WHERE batch_id IS NOT NULL AND state IN (${BLOCKER_STATES}))
+			     OR (batch_id IN (SELECT batch_id FROM retries) AND id NOT IN (SELECT id FROM retries))))
+			 ORDER BY started_at ASC, id ASC LIMIT 1`,
     )
     .get() as Record<string, unknown> | undefined;
   return row ? rowToMigration(row) : null;

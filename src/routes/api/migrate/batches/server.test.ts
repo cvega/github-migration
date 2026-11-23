@@ -45,6 +45,22 @@ test("rejects an unconfigured target profile", async () => {
   });
 });
 
+test("does not default a destination-less Bitbucket batch to GitHub Cloud", async () => {
+  const response = await POST({
+    request: new Request("http://localhost/api/migrate/batches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sourceProvider: "bitbucket-server",
+        repos: ["PROF01/service-01"],
+        targetOrg: "target",
+      }),
+    }),
+  } as never);
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toContain("targetProfileId");
+});
+
 test("rejects incomplete and foreign profile-backed batches", async () => {
   const request = (body: unknown) =>
     new Request("http://localhost/api/migrate/batches", {
@@ -58,6 +74,7 @@ test("rejects incomplete and foreign profile-backed batches", async () => {
   let response = await POST({
     request: request({
       profileRunId: "run",
+      targetProfileId: "ghec",
       items: [{ sourceRepo: "acme/repo", targetRepo: "repo" }],
       targetOrg: "target",
     }),
@@ -78,6 +95,7 @@ test("rejects incomplete and foreign profile-backed batches", async () => {
   response = await POST({
     request: request({
       profileRunId: "run",
+      targetProfileId: "ghec",
       items: [{ sourceRepo: "acme/repo", targetRepo: "repo" }],
       targetOrg: "target",
     }),
@@ -105,6 +123,7 @@ test("rejects only GitHub repositories still awaiting required analysis", async 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         profileRunId: "run",
+        targetProfileId: "ghec",
         items: [{ sourceRepo: "acme/risky", targetRepo: "risky" }],
         targetOrg: "target",
       }),

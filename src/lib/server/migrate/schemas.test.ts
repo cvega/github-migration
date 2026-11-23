@@ -52,7 +52,11 @@ describe("migration request schemas", () => {
       };
       expect(validateBody(createMigrationSchema, request)).toMatchObject({ ok: true });
       expect(
-        validateBody(batchMigrationSchema, { ...request, repos: ["TEST/repo-01"] }),
+        validateBody(batchMigrationSchema, {
+          ...request,
+          targetProfileId: "enterprise",
+          repos: ["TEST/repo-01"],
+        }),
       ).toMatchObject({ ok: true });
       expect(
         validateBody(createMigrationSchema, {
@@ -97,12 +101,15 @@ describe("migration request schemas", () => {
   });
 
   test("requires exactly one batch mapping form and unique target names", () => {
-    expect(validateBody(batchMigrationSchema, { targetOrg: "acme-cloud" })).toMatchObject({
+    expect(
+      validateBody(batchMigrationSchema, { targetProfileId: "ghec", targetOrg: "acme-cloud" }),
+    ).toMatchObject({
       ok: false,
       error: "repos: repos or items is required",
     });
     expect(
       validateBody(batchMigrationSchema, {
+        targetProfileId: "ghec",
         targetOrg: "acme-cloud",
         repos: ["acme/one"],
         items: [{ sourceRepo: "acme/two", targetRepo: "two" }],
@@ -110,6 +117,7 @@ describe("migration request schemas", () => {
     ).toMatchObject({ ok: false, error: "items: use either repos or items, not both" });
     expect(
       validateBody(batchMigrationSchema, {
+        targetProfileId: "ghec",
         targetOrg: "acme-cloud",
         items: [
           { sourceRepo: "acme/one", targetRepo: "Widget" },

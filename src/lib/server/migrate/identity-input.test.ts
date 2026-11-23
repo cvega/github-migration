@@ -1,5 +1,35 @@
 import { expect, test } from "bun:test";
-import { parseIdentityCsv, validateIdentityInput } from "./identity-input";
+import {
+  bitbucketGroupIdentity,
+  bitbucketUserIdentity,
+  parseIdentityCsv,
+  sourceIdentityLabel,
+  validateIdentityInput,
+} from "./identity-input";
+
+test("Bitbucket group mappings display distinct project keys for the same group", () => {
+  const kind = "ghe-migrator:bitbucket-server:team";
+  for (const key of ["TEST", "PROF01"]) {
+    const id = bitbucketGroupIdentity("https://bb.example/context/rest/api/1.0", key, "group&a");
+    expect(id).toBe(`https://bb.example/context/admin/groups/view?name=group%26a#${key}`);
+    expect(sourceIdentityLabel(kind, id)).toBe(key);
+    expect(sourceIdentityLabel(kind, id.split("#")[0]!)).toBe("group&a");
+    expect(sourceIdentityLabel("ghe-migrator:gitlab:team", id)).toBe(id);
+  }
+  expect(() => bitbucketGroupIdentity("https://bb.example", "invalid/key", "group")).toThrow(
+    "project key",
+  );
+});
+
+test("manual Bitbucket user mappings keep the archive URL but display the source username", () => {
+  const base = "https://bb.example/context/rest/api/1.0";
+  const kind = "ghe-migrator:bitbucket-server";
+  const identity = bitbucketUserIdentity(base, "source user");
+  expect(identity).toBe("https://bb.example/context/users/source%20user");
+  expect(sourceIdentityLabel(kind, identity)).toBe("source user");
+  expect(sourceIdentityLabel(kind, "http://bitbucket:7990/users/admin")).toBe("admin");
+  expect(() => bitbucketUserIdentity(base, "../alice")).toThrow("username");
+});
 
 test("preserves an exact project-scoped Bitbucket group URL from a team CSV", () => {
   const source = "http://bitbucket/admin/groups/view?name=project_admin_access#TEST";
