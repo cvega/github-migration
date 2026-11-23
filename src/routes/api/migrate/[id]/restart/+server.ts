@@ -4,6 +4,8 @@ import {
   parseValidatedBody,
   validateAuthAvailable,
 } from "$lib/server/application/migration-policy";
+import { parseJsonBody } from "$lib/server/application/request-body";
+import { restartOwnJob } from "$lib/server/application/self-service/jobs";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { get, restart } from "$lib/server/migrate/manager";
 import { restartMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
@@ -11,6 +13,18 @@ import { restartValidationInput } from "$lib/server/migrate/validate";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
+  if (locals?.user?.role === "operator") {
+    const parsed = await parseJsonBody(request);
+    if ("error" in parsed) return json({ error: parsed.error }, { status: parsed.status });
+    if (Object.keys(parsed.data).length)
+      return json({ error: "Operator restarts use only the assigned route" }, { status: 400 });
+    try {
+      restartOwnJob(locals.user.id, params.id);
+      return json({ status: "restarted" });
+    } catch {
+      return json({ error: "Migration is unavailable for restart" }, { status: 404 });
+    }
+  }
   const existing = get(params.id);
   if (existing && isPausedPersistedRoute(existing)) {
     recordOperatorAuditEvent(locals, {

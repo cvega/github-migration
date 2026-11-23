@@ -4,6 +4,7 @@ import { parseSourceProjectInventory } from "$lib/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import type { RepoProfile } from "../analysis/repos";
 import type { RepoSignals, StoredRepoProfile } from "../types";
+import { repositoryNamespace } from "./namespace";
 import { parsePersistedCatalogMatches, parsePersistedRepoSignals } from "./results";
 import { getProfileRun } from "./runs";
 
@@ -105,13 +106,17 @@ export interface RunRepoProfilePage {
   limit: number;
 }
 
-export function* iterateRunRepoProfiles(runId: string): IterableIterator<StoredRepoProfile> {
+export function* iterateRunRepoProfiles(
+  runId: string,
+  namespace?: string,
+): IterableIterator<StoredRepoProfile> {
+  const scope = repositoryNamespace("name_with_owner", namespace);
   const rows = getDb()
     .prepare(
       `SELECT name_with_owner, signals, blockers, warnings, infos, applying_considerations
-			 FROM profile_repos WHERE run_id = $id ORDER BY name_with_owner ASC`,
+			 FROM profile_repos WHERE run_id = $id${scope.sql} ORDER BY name_with_owner ASC`,
     )
-    .iterate({ $id: runId }) as IterableIterator<ProfileRepoRow>;
+    .iterate({ $id: runId, ...scope.params }) as IterableIterator<ProfileRepoRow>;
   for (const row of rows) yield rowToRepoProfile(row);
 }
 
@@ -122,6 +127,7 @@ export function getRunRepoProfilesPage(
     limit?: number;
     search?: string;
     readiness?: RepoReadinessFilter;
+    namespace?: string;
   } = {},
 ): RunRepoProfilePage {
   const limit = Math.min(100, Math.max(1, Math.trunc(options.limit ?? 25)));
@@ -134,8 +140,9 @@ export function getRunRepoProfilesPage(
     warnings: "blockers = 0 AND warnings > 0",
     blockers: "blockers > 0",
   }[readiness];
-  const where = `run_id = $id AND instr(lower(name_with_owner), $search) > 0 AND ${readinessSql}`;
-  const bindings = { $id: runId, $search: search };
+  const scope = repositoryNamespace("name_with_owner", options.namespace);
+  const where = `run_id = $id${scope.sql} AND instr(lower(name_with_owner), $search) > 0 AND ${readinessSql}`;
+  const bindings = { $id: runId, $search: search, ...scope.params };
   const total = (
     getDb().prepare(`SELECT COUNT(*) AS count FROM profile_repos WHERE ${where}`).get(bindings) as {
       count: number;
@@ -153,35 +160,46 @@ export function getRunRepoProfilesPage(
   return { repos: rows.map(rowToRepoProfile), page, totalPages, total, limit };
 }
 
-export function getRunRepoPlanProfiles(runId: string, limit: number): ProfilePlanRepo[] {
+export function getRunRepoPlanProfiles(
+  runId: string,
+  limit: number,
+  namespace?: string,
+): ProfilePlanRepo[] {
   const boundedLimit = Math.max(0, Math.trunc(limit));
+  const scope = repositoryNamespace("name_with_owner", namespace);
   const profiles = getDb()
     .prepare(
       `SELECT name_with_owner AS nameWithOwner, blockers, warnings
-			 FROM profile_repos WHERE run_id = $id
+			 FROM profile_repos WHERE run_id = $id${scope.sql}
 			 ORDER BY name_with_owner ASC LIMIT $limit`,
     )
-    .all({ $id: runId, $limit: boundedLimit }) as Array<
+    .all({ $id: runId, $limit: boundedLimit, ...scope.params }) as Array<
     Pick<StoredRepoProfile, "nameWithOwner" | "blockers" | "warnings">
   >;
   if (profiles.length > 0) return profiles;
+  const inventoryScope = repositoryNamespace("path", namespace);
   const inventoryProjects = getDb()
     .prepare(
       `SELECT path AS nameWithOwner, payload
-			 FROM profile_source_inventory_projects WHERE run_id = $id
+			 FROM profile_source_inventory_projects WHERE run_id = $id${inventoryScope.sql}
 			 ORDER BY position LIMIT $limit`,
     )
-    .all({ $id: runId, $limit: boundedLimit }) as Array<{
+    .all({ $id: runId, $limit: boundedLimit, ...inventoryScope.params }) as Array<{
     nameWithOwner: string;
     payload: string;
   }>;
   return inventoryProjects.map((row) => {
     const project = parseSourceProjectInventory(JSON.parse(row.payload));
+    const details = project.providerDetails;
+    if (namespace && details?.forkedFromPath) {
+      const fork = details.forkedFromPath;
+      if (fork.slice(0, fork.lastIndexOf("/")) !== namespace) delete details.forkedFromPath;
+    }
     return {
       nameWithOwner: row.nameWithOwner,
       blockers: 0,
       warnings: 0,
-      ...(project.providerDetails ? { providerDetails: project.providerDetails } : {}),
+      ...(details ? { providerDetails: details } : {}),
     };
   });
 }

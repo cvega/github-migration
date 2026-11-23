@@ -25,7 +25,7 @@ import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
 import { PAUSED_GITLAB_ROUTE_SQL, MIGRATION_COLS as STORED_COLS } from "./columns";
 
-export const MIGRATION_COLS = `${STORED_COLS}, ${PAUSED_GITLAB_ROUTE_SQL} AS route_paused`;
+export const MIGRATION_COLS = `${STORED_COLS}, owner_user_id, ${PAUSED_GITLAB_ROUTE_SQL} AS route_paused`;
 
 const countsSchema = z
   .object({
@@ -264,6 +264,7 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
 
   return {
     id,
+    ...(typeof row.owner_user_id === "string" && { ownerUserId: row.owner_user_id }),
     batchId: typeof row.batch_id === "string" ? row.batch_id : null,
     githubMigrationId: typeof row.github_migration_id === "string" ? row.github_migration_id : null,
     sourceProvider,
@@ -318,8 +319,8 @@ export function insertMigration(migration: Migration): void {
         `INSERT INTO migrations (id, batch_id, github_migration_id, source_provider, source_api_url,
 					target_profile_id, target_platform, target_api_url, source_org, source_repo,
 					target_org, target_repo, state, started_at, source_counts, target_counts,
-					auth_mode, request_options)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					auth_mode, request_options, owner_user_id)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         migration.id,
@@ -340,6 +341,7 @@ export function insertMigration(migration: Migration): void {
         migration.targetCounts ? JSON.stringify(migration.targetCounts) : null,
         migration.authMode,
         migration.requestOptions,
+        migration.ownerUserId ?? null,
       );
     if (migration.batchId) {
       getDb()
@@ -568,6 +570,15 @@ export function getMigration(id: string): Migration | null {
     | undefined;
   if (!row || !isSourceProvider(row.source_provider)) return null;
   return rowToMigration(row);
+}
+
+export function getOwnedMigration(ownerUserId: string, id: string): Migration | null {
+  const row = getDb()
+    .query<Record<string, unknown>, [string, string]>(
+      `SELECT ${MIGRATION_COLS} FROM migrations WHERE owner_user_id = ? AND id = ?`,
+    )
+    .get(ownerUserId, id);
+  return row ? rowToMigration(row) : null;
 }
 
 export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {

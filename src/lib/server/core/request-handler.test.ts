@@ -25,6 +25,7 @@ function inputFor(
     },
   });
   const event = {
+    route: { id: new URL(request.url).pathname },
     url: new URL(request.url),
     request,
     locals,
@@ -42,13 +43,13 @@ function inputFor(
   return { input: { event, resolve }, locals, resolved: () => resolveCalls };
 }
 
-function handler(authEnabled = true): Handle {
+function handler(authEnabled = true, role: "admin" | "operator" = "admin"): Handle {
   const principal: AuthPrincipal = {
     user: {
       id: "user-1",
       username: "operator",
       displayName: null,
-      role: "operator",
+      role,
       isActive: true,
       mustChangePassword: false,
     },
@@ -80,6 +81,30 @@ function passwordChangeHandler(): Handle {
 }
 
 describe("request authentication hook", () => {
+  test.each([
+    "/api/profile",
+    "/api/migrate/events",
+    "/migrate/batches/private",
+    "/setup",
+    "/admin/users",
+    "/profile/private",
+    "/api/rate-limits",
+  ])("does not resolve unscoped route %s for a named operator", async (path) => {
+    const fixture = inputFor(path, { cookie: "valid" });
+    expect((await handler(true, "operator")(fixture.input)).status).toBe(404);
+    expect(fixture.resolved()).toBe(0);
+  });
+
+  test.each(["/", "/profile", "/profile/[id]", "/migrate"])(
+    "serves the shared page %s privately",
+    async (path) => {
+      const fixture = inputFor(path, { cookie: "valid" });
+      const response = await handler(true, "operator")(fixture.input);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+    },
+  );
+
   test.each(["/login", "/logout", "/api/health", "/api/ready"])(
     "allows public path %s without a session and applies security headers",
     async (path) => {

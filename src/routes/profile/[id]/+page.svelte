@@ -74,6 +74,7 @@
 		getPlanningRepos: () => eligiblePlanningRepos,
 		getDefaultTargetOrg: () => "",
 		getTargets: () => data.targetProfiles ?? [],
+		getAssignment: () => data.assignment,
 		isRepoEligible: (name) => eligiblePlanningNames.includes(name),
 	});
 </script>
@@ -128,6 +129,7 @@
 			<RepositoryAnalysis
 				analysis={repositoryAnalysis}
 				available={data.repositoryAnalysisAvailable}
+				readOnly={!!data.assignment}
 				{form}
 			/>
 			{#if eligiblePlanningRepos.length > 0 && provider.capabilities.planning}

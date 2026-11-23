@@ -26,7 +26,9 @@
 	} = $props();
 
 	const activeTab = $derived(activeAppTab(pathname));
-	const tabs = $derived(visibleAppTabs(pathname, setupComplete));
+	const operator = $derived(currentUser?.role === "operator");
+	const tabs = $derived(visibleAppTabs(pathname, setupComplete).filter(tab =>
+		!operator || tab.id === "profile" || tab.id === "migrations"));
 	const showMigrationSearch = $derived(pathname === "/migrate");
 	const accountName = $derived(currentUser?.displayName?.trim() || currentUser?.username || "User");
 	const avatarUrl = $derived(
@@ -68,7 +70,7 @@
 					<MigrationSearch />
 				</div>
 			{/if}
-			<NotificationBell initial={recentActivity} />
+			{#if !operator}<NotificationBell initial={recentActivity} />{/if}
 			{#if authEnabled && currentUser}
 				<details class="group relative">
 					<summary

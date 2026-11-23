@@ -22,6 +22,16 @@ export const AUTH_DURABLE_TABLES = [
     purpose: "Authentication and operator action attribution",
     notes: "Stores actors and resources without credentials or session tokens",
   },
+  {
+    name: "self_service_routes",
+    purpose: "One pinned destination per delegated source namespace",
+    notes: "Identities include the source provider and instance, not an ephemeral profile run",
+  },
+  {
+    name: "self_service_grants",
+    purpose: "Named operator assignments",
+    notes: "Grants inventory access with a separate migration permission",
+  },
 ] as const satisfies readonly DurableTableContract[];
 
 const AUTH_DDL = `
@@ -83,6 +93,24 @@ const AUTH_DDL = `
   CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_audit_events_resource
     ON audit_events(resource_type, resource_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS self_service_routes (
+    id INTEGER PRIMARY KEY,
+    source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab', 'bitbucket-server')),
+    source_api_url TEXT NOT NULL,
+    namespace TEXT NOT NULL COLLATE NOCASE,
+    target_profile_id TEXT NOT NULL,
+    target_api_url TEXT NOT NULL,
+    target_org TEXT NOT NULL,
+    UNIQUE (source_provider, source_api_url, namespace)
+  );
+  CREATE TABLE IF NOT EXISTS self_service_grants (
+    id TEXT PRIMARY KEY,
+    route_id INTEGER NOT NULL REFERENCES self_service_routes(id),
+    user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    can_migrate INTEGER NOT NULL CHECK (can_migrate IN (0, 1)),
+    UNIQUE (user_id, route_id)
+  );
 `;
 
 export const authStore: DomainStore = {
@@ -90,7 +118,7 @@ export const authStore: DomainStore = {
     database.run(AUTH_DDL);
     database
       .prepare(
-        `INSERT INTO app_schema_versions (domain, version) VALUES ('auth', 1)
+        `INSERT INTO app_schema_versions (domain, version) VALUES ('auth', 2)
          ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
       )
       .run();

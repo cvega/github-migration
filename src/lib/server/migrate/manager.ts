@@ -72,6 +72,19 @@ function drainQueue(): void {
 
 const finisher = createMigrationRunFinisher(drainQueue);
 
+// The composition root supplies the cross-domain inventory/grant check. Never
+// treat an unset policy (including during recovery) as administrator access.
+type OwnedDispatchPolicy = (migration: Migration) => CreateMigrationRequest;
+let ownedDispatchPolicy: OwnedDispatchPolicy | undefined;
+export function setOwnedDispatchPolicy(policy: OwnedDispatchPolicy): void {
+  ownedDispatchPolicy = policy;
+}
+
+function ownedRequest(migration: Migration): CreateMigrationRequest {
+  if (!ownedDispatchPolicy) throw new Error("Operator migration policy unavailable");
+  return ownedDispatchPolicy(migration);
+}
+
 function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
   const migration = getMigration(id);
   if (!migration) throw new Error("Migration not found");
@@ -81,7 +94,7 @@ function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
   const promise = Promise.resolve()
     .then(() =>
       executor.run({
-        ...request,
+        ...(migration.ownerUserId !== undefined ? ownedRequest(migration) : request),
         id,
         signal: registration.signal,
         emit: createMigrationEventHandler(id, registration.token),
@@ -98,13 +111,28 @@ function launchRecoveredPipeline(migration: Migration): boolean {
   const registration = activeMigrationRuns.claim(migration.id);
   if (!registration) return false;
   const promise = Promise.resolve()
-    .then(() =>
-      executor.resume(
-        migration,
+    .then(() => {
+      let resumable = migration;
+      if (migration.ownerUserId !== undefined) {
+        try {
+          const request = ownedRequest(migration);
+          resumable = { ...migration, requestOptions: serializeRequestOptions(request) };
+        } catch {
+          // A recovered job may already have remote side effects.
+          return {
+            ...migration,
+            state: "reconciliation_required" as const,
+            failureReason: "Operator migration authorization no longer permits recovery",
+            completedAt: new Date().toISOString(),
+          };
+        }
+      }
+      return executor.resume(
+        resumable,
         createMigrationEventHandler(migration.id, registration.token),
         registration.signal,
-      ),
-    )
+      );
+    })
     .then((result) => finisher.settleResult(migration.id, registration.token, result))
     .catch((error) => finisher.settleError(migration.id, registration.token, error));
   activeMigrationRuns.attach(migration.id, registration.token, promise);
@@ -125,12 +153,12 @@ function requireStartRoute(
   return target;
 }
 
-export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+function newMigration(request: CreateMigrationRequest, batchId?: string): Migration {
   const sourceProvider = request.sourceProvider ?? "github";
   const target = requireStartRoute(request);
   requireCredentialScope(request);
   const identity = getSourceProjectIdentity(sourceProvider, request.sourceRepo);
-  const migration: Migration = {
+  return {
     id: Bun.randomUUIDv7(),
     batchId: batchId ?? null,
     githubMigrationId: null,
@@ -156,6 +184,31 @@ export function start(request: CreateMigrationRequest, batchId?: string): Migrat
     authMode: null,
     requestOptions: null,
   };
+}
+
+/** Commit the complete batch and its ownership before making any item runnable. */
+export function enqueueOwnedBatch(ownerUserId: string, requests: CreateMigrationRequest[]) {
+  if (!ownerUserId || !requests.length) throw new Error("Empty operator batch");
+  const batchId = Bun.randomUUIDv7();
+  const queued = getDb().transaction(() =>
+    requests.map((input) => {
+      const migration = newMigration(input, batchId);
+      migration.ownerUserId = ownerUserId;
+      const request = ownedRequest(migration);
+      migration.state = "queued";
+      migration.authMode = determineAuthModeFromRequest(request);
+      migration.requestOptions = serializeRequestOptions(request);
+      insertMigration(migration);
+      return { id: migration.id, request };
+    }),
+  )();
+  for (const { id, request } of queued) activeMigrationRuns.enqueue(id, request);
+  drainQueue();
+  return { batchId, jobIds: queued.map(({ id }) => id) };
+}
+
+export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+  const migration = newMigration(request, batchId);
   let queued = false;
   let existing: Migration | null = null;
   getDb().transaction(() => {
@@ -240,7 +293,10 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
   if (existing.state !== "failed" && existing.state !== "cancelled") {
     throw new Error(`Cannot restart migration in state "${existing.state}"`);
   }
-  const request = restartRequest(existing, credentials);
+  const request =
+    existing.ownerUserId !== undefined
+      ? ownedRequest(existing)
+      : restartRequest(existing, credentials);
   requireCredentialScope(request);
   const payload = {
     message: `Migration restarted (previously ${existing.state})`,

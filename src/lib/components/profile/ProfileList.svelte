@@ -10,7 +10,7 @@
 		inventoryProjectCount: NumericObservation | null; failureReason?: string | null;
 		metrics?: Partial<Record<"commits" | "pullRequests" | "branches", NumericObservation>>;
 	};
-	let {runs,totalRuns,search="",onSearch}:{runs:ProfileRunListItem[];totalRuns:number;search?:string;onSearch?:(q:string)=>void}=$props();
+	let {runs,totalRuns,search="",onSearch,assigned=false}:{runs:ProfileRunListItem[];totalRuns:number;search?:string;onSearch?:(q:string)=>void;assigned?:boolean}=$props();
 	let query=$derived(search);
 	const sources={
 		"bitbucket-server":{name:"Bitbucket Data Center",icon:"bitbucket-logo",color:"bg-blue-500/15 text-blue-400"},
@@ -51,7 +51,7 @@
 			</summary>
 			<div class="flex flex-wrap items-center gap-x-5 gap-y-2 bg-gray-900 px-4 py-3 text-sm sm:pl-[4.5rem]">
 				{#if run.state==="failed"}<span>{run.failureReason ?? "Profile incomplete"}</span>
-				{:else if run.metrics}{#each ["commits","pullRequests","branches"] as key}
+				{:else if run.metrics}{#each ["commits","pullRequests","branches"] as key (key)}
 					{@const metric=key==="commits"?run.metrics.commits:key==="pullRequests"?run.metrics.pullRequests:run.metrics.branches}
 					{#if metric}<span>{value(metric)} {key==="commits"?"default-branch commits":key==="pullRequests"?"pull requests":"branches"}</span>{/if}
 				{/each}
@@ -60,7 +60,7 @@
 			</div>
 		</details>
 	{:else}
-		<p class="border-t border-gray-700 px-4 py-8 text-center text-gray-400">{query.trim()?"No matching profiles. Try a different project or source.":"No profiles yet. Choose New profile to get started."}</p>
+		<p class="border-t border-gray-700 px-4 py-8 text-center text-gray-400">{query.trim()?"No matching profiles. Try a different project or source.":assigned?"No completed profiles are assigned to you.":"No profiles yet. Choose New profile to get started."}</p>
 	{/each}
 </section>
 <style>

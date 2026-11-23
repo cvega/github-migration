@@ -73,7 +73,7 @@
 	}
 
 	onMount(() => {
-		if (isLoginPage) return;
+		if (isLoginPage || data.currentUser?.role === "operator") return;
 		void pollRateLimits();
 		pollInterval = setInterval(pollRateLimits, 30_000);
 		return () => {

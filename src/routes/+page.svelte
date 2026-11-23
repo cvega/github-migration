@@ -11,7 +11,7 @@
 		<h1 class="text-2xl font-semibold text-gray-50">Profile, plan, and migrate</h1>
 		<p class="mx-auto mt-2 max-w-xl text-sm text-gray-400">
 			Begin with source readiness, turn the results into an approved plan, then move
-			repositories to GitHub Enterprise Cloud.
+			repositories to their migration destination.
 		</p>
 	</div>
 

@@ -23,14 +23,12 @@
 				Repository inventory and activity, by source.
 			</p>
 		</div>
-		<div class="text-right"><ProfileForm
-		providerAuthAvailable={data.providerAuthAvailable}
-		sourceOrgs={data.sourceOrgs}
-		bitbucketProjectKeys={data.bitbucketProjectKeys}
-	/></div>
+		{#if data.profileSetup}
+			<div class="text-right"><ProfileForm {...data.profileSetup} /></div>
+		{/if}
 	</header>
 	<div>
-		<ProfileList runs={data.runs} totalRuns={data.pagination.total} search={data.q} onSearch={q=>navigate(q,1,true)} />
+		<ProfileList runs={data.runs} totalRuns={data.pagination.total} search={data.q} onSearch={q=>navigate(q,1,true)} assigned={!data.profileSetup} />
 		<Pagination {...data.pagination} onPageChange={page=>navigate(data.q,page)} />
 	</div>
 </div>

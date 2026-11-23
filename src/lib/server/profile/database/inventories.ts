@@ -18,6 +18,7 @@ import {
   summarizeGitLabEnrichment,
   summarizeProfileInventory,
 } from "../analysis/overview";
+import { repositoryNamespace } from "./namespace";
 import { failProfileRun, getProfileRun, setProfileRunApiCalls } from "./runs";
 
 interface ProfileInventoryRow {
@@ -96,7 +97,10 @@ export function saveProfileInventory(
   })();
 }
 
-export function getProfileInventory(runId: string): SourceNamespaceInventory | null {
+export function getProfileInventory(
+  runId: string,
+  namespace?: string,
+): SourceNamespaceInventory | null {
   const row = getDb()
     .prepare("SELECT project_count FROM profile_source_inventories WHERE run_id = $run_id")
     .get({ $run_id: runId }) as ProfileInventoryRow | null;
@@ -104,18 +108,23 @@ export function getProfileInventory(runId: string): SourceNamespaceInventory | n
   try {
     const run = getProfileRun(runId);
     if (!run) throw new Error("Stored inventory has no owning profile run");
+    const scope = repositoryNamespace("path", namespace);
     const projects = getDb()
       .prepare(
         `SELECT payload FROM profile_source_inventory_projects
-				 WHERE run_id = $run_id ORDER BY position`,
+				 WHERE run_id = $run_id${scope.sql} ORDER BY position`,
       )
-      .all({ $run_id: runId }) as ProfileInventoryProjectRow[];
+      .all({ $run_id: runId, ...scope.params }) as ProfileInventoryProjectRow[];
+    const projectCount = JSON.parse(row.project_count);
     return parseSourceNamespaceInventory({
       version: 1,
       provider: run.sourceProvider,
       sourceApiUrl: run.sourceApiUrl,
       namespace: run.org,
-      projectCount: JSON.parse(row.project_count),
+      projectCount:
+        namespace !== undefined && projectCount.kind !== "unavailable"
+          ? { kind: projectCount.kind, value: projects.length }
+          : projectCount,
       projects: projects.map((project) => JSON.parse(project.payload)),
     });
   } catch (cause) {
@@ -204,53 +213,90 @@ export function getProfileInventorySummary(runId: string): ProfileInventorySumma
   }
 }
 
-export function getBitbucketLfsTracking(runId: string) {
+/** Stored summaries may include GitLab descendants; aggregate only direct projects. */
+export function getScopedInventorySummary(runId: string, namespace: string) {
+  const inventory = getProfileInventory(runId, namespace);
+  if (!inventory) return null;
+  const summary = summarizeProfileInventory(inventory);
+  const scope = repositoryNamespace("path", namespace);
+  const rows = getDb()
+    .query<{ payload: string }, Record<string, string>>(
+      `SELECT payload FROM profile_source_project_profiles WHERE run_id = $id${scope.sql}`,
+    )
+    .all({ $id: runId, ...scope.params });
+  const enrichment = {
+    version: 2,
+    provider: inventory.provider,
+    namespace,
+    sourceApiUrl: inventory.sourceApiUrl,
+    projects: rows.map((row) => JSON.parse(row.payload)),
+  };
+  if (inventory.provider === "bitbucket-server")
+    return {
+      ...(rows.length
+        ? summarizeBitbucketEnrichment(summary, parseBitbucketProfileEnrichment(enrichment))
+        : summary),
+      lfsTracking: getBitbucketLfsTracking(runId, namespace),
+    };
+  return rows.length
+    ? summarizeGitLabEnrichment(summary, parseGitLabProfileEnrichment(enrichment))
+    : summary;
+}
+
+export function getBitbucketLfsTracking(runId: string, namespace?: string) {
+  const scope = repositoryNamespace("path", namespace);
   const coverage = getDb()
-    .query<{ found: number; checked: number; example: string | null }, [string]>(
+    .query<{ found: number; checked: number; example: string | null }, Record<string, string>>(
       `SELECT count(*) FILTER (WHERE status = 'found') AS found,
         count(*) FILTER (WHERE status IN ('found', 'none')) AS checked,
         min(path) FILTER (WHERE status = 'found') AS example
        FROM (SELECT path, json_extract(payload, '$.providerDetails.rootLfsRules') AS status
-             FROM profile_source_inventory_projects WHERE run_id = ?)`,
+             FROM profile_source_inventory_projects WHERE run_id = $id${scope.sql})`,
     )
-    .get(runId);
+    .get({ $id: runId, ...scope.params });
   if (!coverage) throw new Error("Could not read LFS tracking coverage");
   return coverage;
 }
 
-export function getBitbucketLfsReportRows(runId: string) {
+export function getBitbucketLfsReportRows(runId: string, namespace?: string) {
+  const scope = repositoryNamespace("path", namespace);
   return getDb()
-    .query<{ repository: string; defaultBranch: string | null; rootLfsRules: string }, [string]>(
+    .query<
+      { repository: string; defaultBranch: string | null; rootLfsRules: string },
+      Record<string, string>
+    >(
       `SELECT path AS repository, json_extract(payload, '$.defaultBranch') AS defaultBranch,
         coalesce(json_extract(payload, '$.providerDetails.rootLfsRules'), 'unknown') AS rootLfsRules
-       FROM profile_source_inventory_projects WHERE run_id = ? ORDER BY position`,
+       FROM profile_source_inventory_projects WHERE run_id = $id${scope.sql} ORDER BY position`,
     )
-    .all(runId);
+    .all({ $id: runId, ...scope.params });
 }
 
-export function getBitbucketActivityPage(runId: string, requested: number) {
+export function getBitbucketActivityPage(runId: string, requested: number, namespace?: string) {
   const db = getDb();
+  const scope = repositoryNamespace("i.path", namespace);
+  const bindings = { $id: runId, ...scope.params };
   const from = `FROM profile_source_inventory_projects i LEFT JOIN profile_source_project_profiles p
-      ON p.run_id=i.run_id AND p.source_id=i.source_id WHERE i.run_id=?`;
+      ON p.run_id=i.run_id AND p.source_id=i.source_id AND p.path=i.path WHERE i.run_id=$id${scope.sql}`;
   const coverage = db
     .query<
       { total: number; collected: number; covered: number; open: number | null; withOpen: number },
-      [string]
+      Record<string, string>
     >(`SELECT count(*) AS total,
       count(json_extract(p.payload,'$.activity')) AS collected,
       count(json_extract(p.payload,'$.activity.review.open')) AS covered,
       sum(json_extract(p.payload,'$.activity.review.open')) AS open,
       count(*) FILTER (WHERE json_extract(p.payload,'$.activity.review.open')>0) AS withOpen ${from}`)
-    .get(runId);
+    .get(bindings);
   if (!coverage) throw new Error("Could not read review coverage");
   const limit = 10,
     totalPages = Math.max(1, Math.ceil(coverage.total / limit));
   const page = Math.max(1, Math.min(requested, totalPages));
   const rows = db
-    .query<{ path: string; activity: string | null }, [string, number, number]>(
-      `SELECT i.path,json_extract(p.payload,'$.activity') AS activity ${from} ORDER BY i.position LIMIT ? OFFSET ?`,
+    .query<{ path: string; activity: string | null }, Record<string, string | number>>(
+      `SELECT i.path,json_extract(p.payload,'$.activity') AS activity ${from} ORDER BY i.position LIMIT $limit OFFSET $offset`,
     )
-    .all(runId, limit, (page - 1) * limit);
+    .all({ ...bindings, $limit: limit, $offset: (page - 1) * limit });
   return {
     coverage,
     pagination: { page, totalPages, total: coverage.total, limit },

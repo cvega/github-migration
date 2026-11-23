@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { enhance } from "$app/forms";
+	import { invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
 	import CompactButton from "$lib/components/CompactButton.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
@@ -13,6 +14,7 @@
 	import { createMigrationEventSource, refreshMigrations } from "$lib/migrate/live.svelte";
 	import { isGitHubCloud, STATE_ICONS, STATE_LABELS } from "$lib/migrate/migration-display";
 	import { createMigrationForm } from "$lib/migrate/migration-form.svelte";
+	import { pollScopedPage } from "$lib/migrate/scoped-poll";
 	import type {
 		Counts,
 		FailureDetail,
@@ -84,6 +86,7 @@
 		failureDetail = null;
 		for (const event of data.events) processEvent(event);
 		lastProcessedId = data.eventCursor || undefined;
+		if (data.scoped) return;
 		if (isActiveMigrationState(data.migration.state)) {
 			eventSource = createMigrationEventSource(migrationId, data.eventCursor);
 		}
@@ -96,7 +99,10 @@
 		};
 	});
 
-	onMount(() => restart.initAuthModes());
+	onMount(() => {
+		if (data.scoped) return pollScopedPage();
+		restart.initAuthModes();
+	});
 
 	$effect(() => {
 		if (!eventSource) return;
@@ -275,11 +281,12 @@
 				cancelError = `Failed to cancel migration: HTTP ${response.status}`;
 				return;
 			}
-			if (!(await refreshMigration())) {
+			if (data.scoped) await invalidateAll();
+			else if (!(await refreshMigration())) {
 				cancelError = "Cancellation was accepted, but migration state could not be refreshed";
 				return;
 			}
-			void refreshMigrations();
+			if (!data.scoped) void refreshMigrations();
 			showCancelDialog = false;
 		} catch (error) {
 			cancelError = error instanceof Error ? error.message : "Unknown error";
@@ -324,19 +331,24 @@
 		eventSource = createMigrationEventSource(migration.id, lastProcessedId ?? 0);
 	}
 
-	async function handleRestart(event: SubmitEvent) {
-		event.preventDefault();
+	async function handleRestart(event?: SubmitEvent) {
+		event?.preventDefault();
 		restartError = "";
 		restartSubmitting = true;
 		try {
 			const response = await fetch(`/api/migrate/${migration.id}/restart`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(restart.buildPayload()),
+				body: JSON.stringify(data.scoped ? {} : restart.buildPayload()),
 			});
 			const body = (await response.json().catch(() => ({}))) as Migration & { error?: string };
 			if (!response.ok) {
 				restartError = body.error || `HTTP ${response.status}`;
+				return;
+			}
+			if (data.scoped) {
+				showRestartForm = false;
+				await invalidateAll();
 				return;
 			}
 			pollSequence += 1;
@@ -444,19 +456,19 @@
 						<Octicon name={copiedId ? "check" : "copy"} size={16} />
 					</button>
 				{/if}
-				{#if isActive}
+				{#if isActive && data.canCancel}
 					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showCancelDialog}
 						onclick={() => (showCancelDialog = true)}
 						aria-label="Cancel migration">Cancel</CompactButton>
-				{:else if migration.state === "reconciliation_required" && restartSupported}
+				{:else if !data.scoped && migration.state === "reconciliation_required" && restartSupported}
 					<CompactButton
 						aria-label="Review remote status"
 						aria-haspopup="dialog"
 						aria-expanded={showReconciliationDialog}
 						onclick={() => (showReconciliationDialog = true)}>Review status</CompactButton>
-				{:else if isRestartable}
+				{:else if isRestartable && data.canRestart}
 					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showRestartForm}
@@ -496,7 +508,7 @@
 					</h2>
 					<div class="flex items-center gap-2">
 						<span class="text-xs tabular-nums text-gray-500">{eventLog.length} events</span>
-						<a href={`/api/migrate/${migration.id}/events?download=1`} download aria-label="Download full event log" title="Download full event log (NDJSON)" class="inline-flex size-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-800 hover:text-gray-100 focus-visible:outline-2 focus-visible:outline-blue-500">
+						<a href={`/api/migrate/${migration.id}/events?download=1`} download aria-label={data.scoped ? "Download recent event log" : "Download full event log"} title={data.scoped ? "Download recent event log (NDJSON)" : "Download full event log (NDJSON)"} class="inline-flex size-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-800 hover:text-gray-100 focus-visible:outline-2 focus-visible:outline-blue-500">
 							<Octicon name="download" size={16} />
 						</a>
 					</div>
@@ -554,6 +566,7 @@
 			{:else}
 				<div class="p-4">
 				<p class="text-sm text-gray-400">Migration completed, but target resource totals have not been collected.</p>
+				{#if !data.scoped}
 				<form method="POST" action="?/refreshCounts" class="mt-3 flex flex-wrap items-center gap-3" use:enhance={() => {
 					countsSubmitting = true;
 					return async ({ update }) => {
@@ -565,6 +578,7 @@
 					</button>
 					<p class="text-sm text-gray-400">Shows current counts only. Does not change the migration record.</p>
 				</form>
+				{/if}
 				{#if form?.countsError}
 					<p role="alert" class="mt-3 text-sm text-red-400">{form.countsError}</p>
 				{/if}
@@ -596,6 +610,13 @@
 	/>
 </div>
 
+{#if data.scoped}
+<ConfirmDialog bind:open={showRestartForm} title="Restart migration?" confirmPhrase={reconciliationPhrase}
+	submitLabel="Restart migration" submitting={restartSubmitting} error={restartError}
+	inputId="restart-confirm" tone="warning" onConfirm={() => void handleRestart()}>
+	{#snippet body()}<p>This restarts the migration to {reconciliationPhrase} using the assigned server credentials.</p>{/snippet}
+</ConfirmDialog>
+{:else}
 <MigrationForm
 	bind:open={showRestartForm}
 	form={restart}
@@ -619,6 +640,7 @@
 		</div>
 	{/snippet}
 </MigrationForm>
+{/if}
 
 <ConfirmDialog
 	bind:open={showCancelDialog}

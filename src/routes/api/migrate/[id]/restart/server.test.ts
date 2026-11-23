@@ -11,6 +11,9 @@ afterEach(closeStore);
 describe("restart migration endpoint", () => {
   test("queues a saved Bitbucket to GHES route with only server credentials", async () => {
     const config = {
+      GHES_TARGET_ID: "ghes",
+      GHES_TARGET_ORG: "target",
+      BITBUCKET_SERVER_PROJECT_KEYS: "PROJECT",
       GHES_TARGET_API_URL: "https://ghes.example.com",
       GHES_TARGET_ADMIN_USERNAME: "admin",
       GHES_TARGET_ADMIN_PAT: "test",

@@ -1,3 +1,6 @@
+import { isActiveMigrationState } from "$lib/migration-state";
+import { countOwnProfileRuns } from "$lib/server/application/self-service/profiles";
+import { listVisibleJobs } from "$lib/server/application/self-service/visible-jobs";
 import { getSetupReadiness } from "$lib/server/application/setup";
 import {
   getAuthConfig,
@@ -15,6 +18,16 @@ import type { LayoutServerLoad } from "./$types";
 export const load: LayoutServerLoad = ({ locals }) => {
   const authEnabled = locals.authEnabled ?? false;
   if (authEnabled && !locals.user) return { authEnabled: true };
+  if (locals.user?.role === "operator") {
+    const jobs = listVisibleJobs(locals.user.id);
+    return {
+      authEnabled,
+      currentUser: locals.user,
+      profileCount: countOwnProfileRuns(locals.user.id),
+      migrationCount: jobs.length,
+      activeMigrations: jobs.filter((job) => isActiveMigrationState(job.state)).length,
+    };
+  }
 
   const auth = getAuthConfig();
   const liveRates = getCachedLiveRateLimits();

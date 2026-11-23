@@ -211,7 +211,7 @@ export function listProfileRuns(limit = 50, offset = 0): ProfileRun[] {
   return rows.map(rowToRun);
 }
 
-function profileSearch(query: string) {
+export function profileSearch(query: string) {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const text = `lower(org || ' ' || source_provider || CASE WHEN source_provider='bitbucket-server' THEN ' bitbucket data center' ELSE '' END)`;
   return {

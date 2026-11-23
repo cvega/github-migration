@@ -180,7 +180,7 @@ describe("migration provider schema upgrade", () => {
       );
       expect(
         db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
-      ).toEqual({ version: 7 });
+      ).toEqual({ version: 8 });
       expect(
         (db.query("PRAGMA table_info(migrations)").all() as Array<{ name: string }>).map(
           (column) => column.name,

@@ -11,6 +11,7 @@
 	import { eventChangesBatchSummary } from "$lib/migrate/events";
 	import { createGlobalEventSource, migrations } from "$lib/migrate/live.svelte";
 	import { STATE_LABELS } from "$lib/migrate/migration-display";
+	import { pollScopedPage } from "$lib/migrate/scoped-poll";
 	import type {
 		BatchListItem,
 		Counts,
@@ -25,7 +26,7 @@
 	let { data } = $props();
 
 	$effect(() => {
-		migrations.value = data.migrations.data;
+		if (!data.scoped) migrations.value = data.migrations.data;
 	});
 
 	let globalSSE = $state<ReturnType<typeof createGlobalEventSource> | null>(null);
@@ -51,11 +52,12 @@
 	let now = $state(Date.now());
 
 	onMount(() => {
-		globalSSE = createGlobalEventSource();
+		const stopPoll = data.scoped ? pollScopedPage() : undefined;
+		if (!data.scoped) globalSSE = createGlobalEventSource();
 		const tick = setInterval(() => {
 			now = Date.now();
 		}, 1000);
-		return () => clearInterval(tick);
+		return () => { clearInterval(tick); stopPoll?.(); };
 	});
 
 	onDestroy(() => {
@@ -191,7 +193,11 @@
 			</div>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
-			<MigrationRouteStatus {routes} />
+			{#if data.scoped}
+				<a href="/profile" class="rounded-md border border-gray-600 px-3 py-1.5 text-sm font-medium text-gray-200 hover:bg-gray-800">New migration</a>
+			{:else}
+				<MigrationRouteStatus {routes} />
+			{/if}
 		</div>
 	</div>
 
@@ -441,7 +447,7 @@
 				<Octicon name="arrow-switch" size={24} class="h-12 w-12 text-gray-500" />
 				<p class="mt-4 text-gray-400">No migrations yet</p>
 				<a
-					href="/migrate/new"
+					href={data.scoped ? "/profile" : "/migrate/new"}
 					class="mt-4 flex items-center gap-1.5 rounded-md bg-green-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500"
 				>
 					<Octicon name="rocket" size={16} />Start your first migration

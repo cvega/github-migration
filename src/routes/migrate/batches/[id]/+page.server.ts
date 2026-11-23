@@ -1,5 +1,6 @@
 import { error } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { visibleBatch } from "$lib/server/application/self-service/visible-jobs";
 import {
   getBatchPaginated,
   getBatchSourceProviders,
@@ -8,11 +9,24 @@ import {
 import { isSourceProvider } from "$lib/source-provider";
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ params, url }) => {
-  const result = getBatchPaginated(params.id, parsePaginationParams(url.searchParams));
+export const load: PageServerLoad = ({ params, url, locals }) => {
+  const paging = parsePaginationParams(url.searchParams);
+  if (locals?.user?.role === "operator") {
+    const result = visibleBatch(locals.user.id, params.id, paging);
+    if (!result) error(404, "Batch not found");
+    return {
+      scoped: true,
+      batch: result.summary,
+      migrations: result.migrations,
+      restartableCount: 0,
+      sourceProvider: null,
+    };
+  }
+  const result = getBatchPaginated(params.id, paging);
   if (!result) throw error(404, "Batch not found");
   const providers = getBatchSourceProviders(params.id);
   return {
+    scoped: false,
     batch: result.summary,
     migrations: result.migrations,
     restartableCount: providers.every(isSourceProvider) ? getRestartableBatchCount(params.id) : 0,

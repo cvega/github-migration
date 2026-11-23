@@ -4,6 +4,7 @@ import { building, dev } from "$app/env";
 import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
 import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
+import { configureOperatorJobPolicy } from "$lib/server/application/self-service/jobs";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
 import { initializeAuthentication } from "$lib/server/core/auth/startup";
 import { pruneAuthRecords } from "$lib/server/core/auth/throttle";
@@ -20,6 +21,7 @@ import { DOMAIN_STORES } from "$lib/server/schemas";
 
 const dataDirectory = env.DATA_DIR || "./data";
 configureMigrationSourceRuntime(createMigrationSourceRuntime());
+configureOperatorJobPolicy();
 const instanceLock = acquireInstanceLock(dataDirectory);
 let authEnabled = false;
 try {
