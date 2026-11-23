@@ -27,6 +27,23 @@ const PUBLIC_PATHS = new Set(["/login", "/logout", "/api/health", "/api/ready"])
 const METRICS_PATH = "/api/metrics";
 const PASSWORD_CHANGE_PATH = "/account/password";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+// Use resolved route IDs so SvelteKit page-data requests cannot bypass the policy.
+const operatorReads = new Set([
+  "/",
+  "/profile",
+  "/profile/[id]",
+  "/migrate",
+  "/migrate/[id]",
+  "/migrate/batches/[id]",
+  "/api/profile/[id]",
+  "/api/migrate/[id]",
+  "/api/migrate/[id]/events",
+]);
+const operatorWrites = new Set([
+  "POST /api/profile/[id]",
+  "DELETE /api/migrate/[id]",
+  "POST /api/migrate/[id]/restart",
+]);
 
 function applySecurityHeaders(response: Response): Response {
   for (const [key, value] of Object.entries(securityHeaders)) {
@@ -135,7 +152,17 @@ export function createRequestHandler(config: RequestHandlerConfig): Handle {
       );
     }
 
+    if (event.locals.user?.role === "operator") {
+      const route = event.route.id ?? "";
+      const allowed = ["GET", "HEAD"].includes(event.request.method)
+        ? operatorReads.has(route)
+        : operatorWrites.has(`${event.request.method} ${route}`);
+      if (!PUBLIC_PATHS.has(route) && route !== PASSWORD_CHANGE_PATH && !allowed)
+        return applySecurityHeaders(new Response("Not found", { status: 404 }));
+    }
+
     const response = applySecurityHeaders(await resolve(event));
+    if (event.locals.user) response.headers.set("cache-control", "private, no-store");
     const contentType = response.headers.get("content-type") || "";
     const acceptEncoding = event.request.headers.get("accept-encoding") || "";
     const isCompressible =

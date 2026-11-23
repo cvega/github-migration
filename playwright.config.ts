@@ -24,7 +24,14 @@ export default defineConfig({
     },
     {
       name: "chromium",
+      testIgnore: "**/scoped-dashboard.e2e.ts",
       dependencies: ["setup"],
+      use: { ...devices["Desktop Chrome"], storageState: authState },
+    },
+    {
+      name: "scoped-dashboard",
+      testMatch: "**/scoped-dashboard.e2e.ts",
+      dependencies: ["chromium"],
       use: { ...devices["Desktop Chrome"], storageState: authState },
     },
   ],

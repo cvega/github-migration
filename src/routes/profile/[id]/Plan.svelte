@@ -21,9 +21,12 @@
 					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
 				</h2>
 			{/if}
-			<p class="mt-1 ml-6 text-sm text-gray-400">Choose repositories and target names, then launch them as one batch.</p>
+			<p class="mt-1 ml-6 text-sm text-gray-400">{planner.assignment ? "Choose repositories for the assigned destination." : "Choose repositories and target names, then launch them as one batch."}</p>
 		</div>
 		<div class="flex flex-wrap items-end gap-2 lg:justify-end">
+			{#if planner.assignment}
+				<p class="text-sm text-gray-400">Assigned destination: <strong class="text-gray-100">{planner.targetOrg}</strong> · {planner.targetProfileId}{planner.assignment.canMigrate ? "" : " · Read only"}</p>
+			{:else}
 			<label class="block w-full text-sm font-medium text-gray-400 sm:w-64">
 				Destination
 				<select required value={planner.targetProfileId} onchange={(event) => planner.setTargetProfileId(event.currentTarget.value)} class="mt-1 block h-9 w-full rounded-md border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100">
@@ -40,6 +43,7 @@
 					<input type="text" required value={planner.targetOrg} oninput={(event) => planner.setTargetOrg(event.currentTarget.value)} placeholder="target-org" class="min-w-0 flex-1 bg-transparent font-mono text-sm text-gray-100 focus:outline-none" />
 				</span>
 			</label>
+			{/if}
 			{#if !embedded}
 				<span class="inline-flex h-9 items-center text-sm font-medium text-gray-400">{planner.selectedNames.length} selected</span>
 				{#if planner.selectedWarnings > 0}
@@ -54,10 +58,12 @@
 					</button>
 				{/if}
 			{/if}
+			{#if !planner.assignment || planner.assignment.canMigrate}
 			<button type="button" onclick={() => planner.launchBatch()} disabled={planner.launchingBatch || planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40">
 				<Octicon name={planner.launchingBatch ? "sync" : "rocket"} size={16} class={planner.launchingBatch ? "animate-spin" : ""} />
 				{planner.launchingBatch ? "Launching..." : "Launch batch"}
 			</button>
+			{/if}
 		</div>
 	</div>
 
@@ -82,7 +88,9 @@
 								<div class="mt-1 text-xs text-gray-400">{details.rootLfsRules === "found" ? "LFS tracking rule found" : details.rootLfsRules === "none" ? "No root LFS rule found" : "LFS rules not verified"}</div>
 							{/if}
 						</div>
-						<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
+						{#if !planner.assignment}
+							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
+						{/if}
 					</div>
 				{/each}
 			</div>

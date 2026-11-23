@@ -8,10 +8,12 @@
 	let {
 		analysis,
 		available,
+		readOnly = false,
 		form,
 	}: {
 		analysis: RepositoryAnalysisDetail | null;
 		available: boolean;
+		readOnly?: boolean;
 		form?: { analysisError?: string; analysisSuccess?: string } | null;
 	} = $props();
 
@@ -126,7 +128,7 @@
 			</div>
 		</div>
 
-		{#if analysis === null || !active}
+		{#if !readOnly && (analysis === null || !active)}
 			<form method="POST" action="?/startAnalysis" use:enhance={() => {
 				submitting = true;
 				return async ({ update }) => {
@@ -142,7 +144,7 @@
 					<Octicon name="play" size={16} />{submitting ? "Queuing..." : analysis ? "Run again" : "Analyze Git data"}
 				</button>
 			</form>
-		{:else if active}
+		{:else if !readOnly && analysis && active}
 			<form method="POST" action="?/cancelAnalysis" use:enhance>
 				<input type="hidden" name="analysisRunId" value={analysis.run.id} />
 				<button type="submit" class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-3 py-2 text-sm font-medium text-gray-300 hover:border-red-500/50 hover:text-red-300">
@@ -164,7 +166,7 @@
 		<p role="status" class="mt-3 border-t border-green-500/20 pt-2 text-xs text-green-300">{form.analysisSuccess}</p>
 	{/if}
 
-	{#if !available && analysis === null}
+	{#if !readOnly && !available && analysis === null}
 		<p class="mt-3 border-t border-yellow-500/20 pt-2 text-xs text-yellow-300">Source credentials are required to analyze Git data.</p>
 	{/if}
 </div>

@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { isTerminalMigrationState } from "$lib/migration-state";
+import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
 import {
   createBufferedSseController,
   parseSseLastEventId,
@@ -12,7 +13,21 @@ import {
 import { get, subscribe } from "$lib/server/migrate/manager";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = ({ params, url, request }) => {
+export const GET: RequestHandler = ({ params, url, request, locals }) => {
+  if (locals?.user?.role === "operator") {
+    const detail = getVisibleDetail(locals.user.id, params.id);
+    if (!detail) return new Response("Not found", { status: 404 });
+    const headers = { "Cache-Control": "no-store" };
+    if (url.searchParams.get("download") !== "1")
+      return json({ events: detail.events }, { headers });
+    return new Response(detail.events.map((e) => `${JSON.stringify(e)}\n`).join(""), {
+      headers: {
+        ...headers,
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="recent-migration-events.ndjson"',
+      },
+    });
+  }
   const migration = get(params.id);
   if (!migration) return new Response("Not found", { status: 404 });
   if (url.searchParams.get("download") === "1") {

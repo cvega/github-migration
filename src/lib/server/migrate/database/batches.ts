@@ -17,7 +17,7 @@ import {
   SEARCH_MATCH_CLAUSE,
 } from "./migrations";
 
-const BATCH_AGG_COLS = `
+export const BATCH_AGG_COLS = `
 	batch_id,
 	COUNT(*) AS total,
 	SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
@@ -34,7 +34,7 @@ const BATCH_AGG_COLS = `
 	MIN(target_platform) AS target_platform,
 	COUNT(DISTINCT source_provider || '|' || source_api_url || '|' || target_platform) AS route_count`;
 
-function rowToBatchListItem(row: Record<string, unknown>): BatchListItem {
+export function rowToBatchListItem(row: Record<string, unknown>): BatchListItem {
   if (!isSourceProvider(row.source_provider)) {
     throw new Error(`Invalid batch row ${String(row.batch_id)}: invalid source provider`);
   }

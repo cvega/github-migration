@@ -1,4 +1,11 @@
 import { error, fail } from "@sveltejs/kit";
+import {
+  assignableProfiles,
+  assignGrant,
+  GrantPolicyError,
+  listAdminGrants,
+  revokeGrant,
+} from "$lib/server/application/self-service/grants";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { requireAdmin } from "$lib/server/core/auth/authorization";
 import { revokeUserSessions } from "$lib/server/core/auth/sessions";
@@ -14,7 +21,12 @@ export const load: PageServerLoad = ({ locals, params }) => {
   const currentUser = requireAdmin(locals);
   const user = findUserById(params.id);
   if (!user) error(404, "User not found");
-  return { currentUser, user };
+  return {
+    currentUser,
+    user,
+    grants: listAdminGrants(user.id),
+    profiles: user.isActive && user.role === "operator" ? assignableProfiles() : [],
+  };
 };
 
 function failure(cause: unknown) {
@@ -22,6 +34,45 @@ function failure(cause: unknown) {
 }
 
 export const actions: Actions = {
+  assign: async ({ locals, params, request }) => {
+    const actor = requireAdmin(locals);
+    const data = await request.formData();
+    const key = data.get("route");
+    const permission = data.get("permission");
+    if (permission !== "view" && permission !== "migrate")
+      return fail(400, { error: "Choose a permission." });
+    for (const profile of assignableProfiles()) {
+      const destination = profile.destinations.find((item) => item.key === key);
+      if (!destination) continue;
+      try {
+        assignGrant(actor.id, params.id, {
+          sourceProvider: profile.sourceProvider,
+          sourceApiUrl: profile.sourceApiUrl,
+          namespace: profile.namespace,
+          targetProfileId: destination.targetProfileId,
+          targetOrg: destination.targetOrg,
+          canMigrate: permission === "migrate",
+        });
+        return { success: "Profile assigned." };
+      } catch (cause) {
+        if (cause instanceof GrantPolicyError) return failure(cause);
+        throw cause;
+      }
+    }
+    return fail(400, { error: "Choose an available profile and destination." });
+  },
+  removeAssignment: async ({ locals, params, request }) => {
+    const actor = requireAdmin(locals);
+    const id = (await request.formData()).get("grantId");
+    if (typeof id !== "string") return fail(400, { error: "Choose an assignment." });
+    try {
+      revokeGrant(actor.id, id, params.id);
+      return { success: "Profile access removed." };
+    } catch (cause) {
+      if (cause instanceof GrantPolicyError) return failure(cause);
+      throw cause;
+    }
+  },
   role: async ({ getClientAddress, locals, params, request }) => {
     const actor = requireAdmin(locals);
     const role = (await request.formData()).get("role")?.toString();

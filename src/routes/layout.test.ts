@@ -131,10 +131,18 @@ describe("root layout authentication boundary", () => {
     expectNoSentinels(data);
   });
 
-  test("retains operational data for a valid session", async () => {
+  test("operators receive scoped totals and no global data", async () => {
     const data = await loadLayout(true, AUTHENTICATED_USER);
-    const serialized = JSON.stringify(data);
     expect(data.currentUser).toEqual(AUTHENTICATED_USER);
+    expect(data.profileCount).toBe(0);
+    expect(data.migrationCount).toBe(0);
+    expectNoSentinels(data);
+  });
+  test("retains operational data for an administrator", async () => {
+    const admin = { ...AUTHENTICATED_USER, role: "admin" as const };
+    const data = await loadLayout(true, admin);
+    const serialized = JSON.stringify(data);
+    expect(data.currentUser).toEqual(admin);
     expect(serialized).toContain("internal-source.example.com");
     expect(serialized).toContain("internal-repo-sentinel");
     expect(serialized).toContain("failure-summary-sentinel");

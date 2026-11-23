@@ -13,6 +13,7 @@
 	import { createGlobalEventSource } from "$lib/migrate/live.svelte";
 	import { STATE_LABELS } from "$lib/migrate/migration-display";
 	import { createMigrationForm } from "$lib/migrate/migration-form.svelte";
+	import { pollScopedPage } from "$lib/migrate/scoped-poll";
 	import type { Counts, Migration, Snapshot } from "$lib/migrate/types";
 	import { getTargetPlatformPresentation } from "$lib/migration-target";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
@@ -122,11 +123,12 @@
 
 	onMount(() => {
 		restart.initAuthModes();
-		globalSSE = createGlobalEventSource();
+		const stopPoll = data.scoped ? pollScopedPage() : undefined;
+		if (!data.scoped) globalSSE = createGlobalEventSource();
 		const tick = setInterval(() => {
 			now = Date.now();
 		}, 1000);
-		return () => clearInterval(tick);
+		return () => { clearInterval(tick); stopPoll?.(); };
 	});
 
 	onDestroy(() => {
@@ -238,7 +240,7 @@
 			</div>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-			<MigrationRouteStatus routes={[batch]} />
+			{#if !data.scoped}<MigrationRouteStatus routes={[batch]} />{/if}
 		</div>
 	</header>
 
@@ -277,7 +279,7 @@
 				{#if batch.reconciliationRequiredCount > 0}<span class="inline-flex items-center gap-1.5 text-orange-400"><Octicon name="alert" size={12} /><strong>{batch.reconciliationRequiredCount}</strong> review required</span>{/if}
 			</div>
 
-			{#if restartableCount > 0 || isActive}
+			{#if !data.scoped && (restartableCount > 0 || isActive)}
 				<div class="flex shrink-0 flex-wrap items-center gap-2">
 					{#if restartableCount > 0}
 						<button type="button" onclick={openRestartForm} class="batch-action batch-action-default"><Octicon name="sync" size={16} />{restartLabel}</button>

@@ -20,7 +20,11 @@ Open `http://localhost:3000`. The example configuration is intentionally open
 for trusted local use. Before publishing it beyond that network, replace
 unauthenticated mode with first-administrator bootstrap credentials; see
 [Configuration](configuration.md#core). Add operators from **Manage users**
-after signing in.
+after signing in. Open an operator's user record to assign an existing source
+profile and destination organization. Grant view access to review reports, or
+migration access to submit repositories to that destination. The operator uses
+the same **Profile** and **Migrations** tabs and report URLs as the administrator.
+An account without assignments has empty lists, not access to every profile.
 
 If using another hostname, IP address, port, or HTTPS, set `ORIGIN` in `.env`
 to that exact browser-visible origin before starting the containers.
@@ -102,8 +106,8 @@ No clone, history scan, file listing, or LFS payload download is required.
 Discovery uses the configured source host and credential: Bitbucket projects,
 GitLab groups (including subgroup paths), and GitHub user organizations or the
 organization owning the configured App installation's visible repositories.
-The existing namespace restrictions apply by default. To authorize all dashboard
-operators to profile what a particular source credential can read, set
+The existing namespace restrictions apply by default. To allow administrators
+to profile what a particular source credential can read, set
 `PROFILE_CONNECTION_SCOPE` to one or more provider IDs (`bitbucket-server`,
 `gitlab`, `github`). Use a least-privilege source credential. This opt-in affects
 discovery and profile submission, not migration authorization.

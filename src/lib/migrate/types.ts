@@ -235,6 +235,8 @@ export interface ActivityItem {
 }
 
 export interface Migration {
+  /** Absent for administrator, legacy and seeded migrations. */
+  ownerUserId?: string;
   /** Includes conflicting legacy target fields and durable GHES checkpoints. */
   routeExecutionPaused?: true;
   id: string;

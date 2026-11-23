@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("auth schema", () => {
-  test("creates every durable auth table at version one", () => {
+  test("creates every durable auth table at version two", () => {
     database = new Database(":memory:");
     database.run("PRAGMA foreign_keys = ON");
     authStore.applySchema(database);
@@ -23,7 +23,7 @@ describe("auth schema", () => {
     for (const contract of AUTH_DURABLE_TABLES) expect(names.has(contract.name)).toBe(true);
     expect(
       database.prepare("SELECT version FROM app_schema_versions WHERE domain = 'auth'").get(),
-    ).toEqual({ version: 1 });
+    ).toEqual({ version: 2 });
   });
 
   test("enforces case-insensitive usernames and valid roles", () => {

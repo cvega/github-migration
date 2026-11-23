@@ -231,7 +231,12 @@ export function getProfileStatus(
 }
 export function getProfileRepoPage(
   id: string,
-  options: { page?: number; search?: string; readiness?: RepoReadinessFilter } = {},
+  options: {
+    page?: number;
+    search?: string;
+    readiness?: RepoReadinessFilter;
+    namespace?: string;
+  } = {},
 ) {
   const run = getProfileRun(id);
   if (!run) return null;

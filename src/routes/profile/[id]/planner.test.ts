@@ -43,6 +43,36 @@ function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
 }
 
 describe("ProfileMigrationPlannerController", () => {
+  test("operator launches selected subgroup leaves without destination or source overrides", async () => {
+    const planner = new ProfileMigrationPlannerController({
+      getRun: () =>
+        ({
+          id: "profile",
+          org: "group/sub",
+          sourceProvider: "gitlab",
+          sourceApiUrl: "https://gitlab.example/api/v4",
+        }) as never,
+      getRepos: () => [],
+      getPlanningRepos: () =>
+        ["one", "two"].map((name) => ({
+          nameWithOwner: `group/sub/${name}`,
+          blockers: 0,
+          warnings: 0,
+        })),
+      getDefaultTargetOrg: () => "",
+      getTargets: () => [],
+      getAssignment: () => ({ targetOrg: "assigned", targetProfileId: "ghec", canMigrate: true }),
+    });
+    const post = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ id: "batch" }));
+    try {
+      planner.toggleSelection("group/sub/two");
+      await planner.launchBatch();
+      expect(post.mock.lastCall?.[0]).toBe("/api/profile/profile");
+      expect(JSON.parse(String(post.mock.lastCall?.[1]?.body))).toEqual({ repos: ["two"] });
+    } finally {
+      post.mockRestore();
+    }
+  });
   test("submits the chosen Bitbucket destination without falling back to cloud", async () => {
     const planner = new ProfileMigrationPlannerController({
       getRun: () =>

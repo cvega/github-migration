@@ -1,16 +1,26 @@
 import { error, fail } from "@sveltejs/kit";
 import type { Counts } from "$lib/migrate/types";
+import { ownJobActions } from "$lib/server/application/self-service/jobs";
+import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
 import { events, get } from "$lib/server/migrate/manager";
 import { fetchMigrationTargetCounts } from "$lib/server/migrate/target-counts";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
+  if (locals?.user?.role === "operator") {
+    const detail = getVisibleDetail(locals.user.id, params.id);
+    if (!detail) error(404, "Migration not found");
+    return { ...detail, scoped: true, ...ownJobActions(locals.user.id, params.id) };
+  }
   const migration = get(params.id);
   if (!migration) throw error(404, "Migration not found");
 
   const migrationEvents = events(params.id);
 
   return {
+    scoped: false,
+    canCancel: true,
+    canRestart: true,
     migration,
     events: migrationEvents,
     eventCursor: migrationEvents.at(-1)?.id ?? 0,
@@ -18,7 +28,8 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-  refreshCounts: async ({ params }) => {
+  refreshCounts: async ({ params, locals }) => {
+    if (locals?.user?.role === "operator") return fail(403, { countsError: "Not permitted." });
     const migration = get(params.id);
     if (!migration) return fail(404, { countsError: "Migration not found." });
     if (migration.state !== "succeeded") {

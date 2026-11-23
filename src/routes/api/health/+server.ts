@@ -1,4 +1,4 @@
-/** Public liveness probe with auth details limited to authenticated operators. */
+/** Public liveness probe; operational details are for the administrative workspace. */
 import { json } from "@sveltejs/kit";
 import { getAuthConfig } from "$lib/server/core/auth";
 import type { RequestHandler } from "./$types";
@@ -8,9 +8,9 @@ export const GET: RequestHandler = async ({ locals }) => {
     status: "ok",
     timestamp: new Date().toISOString(),
   };
-  const authenticated = !locals.authEnabled || locals.user != null;
+  const showConfiguration = !locals.authEnabled || locals.user?.role === "admin";
 
-  if (authenticated) {
+  if (showConfiguration) {
     const auth = getAuthConfig();
     body.auth = {
       source: {

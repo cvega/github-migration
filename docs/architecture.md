@@ -269,8 +269,15 @@ digests are persisted. Session resolution in the request hook populates the
 authenticated user in request locals, which is the sole downstream identity
 source. Disabled users, expired sessions, and revoked sessions are rejected.
 
-Administrators manage users, while operators retain profiling and migration
-permissions. User administration, migration commands, profile starts, and
+Administrators grant access on the user record. Operators share the existing
+dashboard, profile reports and migration screens. Their scope is the exact
+provider, source instance and namespace together with its assigned destination.
+Viewing a project does not authorize submitting migrations, and viewing a
+migration is not permission to modify another operator's job. Private routes
+are denied unless they enforce that scope. Session-scoped responses are not
+publicly cacheable. Shared provider credentials never imply access.
+
+User administration, migration commands, profile starts, and
 mannequin invitation submissions append durable audit events. Failed sign-ins
 are throttled by username/address pair and client address without permanently
 locking a user. When authentication is enabled, the root layout returns only
@@ -290,6 +297,8 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `app_sessions` | Revocable dashboard sessions | Stores SHA-256 token digests, never raw cookie values |
 | `auth_login_attempts` | Persistent sign-in throttling | Bounded failed attempts keyed by username and client address |
 | `audit_events` | Authentication and operator action attribution | Stores actors and resources without credentials or session tokens |
+| `self_service_routes` | One pinned destination per delegated source namespace | Identities include the source provider and instance, not an ephemeral profile run |
+| `self_service_grants` | Named operator assignments | Grants inventory access with a separate migration permission |
 | `app_schema_versions` | Per-domain schema versions | Supports idempotent startup upgrades |
 | `migrations` | One row per repository migration | Includes batch ID, source provider, native and GitHub checkpoints, state, pipeline step, auth mode, request options, counts, and timestamps |
 | `events` | Append-only migration event log | Replayed for SSE catch-up |

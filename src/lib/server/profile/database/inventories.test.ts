@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import type {
   BitbucketProfileEnrichment,
   ProfileNumericMetric,
@@ -162,6 +162,17 @@ describe("profile source inventories", () => {
       coverage: { total: 11, collected: 10, covered: 1, open: 2, withOpen: 1 },
       pagination: { page: 2, totalPages: 2 },
       rows: [{ path: "PC/repo-10", activity: { review } }],
+    });
+    // A historical row outside the exact project must not affect download or coverage.
+    getDb().run(
+      "UPDATE profile_source_inventory_projects SET path='Other/private' WHERE path='PC/repo-0'",
+    );
+    expect(getBitbucketLfsReportRows("bb", namespace).map((r) => r.repository)).not.toContain(
+      "Other/private",
+    );
+    expect(getBitbucketActivityPage("bb", 99, namespace)).toMatchObject({
+      coverage: { total: 10, collected: 9 },
+      pagination: { page: 1, totalPages: 1, total: 10 },
     });
   });
   test("round-trips normalized projects in source order and persists a compact summary", () => {

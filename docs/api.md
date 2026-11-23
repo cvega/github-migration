@@ -7,6 +7,11 @@ Validation failures return `{ "error": "..." }` with an appropriate 4xx
 status. Credentials are accepted only by documented migration requests and are
 never returned.
 
+Named operators can use only the profile and migration operations authorized by
+their assignments. Unassigned resources and administrative endpoints are not
+discoverable through the operator session; equivalent page and API access
+checks apply regardless of whether a link is visible.
+
 ## Operations
 
 | Method | Path | Purpose |
@@ -21,6 +26,7 @@ never returned.
 | `GET` | `/api/profile` | List profile runs |
 | `GET` | `/api/profile/discover` | Discover a page of visible namespaces for `provider`; pass the returned `next` as `cursor` |
 | `GET` | `/api/profile/:id` | Read profile status and paginated repository detail |
+| `POST` | `/api/profile/:id` | Queue selected repositories from an assigned profile using its enforced destination |
 | `GET` | `/api/profile/:id/events` | Stream profile progress and terminal state |
 | `POST` | `/api/migrate` | Start one repository migration |
 | `GET` | `/api/migrate` | List or search migrations |

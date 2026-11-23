@@ -69,6 +69,25 @@ function createRun(): void {
 }
 
 describe("profile repository persistence", () => {
+  test("exact owner filtering precedes repository pagination, plan limits and rollups", () => {
+    createRun();
+    for (const name of ["Acme/hidden", "acme/child/other", "acme/visible", "acme/visible-two"]) {
+      const signal = signals(name);
+      recordRepoProfile("run", signal, analyzeRepo(signal));
+    }
+    expect(getRunRepoProfilesPage("run", { namespace: "acme", limit: 1, page: 2 })).toMatchObject({
+      total: 2,
+      totalPages: 2,
+      repos: [{ nameWithOwner: "acme/visible-two" }],
+    });
+    expect(getRunRepoPlanProfiles("run", 1, "acme")).toMatchObject([
+      { nameWithOwner: "acme/visible" },
+    ]);
+    expect([...iterateRunRepoProfiles("run", "acme")].map((repo) => repo.nameWithOwner)).toEqual([
+      "acme/visible",
+      "acme/visible-two",
+    ]);
+  });
   test("upserts repositories idempotently and reads them in stable order", () => {
     createRun();
     const beta = signals("acme/beta");

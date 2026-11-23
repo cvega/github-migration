@@ -451,6 +451,15 @@ export const migrateStore: DomainStore = {
     migrateTargetProfileSchema(db);
     migrateGhesImportJobSchema(db);
     migrateGhesSourceLockSchema(db);
+    db.transaction(() => {
+      // Deliberately not ON DELETE SET NULL: removing an operator must never
+      // reclassify their pending work as an unrestricted administrator job.
+      addColumnIfMissing(db, "migrations", "owner_user_id", "TEXT");
+      db.run(
+        "CREATE INDEX IF NOT EXISTS idx_migrations_owner ON migrations(owner_user_id, started_at DESC) WHERE owner_user_id IS NOT NULL",
+      );
+      db.run("UPDATE app_schema_versions SET version = 8 WHERE domain = 'migrate' AND version < 8");
+    })();
   },
   onInit(db) {
     recoverInterruptedMigrations(db);

@@ -29,19 +29,19 @@ describe("GET /api/health", () => {
     expect(body.auth).toBeUndefined();
   });
 
-  test("includes auth details for an authenticated operator", async () => {
+  test.each(["operator", "admin"] as const)("limits auth details by role: %s", async (role) => {
     const body = await bodyOf(
       await health(
         event({
           id: "user-1",
           username: "operator",
           displayName: null,
-          role: "operator",
+          role,
           isActive: true,
           mustChangePassword: false,
         }),
       ),
     );
-    expect(body.auth).toBeDefined();
+    expect(body.auth !== undefined).toBe(role === "admin");
   });
 });

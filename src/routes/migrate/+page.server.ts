@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parsePaginationParams } from "$lib/migrate/types";
+import { visibleDashboard } from "$lib/server/application/self-service/visible-jobs";
 import {
   listBatchesPaginated,
   listPaginated,
@@ -19,7 +20,7 @@ function resolveLogoUrl(): string | null {
   return null;
 }
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ url, locals }) => {
   const { page, limit } = parsePaginationParams(url.searchParams);
   const batchParams = new URLSearchParams({
     page: url.searchParams.get("bp") ?? "1",
@@ -28,8 +29,17 @@ export const load: PageServerLoad = async ({ url }) => {
   const batchPage = parsePaginationParams(batchParams).page;
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, MAX_QUERY_LEN);
 
+  if (locals?.user?.role === "operator")
+    return {
+      scoped: true,
+      q,
+      ...visibleDashboard(locals.user.id, q, { page, limit }, batchPage),
+      logoUrl: resolveLogoUrl(),
+    };
+
   if (q) {
     return {
+      scoped: false,
       q,
       migrations: searchPaginated({ q, page, limit }),
       batches: searchBatchesPaginated({ q, page: batchPage, limit: 10 }),
@@ -39,6 +49,7 @@ export const load: PageServerLoad = async ({ url }) => {
   }
 
   return {
+    scoped: false,
     q: "",
     migrations: listPaginated({ page, limit }),
     batches: listBatchesPaginated({ page: batchPage, limit: 10 }),
