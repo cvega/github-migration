@@ -65,6 +65,24 @@ function finding(profile: RepoProfile, id: string) {
 }
 
 describe("analyzeRepo", () => {
+  test("unavailable REST evidence is indeterminate, not clear", () => {
+    const profile = analyzeRepo(
+      cleanSignals({
+        webhooksCount: null,
+        collaboratorsCount: null,
+        tagProtectionCount: null,
+        hasCodeScanningAlerts: null,
+      }),
+    );
+    for (const id of [
+      "webhooks",
+      "repo-collaborators",
+      "tag-protection",
+      "code-scanning-history",
+    ]) {
+      expect(finding(profile, id)?.status).toBe("indeterminate");
+    }
+  });
   test("produces one finding per registry consideration, in registry order", () => {
     const profile = analyzeRepo(cleanSignals());
     expect(profile.findings).toHaveLength(MIGRATION_CATALOG.length);

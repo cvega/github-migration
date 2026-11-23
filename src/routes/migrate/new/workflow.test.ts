@@ -87,8 +87,8 @@ describe("new migration workflow", () => {
     expect(batch.destination("batch-1")).toBe("/migrate/batches/batch-1");
   });
 
-  test("preserves dry-run and production execution flags in submission bodies", () => {
-    const dryRun = buildSubmissionPlan({
+  test("preserves source lock and archive flags in submission bodies", () => {
+    const unlocked = buildSubmissionPlan({
       mode: "single",
       commonFields: {
         lockSource: false,
@@ -100,7 +100,7 @@ describe("new migration workflow", () => {
       targetRepo: "api",
       repositories: [],
     });
-    expect(dryRun.body).toMatchObject({
+    expect(unlocked.body).toMatchObject({
       lockSource: false,
       archiveSource: false,
       skipReleases: true,
@@ -236,7 +236,6 @@ describe("new migration workflow", () => {
     expect(
       buildMigrationReviewModel({
         mode: "single",
-        migrationMode: "dry-run",
         sourceRepository: "platform/api",
         targetOrganization: "engineering",
         targetRepository: "api-copy",
@@ -250,13 +249,12 @@ describe("new migration workflow", () => {
       allRepositoryMappings: [{ source: "platform/api", target: "engineering/api-copy" }],
       repositoryMappings: [{ source: "platform/api", target: "engineering/api-copy" }],
       additionalRepositoryCount: 0,
-      launchLabel: "Start dry run",
+      launchLabel: "Start migration",
       queueMessage: "Migration capacity is available.",
     });
 
     const batch = buildMigrationReviewModel({
       mode: "batch",
-      migrationMode: "production",
       sourceRepository: "",
       targetOrganization: "engineering",
       targetRepository: "",
@@ -268,7 +266,7 @@ describe("new migration workflow", () => {
       title: "Batch readiness",
       repositoryCount: 4,
       additionalRepositoryCount: 1,
-      launchLabel: "Start production batch",
+      launchLabel: "Start batch migration",
       queueMessage: "All 10 migration slots are in use; this work will queue automatically.",
     });
     expect(batch.repositoryMappings).toEqual([

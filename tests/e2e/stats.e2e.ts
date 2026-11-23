@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test("historical exporter trace is summarized and reachable at desktop and mobile widths", async ({page}) => {
+	for (const width of [390,1280,1440]) {
+		await page.setViewportSize({width,height:900});
+		await page.goto("/migrate/stats");
+		const incident = page.locator("#attention :is(td,li):visible").filter({hasText:"Bitbucket exporter could not write the migration archive"});
+		await expect(incident).toHaveCount(1);
+		const link = incident.getByRole("link",{name:/Last failed run · \d{4}-\d{2}-\d{2}/});
+		await expect(link).toHaveAttribute("href","/migrate/seed-e2e-bitbucket-failed");
+		await expect(page.locator("#attention")).not.toContainText("rb_sysopen");
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	}
+	await page.locator("#attention a:visible[href='/migrate/seed-e2e-bitbucket-failed']").click();
+	await page.getByText("Recorded failure", {exact:true}).click();
+	await expect(page.locator("details[open]")).toContainText("Errno::EACCES");
+});
+
 test("statistics groups retain detailed data and path volume", async ({ page }) => {
 	await page.goto("/migrate/stats");
 
@@ -57,14 +73,14 @@ test("statistics controls preserve the other filters and reset together", async 
 
 	await filters.getByText("30 days", { exact: true }).click();
 	await expect(page).toHaveURL(/source=gitlab&target=ghes&period=30d&mode=all$/);
-	await filters.getByText("Batch", { exact: true }).click();
-	await expect(page).toHaveURL(/source=gitlab&target=ghes&period=30d&mode=batch$/);
+	await filters.getByText("Single", { exact: true }).click();
+	await expect(page).toHaveURL(/source=gitlab&target=ghes&period=30d&mode=single$/);
 	await expect(filters.getByRole("radio", { name: "30 days" })).toBeChecked();
-	await expect(filters.getByRole("radio", { name: "Batch", exact: true })).toBeChecked();
+	await expect(filters.getByRole("radio", { name: "Single", exact: true })).toBeChecked();
 
 	await filters.getByRole("button", { name: /^Source/ }).click();
 	await filters.getByRole("link", { name: "Bitbucket Server", exact: true }).click();
-	await expect(page).toHaveURL(/source=bitbucket-server&target=ghes&period=30d&mode=batch$/);
+	await expect(page).toHaveURL(/source=bitbucket-server&target=ghes&period=30d&mode=single$/);
 	await expect(page.getByText("No migrations match these filters.", { exact: true })).toBeVisible();
 	await expect(filters.getByRole("link", { name: "Reset filters" })).toHaveCount(0);
 
@@ -132,15 +148,15 @@ test("statistics PDF printing keeps filtered report data and full tables", async
 });
 
 test("statistics PDF printing identifies empty filtered results", async ({ page }) => {
-	await page.goto("/migrate/stats?source=bitbucket-server&target=ghes&period=30d&mode=batch");
+	await page.goto("/migrate/stats?source=bitbucket-server&target=ghes&period=30d&mode=single");
 	await page.emulateMedia({ media: "print" });
 	const cover = page.getByRole("region", { name: "Report cover" });
 	await expect(cover.getByText("Bitbucket Server", { exact: true })).toBeVisible();
 	await expect(cover.getByText("30 days", { exact: true })).toBeVisible();
-	await expect(cover.getByText("Batch", { exact: true })).toBeVisible();
+	await expect(cover.getByText("Single", { exact: true })).toBeVisible();
 	await expect(page.getByRole("region", { name: "Report closing page" }).getByRole("heading", { name: "End of report" })).toBeVisible();
 	await expect(page.locator(".stats-print-context")).toContainText(
-		"Source: Bitbucket Server · Target: GitHub Enterprise Server · Started: 30 days · Mode: Batch",
+		"Source: Bitbucket Server · Target: GitHub Enterprise Server · Started: 30 days · Mode: Single",
 	);
 	await expect(page.getByText("No migrations match these filters.", { exact: true })).toBeVisible();
 	await expect(page.getByRole("link", { name: "Reset filters" })).toBeHidden();

@@ -1,14 +1,15 @@
 import { rm } from "node:fs/promises";
-import type { Migration } from "$lib/migrate/types";
+import type { Migration, Phase } from "$lib/migrate/types";
 import type { GhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
+import { createSingleClient } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
+import { discoverIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import {
   deleteGhesImportJob,
   getGhesImportJobByMigrationId,
   updateGhesImportJobCheckpoint,
 } from "../database/import-jobs";
 import { getMigration, updateCheckpoint } from "../database/migrations";
-import { emitNativeStep } from "../executors/native-to-ghec";
 import {
   type ExporterSourceProvider,
   type ExporterWorker,
@@ -16,10 +17,34 @@ import {
   submitExporterArchive,
 } from "../exporters/worker";
 import type { MigrationEventEmitter } from "../github/monitor";
-import { buildGhesMigrationMap, countGhesAuditFailures } from "./mapping";
+import { fetchMigrationTargetCounts } from "../target-counts";
+import type { GhesImportJobPhase } from "./job";
+import {
+  approvedBitbucketRecords,
+  buildGhesMigrationMap,
+  countGhesAuditFailures,
+  getGhesUserConflicts,
+} from "./mapping";
 import type { GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
+const MAX_MAPPING_PASSES = 3;
+
+function emitImportStep(
+  emit: MigrationEventEmitter,
+  migrationId: string,
+  executorPhase: GhesImportJobPhase,
+  message: string,
+  phase: Phase | null = null,
+): void {
+  emit({
+    migrationId,
+    eventType: "step",
+    phase,
+    payload: { message, executorPhase },
+    createdAt: new Date().toISOString(),
+  });
+}
 class ReconciliationRequiredError extends Error {}
 
 export type GhesImportClient = Pick<
@@ -45,6 +70,9 @@ export interface ExporterGhesSourceAdapter {
   assertSource(migration: Migration): void;
   createWorker(config: GhesTargetConnectionConfig): ExporterWorker;
   createSshClient(config: GhesTargetConnectionConfig): GhesImportClient;
+  verifyTargetUser?(config: GhesTargetConnectionConfig, login: string): Promise<void>;
+  localMappingRecords?(archivePath: string, signal?: AbortSignal): Promise<string>;
+  fetchTargetCounts?: typeof fetchMigrationTargetCounts;
   sourceWasLocked(migration: Migration, signal?: AbortSignal): Promise<boolean>;
   unlockSource?(migration: Migration): Promise<void>;
   wait(milliseconds: number, signal?: AbortSignal): Promise<void>;
@@ -98,10 +126,12 @@ async function waitForArchive(
   const exporterJobId = job.exporterJobId;
   if (!exporterJobId)
     throw new ReconciliationRequiredError("Exporter container identifier is missing");
-  emitNativeStep(
+  emitImportStep(
     emit,
     migration.id,
+    "archive_ready",
     `${source.displayName} archive ready (${job.archiveSha256.slice(0, 12)})`,
+    "EXPORTING",
   );
   await worker.cleanup?.(exporterJobId).catch(() => {});
   return job;
@@ -147,10 +177,12 @@ async function execute(
       const sourceWasLocked =
         priorSourceWasLocked ?? (await source.sourceWasLocked(migration, options.signal));
       sourceUnlockRequired = Boolean(source.unlockSource && !sourceWasLocked);
-      emitNativeStep(
+      emitImportStep(
         options.emit,
         migration.id,
+        "exporting",
         `Starting ${source.displayName} export${sourceWasLocked ? "" : " with source lock"}`,
+        "EXPORTING",
       );
       job = await submitExporterArchive(migration, worker, options.signal, sourceWasLocked);
     }
@@ -180,10 +212,15 @@ async function execute(
     remoteArchivePath = ssh.remoteArchivePath(job.archivePath);
     if (job.phase === "archive_ready" || job.phase === "transferring") {
       updateGhesImportJobCheckpoint(job.id, "transferring");
-      emitNativeStep(options.emit, migration.id, "Transferring archive to GHES with SCP");
+      emitImportStep(
+        options.emit,
+        migration.id,
+        "transferring",
+        "Transferring archive to GHES with SCP",
+      );
       remoteArchivePath = await ssh.uploadArchive(job.archivePath, options.signal);
       updateGhesImportJobCheckpoint(job.id, "preparing");
-      emitNativeStep(options.emit, migration.id, "Preparing archive on GHES");
+      emitImportStep(options.emit, migration.id, "preparing", "Preparing archive on GHES");
       const guid = await ssh.prepare(remoteArchivePath);
       updateGhesImportJobCheckpoint(job.id, "preparing", { ghesImportId: guid });
       options.signal?.throwIfAborted();
@@ -193,26 +230,135 @@ async function execute(
     const guid = job.ghesImportId;
     if (!guid) throw new ReconciliationRequiredError("GHES Migration GUID is missing");
     if (job.phase === "preparing") {
-      emitNativeStep(options.emit, migration.id, "Generating and applying GHES mappings");
-      const [conflicts, records] = await Promise.all([
-        ssh.conflicts(guid),
-        ssh.mappingRecords(guid),
-      ]);
-      options.signal?.throwIfAborted();
-      const mapping = buildGhesMigrationMap(
-        conflicts.stdout,
-        records.stdout,
-        config.profile.webUrl,
-        migration.targetOrg,
-        migration.targetRepo,
+      emitImportStep(
+        options.emit,
+        migration.id,
+        "mapping",
+        "Generating and applying GHES mappings",
       );
-      if (mapping) {
-        updateGhesImportJobCheckpoint(job.id, "mapping");
-        await ssh.map(guid, mapping);
+      const upfront = source.provider === "bitbucket-server";
+      let conflicts = upfront ? { stdout: "", stderr: "" } : await ssh.conflicts(guid);
+      const sourceKind = `ghe-migrator:${migration.sourceProvider}`;
+      let records: string;
+      if (upfront && source.localMappingRecords) {
+        const start = performance.now();
+        try {
+          // If a large archive takes longer to scan, use the supported GHES audit instead.
+          const timeout = AbortSignal.timeout(5_000);
+          const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
+          records = await source.localMappingRecords(job.archivePath!, signal);
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            `Read source identities from this repository's local archive in ${Math.round(performance.now() - start)} ms`,
+          );
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            `Using GHES mapping audit: ${error instanceof Error ? error.message : "archive metadata unavailable"}`,
+          );
+          records = (await ssh.mappingRecords(guid, true)).stdout;
+        }
+      } else records = (await ssh.mappingRecords(guid, upfront)).stdout;
+      options.signal?.throwIfAborted();
+      const approved = listIdentityMappings(migration.targetApiUrl, migration.targetOrg).filter(
+        (mapping) => mapping.status === "approved",
+      );
+      const mappingsFor = (kind: string) =>
+        new Map(
+          approved.flatMap((mapping) =>
+            mapping.sourceKind === kind && mapping.targetLogin
+              ? [[mapping.sourceIdentity, mapping.targetLogin] as const]
+              : [],
+          ),
+        );
+      const userMappings = mappingsFor(sourceKind);
+      const teamMappings = mappingsFor(`${sourceKind}:team`);
+      if (upfront) records = approvedBitbucketRecords(records, userMappings, teamMappings);
+      const verifiedLogins = new Set<string>();
+      const appliedMappings = new Set<string>();
+      let client: ReturnType<typeof createSingleClient> | undefined;
+      for (;;) {
+        const identities = new Set([
+          ...getGhesUserConflicts(conflicts.stdout),
+          ...getGhesUserConflicts(records),
+        ]);
+        for (const identity of identities) {
+          discoverIdentityMapping(
+            migration.targetApiUrl,
+            migration.targetOrg,
+            sourceKind,
+            identity,
+          );
+        }
+        for (const identity of identities) {
+          const login = userMappings.get(identity);
+          if (!login || verifiedLogins.has(login)) continue;
+          if (source.verifyTargetUser) await source.verifyTargetUser(config, login);
+          else {
+            client ??= createSingleClient({ token: config.siteAdminToken }, config.profile.apiUrl);
+            await client.users.getByUsername({ username: login });
+          }
+          verifiedLogins.add(login);
+        }
         options.signal?.throwIfAborted();
+        const mapping = buildGhesMigrationMap(
+          conflicts.stdout,
+          records,
+          config.profile.webUrl,
+          migration.targetOrg,
+          migration.targetRepo,
+          userMappings,
+          teamMappings,
+        );
+        if (!mapping) break;
+        if (appliedMappings.size >= MAX_MAPPING_PASSES || appliedMappings.has(mapping)) {
+          throw new Error(
+            "GHES conflicts remain after applying target mappings; resolve them before importing",
+          );
+        }
+        if (appliedMappings.size > 0) {
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            "Resolving conflicts revealed by GHES target mappings",
+          );
+        }
+        updateGhesImportJobCheckpoint(job.id, "mapping");
+        if (upfront)
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            "Applying mappings on GHES for this repository's import",
+          );
+        await ssh.map(guid, mapping);
+        appliedMappings.add(mapping);
+        options.signal?.throwIfAborted();
+        if (upfront)
+          emitImportStep(
+            options.emit,
+            migration.id,
+            "mapping",
+            "Checking GHES for remaining conflicts",
+          );
+        conflicts = await ssh.conflicts(guid);
+        options.signal?.throwIfAborted();
+        records = "";
       }
       updateGhesImportJobCheckpoint(job.id, "importing");
-      emitNativeStep(options.emit, migration.id, "Importing archive into GHES");
+      emitImportStep(
+        options.emit,
+        migration.id,
+        "importing",
+        "Importing archive into GHES",
+        "IMPORTING_GIT",
+      );
       await ssh.import(remoteArchivePath, guid);
       updateGhesImportJobCheckpoint(job.id, "auditing");
       options.signal?.throwIfAborted();
@@ -220,14 +366,14 @@ async function execute(
     }
 
     if (job.phase === "auditing") {
-      emitNativeStep(options.emit, migration.id, "Auditing failed GHES import records");
+      emitImportStep(options.emit, migration.id, "auditing", "Checking for GHES import errors");
       const failures = countGhesAuditFailures((await ssh.auditFailures(guid)).stdout);
       if (failures > 0) throw new Error(`GHES import audit found ${failures} failed record(s)`);
       updateGhesImportJobCheckpoint(job.id, "unlocking");
       job = getGhesImportJobByMigrationId(migration.id) as typeof job;
     }
     if (job.phase === "unlocking") {
-      emitNativeStep(options.emit, migration.id, "Unlocking imported GHES repository");
+      emitImportStep(options.emit, migration.id, "unlocking", "Unlocking imported GHES repository");
       await ssh.unlock(guid);
     } else {
       throw new ReconciliationRequiredError(
@@ -239,7 +385,6 @@ async function execute(
     const localArchivePath = job.archivePath;
     if (!localArchivePath) throw new Error("GHES import archive checkpoint is missing");
     await rm(localArchivePath, { force: true }).catch(() => {});
-    emitNativeStep(options.emit, migration.id, "GHES migration completed");
     result = settled(migration, "succeeded");
   } catch (error) {
     const current = getGhesImportJobByMigrationId(migration.id);
@@ -279,6 +424,28 @@ async function execute(
         }
         result = settled(migration, "reconciliation_required", reason);
       }
+    }
+  }
+  if (result?.state === "succeeded") {
+    emitImportStep(
+      options.emit,
+      migration.id,
+      "succeeded",
+      "GHES migration completed",
+      "SUCCEEDED",
+    );
+    try {
+      result.targetCounts = await (source.fetchTargetCounts ?? fetchMigrationTargetCounts)(result);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`Target resource counts unavailable for migration ${migration.id}: ${reason}`);
+      emitImportStep(
+        options.emit,
+        migration.id,
+        "succeeded",
+        `Migration succeeded, but target resource counts could not be collected: ${reason}. Use Fetch counts on the migration detail page to retry.`,
+        "SUCCEEDED",
+      );
     }
   }
   return result ?? settled(migration, "failed", "GHES migration did not settle");

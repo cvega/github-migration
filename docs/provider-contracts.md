@@ -39,6 +39,12 @@ branches, tags, and fork data. Native GHEC migration starts the Bitbucket export
 and retrieves its archive from shared home over pinned SFTP. GHES migration uses
 the read-only external exporter and does not lock the source.
 
+On the Migrations list and batch detail pages, Bitbucket-to-GHES results show **Bitbucket API → GHES
+import over SSH**. This describes the transport, not a health check. GitHub
+source results retain the source credential indicator; cloud targets retain
+the target credential and GitHub service status. Indicators that do not apply
+to every visible route are omitted.
+
 Provider credentials, archive limits, timeouts, project scopes, and SSH pinning
 are listed in [Configuration](configuration.md).
 

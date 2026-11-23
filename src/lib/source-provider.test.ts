@@ -23,6 +23,7 @@ describe("source provider adapters", () => {
     expect(getGitHubSourcePlatform("https://api.github.com")).toBe("ghec");
     expect(getGitHubSourcePlatform("https://github.com")).toBe("ghec");
     expect(getGitHubSourcePlatform("https://acme.ghe.com")).toBe("ghec");
+    expect(getGitHubSourcePlatform("https://ghe.com")).toBe("ghec");
     expect(getGitHubSourcePlatform("https://github.example.com/api/v3")).toBe("ghes");
     expect(getGitHubSourcePlatform("not-a-url")).toBe("ghes");
     expect(getGitHubSourcePlatform(null)).toBe("ghes");
@@ -73,7 +74,7 @@ describe("source provider adapters", () => {
     const adapter = getSourceProviderAdapter("github");
     expect(getMigrationExecutor("github")).toBe("github-api");
     expect(getMigrationExecutor("gitlab")).toBe("gitlab-native");
-    expect(getMigrationExecutor("gitlab", "ghes")).toBe("gitlab-ghes");
+    expect(getMigrationExecutor("gitlab", "ghes")).toBeNull();
     expect(getMigrationExecutor("github", "ghes")).toBeNull();
     expect(getMigrationExecutor("bitbucket-server", "ghes")).toBe("bitbucket-server-ghes");
     expect(getMigrationExecutor("bitbucket-server")).toBe("bitbucket-server-native");

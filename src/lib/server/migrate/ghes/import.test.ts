@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Migration } from "$lib/migrate/types";
+import type { Counts, Migration, MigrationEvent } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { getEvents, insertEvent } from "../database/events";
+import { approveIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
 import { insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
@@ -10,6 +12,15 @@ import {
   resumeExporterGhesMigration,
   runExporterGhesMigration,
 } from "./import";
+
+const targetCounts: Counts = {
+  commits: 1,
+  branches: 3,
+  tags: 0,
+  issues: 0,
+  pullRequests: 2,
+  releases: 0,
+};
 
 function migration(id: string): Migration {
   return {
@@ -53,6 +64,8 @@ function adapter(worker: ExporterWorker): ExporterGhesSourceAdapter {
       }) as never,
     assertSource: () => {},
     createWorker: () => worker,
+    verifyTargetUser: async () => {},
+    fetchTargetCounts: async () => targetCounts,
     createSshClient: () => ({
       connect: async () => {},
       disconnect: () => {},
@@ -76,6 +89,92 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("GHES import execution", () => {
+  test.each([false, true])(
+    "Bitbucket sends approved archive mappings upfront; remaining conflict: %s",
+    async (blocked) => {
+      const record = migration("bitbucket-upfront");
+      record.sourceProvider = "bitbucket-server";
+      record.batchId = "bitbucket-batch";
+      insertMigration(record);
+      const sibling = {
+        ...record,
+        id: "queued-sibling",
+        state: "queued" as const,
+        sourceRepo: "other",
+        targetRepo: "other",
+      };
+      insertMigration(sibling);
+      approveIdentityMapping({
+        targetApiUrl: record.targetApiUrl,
+        targetOrg: record.targetOrg,
+        sourceKind: "ghe-migrator:bitbucket-server:team",
+        sourceIdentity: "https://bb/known",
+        targetLogin: "approved-team",
+      });
+      const source = adapter({
+        submit: async (request) => {
+          expect(request.migrationId).toBe(record.id);
+          return { jobId: "export-job" };
+        },
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/bitbucket-upfront.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      source.provider = "bitbucket-server";
+      const ssh = source.createSshClient({} as never);
+      const calls: string[] = [];
+      const csv =
+        "model_name,source_url,target_url,state\nrepository,https://bb/repo,,exported\nteam,https://bb/known,,exported\nteam,https://bb/unknown,,exported\n";
+      source.localMappingRecords = async (path) => {
+        expect(path).toBe("/tmp/bitbucket-upfront.tar.gz");
+        calls.push("local");
+        if (blocked) throw new Error("Archive manifests not available");
+        return csv;
+      };
+      ssh.mappingRecords = async (_guid, include) => {
+        expect(include).toBe(true);
+        calls.push("audit");
+        return {
+          stdout: csv,
+          stderr: "",
+        };
+      };
+      ssh.map = async (_guid, csv) => {
+        calls.push("map");
+        expect(csv).toContain(
+          "https://bb/known,https://ghes.example/orgs/target/teams/approved-team,merge",
+        );
+        expect(csv).not.toContain("https://bb/unknown");
+        return { stdout: "", stderr: "" };
+      };
+      ssh.conflicts = async () => {
+        calls.push("conflicts");
+        return {
+          stdout: blocked
+            ? "model_name,source_url,target_url,recommended_action\nteam,https://bb/unknown,,merge\n"
+            : "",
+          stderr: "",
+        };
+      };
+      ssh.import = async () => {
+        calls.push("import");
+        return { stdout: "", stderr: "" };
+      };
+      source.createSshClient = () => ssh;
+      const result = await runExporterGhesMigration(
+        { id: record.id, sourceProvider: record.sourceProvider, emit: () => {} },
+        source,
+      );
+      expect(calls).toEqual(
+        blocked ? ["local", "audit", "map", "conflicts"] : ["local", "map", "conflicts", "import"],
+      );
+      expect(result.state).toBe(blocked ? "reconciliation_required" : "succeeded");
+      expect(getGhesImportJobByMigrationId(sibling.id)).toBeNull();
+    },
+  );
   test("checkpoints exporter, transfer, prepare, import, audit, and unlock", async () => {
     const record = migration("ghes-success");
     insertMigration(record);
@@ -88,13 +187,373 @@ describe("GHES import execution", () => {
       }),
       cancel: async () => {},
     };
+    const source = adapter(worker);
+    const ssh = source.createSshClient({} as never);
+    const calls: string[] = [];
+    let mapped = false;
+    approveIdentityMapping({
+      targetApiUrl: record.targetApiUrl,
+      targetOrg: record.targetOrg,
+      sourceKind: "ghe-migrator:gitlab",
+      sourceIdentity: "https://gitlab.example/users/alice",
+      targetLogin: "octocat",
+    });
+    ssh.conflicts = async () => {
+      calls.push("conflicts-start");
+      await Promise.resolve();
+      calls.push("conflicts-end");
+      return {
+        stdout: mapped
+          ? "model_name,source_url,target_url,recommended_action\n"
+          : "model_name,source_url,target_url,recommended_action\nuser,https://gitlab.example/users/alice,,rename\n",
+        stderr: "",
+      };
+    };
+    ssh.mappingRecords = async () => {
+      calls.push("audit");
+      return { stdout: "", stderr: "" };
+    };
+    ssh.map = async (_guid, csv) => {
+      expect(csv).toContain(
+        "user,https://gitlab.example/users/alice,https://ghes.example/octocat,map",
+      );
+      mapped = true;
+      return { stdout: "", stderr: "" };
+    };
+    ssh.unlock = async () => {
+      calls.push("unlock");
+      return { stdout: "", stderr: "" };
+    };
+    ssh.disconnect = () => {
+      calls.push("disconnect");
+    };
+    source.fetchTargetCounts = async (completed) => {
+      expect(completed.state).toBe("succeeded");
+      expect(completed.targetOrg).toBe(record.targetOrg);
+      expect(completed.targetRepo).toBe(record.targetRepo);
+      calls.push("counts");
+      return targetCounts;
+    };
+    source.createSshClient = () => ssh;
     const result = await runExporterGhesMigration(
-      { id: record.id, sourceProvider: "gitlab", emit: () => {} },
-      adapter(worker),
+      { id: record.id, sourceProvider: "gitlab", emit: insertEvent },
+      source,
     );
     expect(result.state).toBe("succeeded");
+    expect(result.targetCounts).toEqual(targetCounts);
+    expect(
+      getEvents(record.id).flatMap((event) =>
+        event.eventType === "step" ? [[event.payload.executorPhase, event.phase]] : [],
+      ),
+    ).toEqual([
+      ["exporting", "EXPORTING"],
+      ["archive_ready", "EXPORTING"],
+      ["transferring", null],
+      ["preparing", null],
+      ["mapping", null],
+      ["importing", "IMPORTING_GIT"],
+      ["auditing", null],
+      ["unlocking", null],
+      ["succeeded", "SUCCEEDED"],
+    ]);
     expect(getGhesImportJobByMigrationId(record.id)?.phase).toBe("succeeded");
+    expect(calls).toEqual([
+      "conflicts-start",
+      "conflicts-end",
+      "audit",
+      "conflicts-start",
+      "conflicts-end",
+      "unlock",
+      "disconnect",
+      "counts",
+    ]);
+    expect(listIdentityMappings(record.targetApiUrl, record.targetOrg)).toMatchObject([
+      {
+        sourceIdentity: "https://gitlab.example/users/alice",
+        targetLogin: "octocat",
+        status: "approved",
+      },
+    ]);
   });
+
+  test("resolves team conflicts revealed by organization mapping before importing", async () => {
+    const record = migration("ghes-team-conflict");
+    insertMigration(record);
+    approveIdentityMapping({
+      targetApiUrl: record.targetApiUrl,
+      targetOrg: record.targetOrg,
+      sourceKind: `ghe-migrator:${record.sourceProvider}:team`,
+      sourceIdentity: "https://gitlab.example/groups/admin",
+      targetLogin: "approved-team",
+    });
+    const source = adapter({
+      submit: async () => ({ jobId: "export-job" }),
+      inspect: async (jobId) => ({
+        jobId,
+        state: "succeeded",
+        archive: { path: "/tmp/ghes-team-conflict-test.tar.gz", sha256: "a".repeat(64) },
+      }),
+      cancel: async () => {},
+    });
+    const ssh = source.createSshClient({} as never);
+    const header = "model_name,source_url,target_url,recommended_action\n";
+    const conflicts = [
+      header,
+      `${header}team,https://gitlab.example/groups/admin,https://ghes.example/orgs/target/teams/admin,merge\n`,
+      header,
+    ];
+    const calls: string[] = [];
+    ssh.conflicts = async () => {
+      const stdout = conflicts.shift();
+      if (stdout === undefined) throw new Error("Unexpected conflict lookup");
+      calls.push("conflicts");
+      return { stdout, stderr: "" };
+    };
+    ssh.mappingRecords = async () => ({
+      stdout: `${header}organization,https://gitlab.example/group,https://ghes.example/group,import\n`,
+      stderr: "",
+    });
+    ssh.map = async (_guid, csv) => {
+      calls.push(csv.includes("team,") ? "merge-team" : "map-organization");
+      if (csv.includes("team,"))
+        expect(csv).toContain(`/orgs/${record.targetOrg}/teams/approved-team,merge`);
+      return { stdout: "", stderr: "" };
+    };
+    ssh.import = async () => {
+      expect(conflicts).toHaveLength(0);
+      calls.push("import");
+      return { stdout: "", stderr: "" };
+    };
+    source.createSshClient = () => ssh;
+
+    const result = await runExporterGhesMigration(
+      { id: record.id, sourceProvider: record.sourceProvider, emit: () => {} },
+      source,
+    );
+
+    expect(result.state).toBe("succeeded");
+    expect(calls).toEqual([
+      "conflicts",
+      "map-organization",
+      "conflicts",
+      "merge-team",
+      "conflicts",
+      "import",
+    ]);
+    expect(result.targetCounts).toEqual(targetCounts);
+  });
+
+  test.each([
+    { changing: false, cancel: false, expectedPasses: 1 },
+    { changing: true, cancel: false, expectedPasses: 3 },
+    { changing: false, cancel: true, expectedPasses: 1 },
+  ])(
+    "does not import unresolved or cancelled mapping passes (%j)",
+    async ({ changing, cancel, expectedPasses }) => {
+      const record = migration("ghes-persistent-conflict");
+      insertMigration(record);
+      for (let index = 0; index <= 3; index++) {
+        approveIdentityMapping({
+          targetApiUrl: record.targetApiUrl,
+          targetOrg: record.targetOrg,
+          sourceKind: `ghe-migrator:${record.sourceProvider}:team`,
+          sourceIdentity: `https://gitlab.example/groups/admin-${index}`,
+          targetLogin: "admin",
+        });
+      }
+      const source = adapter({
+        submit: async () => ({ jobId: "export-job" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/ghes-persistent-conflict-test.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      const ssh = source.createSshClient({} as never);
+      const controller = new AbortController();
+      let passes = 0;
+      let imported = false;
+      ssh.conflicts = async () => {
+        if (cancel && passes > 0) controller.abort();
+        return {
+          stdout: `model_name,source_url,target_url,recommended_action\nteam,https://gitlab.example/groups/admin-${changing ? passes : 0},https://ghes.example/orgs/target/teams/admin,merge\n`,
+          stderr: "",
+        };
+      };
+      ssh.map = async () => {
+        passes += 1;
+        return { stdout: "", stderr: "" };
+      };
+      ssh.import = async () => {
+        imported = true;
+        return { stdout: "", stderr: "" };
+      };
+      source.createSshClient = () => ssh;
+
+      const result = await runExporterGhesMigration(
+        {
+          id: record.id,
+          sourceProvider: record.sourceProvider,
+          signal: controller.signal,
+          emit: () => {},
+        },
+        source,
+      );
+
+      expect(passes).toBe(expectedPasses);
+      expect(imported).toBe(false);
+      expect(result.state).toBe("reconciliation_required");
+      expect(result.failureReason).toContain(cancel ? "aborted" : "GHES conflicts remain");
+      expect(result.targetCounts).toBeNull();
+    },
+  );
+
+  test("preserves successful Bitbucket imports when resource counts are unavailable", async () => {
+    const record = {
+      ...migration("ghes-counts-unavailable"),
+      sourceProvider: "bitbucket-server" as const,
+    };
+    insertMigration(record);
+    const source = adapter({
+      submit: async () => ({ jobId: "export-job" }),
+      inspect: async (jobId) => ({
+        jobId,
+        state: "succeeded",
+        archive: { path: "/tmp/ghes-counts-unavailable-test.tar.gz", sha256: "a".repeat(64) },
+      }),
+      cancel: async () => {},
+    });
+    source.provider = "bitbucket-server";
+    source.fetchTargetCounts = async () => {
+      throw new Error("Target API unavailable");
+    };
+    const ssh = source.createSshClient({} as never);
+    ssh.mappingRecords = async () => ({
+      stdout: "model_name,source_url,target_url,state\nrepository,https://bb/project,,exported\n",
+      stderr: "",
+    });
+    source.createSshClient = () => ssh;
+    const events: MigrationEvent[] = [];
+
+    const result = await runExporterGhesMigration(
+      { id: record.id, sourceProvider: record.sourceProvider, emit: (event) => events.push(event) },
+      source,
+    );
+
+    expect(result).toMatchObject({ state: "succeeded", failureReason: null, targetCounts: null });
+    expect(getGhesImportJobByMigrationId(record.id)?.phase).toBe("succeeded");
+    expect(events.at(-1)).toMatchObject({
+      eventType: "step",
+      payload: {
+        message: expect.stringContaining("target resource counts could not be collected"),
+      },
+    });
+  });
+
+  test("saves unresolved GHES users without guessing their target", async () => {
+    const record = migration("ghes-conflict");
+    insertMigration(record);
+    const worker: ExporterWorker = {
+      submit: async () => ({ jobId: "export-job" }),
+      inspect: async (jobId) => ({
+        jobId,
+        state: "succeeded",
+        archive: { path: "/tmp/export.tar.gz", sha256: "a".repeat(64) },
+      }),
+      cancel: async () => {},
+    };
+    const source = adapter(worker);
+    const ssh = source.createSshClient({} as never);
+    ssh.conflicts = async () => ({
+      stdout:
+        "model_name,source_url,target_url,recommended_action\nuser,https://gitlab.example/users/alice,,rename\n",
+      stderr: "",
+    });
+
+    source.createSshClient = () => ssh;
+    const result = await runExporterGhesMigration(
+      { id: record.id, sourceProvider: "gitlab", emit: () => {} },
+      source,
+    );
+    expect(result.state).toBe("failed");
+    expect(listIdentityMappings(record.targetApiUrl, record.targetOrg)).toMatchObject([
+      {
+        sourceIdentity: "https://gitlab.example/users/alice",
+        targetLogin: null,
+        status: "unmapped",
+      },
+    ]);
+  });
+
+  test.each(["initial", "late-missing", "late-unmapped", "late-valid"])(
+    "validates and discovers users on the %s conflict pass",
+    async (scenario) => {
+      const record = migration("ghes-missing-user");
+      insertMigration(record);
+      const worker: ExporterWorker = {
+        submit: async () => ({ jobId: "export-job" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/export.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      };
+      const source = adapter(worker);
+      const ssh = source.createSshClient({} as never);
+      if (scenario !== "late-unmapped")
+        approveIdentityMapping({
+          targetApiUrl: record.targetApiUrl,
+          targetOrg: record.targetOrg,
+          sourceKind: "ghe-migrator:gitlab",
+          sourceIdentity: "https://gitlab.example/users/alice",
+          targetLogin: "missing",
+        });
+      const header = "model_name,source_url,target_url,recommended_action\n";
+      const user = `${header}user,https://gitlab.example/users/alice,,rename\n`;
+      const csvs =
+        scenario === "initial"
+          ? [user]
+          : [
+              `${header}organization,https://gitlab.example/group,https://ghes.example/target,map\n`,
+              user,
+              header,
+            ];
+      const calls: string[] = [];
+      ssh.conflicts = async () => ({ stdout: csvs.shift() ?? header, stderr: "" });
+      ssh.map = async (_, csv) => {
+        calls.push(csv.includes("user,") ? "map-user" : "map-org");
+        return { stdout: "", stderr: "" };
+      };
+      ssh.import = async () => {
+        calls.push("import");
+        return { stdout: "", stderr: "" };
+      };
+      source.createSshClient = () => ssh;
+      source.verifyTargetUser = async () => {
+        calls.push("verify");
+        if (scenario !== "late-valid") throw new Error("Target user not found");
+      };
+      const result = await runExporterGhesMigration(
+        { id: record.id, sourceProvider: "gitlab", emit: () => {} },
+        source,
+      );
+      if (scenario === "late-valid") {
+        expect(result.state).toBe("succeeded");
+        expect(calls).toEqual(["map-org", "verify", "map-user", "import"]);
+      } else if (scenario === "late-unmapped") {
+        expect(listIdentityMappings(record.targetApiUrl, record.targetOrg)).toMatchObject([
+          { status: "unmapped", sourceIdentity: "https://gitlab.example/users/alice" },
+        ]);
+        expect(result.state).toBe("reconciliation_required");
+        expect(calls).toEqual(["map-org"]);
+      } else {
+        expect(result.failureReason).toContain("Target user not found");
+        expect(calls).toEqual(scenario === "initial" ? ["verify"] : ["map-org", "verify"]);
+      }
+    },
+  );
 
   test("does not replay an import interrupted at an ambiguous checkpoint", async () => {
     const record = migration("ghes-ambiguous");

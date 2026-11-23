@@ -2,11 +2,11 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { formatElapsed } from "$lib/format";
 	import type { UsedIconName as IconName } from "$lib/icons.generated";
-	import { STATE_LABELS } from "$lib/migrate/migration-display";
 	import type { Counts, Phase, Progress } from "$lib/migrate/types";
 
 	let {
 		currentPhase,
+		handoff = null,
 		failed = false,
 		active = false,
 		progress = null,
@@ -16,6 +16,7 @@
 		view = "all",
 	}: {
 		currentPhase: Phase;
+		handoff?: { completed: Phase; operation: string } | null;
 		failed?: boolean;
 		active?: boolean;
 		progress?: Progress | null;
@@ -27,7 +28,7 @@
 
 	const steps: { phase: Phase; label: string; icon: IconName }[] = [
 		{ phase: "PENDING_VALIDATION", label: "Validating", icon: "shield-check" },
-		{ phase: "QUEUED", label: STATE_LABELS.queued, icon: "clock" },
+		{ phase: "QUEUED", label: "Queue", icon: "clock" },
 		{ phase: "EXPORTING", label: "Exporting", icon: "download" },
 		{ phase: "IMPORTING_GIT", label: "Git Import", icon: "repo-push" },
 		{ phase: "IMPORTING_METADATA", label: "Metadata", icon: "note" },
@@ -37,7 +38,7 @@
 	const currentStepIndex = $derived(Math.max(0, phaseOrder.indexOf(currentPhase)));
 	const currentStepLabel = $derived(steps[currentStepIndex]?.label ?? "Preparing");
 	const pipelineSummary = $derived(
-		failed
+		handoff ? (failed ? `Stopped: ${handoff.operation}` : handoff.operation) : failed
 			? `Stopped at ${currentStepLabel}`
 			: currentPhase === "SUCCEEDED"
 				? `${steps.length} of ${steps.length} complete`
@@ -89,6 +90,7 @@
 	]);
 
 	function phaseStatus(phase: Phase): "completed" | "active" | "upcoming" | "failed" {
+		if (handoff) return phaseOrder.indexOf(phase) <= phaseOrder.indexOf(handoff.completed) ? "completed" : "upcoming";
 		if (failed && phase === currentPhase) return "failed";
 		const currentIndex = phaseOrder.indexOf(currentPhase);
 		const stepIndex = phaseOrder.indexOf(phase);
@@ -148,10 +150,10 @@
 							{status === "completed"
 								? "Complete"
 								: status === "active"
-									? "Current"
+									? "In progress"
 									: status === "failed"
 										? "Failed"
-										: "Waiting"}
+										: "Not started"}
 						</span>
 					</span>
 				</li>

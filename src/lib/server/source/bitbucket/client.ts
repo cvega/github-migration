@@ -20,6 +20,7 @@ export interface BitbucketServerClientOptions {
 }
 
 export interface BitbucketRequestOptions {
+  distinguishMissingFile?: boolean;
   signal?: AbortSignal;
   maxItems?: number;
   maxItemsLabel?: string;
@@ -51,6 +52,8 @@ export class BitbucketServerApiError extends Error {
     this.name = "BitbucketServerApiError";
   }
 }
+
+export class BitbucketFileNotFoundError extends BitbucketServerApiError {}
 
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_MAX_PAGES = 100;
@@ -305,6 +308,20 @@ export class BitbucketServerClient {
     return this.#request<T>("POST", path, {}, body, options, false);
   }
 
+  getRepositorySizes(project: string, slug: string, signal?: AbortSignal): Promise<unknown> {
+    // Repository settings exposes sizes under the web context, not the REST API root.
+    const path = `/projects/${encodeBitbucketSegment(project, "project key")}/repos/${encodeBitbucketSegment(slug, "repository slug")}/sizes`;
+    return this.#request(
+      "GET",
+      path,
+      {},
+      undefined,
+      { signal },
+      false,
+      this.apiUrl.replace(/\/rest\/api\/1\.0$/, ""),
+    );
+  }
+
   async *paginatePages<T>(
     path: string,
     query: Record<string, string | number | boolean | undefined> = {},
@@ -378,9 +395,10 @@ export class BitbucketServerClient {
     body: unknown,
     options: BitbucketRequestOptions,
     retryable: boolean,
+    baseUrl = this.apiUrl,
   ): Promise<T> {
     validatePath(path);
-    const url = new URL(`${this.apiUrl}${path}`);
+    const url = new URL(`${baseUrl}${path}`);
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
@@ -434,6 +452,17 @@ export class BitbucketServerClient {
         continue;
       }
       if (!response.ok) {
+        if (response.status === 404 && options.distinguishMissingFile) {
+          const error = await readBoundedJson<{ errors?: Array<{ exceptionName?: string }> }>(
+            response,
+            16_384,
+          ).catch(() => null);
+          if (
+            error?.errors?.[0]?.exceptionName ===
+            "com.atlassian.bitbucket.content.NoSuchPathException"
+          )
+            throw new BitbucketFileNotFoundError(404, "File not found at revision");
+        }
         await response.body?.cancel().catch(() => {});
         throw new BitbucketServerApiError(
           response.status,

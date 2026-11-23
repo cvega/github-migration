@@ -20,6 +20,8 @@ interface RestRepoSummary {
 }
 
 function discovered(repo: RestRepoSummary): DiscoveredRepo {
+  if (repo.size == null || !Number.isSafeInteger(repo.size) || repo.size < 0)
+    throw new Error(`Repository size unavailable for ${repo.full_name}`);
   return {
     name: repo.name,
     nameWithOwner: repo.full_name,
@@ -28,8 +30,7 @@ function discovered(repo: RestRepoSummary): DiscoveredRepo {
     ).toUpperCase() as RepoVisibility,
     isArchived: repo.archived ?? false,
     isFork: repo.fork,
-    isEmpty: (repo.size ?? 0) === 0,
-    diskUsageKb: repo.size ?? null,
+    diskUsageKb: repo.size,
     hasWiki: repo.has_wiki ?? false,
     hasIssues: repo.has_issues ?? false,
     hasProjects: repo.has_projects ?? false,

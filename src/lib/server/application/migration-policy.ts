@@ -1,5 +1,7 @@
 import { json } from "@sveltejs/kit";
+import { GITLAB_GHES_PAUSE_REASON } from "$lib/migration-target";
 import { getFormDefaults, isCredentialOverrideAllowed } from "$lib/server/core/auth";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import {
   type CredentialScopeInput,
   getInputSourceProvider,
@@ -33,11 +35,15 @@ function allowedRequestSourceApiUrls(): Set<string> {
 
 type AuthCredentials = CredentialScopeInput;
 
-export async function parseAuthenticatedBody<T extends AuthCredentials>(
+type AdmissionAudit = { locals: App.Locals; resourceType: "migration" | "batch" };
+
+type BodyValidator<T> = (
+  data: Record<string, unknown>,
+) => { ok: true; value: T } | { ok: false; error: string };
+
+export async function parseValidatedBody<T>(
   request: Request,
-  validate: (
-    data: Record<string, unknown>,
-  ) => { ok: true; value: T } | { ok: false; error: string },
+  validate: BodyValidator<T>,
 ): Promise<{ body: T } | { errorResponse: Response }> {
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) {
@@ -47,19 +53,41 @@ export async function parseAuthenticatedBody<T extends AuthCredentials>(
   if (!result.ok) {
     return { errorResponse: json({ error: result.error }, { status: 400 }) };
   }
-  const authError = validateAuthAvailable(result.value);
-  if (authError) {
-    return { errorResponse: json({ error: authError }, { status: 400 }) };
-  }
   return { body: result.value };
 }
 
-export function validateAuthAvailable(creds: CredentialScopeInput): string | null {
+export async function parseAuthenticatedBody<T extends AuthCredentials>(
+  request: Request,
+  validate: BodyValidator<T>,
+  audit?: AdmissionAudit,
+): Promise<{ body: T } | { errorResponse: Response }> {
+  const parsed = await parseValidatedBody(request, validate);
+  if ("errorResponse" in parsed) return parsed;
+  const authError = validateAuthAvailable(parsed.body, audit);
+  if (authError) {
+    return { errorResponse: json({ error: authError }, { status: 400 }) };
+  }
+  return parsed;
+}
+
+export function validateAuthAvailable(
+  creds: CredentialScopeInput,
+  audit?: AdmissionAudit,
+): string | null {
   const provider = getInputSourceProvider(creds);
   const targetProfileId =
     typeof creds.targetProfileId === "string" ? creds.targetProfileId : undefined;
   const targetProfile = getMigrationTargetProfile(targetProfileId);
   const targetsGhes = targetProfile?.platform === "ghes";
+  if (provider === "gitlab" && targetsGhes) {
+    if (audit)
+      recordOperatorAuditEvent(audit.locals, {
+        action: `${audit.resourceType}.start_blocked`,
+        resourceType: audit.resourceType,
+        metadata: { sourceProvider: provider, targetPlatform: "ghes", reason: "route-paused" },
+      });
+    return GITLAB_GHES_PAUSE_REASON;
+  }
   if (
     !isCredentialOverrideAllowed() &&
     (creds.sourceToken || creds.sourceApp || creds.targetToken || creds.targetApp)

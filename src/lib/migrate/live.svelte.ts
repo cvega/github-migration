@@ -36,7 +36,7 @@ export function createMigrationEventSource(migrationId: string, initialEventId?:
 
   const connection = createReconnectingEventSource({
     url: () =>
-      lastEventId
+      lastEventId !== undefined
         ? `/api/migrate/${migrationId}/events?after=${lastEventId}`
         : `/api/migrate/${migrationId}/events`,
     onConnectionChange: (value) => {
@@ -66,7 +66,6 @@ export function createMigrationEventSource(migrationId: string, initialEventId?:
         events = [...events.slice(-500), migrationEvent];
         if (migrationEvent.eventType === "complete" || migrationEvent.eventType === "failure") {
           void refreshMigrations();
-          controls.destroy();
         }
       } catch {
         // Ignore malformed event frames.

@@ -15,6 +15,7 @@ export function defaultProfilePlanSelection(repos: ProfilePlanRepo[]): string[] 
 
 export function buildProfileMigrationPlan(input: {
   profileRunId: string;
+  targetProfileId: string;
   sourceProvider?: SourceProvider;
   sourceApiUrl: string;
   sourceOrg: string;
@@ -69,6 +70,7 @@ export function buildProfileMigrationPlan(input: {
   return {
     version: 3,
     profileRunId: input.profileRunId,
+    targetProfileId: input.targetProfileId,
     sourceProvider,
     sourceApiUrl: input.sourceApiUrl,
     sourceOrg: input.sourceOrg,

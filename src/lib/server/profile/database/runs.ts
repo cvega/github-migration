@@ -1,13 +1,13 @@
 import { getDb } from "$lib/server/core/db";
+import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import type { NumericObservation } from "$lib/source/types";
-import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import {
   getSourceProviderAdapter,
   isSourceProvider,
   SOURCE_PROVIDERS,
   type SourceProvider,
 } from "$lib/source-provider";
-import { parseProfileInventorySummary } from "../analysis/overview";
+import { type ProfileInventorySummary, parseProfileInventorySummary } from "../analysis/overview";
 import type { ProfileDetailRollup } from "../analysis/rollup";
 import type { OrgResources, ProfileRun, ProfileRunState } from "../types";
 import { parsePersistedOrgResources, parsePersistedProfileRollup } from "./results";
@@ -73,7 +73,7 @@ export function createProfileRun(input: {
   nowMs?: number;
 }): ProfileRun {
   const sourceProvider = input.sourceProvider ?? "github";
-  assertPersistableSourceApiUrl(input.sourceApiUrl);
+  assertMigrationSourceApiUrl(input.sourceApiUrl, sourceProvider);
   const startedAt = new Date(input.nowMs ?? Date.now()).toISOString();
   const database = getDb();
   database.transaction(() => {
@@ -211,48 +211,65 @@ export function listProfileRuns(limit = 50, offset = 0): ProfileRun[] {
   return rows.map(rowToRun);
 }
 
-export function countProfileRuns(): number {
+function profileSearch(query: string) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = `lower(org || ' ' || source_provider || CASE WHEN source_provider='bitbucket-server' THEN ' bitbucket data center' ELSE '' END)`;
+  return {
+    sql: terms.map(() => ` AND instr(${text}, ?) > 0`).join(""),
+    terms,
+  };
+}
+
+export function countProfileRuns(query = ""): number {
+  const filter = profileSearch(query);
   return (
     getDb()
       .prepare(
         `SELECT COUNT(*) AS count FROM profile_runs
-				 WHERE source_provider IN (${SUPPORTED_PROVIDER_SQL})`,
+				 WHERE source_provider IN (${SUPPORTED_PROVIDER_SQL})${filter.sql}`,
       )
-      .get() as { count: number }
+      .get(...filter.terms) as { count: number }
   ).count;
 }
 
 export interface ProfileRunListItem extends ProfileRun {
   inventoryProjectCount: NumericObservation | null;
+  metrics?: ProfileInventorySummary["metrics"];
 }
 
-export function listProfileRunsWithInventoryCounts(limit = 50, offset = 0): ProfileRunListItem[] {
+export function listProfileRunsWithInventoryCounts(
+  limit = 50,
+  offset = 0,
+  query = "",
+): ProfileRunListItem[] {
+  const filter = profileSearch(query);
   const rows = getDb()
     .prepare(
       `SELECT ${RUN_COLS}, inventories.summary AS inventory_summary
 			 FROM profile_runs
 			 LEFT JOIN profile_source_inventories inventories ON inventories.run_id = profile_runs.id
-			 WHERE source_provider IN (${SUPPORTED_PROVIDER_SQL})
-			 ORDER BY started_at DESC LIMIT $limit OFFSET $offset`,
+			 WHERE source_provider IN (${SUPPORTED_PROVIDER_SQL})${filter.sql}
+			 ORDER BY started_at DESC, profile_runs.id DESC LIMIT ? OFFSET ?`,
     )
-    .all({ $limit: limit, $offset: offset }) as Array<
+    .all(...filter.terms, limit, offset) as Array<
     ProfileRunRow & { inventory_summary: string | null }
   >;
   return rows.map((row) => {
     const run = rowToRun(row);
     let inventoryProjectCount: NumericObservation | null = null;
+    let metrics: ProfileInventorySummary["metrics"];
     if (
       row.inventory_summary &&
       getSourceProviderAdapter(run.sourceProvider).profileKind === "source-inventory"
     ) {
       try {
-        inventoryProjectCount = parseProfileInventorySummary(
-          JSON.parse(row.inventory_summary),
-        ).projectCount;
+        const summary = parseProfileInventorySummary(JSON.parse(row.inventory_summary));
+        inventoryProjectCount = summary.projectCount;
+        metrics = summary.metrics;
       } catch {
         inventoryProjectCount = null;
       }
     }
-    return { ...run, inventoryProjectCount };
+    return { ...run, inventoryProjectCount, ...(metrics && { metrics }) };
   });
 }

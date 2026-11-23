@@ -1,6 +1,7 @@
 import { env } from "node:process";
 import type { HandleServerError } from "@sveltejs/kit/hooks";
 import { building, dev } from "$app/env";
+import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
 import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
@@ -12,6 +13,7 @@ import { createRequestHandler } from "$lib/server/core/request-handler";
 import { recoverInterruptedMigrations } from "$lib/server/migrate/database/schema";
 import { recoverOrphans } from "$lib/server/migrate/manager";
 import { configureMigrationSourceRuntime } from "$lib/server/migrate/ports/source-runtime";
+import { dispatchProfiles } from "$lib/server/profile/database/queue";
 import { recoverInterruptedProfiles } from "$lib/server/profile/database/schema";
 import { stopActiveProfileRuns } from "$lib/server/profile/service";
 import { DOMAIN_STORES } from "$lib/server/schemas";
@@ -43,6 +45,17 @@ try {
   }
   logCapabilityReport(getCapabilityReport());
   recoverOrphans();
+  if (!building)
+    setInterval(() => {
+      try {
+        dispatchProfiles((provider, namespace) => profileStarters[provider](namespace));
+      } catch (error) {
+        console.error(
+          "[profile queue] Dispatch failed",
+          error instanceof Error ? error.name : "unknown error",
+        );
+      }
+    }, 3000).unref();
 } catch (error) {
   closeStore();
   instanceLock.release();

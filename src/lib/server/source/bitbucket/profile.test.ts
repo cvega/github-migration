@@ -95,8 +95,22 @@ describe("Bitbucket repository profile metrics", () => {
     expect(Object.fromEntries(calls[0]?.searchParams ?? [])).toMatchObject({
       until: "main",
       withCounts: "true",
-      limit: "1",
+      limit: "100",
     });
+  });
+
+  test("does not report a page-limited commit count as exact", async () => {
+    const { client } = clientWithResponses([
+      page([{}, {}], { totalCount: 3, isLastPage: false, nextPageStart: 2 }),
+    ]);
+    expect(
+      (
+        await collectBitbucketCommitMetric(client, {
+          path: "PC/service-api",
+          defaultBranch: "main",
+        })
+      ).observation,
+    ).toMatchObject({ kind: "at-least", value: 2, reason: "page-cap" });
   });
 
   test("does not invent a commit zero when the default branch is unknown", async () => {
@@ -158,8 +172,8 @@ describe("Bitbucket repository profile metrics", () => {
 
   test("collects all five metrics sequentially with explicit pull-request filters", async () => {
     const { client, calls } = clientWithResponses([
-      page([{}], { totalCount: 3 }),
-      page([{}]),
+      page([{ committerTimestamp: 1000 }], { totalCount: 3 }),
+      page([{ state: "OPEN", createdDate: 2000, updatedDate: 3000 }]),
       page([{}, {}]),
       page([{}]),
       page([]),
@@ -178,6 +192,17 @@ describe("Bitbucket repository profile metrics", () => {
         {
           sourceId: "7",
           path: "PC/service-api",
+          activity: {
+            defaultBranch: "main",
+            tipCommittedAt: "1970-01-01T00:00:01.000Z",
+            review: {
+              open: 1,
+              merged: 0,
+              declined: 0,
+              oldestOpenCreatedAt: "1970-01-01T00:00:02.000Z",
+              latestUpdatedAt: "1970-01-01T00:00:03.000Z",
+            },
+          },
           metrics: {
             commits: {
               observation: { kind: "exact", value: 3, scope: BITBUCKET_COMMITS_SCOPE },
@@ -214,6 +239,57 @@ describe("Bitbucket repository profile metrics", () => {
       state: "ALL",
     });
     expect(calls[2]?.searchParams.get("details")).toBe("false");
+  });
+
+  test("derives PR extrema across pages without treating closed PRs as open", async () => {
+    const { client, calls } = clientWithResponses([
+      page([]),
+      page(
+        [
+          { state: "OPEN", createdDate: 3000, updatedDate: 5000 },
+          { state: "MERGED", createdDate: 0, updatedDate: 7000 },
+        ],
+        { isLastPage: false, nextPageStart: 5 },
+      ),
+      page([
+        { state: "OPEN", createdDate: 1000, updatedDate: 2000 },
+        { state: "DECLINED", updatedDate: 4000 },
+      ]),
+      page([]),
+      page([]),
+      page([]),
+    ]);
+    const profile = await collectBitbucketProfileEnrichment(client, inventory());
+    expect(profile.projects[0]?.activity?.review).toEqual({
+      open: 2,
+      merged: 1,
+      declined: 1,
+      oldestOpenCreatedAt: new Date(1000).toISOString(),
+      latestUpdatedAt: new Date(7000).toISOString(),
+    });
+    expect(calls).toHaveLength(6);
+  });
+
+  test("distinguishes empty, malformed and hidden review observations", async () => {
+    for (const [response, expected] of [
+      [
+        page([]),
+        { open: 0, merged: 0, declined: 0, oldestOpenCreatedAt: null, latestUpdatedAt: null },
+      ],
+      [
+        page([
+          { state: "OPEN", createdDate: "bad", updatedDate: 1e15 },
+          { state: "OPEN", createdDate: 1, updatedDate: 1 },
+        ]),
+        { open: 2, merged: 0, declined: 0, oldestOpenCreatedAt: null, latestUpdatedAt: null },
+      ],
+      [page([{ state: "UNKNOWN" }]), null],
+      [new Response(null, { status: 403 }), null],
+    ] as const) {
+      const { client } = clientWithResponses([page([]), response, page([]), page([]), page([])]);
+      const profile = await collectBitbucketProfileEnrichment(client, inventory());
+      expect(profile.projects[0]?.activity?.review).toEqual(expected);
+    }
   });
 
   test("bounds repository workers while preserving inventory order", async () => {

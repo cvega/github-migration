@@ -59,7 +59,7 @@ function required(name: string, value: string | undefined): string {
   return trimmed;
 }
 
-function getGhesTargetConnectionConfig(profileId?: string): GhesTargetConnectionConfig {
+export function getGhesTargetConnectionConfig(profileId?: string): GhesTargetConnectionConfig {
   const effectiveProfileId = profileId?.trim() || env.GHES_TARGET_ID?.trim() || "ghes";
   const profile = getMigrationTargetProfile(effectiveProfileId);
   if (profile?.platform !== "ghes") {

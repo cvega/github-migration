@@ -9,6 +9,7 @@ import {
   getProfileRun,
   getProfileRunRollup,
   listProfileRuns,
+  listProfileRunsWithInventoryCounts,
   ProfileRunCapacityError,
   saveProfileRunRollup,
   setProfileRunApiCalls,
@@ -21,6 +22,20 @@ beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
 
 describe("profile runs", () => {
+  test("filters full history before paging with a stable order for tied timestamps", () => {
+    for (let i = 0; i < 12; i++)
+      createProfileRun({
+        id: `id-${String(i).padStart(2, "0")}`,
+        sourceProvider: "bitbucket-server",
+        org: i === 0 ? "OLD" : "NEW",
+        sourceApiUrl: "https://bb.example",
+        nowMs: 1,
+      });
+    expect(listProfileRunsWithInventoryCounts(10, 10).map((r) => r.id)).toEqual(["id-01", "id-00"]);
+    expect(countProfileRuns("old DATA center")).toBe(1);
+    expect(listProfileRunsWithInventoryCounts(10, 0, "old DATA center")[0]?.id).toBe("id-00");
+    expect(countProfileRuns("%")).toBe(0);
+  });
   test("creates GitHub runs with durable defaults and updates running counters", () => {
     const run = createProfileRun({
       id: "run-1",

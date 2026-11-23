@@ -221,8 +221,11 @@ export class GhesSshClient {
   conflicts(guid: string): Promise<GhesCommandResult> {
     return this.#exec(`ghe-migrator conflicts -g ${requireGuid(guid)}`);
   }
-  mappingRecords(guid: string): Promise<GhesCommandResult> {
-    return this.#exec(`ghe-migrator audit -m organization,repository -g ${requireGuid(guid)}`);
+  mappingRecords(guid: string, includeIdentities = false): Promise<GhesCommandResult> {
+    const models = includeIdentities
+      ? "organization,repository,user,team"
+      : "organization,repository";
+    return this.#exec(`ghe-migrator audit -m ${models} -g ${requireGuid(guid)}`);
   }
   map(guid: string, csv: string): Promise<GhesCommandResult> {
     return this.#exec(`ghe-migrator map -i /dev/stdin -g ${requireGuid(guid)}`, csv);
@@ -245,7 +248,14 @@ export class GhesSshClient {
   }
 
   async #exec(command: string, input?: string): Promise<GhesCommandResult> {
-    return collectChannel(await this.#openChannel(command), input);
+    const result = await collectChannel(await this.#openChannel(command), input);
+    if (
+      command.startsWith("ghe-migrator ") &&
+      /ghe-migrator already running/i.test(`${result.stdout}\n${result.stderr}`)
+    ) {
+      throw new Error("ghe-migrator is already running on GHES; retry after it finishes");
+    }
+    return result;
   }
 
   async #openChannel(command: string): Promise<ClientChannel> {

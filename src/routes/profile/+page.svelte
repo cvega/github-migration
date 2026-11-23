@@ -1,31 +1,36 @@
 <script lang="ts">
-	import Octicon from "$lib/components/Octicon.svelte";
+	import { goto } from "$app/navigation";
+	import Pagination from "$lib/components/Pagination.svelte";
 	import ProfileForm from "$lib/components/profile/ProfileForm.svelte";
 	import ProfileList from "$lib/components/profile/ProfileList.svelte";
 
 	let { data } = $props();
+	function navigate(q:string,page:number,replaceState=false) {
+		const params=new URLSearchParams();
+		if(q.trim())params.set("q",q.trim());
+		if(page>1)params.set("page",String(page));
+		return goto(`/profile${params.size?`?${params}`:""}`,{reset:false,replaceState});
+	}
 </script>
 
 <svelte:head><title>Profile - GitHub Migration Toolkit</title></svelte:head>
 
-<div class="space-y-8">
-	<header class="flex items-center justify-between gap-4">
+<div class="mx-auto max-w-5xl space-y-6">
+	<header class="flex items-start justify-between gap-4">
 		<div>
-			<h1 class="flex items-center gap-2 text-xl font-semibold text-gray-50">
-				<Octicon name="telescope" size={24} class="text-green-400" />
-				Profile
-			</h1>
+			<h1 class="text-2xl font-semibold text-gray-50">Source profiles</h1>
 			<p class="mt-1 text-sm text-gray-400">
-				Profile a source namespace to surface migration scope, coverage, and risks.
+				Repository inventory and activity, by source.
 			</p>
 		</div>
-		<a href="/" class="shrink-0 text-sm text-gray-400 transition-colors hover:text-gray-50">Workspaces</a>
-	</header>
-
-	<ProfileForm
+		<div class="text-right"><ProfileForm
 		providerAuthAvailable={data.providerAuthAvailable}
 		sourceOrgs={data.sourceOrgs}
 		bitbucketProjectKeys={data.bitbucketProjectKeys}
-	/>
-	<ProfileList runs={data.runs} totalRuns={data.totalRuns} />
+	/></div>
+	</header>
+	<div>
+		<ProfileList runs={data.runs} totalRuns={data.pagination.total} search={data.q} onSearch={q=>navigate(q,1,true)} />
+		<Pagination {...data.pagination} onPageChange={page=>navigate(data.q,page)} />
+	</div>
 </div>

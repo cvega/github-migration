@@ -176,6 +176,13 @@
 	}
 </script>
 
+{#snippet failureLabel(failure: (typeof stats.failuresByReason)[number])}
+	<span>{failure.reason}</span>
+	<a class="block w-fit text-xs text-blue-400 hover:underline" href={`/migrate/${failure.latestMigrationId}`}>
+		Last failed run · <time datetime={failure.latestRunAt}>{failure.latestRunAt.slice(0, 10)}</time>
+	</a>
+{/snippet}
+
 <svelte:head><title>Migration statistics - GitHub Migration Toolkit</title></svelte:head>
 
 <div class="stats-page space-y-7">
@@ -388,12 +395,12 @@
 							</div>
 						</div>
 						<div class="mt-5 grid grid-cols-[2.25rem_minmax(0,1fr)] gap-2">
-							<div class="flex h-[135px] flex-col justify-between pb-px text-right text-xs tabular-nums text-gray-600" aria-hidden="true">
+							<div class="flex h-33.75 flex-col justify-between pb-px text-right text-xs tabular-nums text-gray-600" aria-hidden="true">
 								<span>{fmtNum(maxChartDay)}</span>
 								<span>{fmtNum(middleChartValue)}</span>
 								<span>0</span>
 							</div>
-							<div class="relative h-[135px] min-w-0">
+							<div class="relative h-33.75 min-w-0">
 								<div class="pointer-events-none absolute inset-0 flex flex-col justify-between" aria-hidden="true">
 									<span class="border-t border-gray-700/70"></span>
 									<span class="border-t border-dashed border-gray-700/70"></span>
@@ -467,7 +474,7 @@
 		<section id="attention" aria-labelledby="attention-heading" class="space-y-6 scroll-mt-4">
 			<section>
 				<h2 id="attention-heading" class="sr-only">Needs attention</h2>
-				<div class="mb-3"><h3 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="alert" size={16} class="text-gray-500" />Top failure reasons</h3><p class="mt-1 text-xs text-gray-500">Most frequent reasons, with the full message visible</p></div>
+				<div class="mb-3"><h3 class="flex items-center gap-2 text-sm font-semibold text-gray-200"><Octicon name="alert" size={16} class="text-gray-500" />Top failure reasons</h3><p class="mt-1 text-xs text-gray-500">Open the latest matching run for the full error.</p></div>
 				{#if stats.failuresByReason.length > 0}
 					<div class="stats-print-table hidden overflow-x-auto border-y border-gray-700 md:block">
 						<table class="stats-table w-full border-collapse tabular-nums">
@@ -482,9 +489,9 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each stats.failuresByReason.slice(0, 5) as failure (failure.reason)}
+								{#each stats.failuresByReason.slice(0, 5) as failure (failure.latestMigrationId)}
 									<tr class="hover:bg-gray-800/30">
-										<td class="max-w-md break-words text-gray-100">{failure.reason}</td>
+										<td class="max-w-md wrap-break-word text-gray-100">{@render failureLabel(failure)}</td>
 										<td class="px-3 py-3 text-right font-medium text-red-400">{fmtNum(failure.count)}</td>
 										<td class="px-3 py-3 text-right text-gray-300">{failure.share}%</td>
 										<td class="px-3 py-3 text-right text-gray-300">{formatElapsed(failure.avgSeconds)}</td>
@@ -496,9 +503,9 @@
 						</table>
 					</div>
 					<ul class="stats-compact-list divide-y divide-gray-700 border-y border-gray-700 md:hidden">
-						{#each stats.failuresByReason.slice(0, 5) as failure (failure.reason)}
+						{#each stats.failuresByReason.slice(0, 5) as failure (failure.latestMigrationId)}
 							<li class="space-y-3 p-4">
-								<div class="break-words font-medium text-gray-100">{failure.reason}</div>
+								<div class="wrap-break-word font-medium text-gray-100">{@render failureLabel(failure)}</div>
 								<dl class="grid grid-cols-2 gap-x-5 gap-y-2 text-xs tabular-nums">
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Count</dt><dd class="text-red-400">{fmtNum(failure.count)}</dd></div>
 									<div class="flex justify-between gap-2"><dt class="text-gray-500">Share</dt><dd class="text-gray-300">{failure.share}%</dd></div>

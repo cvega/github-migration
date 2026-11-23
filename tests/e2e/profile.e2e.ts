@@ -1,16 +1,36 @@
 import { expect, test } from "@playwright/test";
 
+test("starts enterprise profiling without selecting or loading individual namespaces", async ({ page }) => {
+	const hydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
+	await page.route("**/api/profile/queue?provider=bitbucket-server", route => route.fulfill({json:{pending:0,failed:0}}));
+	await page.route("**/api/profile/queue", route => route.fulfill({status:202,json:{added:12,discovered:12}}));
+	await page.goto("/profile");
+	await hydrated;
+	await page.getByRole("button",{name:"New profile"}).click();
+	const submitted=page.waitForRequest(request=>request.url().endsWith("/api/profile/queue") && request.method()==="POST");
+	await page.getByRole("button",{name:"Start profile"}).click();
+	expect((await submitted).postDataJSON()).toEqual({sourceProvider:"bitbucket-server",scope:"enterprise",enterprise:""});
+	await expect(page.getByRole("status").filter({hasText:"12 queued from 12 eligible namespaces"})).toBeVisible();
+});
+
 test("reviews and filters a completed source profile", async ({ page }) => {
 	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/profile");
 	await hydrated;
 
-	await expect(page.getByRole("heading", { name: "Profile", exact: true })).toBeVisible();
-	await expect(page.getByRole("link", { name: /e2e-source/ })).toContainText("2/2 repos");
-	await expect(page.getByRole("link", { name: /platform\/products\/services/ })).toContainText(
+	await expect(page.getByRole("heading", { name: "Source profiles", exact: true })).toBeVisible();
+	await expect(page.locator("summary").filter({hasText:"e2e-source"})).toContainText("2/2 repos");
+	await expect(page.locator("summary").filter({hasText:"platform/products/services"})).toContainText(
 		"At least 2 projects",
 	);
-	await expect(page.getByRole("link", { name: /PLATFORM/ })).toContainText("2 projects");
+	const search=page.getByRole("searchbox");
+	await search.fill("BITBUCKET platform");
+	await expect(page.locator("main details")).toHaveCount(1);
+	await expect(page.locator("main summary")).toContainText("2 repositories");
+	await search.fill("does-not-exist");
+	await expect(page.getByText(/No matching profiles/)).toBeVisible();
+	await search.fill("");
+	await page.locator("summary").filter({hasText:"e2e-source"}).click();
 
 	await page.getByRole("link", { name: /e2e-source/ }).click();
 	await expect(page).toHaveURL(/\/profile\/seed-e2e-profile$/);

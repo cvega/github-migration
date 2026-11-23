@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { countRepoCommits } from "./collection/commits";
+import { discoverOrgRepos } from "./collection/discovery";
+import { augmentRepoCounts, augmentRepoDetails } from "./collection/signals";
 import { getRunRepoProfiles } from "./database/repos";
+import { getProfileRunRollup } from "./database/runs";
 import { profileStore } from "./database/schema";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
+import { getProfileDetail } from "./service";
 import { ZERO_ORG_RESOURCES } from "./types";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
@@ -34,6 +39,7 @@ const dependencies: ProfileRunnerDeps = {
   augmentCounts: async (_gql, repos) =>
     repos.map((repo) => ({
       ...repo,
+      isEmpty: false,
       commitsCount: 0,
       discussionsCount: 0,
       projectsV2Count: 0,
@@ -78,6 +84,84 @@ const dependencies: ProfileRunnerDeps = {
 };
 
 describe("profile runner", () => {
+  test("zero KiB is not proof of an empty repo: persist only confirmed empty and measured commits", async () => {
+    const zero = { totalCount: 0 };
+    const counts = {
+      issues: zero,
+      pullRequests: zero,
+      branches: zero,
+      tags: zero,
+      releases: zero,
+      discussions: zero,
+      projectsV2: zero,
+      environments: zero,
+      stargazerCount: 0,
+      forkCount: 0,
+      watchers: zero,
+      packages: zero,
+      rulesets: zero,
+      branchProtectionRules: zero,
+    };
+    const detail = { gitattributes: null, workflows: null, branchProtectionRules: { nodes: [] } };
+    const requested: string[] = [];
+    const rest = {
+      repos: {},
+      paginate: {
+        iterator: async function* () {
+          yield {
+            data: ["empty", "tiny"].map((name) => ({
+              name,
+              full_name: `acme/${name}`,
+              private: false,
+              fork: false,
+              size: 0,
+              default_branch: "main",
+            })),
+          };
+        },
+      },
+      request: async (_route: string, params: { repo: string }) => {
+        requested.push(params.repo);
+        return { data: [{}], headers: {} };
+      },
+    };
+    const gql = async (query: string) =>
+      query.includes("fragment Counts")
+        ? {
+            r0: { ...counts, isEmpty: true },
+            r1: { ...counts, isEmpty: false, branches: { totalCount: 1 } },
+          }
+        : { r0: detail, r1: detail };
+    const run = await runProfile(
+      { rest, gql, getApiCalls: () => 4 } as never,
+      { id: "zero-kib", org: "acme", sourceApiUrl: "https://ghes.example/api/v3" },
+      undefined,
+      {
+        ...dependencies,
+        discover: discoverOrgRepos,
+        augmentCounts: augmentRepoCounts,
+        augmentDetails: augmentRepoDetails,
+        countCommits: countRepoCommits,
+      },
+    );
+    expect(run.state).toBe("completed");
+    expect(requested).toEqual(["tiny"]);
+    expect(
+      getRunRepoProfiles(run.id).map(({ signals }) => [
+        signals.name,
+        signals.isEmpty,
+        signals.commitsCount,
+      ]),
+    ).toEqual([
+      ["empty", true, 0],
+      ["tiny", false, 1],
+    ]);
+    expect(getProfileRunRollup(run.id)).toMatchObject({
+      scale: { repos: 2, commits: 1, diskUsageKb: 0 },
+      composition: { empty: { count: 1 } },
+    });
+    expect(getProfileDetail(run.id)?.scale?.commits).toBe(1);
+  });
   test("persists all phases and completes the run", async () => {
     const phases: string[] = [];
     const run = await runProfile(
@@ -119,46 +203,34 @@ describe("profile runner", () => {
     expect(run).toMatchObject({ state: "failed", failureReason: "HTTP 504: upstream timeout" });
   });
 
-  test.each([
-    {
-      phase: "counts",
-      dependency: "augmentCounts",
-      expected: { issuesCount: 0, usesLfs: true, commitsCount: 12 },
-    },
-    {
-      phase: "details",
-      dependency: "augmentDetails",
-      expected: { issuesCount: 4, usesLfs: false, commitsCount: 12 },
-    },
-    {
-      phase: "REST signals",
-      dependency: "gatherRestSignals",
-      expected: { issuesCount: 4, usesLfs: true, commitsCount: 0 },
-    },
-  ] as const)(
-    "retains collected evidence when $phase fails",
-    async ({ phase, dependency, expected }) => {
-      const failure = new Error(`${phase} unavailable`);
-      const log = spyOn(console, "error").mockImplementation(() => {});
-      try {
-        const run = await runProfile(
-          clients,
-          { id: "partial", org: "acme", sourceApiUrl: "https://api.github.com" },
-          undefined,
-          {
-            ...dependencies,
-            [dependency]: async () => {
-              throw failure;
-            },
+  test.each(["augmentCounts", "augmentDetails", "countCommits", "gatherRestSignals"] as const)(
+    "does not publish partial results when %s fails",
+    async (dependency) => {
+      const run = await runProfile(
+        clients,
+        { id: "partial", org: "acme", sourceApiUrl: "https://api.github.com" },
+        undefined,
+        {
+          ...dependencies,
+          [dependency]: async () => {
+            throw Object.assign(new Error("access denied"), { status: 403 });
           },
-        );
+        },
+      );
 
-        expect(run.state).toBe("completed");
-        expect(getRunRepoProfiles(run.id)[0]?.signals).toMatchObject(expected);
-        expect(log).toHaveBeenCalledWith(expect.stringContaining(`${phase} failed`), failure);
-      } finally {
-        log.mockRestore();
-      }
+      expect(run).toMatchObject({
+        state: "failed",
+        failureReason: expect.stringContaining("HTTP 403: access denied"),
+      });
+      expect(getRunRepoProfiles(run.id)).toEqual([]);
+      expect(getProfileRunRollup(run.id)).toBeNull();
+      expect(getProfileDetail(run.id)).toMatchObject({
+        scale: null,
+        summary: null,
+        composition: null,
+        estimate: null,
+        planningRepos: [],
+      });
     },
   );
 
@@ -225,7 +297,7 @@ describe("profile runner", () => {
       );
 
       expect(run).toMatchObject({ state: "failed", failureReason: "Profile worker cancelled" });
-      expect(getRunRepoProfiles(run.id)).toHaveLength(1);
+      expect(getRunRepoProfiles(run.id)).toHaveLength(0);
       expect(run.completedAt).not.toBeNull();
     },
   );

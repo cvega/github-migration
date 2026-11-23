@@ -240,13 +240,12 @@ describe("countByPagination", () => {
     expect(await countByPagination(c, "GET /x", {})).toBe(55);
   });
 
-  test("falls back to the returned item count when there is no rel=last link", async () => {
-    // Only a `next` link (no `last`) → single page in hand; count what we got.
+  test("rejects an indeterminate count when there is a next page but no last link", async () => {
     const { c } = client({
       headers: { link: '<https://api.github.com/x?per_page=1&page=2>; rel="next"' },
       data: [{ id: 1 }],
     });
-    expect(await countByPagination(c, "GET /x", {})).toBe(1);
+    await expect(countByPagination(c, "GET /x", {})).rejects.toThrow("pagination");
   });
 
   test("returns 0 when there is no link header and no items", async () => {

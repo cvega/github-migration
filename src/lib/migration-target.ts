@@ -1,4 +1,5 @@
 import type { SourceProvider } from "$lib/source/types";
+import { getMigrationExecutor } from "$lib/source-provider";
 import { TARGET_PLATFORMS, type TargetPlatform } from "$lib/target-platform";
 
 export { TARGET_PLATFORMS, type TargetPlatform } from "$lib/target-platform";
@@ -22,11 +23,24 @@ const TARGET_PLATFORM_PRESENTATION: Record<
   ghes: { label: "GHES", displayName: "GitHub Enterprise Server", icon: "mark-github" },
 };
 
-const SUPPORTED_TARGETS: Record<SourceProvider, readonly TargetPlatform[]> = {
-  github: ["ghec"],
-  gitlab: ["ghec", "ghes"],
-  "bitbucket-server": ["ghec", "ghes"],
-};
+export const GITLAB_GHES_PAUSE_REASON = "GitLab-to-GHES migration execution is paused";
+
+/** GHEC has one built-in profile. Never dispatch a conflicting historical row as cloud work. */
+export function isPausedPersistedRoute(route: {
+  routeExecutionPaused?: true;
+  sourceProvider: SourceProvider;
+  targetPlatform: TargetPlatform;
+  targetProfileId: string;
+  targetApiUrl: string;
+}): boolean {
+  return (
+    route.sourceProvider === "gitlab" &&
+    (route.routeExecutionPaused === true ||
+      route.targetPlatform !== "ghec" ||
+      route.targetProfileId !== DEFAULT_TARGET_PROFILE_ID ||
+      route.targetApiUrl !== "https://api.github.com")
+  );
+}
 
 export function isTargetPlatform(value: unknown): value is TargetPlatform {
   return TARGET_PLATFORMS.includes(value as TargetPlatform);
@@ -40,5 +54,5 @@ export function supportsMigrationTarget(
   sourceProvider: SourceProvider,
   targetPlatform: TargetPlatform,
 ): boolean {
-  return SUPPORTED_TARGETS[sourceProvider].includes(targetPlatform);
+  return getMigrationExecutor(sourceProvider, targetPlatform) !== null;
 }

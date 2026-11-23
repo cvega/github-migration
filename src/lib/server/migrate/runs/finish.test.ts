@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Migration, MigrationState } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { getEvents } from "../database/events";
 import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import { activeMigrationRuns } from "./active";
@@ -98,6 +99,9 @@ describe("migration run settlement", () => {
     expect(getMigration("migration-1")).toMatchObject({
       state: "reconciliation_required",
       failureReason: "Migration settled remotely while cancellation was pending",
+    });
+    expect(getEvents("migration-1").at(-1)?.payload).toEqual({
+      message: "Remote migration status requires review before restart",
     });
   });
 

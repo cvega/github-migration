@@ -1,19 +1,28 @@
 import { parse } from "csv-parse/sync";
 import { stringify } from "csv-stringify/sync";
 
-type MappingRow = Record<string, string>;
+type MappingRow = Record<string, string> & {
+  model_name: string;
+  source_url: string;
+  target_url: string;
+};
 
 function parseRows(csv: string): MappingRow[] {
   if (!csv.trim()) return [];
   const rows = parse(csv, {
-    columns: true,
+    columns: (columns: string[]) => {
+      if (!["model_name", "source_url", "target_url"].every((column) => columns.includes(column))) {
+        throw new Error("ghe-migrator CSV is missing required mapping columns");
+      }
+      return columns;
+    },
     bom: true,
     skip_empty_lines: true,
     relax_column_count: false,
     trim: true,
   }) as MappingRow[];
   for (const row of rows) {
-    if (!row.model_name || !row.source_url || !row.target_url) {
+    if (!row.model_name || !row.source_url) {
       throw new Error("ghe-migrator CSV is missing required mapping columns");
     }
   }
@@ -24,24 +33,71 @@ function targetUrl(webUrl: string, ...segments: string[]): string {
   return `${webUrl.replace(/\/+$/, "")}/${segments.map(encodeURIComponent).join("/")}`;
 }
 
+export function getGhesUserConflicts(conflictsCsv: string): string[] {
+  return parseRows(conflictsCsv)
+    .filter((row) => row.model_name === "user")
+    .map((row) => row.source_url);
+}
+
+export function approvedBitbucketRecords(
+  csv: string,
+  users: ReadonlyMap<string, string>,
+  teams: ReadonlyMap<string, string>,
+): string {
+  const records = parseRows(csv).filter(
+    (row) =>
+      row.model_name === "organization" ||
+      row.model_name === "repository" ||
+      (row.model_name === "user" && users.has(row.source_url)) ||
+      (row.model_name === "team" && teams.has(row.source_url)),
+  );
+  if (!records.some((row) => row.model_name === "repository"))
+    throw new Error("GHES mapping audit returned no repository for the prepared Bitbucket archive");
+  return stringify(records, { header: true, columns: Object.keys(records[0]!) });
+}
+
 export function buildGhesMigrationMap(
   conflictsCsv: string,
   recordsCsv: string,
   webUrl: string,
   targetOrg: string,
   targetRepo: string,
+  userMappings: ReadonlyMap<string, string> = new Map(),
+  teamMappings: ReadonlyMap<string, string> = new Map(),
 ): string {
   const deduplicated = new Map<string, MappingRow>();
   for (const original of [...parseRows(conflictsCsv), ...parseRows(recordsCsv)]) {
     const row = { ...original };
     const actionColumn = "recommended_action" in row ? "recommended_action" : "state";
     if (!(actionColumn in row)) throw new Error("ghe-migrator CSV is missing an action column");
-    if (row.model_name === "organization") {
+    const targetLogin = row.model_name === "user" ? userMappings.get(row.source_url) : undefined;
+    if (targetLogin) {
+      row.target_url = targetUrl(webUrl, targetLogin);
+      row[actionColumn] = "map";
+    } else if (row.model_name === "team") {
+      const slug = teamMappings.get(row.source_url);
+      if (!slug) {
+        throw new Error(
+          `GHES team conflict for ${row.source_url}: add an approved team mapping in Mappings before restarting.`,
+        );
+      }
+      row.target_url = targetUrl(webUrl, "orgs", targetOrg, "teams", slug);
+      row[actionColumn] = "merge";
+    } else if (row.model_name === "user") {
+      throw new Error(
+        `GHES user conflict requires a target URL for ${row.source_url}; add an approved user mapping in Mappings before restarting.`,
+      );
+    } else if (row.model_name === "organization") {
       row.target_url = targetUrl(webUrl, targetOrg);
       row[actionColumn] = "map";
     } else if (row.model_name === "repository") {
       row.target_url = targetUrl(webUrl, targetOrg, targetRepo);
       row[actionColumn] = "rename";
+    }
+    if (!row.target_url) {
+      throw new Error(
+        `GHES ${row.model_name} conflict requires a target URL for ${row.source_url}; resolve the mapping before importing`,
+      );
     }
     const action = row[actionColumn];
     if (!action) throw new Error("ghe-migrator CSV contains an empty action");

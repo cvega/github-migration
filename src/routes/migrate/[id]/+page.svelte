@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { enhance } from "$app/forms";
 	import { page } from "$app/state";
+	import CompactButton from "$lib/components/CompactButton.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 	import ErrorDetail from "$lib/components/ErrorDetail.svelte";
 	import MigrationForm from "$lib/components/migrate/MigrationForm.svelte";
 	import MigrationProgress from "$lib/components/migrate/MigrationProgress.svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { formatDateTime, formatElapsed, formatRepoSize } from "$lib/format";
+	import type { UsedIconName } from "$lib/icons.generated";
 	import { createMigrationEventSource, refreshMigrations } from "$lib/migrate/live.svelte";
 	import { isGitHubCloud, STATE_ICONS, STATE_LABELS } from "$lib/migrate/migration-display";
 	import { createMigrationForm } from "$lib/migrate/migration-form.svelte";
@@ -19,20 +22,25 @@
 		Progress,
 	} from "$lib/migrate/types";
 	import { isActiveMigrationState, isRestartableMigrationState } from "$lib/migration-state";
-	import { getTargetPlatformPresentation } from "$lib/migration-target";
+	import { getTargetPlatformPresentation, isPausedPersistedRoute, supportsMigrationTarget } from "$lib/migration-target";
 	import { getSourceProviderAdapter, sourceBaseUrl, sourceProjectUrl } from "$lib/source-provider";
 
-	let { data } = $props();
+	let { data, form } = $props();
+	let countsSubmitting = $state(false);
 	let polledMigration = $state<Migration | null>(null);
 	const freshMigration = $derived(
 		polledMigration?.id === data.migration.id ? polledMigration : null,
 	);
 	const migration = $derived<Migration>(freshMigration ?? data.migration);
 	const provider = $derived(getSourceProviderAdapter(migration.sourceProvider));
+	const restartSupported = $derived(provider.capabilities.restart &&
+		supportsMigrationTarget(migration.sourceProvider, migration.targetPlatform) &&
+		!isPausedPersistedRoute(migration));
 	const sourcePlatform = $derived(provider.sourcePlatform(migration.sourceApiUrl));
 	const targetPlatform = $derived(getTargetPlatformPresentation(migration.targetPlatform));
 	let eventLog = $state<MigrationEvent[]>([]);
 	let currentPhase = $state<Phase>("PENDING_VALIDATION");
+	let handoff = $state<{ completed: Phase; operation: string } | null>(null);
 	let latestProgress = $state<Progress | null>(null);
 	let sourceCounts = $state<Counts | null>(null);
 	let failureDetail = $state<FailureDetail | null>(null);
@@ -66,8 +74,10 @@
 
 	$effect(() => {
 		const migrationId = data.migration.id;
+		pollSequence += 1;
 		polledMigration = null;
 		eventLog = [...data.events];
+		handoff = null;
 		currentPhase = "PENDING_VALIDATION";
 		latestProgress = null;
 		sourceCounts = null;
@@ -75,7 +85,7 @@
 		for (const event of data.events) processEvent(event);
 		lastProcessedId = data.eventCursor || undefined;
 		if (isActiveMigrationState(data.migration.state)) {
-			eventSource = createMigrationEventSource(migrationId, data.eventCursor || undefined);
+			eventSource = createMigrationEventSource(migrationId, data.eventCursor);
 		}
 		startPolling(migrationId);
 		return () => {
@@ -109,13 +119,31 @@
 	});
 
 	function processEvent(event: MigrationEvent) {
-		if (event.phase) currentPhase = event.phase;
+		if (event.phase) {
+			currentPhase = event.phase;
+			handoff = null;
+		}
+		if (event.eventType === "step" && event.payload.executorPhase) {
+			switch (event.payload.executorPhase) {
+				case "archive_ready":
+				case "transferring":
+				case "preparing":
+				case "mapping":
+					handoff = { completed: "EXPORTING", operation: event.payload.message };
+					break;
+				case "auditing":
+				case "unlocking":
+					handoff = { completed: "IMPORTING_METADATA", operation: event.payload.message };
+					break;
+			}
+		}
 		if (event.eventType === "snapshot" || event.eventType === "complete") {
 			latestProgress = event.payload.progress;
 			if (event.payload.sourceCounts) sourceCounts = event.payload.sourceCounts;
 		} else if (event.eventType === "failure" && event.payload.detail) {
 			failureDetail = event.payload.detail;
 		} else if (event.eventType === "restart") {
+			handoff = null;
 			currentPhase = "PENDING_VALIDATION";
 			latestProgress = null;
 			sourceCounts = null;
@@ -188,26 +216,34 @@
 	};
 	const stateMeta = $derived(statePresentation[migration.state]);
 	const displayTargetCounts = $derived<Counts | null>(
-		latestProgress?.current
-			? {
-					commits: latestProgress.current.commits,
-					branches: latestProgress.current.branches,
-					tags: latestProgress.current.tags,
-					issues: latestProgress.current.issues,
-					pullRequests: latestProgress.current.pullRequests,
-					releases: latestProgress.current.releases,
-				}
-			: migration.targetCounts,
+		migration.state === "succeeded"
+			? migration.targetCounts
+			: latestProgress?.current.countsAuthoritative
+				? {
+						commits: latestProgress.current.commits,
+						branches: latestProgress.current.branches,
+						tags: latestProgress.current.tags,
+						issues: latestProgress.current.issues,
+						pullRequests: latestProgress.current.pullRequests,
+						releases: latestProgress.current.releases,
+					}
+				: migration.targetCounts,
 	);
 	const progressSourceCounts = $derived(sourceCounts ?? migration.sourceCounts);
-	const completionResources = $derived<[string, number][]>([
-		["Commits", displayTargetCounts?.commits ?? 0],
-		["Branches", displayTargetCounts?.branches ?? 0],
-		["Tags", displayTargetCounts?.tags ?? 0],
-		["Issues", displayTargetCounts?.issues ?? 0],
-		["PRs", displayTargetCounts?.pullRequests ?? 0],
-		["Releases", displayTargetCounts?.releases ?? 0],
-	]);
+	const currentTarget = $derived(form?.currentTarget?.id === migration.id ? form.currentTarget : null);
+	const footerCounts = $derived(displayTargetCounts ?? currentTarget?.counts);
+	const completionResources = $derived<[string, number, UsedIconName][]>(
+		footerCounts
+			? [
+					["Commits", footerCounts.commits, "git-commit"],
+					["Branches", footerCounts.branches, "git-branch"],
+					["Tags", footerCounts.tags, "tag"],
+					["Issues", footerCounts.issues, "issue-opened"],
+					["Pull requests", footerCounts.pullRequests, "git-pull-request"],
+					["Releases", footerCounts.releases, "package"],
+				]
+			: [],
+	);
 
 	async function refreshMigration(migrationId = migration.id): Promise<boolean> {
 		const sequence = ++pollSequence;
@@ -268,6 +304,7 @@
 			}
 			polledMigration = body;
 			showReconciliationDialog = false;
+			resumeEventLog();
 			void refreshMigrations();
 		} catch (error) {
 			reconciliationError = error instanceof Error ? error.message : "Status review failed";
@@ -280,6 +317,11 @@
 		restartError = "";
 		restart.reset();
 		showRestartForm = true;
+	}
+
+	function resumeEventLog() {
+		eventSource?.destroy();
+		eventSource = createMigrationEventSource(migration.id, lastProcessedId ?? 0);
 	}
 
 	async function handleRestart(event: SubmitEvent) {
@@ -304,8 +346,7 @@
 			latestProgress = null;
 			sourceCounts = null;
 			failureDetail = null;
-			eventSource?.destroy();
-			eventSource = createMigrationEventSource(migration.id);
+			resumeEventLog();
 			startPolling();
 			void refreshMigrations();
 		} catch (error) {
@@ -316,7 +357,7 @@
 	}
 
 	const isRestartable = $derived(
-		provider.capabilities.restart && isRestartableMigrationState(migration.state),
+		restartSupported && isRestartableMigrationState(migration.state),
 	);
 	const sourceRepoUrl = $derived(
 		sourceProjectUrl(
@@ -404,30 +445,22 @@
 					</button>
 				{/if}
 				{#if isActive}
-					<button
-						type="button"
+					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showCancelDialog}
 						onclick={() => (showCancelDialog = true)}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-2 focus-visible:outline-red-400"><Octicon name="stop" size={16} />Cancel migration</button
-					>
-				{:else if migration.state === "reconciliation_required" && provider.capabilities.restart}
-					<button
-						type="button"
+						aria-label="Cancel migration">Cancel</CompactButton>
+				{:else if migration.state === "reconciliation_required" && restartSupported}
+					<CompactButton
 						aria-label="Review remote status"
 						aria-haspopup="dialog"
 						aria-expanded={showReconciliationDialog}
-						onclick={() => (showReconciliationDialog = true)}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="shield-check" size={16} />Review status</button
-					>
+						onclick={() => (showReconciliationDialog = true)}>Review status</CompactButton>
 				{:else if isRestartable}
-					<button
-						type="button"
+					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showRestartForm}
-						onclick={openRestartForm}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="sync" size={16} />Restart</button
-					>
+						onclick={openRestartForm}>Restart</CompactButton>
 				{/if}
 			</div>
 		</div>
@@ -438,6 +471,7 @@
 			<MigrationProgress
 				view="steps"
 				currentPhase={displayedPhase}
+				handoff={migration.state === "succeeded" ? null : handoff}
 				failed={migration.state === "failed"}
 				active={isActive}
 				showComparison={false}
@@ -445,32 +479,35 @@
 		</aside>
 
 		<div class="min-w-0 space-y-6">
-			<MigrationProgress
-				view="activity"
-				currentPhase={displayedPhase}
-				failed={migration.state === "failed"}
-				active={isActive}
-				progress={latestProgress}
-				source={progressSourceCounts}
-				target={displayTargetCounts}
-				showComparison={false}
-			/>
+			{#if isActive && latestProgress}
+				<MigrationProgress
+					view="activity"
+					currentPhase={displayedPhase}
+					active
+					progress={latestProgress}
+					source={progressSourceCounts}
+				/>
+			{/if}
 
 			<section aria-labelledby="event-log-title">
 				<div class="mb-3 flex items-center justify-between gap-3">
 					<h2 id="event-log-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
 						<Octicon name="log" size={16} class="text-gray-500" />Event log
 					</h2>
-					<span class="text-xs tabular-nums text-gray-500">{eventLog.length} events</span>
+					<div class="flex items-center gap-2">
+						<span class="text-xs tabular-nums text-gray-500">{eventLog.length} events</span>
+						<a href={`/api/migrate/${migration.id}/events?download=1`} download aria-label="Download full event log" title="Download full event log (NDJSON)" class="inline-flex size-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-800 hover:text-gray-100 focus-visible:outline-2 focus-visible:outline-blue-500">
+							<Octicon name="download" size={16} />
+						</a>
+					</div>
 				</div>
-				<div class="max-h-128 min-h-64 overflow-y-auto rounded-md border border-gray-700 bg-gray-950">
+				<div class="max-h-128 overflow-y-auto rounded-md border border-gray-700 bg-gray-950">
 					{#each eventLog as event, index (event.id ?? index)}
-						<div class="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-gray-800/70 px-4 py-2 font-mono text-xs last:border-0 hover:bg-gray-900/60 sm:grid-cols-[4.5rem_7rem_minmax(0,1fr)]">
-							<time datetime={event.createdAt} class="tabular-nums text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</time>
-							<span class="hidden truncate text-gray-500 sm:block">{event.eventType}</span>
+						<div class="grid grid-cols-[minmax(11ch,max-content)_minmax(0,1fr)] gap-3 border-b border-gray-800/70 px-4 py-2 font-mono text-xs last:border-0 hover:bg-gray-900/60">
+							<time datetime={event.createdAt} class="whitespace-nowrap tabular-nums text-gray-600">{new Date(event.createdAt).toLocaleTimeString()}</time>
 							<span class="min-w-0 wrap-break-word text-gray-300">
 								{#if event.eventType === "step"}
-									{event.payload.message || ""}
+									{event.payload.message === "Auditing failed GHES import records" ? "Checking for GHES import errors" : event.payload.message || ""}
 								{:else if event.eventType === "phase_change"}
 									{event.payload.from} to {event.payload.to}
 								{:else if event.eventType === "snapshot"}
@@ -480,41 +517,71 @@
 									Migration succeeded in {formatElapsed(event.payload.elapsed)}
 								{:else if event.eventType === "failure"}
 									{event.payload.error || event.payload.detail?.failureReason || "Migration failed"}
+								{:else if event.eventType === "banner" || event.eventType === "milestone"}
+									{event.payload.message}
 								{:else if event.eventType === "restart"}
 									{event.payload.message || "Migration restarted"}
-								{:else}
-									{JSON.stringify(event.payload)}
 								{/if}
 							</span>
 						</div>
 					{/each}
 					{#if eventLog.length === 0}
-						<div class="flex min-h-64 items-center justify-center px-4 text-sm text-gray-500">{isActive ? "Waiting for events..." : "No events recorded"}</div>
+						<div class="px-4 py-3 text-center text-sm text-gray-500">{isActive ? "Waiting for events..." : "No events recorded"}</div>
 					{/if}
 				</div>
 			</section>
+	{#if migration.state === "succeeded"}
+		<section aria-labelledby="target-contents-title" class="rounded-md border border-gray-700">
+			<header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-gray-700 px-4 py-3">
+				<h2 id="target-contents-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
+					<Octicon name="repo" size={16} class="text-gray-400" />Target repository contents
+				</h2>
+				{#if displayTargetCounts}<span class="text-sm text-gray-400">Recorded at completion</span>{/if}
+			</header>
+			{#if footerCounts}
+				{#if !displayTargetCounts}
+					<p class="px-4 py-2 text-sm text-gray-400">Current repository at this path, observed {currentTarget?.observedAt}. Totals at migration completion remain unknown.</p>
+				{/if}
+				<dl class="divide-y divide-gray-700">
+					{#each completionResources as [label, count, icon] (label)}
+						<div class="flex items-center justify-between gap-3 px-4 py-2">
+							<dt class="flex items-center gap-2 text-sm text-gray-400"><Octicon name={icon} size={16} class="shrink-0" />{label}</dt>
+							<dd class="whitespace-nowrap text-right text-lg font-semibold tabular-nums text-gray-100">{count.toLocaleString()}</dd>
+						</div>
+					{/each}
+				</dl>
+				<p class="border-t border-gray-700 px-4 py-2 text-sm text-gray-400">Commits count the default branch only.</p>
+			{:else}
+				<div class="p-4">
+				<p class="text-sm text-gray-400">Migration completed, but target resource totals have not been collected.</p>
+				<form method="POST" action="?/refreshCounts" class="mt-3 flex flex-wrap items-center gap-3" use:enhance={() => {
+					countsSubmitting = true;
+					return async ({ update }) => {
+						try { await update(); } finally { countsSubmitting = false; }
+					};
+				}}>
+					<button type="submit" disabled={countsSubmitting} class="h-9 rounded-md border border-gray-600 px-3 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:opacity-50">
+						{countsSubmitting ? "Fetching counts..." : "Fetch counts"}
+					</button>
+					<p class="text-sm text-gray-400">Shows current counts only. Does not change the migration record.</p>
+				</form>
+				{#if form?.countsError}
+					<p role="alert" class="mt-3 text-sm text-red-400">{form.countsError}</p>
+				{/if}
+				</div>
+			{/if}
+		</section>
+	{/if}
 		</div>
 	</div>
 
-	{#if migration.state === "succeeded"}
-		<section aria-labelledby="resource-verification-title">
-			<h2 id="resource-verification-title" class="flex items-center gap-2 text-lg font-semibold text-gray-200">
-				<Octicon name="check-circle" size={16} class="text-green-400" />Resource verification
-			</h2>
-			<p class="mt-1 text-sm text-gray-400">Migration completed. Target resource totals are shown below.</p>
-			<dl class="mt-4 grid grid-cols-2 border-y border-gray-700 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x lg:divide-gray-700">
-				{#each completionResources as resource (resource[0])}
-					<div class="px-3 py-3 first:pl-0">
-						<dd class="text-base font-semibold tabular-nums text-gray-100">{resource[1].toLocaleString()}</dd>
-						<dt class="text-xs text-gray-500">{resource[0]}</dt>
-					</div>
-				{/each}
-			</dl>
-		</section>
-	{/if}
-
 	{#if migration.state === "failed" && failureDetail}
 		<ErrorDetail detail={failureDetail} {migration} events={eventLog} />
+	{:else if migration.state === "failed" && migration.failureReason}
+		<details>
+			<summary>Recorded failure</summary>
+			<pre class="whitespace-pre-wrap break-words">{migration.failureReason}</pre>
+		</details>
 	{/if}
 
 	<MigrationProgress
@@ -588,7 +655,7 @@
 			<p class="rounded-md border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-orange-200">
 				Verify in GitHub that no migration is active for <span class="font-mono">{reconciliationPhrase}</span>.
 			</p>
-			<p>This records your review and makes the migration eligible for restart. It does not start a migration.</p>
+			<p>This is a manual confirmation. The dashboard does not check the remote job. Confirm only after checking the destination; this enables Restart without starting a migration.</p>
 		</div>
 	{/snippet}
 </ConfirmDialog>

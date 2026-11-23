@@ -202,7 +202,7 @@ describe("migration capability report", () => {
     );
     expect(capabilities.map(({ sourceProvider, status }) => [sourceProvider, status])).toEqual([
       ["github", "unsupported"],
-      ["gitlab", "blocked"],
+      ["gitlab", "unsupported"],
       ["bitbucket-server", "ready"],
     ]);
     expect(getMigrationCapability("github", "ghes")).toEqual({
@@ -239,9 +239,9 @@ describe("migration capability report", () => {
     ];
     expect(getMigrationCapability("gitlab", "ghes").reasons).toEqual([
       {
-        code: "ghes-execution-invalid",
-        message: "GHES migration execution is not fully configured for GitLab",
-        environment: [...commonEnvironment, "GL_EXPORTER_IMAGE", "GITLAB_SOURCE_USERNAME"],
+        code: "migration-route-unsupported",
+        message: "GitLab-to-GHES migration execution is paused",
+        environment: [],
       },
     ]);
     expect(getMigrationCapability("bitbucket-server", "ghes").reasons).toEqual([

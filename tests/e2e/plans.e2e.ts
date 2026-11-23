@@ -17,6 +17,9 @@ test("reviews migration risks and exports the approved plan", async ({ page }) =
 	await expect(launch).toBeDisabled();
 
 	await plan.getByLabel("Target organization").fill("migration-target");
+	await expect(launch).toBeDisabled();
+	await plan.getByRole("combobox", { name: "Destination", exact: true }).selectOption("ghec");
+	await plan.getByLabel("Target organization").fill("migration-target");
 	await expect(launch).toBeEnabled();
 
 	await blockedRepo.check();
@@ -40,12 +43,14 @@ test("reviews migration risks and exports the approved plan", async ({ page }) =
 	expect(downloadPath).not.toBeNull();
 	const exported = (await Bun.file(downloadPath as string).json()) as {
 		profileRunId: string;
+		targetProfileId: string;
 		targetOrg: string;
 		items: Array<{ sourceRepo: string; targetRepo: string }>;
 		reposWithBlockers: number;
 		blockersAcceptedAt: string | null;
 	};
 	expect(exported.profileRunId).toBe("seed-e2e-profile");
+	expect(exported.targetProfileId).toBe("ghec");
 	expect(exported.targetOrg).toBe("migration-target");
 	expect(exported.items).toEqual([
 		{ sourceRepo: "e2e-source/ready-repo", targetRepo: "ready-repository" },

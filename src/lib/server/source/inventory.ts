@@ -1,7 +1,7 @@
+export { parseConfiguredSourceInventory as parseSourceNamespaceInventory } from "$lib/server/core/source-url";
 export {
   assertSourceInventoryProjectLimit,
   MAX_SOURCE_INVENTORY_PROJECTS,
-  parseSourceNamespaceInventory,
 } from "$lib/source/inventory";
 export type {
   NumericObservation,

@@ -5,12 +5,7 @@ import { analyzeRepo } from "./analysis/repos";
 import { buildProfileDetailRollup } from "./analysis/rollup";
 import { countRepoCommits } from "./collection/commits";
 import { discoverOrgRepos } from "./collection/discovery";
-import {
-  augmentRepoCounts,
-  augmentRepoDetails,
-  baseSignals,
-  gatherRepoRestSignals,
-} from "./collection/signals";
+import { augmentRepoCounts, augmentRepoDetails, gatherRepoRestSignals } from "./collection/signals";
 import { iterateRunRepoProfiles, recordRepoProfiles } from "./database/repos";
 import {
   completeProfileRun,
@@ -60,7 +55,6 @@ const LIMITS = {
   detailsLite: 15,
   augmentWorkers: 3,
   restWorkers: 8,
-  writes: 100,
 } as const;
 
 function chunks<T>(items: T[], size: number): T[][] {
@@ -69,19 +63,29 @@ function chunks<T>(items: T[], size: number): T[][] {
     result.push(items.slice(index, index + size));
   return result;
 }
-async function pool<T>(
+async function pool<T, R>(
   items: T[],
   concurrency: number,
-  operation: (item: T) => Promise<void>,
-): Promise<void> {
+  operation: (item: T) => Promise<R>,
+): Promise<R[]> {
   let next = 0;
+  const result: R[] = [];
   const worker = async () => {
     while (next < items.length) {
-      const item = items[next++];
-      if (item !== undefined) await operation(item);
+      const index = next++;
+      try {
+        result[index] = await operation(items[index] as T);
+      } catch (error) {
+        next = items.length;
+        throw error;
+      }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  const workers = await Promise.allSettled(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker),
+  );
+  for (const worker of workers) if (worker.status === "rejected") throw worker.reason;
+  return result;
 }
 function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted)
@@ -101,7 +105,9 @@ function describeProfileError(error: unknown): string {
   }
   return error instanceof Error ? error.message : String(error);
 }
-function risk(signals: RepoSignals): number {
+function risk(
+  signals: Pick<RepoSignals, "issuesCount" | "pullRequestsCount" | "diskUsageKb" | "releasesCount">,
+): number {
   return (
     signals.issuesCount +
     signals.pullRequestsCount +
@@ -152,15 +158,7 @@ export async function runProfile(
     setProfileRunRulesets(input.id, rulesets);
     setProfileRunOrgResources(input.id, resources);
 
-    const signalMap = new Map<string, RepoSignals>();
-    const initial = discovery.repos.map((repo) => {
-      const value = baseSignals(repo);
-      signalMap.set(repo.nameWithOwner, value);
-      return value;
-    });
-    for (const batch of chunks(records(initial), LIMITS.writes))
-      recordRepoProfiles(input.id, batch);
-    if (initial.length > 0) progress("counting", 0, discovery.total);
+    if (discovery.total > 0) progress("counting", 0, discovery.total);
 
     let profiled = 0;
     const countBatches = chunks(
@@ -169,83 +167,61 @@ export async function runProfile(
       ),
       LIMITS.counts,
     );
-    await pool(countBatches, LIMITS.augmentWorkers, async (batch) => {
-      try {
-        const values = await dependency.augmentCounts(clients.gql, batch);
-        cancelled(input.signal);
-        recordRepoProfiles(input.id, records(values));
-        for (const value of values) {
-          signalMap.set(value.nameWithOwner, value);
-          profiled += 1;
-          progress("counting", profiled, discovery.total, value.nameWithOwner);
-        }
-      } catch (error) {
-        if (input.signal?.aborted) throw error;
-        console.error(`[profile] counts failed for ${batch.length} repositories`, error);
-      }
+    const counts = await pool(countBatches, LIMITS.augmentWorkers, async (batch) => {
+      cancelled(input.signal);
+      const values = await dependency.augmentCounts(clients.gql, batch);
+      progress("counting", 0, discovery.total, batch[0]?.nameWithOwner);
+      return values;
     });
 
-    const ordered = [...discovery.repos].sort(
-      (left, right) =>
-        risk(signalMap.get(right.nameWithOwner) ?? baseSignals(right)) -
-        risk(signalMap.get(left.nameWithOwner) ?? baseSignals(left)),
-    );
+    const ordered = counts.flat().sort((left, right) => risk(right) - risk(left));
     const detailTasks = [
       ...chunks(
-        ordered.filter((repo) => (signalMap.get(repo.nameWithOwner)?.releasesCount ?? 0) === 0),
+        ordered.filter((repo) => repo.releasesCount === 0),
         LIMITS.detailsLite,
       ).map((repos) => ({ repos, scanReleases: false })),
       ...chunks(
-        ordered.filter((repo) => (signalMap.get(repo.nameWithOwner)?.releasesCount ?? 0) > 0),
+        ordered.filter((repo) => repo.releasesCount > 0),
         LIMITS.details,
       ).map((repos) => ({ repos, scanReleases: true })),
     ];
     if (detailTasks.length > 0) progress("details", profiled, discovery.total);
-    await pool(detailTasks, LIMITS.augmentWorkers, async (task) => {
-      try {
-        const details = await dependency.augmentDetails(clients.gql, task.repos, {
-          scanReleases: task.scanReleases,
-        });
-        cancelled(input.signal);
-        const merged = details.flatMap((detail) => {
-          const current = signalMap.get(detail.nameWithOwner);
-          if (!current) return [];
-          const value = { ...current, ...detail };
-          signalMap.set(detail.nameWithOwner, value);
-          return [value];
-        });
-        recordRepoProfiles(input.id, records(merged));
-        progress("details", profiled, discovery.total);
-      } catch (error) {
-        if (input.signal?.aborted) throw error;
-        console.error(`[profile] details failed for ${task.repos.length} repositories`, error);
-      }
+    const details = await pool(detailTasks, LIMITS.augmentWorkers, async (task) => {
+      cancelled(input.signal);
+      return dependency.augmentDetails(clients.gql, task.repos, {
+        scanReleases: task.scanReleases,
+      });
     });
+    const byName = new Map(details.flat().map((detail) => [detail.nameWithOwner, detail]));
 
     if (ordered.length > 0) progress("signals", profiled, discovery.total);
-    await pool(ordered, LIMITS.restWorkers, async (repo) => {
-      const current = signalMap.get(repo.nameWithOwner);
-      if (!current) return;
+    const signals = await pool(ordered, LIMITS.restWorkers, async (repo) => {
+      cancelled(input.signal);
+      const detail = byName.get(repo.nameWithOwner);
+      if (!detail) throw new Error(`Missing GraphQL details for ${repo.nameWithOwner}`);
       try {
         const [commitsCount, rest] = await Promise.all([
           dependency.countCommits(clients.rest, repo),
           dependency.gatherRestSignals(clients.rest, repo),
         ]);
         cancelled(input.signal);
-        const value = { ...current, commitsCount, ...rest };
-        signalMap.set(repo.nameWithOwner, value);
-        recordRepoProfiles(input.id, records([value]));
+        progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
+        return { ...repo, ...detail, commitsCount, ...rest };
       } catch (error) {
         if (input.signal?.aborted) throw error;
-        console.error(`[profile] REST signals failed for ${repo.nameWithOwner}`, error);
+        throw new Error(
+          `REST signals unavailable for ${repo.nameWithOwner}: ${describeProfileError(error)}`,
+        );
       }
     });
-    if (ordered.length > 0) progress("signals", profiled, discovery.total);
     cancelled(input.signal);
+    if (signals.length !== discovery.total) throw new Error("Incomplete GitHub repository profile");
+    recordRepoProfiles(input.id, records(signals));
     setProfileRunApiCalls(input.id, clients.getApiCalls());
     saveProfileRunRollup(input.id, buildProfileDetailRollup(iterateRunRepoProfiles(input.id)));
     completeProfileRun(input.id);
   } catch (error) {
+    setProfileRunApiCalls(input.id, clients.getApiCalls());
     failProfileRun(input.id, describeProfileError(error));
   }
   const run = getProfileRun(input.id);

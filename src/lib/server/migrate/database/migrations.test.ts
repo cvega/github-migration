@@ -139,6 +139,45 @@ describe("migration database lifecycle", () => {
     expect(getBatchMigrationByItem("batch-1", "acme", "widget", "widget")).toEqual(item);
   });
 
+  test("persists only the explicitly configured insecure Bitbucket source", () => {
+    const previousUrl = process.env.BITBUCKET_SERVER_URL;
+    const previousOverride = process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP;
+    const item = migration({
+      sourceProvider: "bitbucket-server",
+      sourceApiUrl: "http://bitbucket:7990/rest/api/1.0",
+    });
+    try {
+      process.env.BITBUCKET_SERVER_URL = "http://bitbucket:7990";
+      delete process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP;
+      expect(() => insertMigration(item)).toThrow("must use HTTPS");
+
+      process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP = "true";
+      expect(() =>
+        insertMigration({ ...item, sourceApiUrl: "http://other:7990/rest/api/1.0" }),
+      ).toThrow("must match the configured Bitbucket Server URL");
+      expect(() =>
+        insertMigration({
+          ...item,
+          sourceApiUrl: "http://user:secret@bitbucket:7990/rest/api/1.0",
+        }),
+      ).toThrow("must not include credentials");
+      expect(() => insertMigration({ ...item, sourceProvider: "github" })).toThrow(
+        "must use HTTPS",
+      );
+      expect(() =>
+        insertMigration({ ...item, targetApiUrl: "http://ghes.example.com/api/v3" }),
+      ).toThrow("must use HTTPS");
+
+      insertMigration(item);
+      expect(getMigration(item.id)?.sourceApiUrl).toBe(item.sourceApiUrl);
+    } finally {
+      if (previousUrl === undefined) delete process.env.BITBUCKET_SERVER_URL;
+      else process.env.BITBUCKET_SERVER_URL = previousUrl;
+      if (previousOverride === undefined) delete process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP;
+      else process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP = previousOverride;
+    }
+  });
+
   test("updates durable state details while preserving a claimed cancellation", () => {
     insertMigration(migration({ state: "running" }));
     expect(claimMigrationCancellation("migration-1")).toBe(true);

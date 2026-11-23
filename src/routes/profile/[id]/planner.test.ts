@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 mock.module("$app/navigation", () => ({ goto: async () => {} }));
 (globalThis as unknown as { $state: <Value>(value: Value) => Value }).$state = (value) => value;
@@ -22,6 +22,16 @@ function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
     getRepos: () => repos as never,
     getPlanningRepos: () => repos as never,
     getDefaultTargetOrg: () => "acme-cloud",
+    getTargets: () => [
+      {
+        id: "ghec",
+        platform: "ghec",
+        organizations: [],
+        apiUrl: "https://api.github.com",
+        webUrl: "https://github.com",
+        displayName: "Cloud",
+      },
+    ],
     isRepoEligible: (name) => eligible.includes(name),
   });
   return {
@@ -33,11 +43,53 @@ function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
 }
 
 describe("ProfileMigrationPlannerController", () => {
+  test("submits the chosen Bitbucket destination without falling back to cloud", async () => {
+    const planner = new ProfileMigrationPlannerController({
+      getRun: () =>
+        ({
+          id: "bb",
+          org: "PROF01",
+          sourceProvider: "bitbucket-server",
+          sourceApiUrl: "https://bb.example/rest/api/1.0",
+        }) as never,
+      getRepos: () => [],
+      getPlanningRepos: () => [{ nameWithOwner: "PROF01/service-01", blockers: 0, warnings: 0 }],
+      getDefaultTargetOrg: () => "",
+      getTargets: () =>
+        ["ghec", "ghes"].map((platform) => ({
+          id: platform === "ghes" ? "enterprise" : "ghec",
+          platform: platform as "ghec" | "ghes",
+          organizations: [],
+          apiUrl: "",
+          webUrl: "",
+          displayName: platform,
+        })),
+    });
+    const post = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ id: "batch" }));
+    try {
+      await planner.launchBatch();
+      expect(post).not.toHaveBeenCalled();
+      for (const id of ["enterprise", "ghec"]) {
+        planner.setTargetProfileId(id);
+        planner.setTargetOrg("target");
+        await planner.launchBatch();
+        expect(JSON.parse(String(post.mock.lastCall?.[1]?.body))).toMatchObject({
+          sourceProvider: "bitbucket-server",
+          targetProfileId: id,
+        });
+      }
+    } finally {
+      post.mockRestore();
+    }
+  });
   test("defaults to migratable repositories and gates blockers", () => {
     const { planner } = plannerFixture();
 
     expect(planner.selectedNames).toEqual(["acme/clean", "acme/warn"]);
     expect(planner.selectedWarnings).toBe(1);
+    expect(planner.submitDisabled).toBe(true);
+    planner.setTargetProfileId("ghec");
+    planner.setTargetOrg("acme-cloud");
     expect(planner.submitDisabled).toBe(false);
 
     planner.toggleSelection("acme/blocked");

@@ -27,9 +27,23 @@ test("discovers paged repositories and reports progress", async () => {
   );
   expect(progress).toEqual([1, 2]);
   expect(result.repos).toMatchObject([
-    { nameWithOwner: "acme/a", visibility: "PRIVATE", isEmpty: true },
+    { nameWithOwner: "acme/a", visibility: "PRIVATE", diskUsageKb: 0 },
     { nameWithOwner: "acme/b", visibility: "PUBLIC", isFork: true, hasPages: true },
   ]);
+});
+
+test("fails discovery when repository size was not reported", async () => {
+  const rest = {
+    paginate: {
+      iterator: async function* () {
+        yield { data: [{ full_name: "acme/a" }] };
+      },
+    },
+    repos: {},
+  } as never;
+  await expect(discoverOrgRepos(rest, "acme")).rejects.toThrow(
+    "Repository size unavailable for acme/a",
+  );
 });
 
 test("rejects inventories beyond the configured limit", async () => {

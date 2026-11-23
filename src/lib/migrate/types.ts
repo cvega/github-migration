@@ -157,6 +157,7 @@ export interface FailureDetail {
 
 interface StepPayload {
   message: string;
+  executorPhase?: string;
   counts?: Counts;
   postTerminal?: {
     operation: "source_archive";
@@ -234,6 +235,8 @@ export interface ActivityItem {
 }
 
 export interface Migration {
+  /** Includes conflicting legacy target fields and durable GHES checkpoints. */
+  routeExecutionPaused?: true;
   id: string;
   batchId: string | null;
   githubMigrationId: string | null;
@@ -285,6 +288,8 @@ export interface MigrationDirectionStats {
 
 interface MigrationFailureStats {
   reason: string;
+  latestMigrationId: string;
+  latestRunAt: string;
   count: number;
   share: number;
   avgSeconds: number | null;
@@ -465,7 +470,7 @@ export interface BatchMigrationRequest extends MigrationOptions {
   profileRunId?: string;
   sourceProvider?: SourceProvider;
   sourceApiUrl?: string;
-  targetProfileId?: string;
+  targetProfileId: string;
   repos?: string[];
   items?: BatchMigrationItem[];
   targetOrg: string;

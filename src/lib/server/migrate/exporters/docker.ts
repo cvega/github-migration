@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, rm } from "node:fs/promises";
+import { lstat, rm, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ExporterSandboxPolicy } from "$lib/server/core/exporter-sandbox";
 import type {
@@ -30,6 +30,7 @@ export interface DockerExporterDependencies {
   ): Promise<CommandResult>;
   hash(path: string): Promise<string>;
   stat(path: string): Promise<{ isFile(): boolean; isSymbolicLink(): boolean }>;
+  statDirectory(path: string): Promise<{ isDirectory(): boolean; uid: number; gid: number }>;
   remove(path: string): Promise<void>;
 }
 export interface DockerExporterDefinition {
@@ -89,7 +90,13 @@ async function hash(path: string): Promise<string> {
   return digest.digest("hex");
 }
 function defaults(): DockerExporterDependencies {
-  return { run, hash, stat: lstat, remove: (path) => rm(path, { force: true }) };
+  return {
+    run,
+    hash,
+    stat: lstat,
+    statDirectory: stat,
+    remove: (path) => rm(path, { force: true }),
+  };
 }
 function failure(name: string, action: string, result: CommandResult): Error {
   return new Error(
@@ -128,6 +135,9 @@ export class DockerExporterWorker implements ExporterWorker {
     );
     const environmentArgs = Object.keys(environment).flatMap((name) => ["-e", name]);
     const sandbox = this.config.sandbox;
+    const archiveDirectory = await this.dependencies.statDirectory(this.config.archiveDirectory);
+    if (!archiveDirectory.isDirectory())
+      throw new TypeError("Exporter archive path is not a directory");
     try {
       const created = await this.dependencies.run(
         [
@@ -138,6 +148,8 @@ export class DockerExporterWorker implements ExporterWorker {
           "--label",
           `com.github-migration.migration-id=${request.migrationId}`,
           "--read-only",
+          "--user",
+          `${archiveDirectory.uid}:${archiveDirectory.gid}`,
           "--tmpfs",
           `/tmp:rw,noexec,nosuid,nodev,size=${sandbox.tmpfsSize}`,
           "--cap-drop",

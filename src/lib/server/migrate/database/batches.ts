@@ -5,9 +5,10 @@ import type {
   PaginatedResult,
   PaginationParams,
 } from "$lib/migrate/types";
-import { isTargetPlatform } from "$lib/migration-target";
+import { isTargetPlatform, supportsMigrationTarget } from "$lib/migration-target";
 import { getDb } from "$lib/server/core/db";
-import { isSourceProvider } from "$lib/source-provider";
+import { getSourceProviderAdapter, isSourceProvider } from "$lib/source-provider";
+import { PAUSED_GITLAB_ROUTE_SQL } from "./columns";
 import {
   EXECUTABLE_PROVIDER_SQL,
   likePattern,
@@ -84,6 +85,28 @@ export function getRestartableBatchSourceProviderValues(batchId: string): string
     )
     .all(batchId) as Array<{ source_provider: string }>;
   return rows.map((row) => row.source_provider);
+}
+
+export function getRestartableBatchCount(batchId: string): number {
+  const routes = getDb()
+    .query(`SELECT source_provider, target_platform,
+      count(*) AS count FROM migrations WHERE batch_id = ? AND state IN ('failed', 'cancelled')
+      AND NOT ${PAUSED_GITLAB_ROUTE_SQL} GROUP BY source_provider, target_platform`)
+    .all(batchId) as Array<{
+    source_provider: string;
+    target_platform: string;
+    count: number;
+  }>;
+  return routes.reduce((total, row) => {
+    const sourceProvider = row.source_provider;
+    const targetPlatform = row.target_platform;
+    return isSourceProvider(sourceProvider) &&
+      isTargetPlatform(targetPlatform) &&
+      getSourceProviderAdapter(sourceProvider).capabilities.restart &&
+      supportsMigrationTarget(sourceProvider, targetPlatform)
+      ? total + row.count
+      : total;
+  }, 0);
 }
 
 export function getBatchMigrationsPaginated(

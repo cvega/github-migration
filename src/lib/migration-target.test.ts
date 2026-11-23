@@ -13,10 +13,10 @@ describe("migration target capabilities", () => {
     expect(TARGET_PLATFORMS).toEqual(["ghec", "ghes"]);
   });
 
-  test("allows GitLab and Bitbucket to target either GitHub platform", () => {
+  test("allows both native sources on GHEC but only Bitbucket on GHES", () => {
     for (const provider of ["gitlab", "bitbucket-server"] as const) {
       expect(supportsMigrationTarget(provider, "ghec")).toBe(true);
-      expect(supportsMigrationTarget(provider, "ghes")).toBe(true);
+      expect(supportsMigrationTarget(provider, "ghes")).toBe(provider === "bitbucket-server");
     }
   });
 

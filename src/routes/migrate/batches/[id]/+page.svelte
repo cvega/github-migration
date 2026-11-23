@@ -1,20 +1,14 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { goto, invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
-	import AuthStatus from "$lib/components/AuthStatus.svelte";
+	import CompactButton from "$lib/components/CompactButton.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
-	import GitHubStatus from "$lib/components/GitHubStatus.svelte";
 	import MigrationCard from "$lib/components/migrate/MigrationCard.svelte";
 	import MigrationForm from "$lib/components/migrate/MigrationForm.svelte";
+	import MigrationRouteStatus from "$lib/components/migrate/MigrationRouteStatus.svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import Pagination from "$lib/components/Pagination.svelte";
-	import {
-		AUTH_PILL_KEY,
-		type AuthPillContext,
-		GH_STATUS_KEY,
-		type GhStatusContext,
-	} from "$lib/context-keys";
 	import { formatDateTime } from "$lib/format";
 	import { createGlobalEventSource } from "$lib/migrate/live.svelte";
 	import { STATE_LABELS } from "$lib/migrate/migration-display";
@@ -23,12 +17,14 @@
 	import { getTargetPlatformPresentation } from "$lib/migration-target";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 
-	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
-	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);
 	let { data } = $props();
 
 	const batch = $derived(data.batch);
 	const migrationsResult = $derived(data.migrations);
+	const queueBlocked = $derived(
+		!batch.mixedRoute && batch.sourceProvider === "bitbucket-server" && batch.targetPlatform === "ghes" &&
+			batch.queuedCount > 0 && (batch.failedCount > 0 || batch.reconciliationRequiredCount > 0),
+	);
 	const isActive = $derived(
 		batch.queuedCount > 0 ||
 			batch.pendingCount > 0 ||
@@ -47,7 +43,7 @@
 	const percentComplete = $derived(
 		batch.totalCount > 0 ? Math.round((resolvedCount / batch.totalCount) * 100) : 0,
 	);
-	const restartableCount = $derived(batch.failedCount + batch.cancelledCount);
+	const restartableCount = $derived(data.restartableCount);
 	const restartLabel = $derived(
 		batch.failedCount > 0 && batch.cancelledCount > 0
 			? `Restart ${restartableCount} Failed/Cancelled`
@@ -209,7 +205,9 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<Octicon name="stack" size={16} class="text-gray-400" />
 				<h1 class="text-2xl font-bold text-gray-50">Batch Migration</h1>
-				{#if isActive}
+				{#if queueBlocked}
+					<span class="text-xs font-medium text-yellow-400">Queue paused</span>
+				{:else if isActive}
 					<span class="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
 						<span class="relative flex h-2 w-2" aria-hidden="true">
 							<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-40 motion-reduce:animate-none"></span>
@@ -240,9 +238,7 @@
 			</div>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-			<AuthStatus label="Source" isApp={auth.sourceApp} rateText={auth.sourceRateText} ratePct={auth.sourceRatePct} migrating={auth.migrating} />
-			<AuthStatus label="Target" isApp={auth.targetApp} rateText={auth.targetRateText} ratePct={auth.targetRatePct} migrating={auth.migrating} />
-			<GitHubStatus status={ghStatusCtx.value} />
+			<MigrationRouteStatus routes={[batch]} />
 		</div>
 	</header>
 
@@ -251,6 +247,13 @@
 			<h2 id="batch-progress-title" class="text-sm font-semibold text-gray-200">Batch progress</h2>
 			<strong class="text-sm tabular-nums text-gray-100">{percentComplete}%</strong>
 		</div>
+		{#if queueBlocked}
+			<p class="mt-2 text-sm text-yellow-400">
+				Queued repositories in this batch are waiting.
+				{#if batch.reconciliationRequiredCount > 0}Review the migrations marked for reconciliation and confirm they are safe to restart.{/if}
+				Restart failed migrations to resume the queue.
+			</p>
+		{/if}
 		<div
 			class="mt-2 h-2 overflow-hidden rounded-full bg-gray-800"
 			role="progressbar"
@@ -276,11 +279,11 @@
 
 			{#if restartableCount > 0 || isActive}
 				<div class="flex shrink-0 flex-wrap items-center gap-2">
-					{#if restartableCount > 0 && data.canRestart}
+					{#if restartableCount > 0}
 						<button type="button" onclick={openRestartForm} class="batch-action batch-action-default"><Octicon name="sync" size={16} />{restartLabel}</button>
 					{/if}
 					{#if isActive}
-						<button type="button" onclick={openCancelDialog} class="batch-action batch-action-danger"><Octicon name="x-circle" size={16} />Cancel all</button>
+						<CompactButton aria-haspopup="dialog" aria-expanded={showCancelDialog} onclick={openCancelDialog}>Cancel all</CompactButton>
 					{/if}
 				</div>
 			{/if}
@@ -303,7 +306,7 @@
 	</section>
 
 	<div class="flex justify-center">
-		<a href="/migrate" class="inline-flex h-9 items-center gap-2 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-50"><Octicon name="chevron-left" size={16} />Back to Dashboard</a>
+		<CompactButton href="/migrate">Back to dashboard</CompactButton>
 	</div>
 </div>
 
@@ -399,21 +402,4 @@
 		background: var(--button-default-bgColor-active);
 	}
 
-	.batch-action-danger {
-		border-color: var(--button-danger-borderColor-rest);
-		background: var(--button-danger-bgColor-rest);
-		color: var(--button-danger-fgColor-rest);
-	}
-
-	.batch-action-danger:hover {
-		border-color: var(--button-danger-borderColor-hover);
-		background: var(--button-danger-bgColor-hover);
-		color: var(--button-danger-fgColor-hover);
-	}
-
-	.batch-action-danger:active {
-		border-color: var(--button-danger-borderColor-active);
-		background: var(--button-danger-bgColor-active);
-		color: var(--button-danger-fgColor-active);
-	}
 </style>

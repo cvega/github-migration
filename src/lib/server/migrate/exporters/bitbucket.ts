@@ -37,6 +37,8 @@ export class BitbucketExporterWorker extends DockerExporterWorker {
             "bbs-exporter",
             "--repository",
             `${request.sourceOrg}/${request.sourceRepo}`,
+            "--except",
+            "releases",
             "--out-file",
             output,
             "--no-progress-bar",

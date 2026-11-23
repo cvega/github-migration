@@ -1,205 +1,100 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
-	import Octicon from "$lib/components/Octicon.svelte";
-	import {
-		getSourceProviderAdapter,
-		SOURCE_PROVIDERS,
-		type SourceProvider,
-	} from "$lib/source-provider";
+	import { goto, invalidateAll } from "$app/navigation";
+	import { getSourceProviderAdapter, SOURCE_PROVIDERS, type SourceProvider } from "$lib/source-provider";
+	import SourceDiscovery from "./SourceDiscovery.svelte";
 
-	let {
-		providerAuthAvailable,
-		sourceOrgs,
-		bitbucketProjectKeys,
-	}: {
-		providerAuthAvailable: Record<SourceProvider, boolean>;
-		sourceOrgs: string[];
-		bitbucketProjectKeys: string[];
+	let { providerAuthAvailable, sourceOrgs, bitbucketProjectKeys }: {
+		providerAuthAvailable: Record<SourceProvider, boolean>; sourceOrgs: string[]; bitbucketProjectKeys: string[]
 	} = $props();
-
-	const options = [
-		{
-			provider: "github",
-			label: "GitHub",
-			icon: "mark-github",
-			iconClass: "bg-gray-700/70 text-gray-100",
-			description: "Organization profile",
-		},
-		{
-			provider: "gitlab",
-			label: "GitLab",
-			icon: "gitlab-logo",
-			iconClass: "bg-orange-500/10 text-orange-400",
-			description: "Namespace profile",
-		},
-		{
-			provider: "bitbucket-server",
-			label: "Bitbucket Server",
-			icon: "bitbucket-logo",
-			iconClass: "bg-blue-500/10 text-blue-400",
-			description: "Project profile",
-		},
-	] as const;
-
-	let org = $state("");
-	let sourceProvider = $state<SourceProvider>(
-		SOURCE_PROVIDERS.find((provider) => providerAuthAvailable[provider]) ?? "github",
-	);
-	let submitting = $state(false);
+	let dialog: HTMLDialogElement;
+	let provider = $state<SourceProvider>("github");
+	let scope = $state("enterprise");
+	let target = $state("");
+	let busy = $state(false);
 	let error = $state("");
-	const authAvailable = $derived(providerAuthAvailable[sourceProvider]);
-	const sourceAdapter = $derived(getSourceProviderAdapter(sourceProvider));
-	const selectedOption = $derived(options.find((option) => option.provider === sourceProvider) ?? options[0]);
-
-	function selectProvider(provider: SourceProvider): void {
-		sourceProvider = provider;
-		org = "";
-		error = "";
-	}
-
-	async function startProfile(event: SubmitEvent): Promise<void> {
-		event.preventDefault();
-		const namespace = org.trim();
-		if (!namespace) return;
-		submitting = true;
-		error = "";
+	let notice = $state("");
+	let queue = $state("");
+	const unit = $derived(provider === "bitbucket-server" ? "project" : provider === "github" ? "organization" : "group");
+	const choices = $derived(provider === "github" ? sourceOrgs : provider === "bitbucket-server" ? bitbucketProjectKeys : []);
+	let requestNumber = 0;
+	async function readQueue() {
+		const n = ++requestNumber;
+		queue = "";
+		if (!providerAuthAvailable[provider]) return;
 		try {
-			const response = await fetch("/api/profile", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ sourceProvider, org: namespace }),
-			});
-			if (!response.ok) {
-				const body = (await response.json().catch(() => ({}))) as { error?: string };
-				error = body.error ?? `HTTP ${response.status}`;
-				return;
-			}
-			const run = (await response.json()) as { id: string };
-			await goto(`/profile/${run.id}`);
+			const res = await fetch(`/api/profile/queue?provider=${provider}`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data = await res.json();
+			if (n === requestNumber) queue = `${data.pending} waiting · ${data.failed} failed to start`;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : "Failed to start profile";
-		} finally {
-			submitting = false;
+			if (n === requestNumber) queue = `Queue status unavailable: ${cause instanceof Error ? cause.message : "request failed"}`;
 		}
 	}
+	function open() {
+		provider = SOURCE_PROVIDERS.find(p => providerAuthAvailable[p]) ?? "github";
+		scope = "enterprise"; target = error = notice = "";
+		dialog.showModal();
+		void readQueue();
+	}
+	async function start(e: SubmitEvent) {
+		e.preventDefault();
+		if (busy || !providerAuthAvailable[provider]) return;
+		busy = true; error = "";
+		const enterprise = scope === "enterprise";
+		try {
+			const response = await fetch(enterprise ? "/api/profile/queue" : "/api/profile", {
+				method:"POST", headers:{"content-type":"application/json"},
+				body:JSON.stringify(enterprise ? {sourceProvider:provider, scope, enterprise:target.trim()} : {sourceProvider:provider,org:target.trim()})
+			});
+			const data = await response.json();
+			if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+			if (enterprise) {
+				notice = `${data.added} queued from ${data.discovered} eligible namespaces.`;
+				dialog.close();
+				await invalidateAll();
+			} else await goto(`/profile/${data.id}`);
+		} catch (cause) { error = cause instanceof Error ? cause.message : "Could not start profiling."; }
+		finally { busy = false; }
+	}
 </script>
-
-<section id="start-profile" class="scroll-mt-4 overflow-hidden rounded-md border border-gray-700 bg-gray-900">
-	<header class="border-b border-gray-700 px-4 py-3">
-		<h2 class="text-sm font-semibold text-gray-100">Start a new profile</h2>
-		<p class="mt-0.5 text-xs text-gray-500">Choose a source and enter the namespace to analyze.</p>
-	</header>
-
-	<div class="grid md:grid-cols-[15rem_minmax(0,1fr)]">
-		<fieldset class="min-w-0 border-b border-gray-700 p-3 md:border-r md:border-b-0">
-			<legend class="sr-only">Source provider</legend>
-			<div class="space-y-1">
-				{#each options as option (option.provider)}
-					{@const selected = option.provider === sourceProvider}
-					{@const ready = providerAuthAvailable[option.provider]}
-					<label
-						class="relative flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 outline-none transition-colors focus-within:ring-2 focus-within:ring-blue-400 {selected ? 'bg-gray-800' : 'hover:bg-gray-800/60'}"
-					>
-						<input
-							class="sr-only"
-							type="radio"
-							name="source-provider"
-							value={option.provider}
-							checked={selected}
-							onchange={() => selectProvider(option.provider)}
-						/>
-						<span class="flex size-8 shrink-0 items-center justify-center rounded-md {option.iconClass}">
-							<Octicon name={option.icon} size={16} />
-						</span>
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-sm font-semibold {selected ? 'text-gray-50' : 'text-gray-300'}">{option.label}</span>
-							<span class="mt-0.5 flex items-center gap-1.5 text-xs {ready ? 'text-green-400' : 'text-amber-400'}">
-								<span class="size-1.5 rounded-full {ready ? 'bg-green-400' : 'bg-amber-400'}"></span>
-								{ready ? "Ready" : "Setup required"}
-							</span>
-						</span>
-						{#if selected}<Octicon name="check" size={16} class="shrink-0 text-blue-400" />{/if}
+<button type="button" class="primary" onclick={open}>New profile</button>
+{#if notice}<p role="status" class="mt-1 text-sm text-gray-300">{notice}</p>{/if}
+<dialog bind:this={dialog} aria-labelledby="new-profile-title" oncancel={e=>{if(busy)e.preventDefault();}} class="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-xl border border-gray-600 bg-gray-950 p-5 text-left text-gray-100 shadow-xl backdrop:bg-black/70">
+	<h2 id="new-profile-title" class="text-lg font-semibold">New profile</h2>
+	<form onsubmit={start} class="mt-4 space-y-4">
+		<fieldset disabled={busy} class="space-y-4">
+			<label class="block font-semibold">Source connection
+				<select bind:value={provider} onchange={()=>{target=error="";void readQueue();}} class="control">
+					{#each SOURCE_PROVIDERS as p (p)}<option value={p}>{p === "bitbucket-server" ? "Bitbucket Data Center" : getSourceProviderAdapter(p).displayName}{providerAuthAvailable[p] ? "" : " · Setup required"}</option>{/each}
+				</select>
+			</label>
+			{#if providerAuthAvailable[provider]}
+				<fieldset><legend class="mb-2 font-semibold">Profile scope</legend><div class="flex flex-wrap gap-4">
+					<label><input type="radio" bind:group={scope} value="enterprise" onchange={()=>{target=error="";}} /> Entire enterprise</label>
+					<label><input type="radio" bind:group={scope} value="one" onchange={()=>{target=error="";}} /> One {unit}</label>
+				</div></fieldset>
+				{#if scope === "one"}
+					<label class="block font-semibold">{getSourceProviderAdapter(provider).namespaceLabel}
+						<input bind:value={target} list="profile-suggestions" required class="control" />
 					</label>
-				{/each}
-			</div>
-		</fieldset>
-
-		<div class="min-w-0 p-4 sm:p-5">
-			<div class="flex flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
-				<div class="flex min-w-0 items-center gap-3">
-					<span class="flex size-11 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ring-gray-700 {selectedOption.iconClass}">
-						<Octicon name={selectedOption.icon} size={24} />
-					</span>
-					<div class="min-w-0">
-						<h3 class="truncate text-lg font-semibold text-gray-50">{sourceAdapter.displayName}</h3>
-						<p class="mt-0.5 text-sm text-gray-400">{selectedOption.description}</p>
-					</div>
-				</div>
-				<span class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium {authAvailable ? 'text-green-400' : 'text-amber-400'}">
-					<Octicon name={authAvailable ? "check-circle-fill" : "alert"} size={12} />
-					{authAvailable ? "Credentials configured" : "Setup required"}
-				</span>
-			</div>
-
-			{#if authAvailable}
-				<form onsubmit={startProfile} class="mt-5 flex flex-wrap items-end gap-3 border-t border-gray-700 pt-4">
-					<div class="min-w-0 flex-[1_1_16rem]">
-						<label for="profile-org" class="mb-1.5 block text-sm font-medium text-gray-200">
-							{sourceAdapter.namespaceLabel}
-						</label>
-						<div class="flex h-10 overflow-hidden rounded-md border border-gray-600 bg-gray-950 transition-colors focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
-							<span class="flex w-10 shrink-0 items-center justify-center border-r border-gray-700 text-gray-500">
-								<Octicon name={selectedOption.icon} size={16} />
-							</span>
-							<input
-								id="profile-org"
-								list={sourceProvider === "github"
-									? "source-orgs"
-									: sourceProvider === "bitbucket-server"
-										? "bitbucket-project-keys"
-										: undefined}
-								bind:value={org}
-								required
-								placeholder={sourceProvider === "gitlab"
-									? "group/subgroup"
-									: sourceProvider === "bitbucket-server"
-										? "PROJECT"
-										: "octo-org"}
-								autocomplete="off"
-								class="min-w-0 flex-1 bg-transparent px-3 text-sm text-gray-50 outline-none placeholder:text-gray-600"
-							/>
-						</div>
-						{#if sourceProvider === "github" && sourceOrgs.length > 0}
-							<datalist id="source-orgs">
-								{#each sourceOrgs as sourceOrg (sourceOrg)}<option value={sourceOrg}></option>{/each}
-							</datalist>
-						{/if}
-						{#if sourceProvider === "bitbucket-server" && bitbucketProjectKeys.length > 0}
-							<datalist id="bitbucket-project-keys">
-								{#each bitbucketProjectKeys as key (key)}<option value={key}></option>{/each}
-							</datalist>
-						{/if}
-					</div>
-					<button
-						type="submit"
-						disabled={submitting || !org.trim()}
-						class="inline-flex h-10 items-center gap-1.5 rounded-md bg-green-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						<Octicon name={submitting ? "sync" : "play"} size={16} class={submitting ? "animate-spin" : ""} />
-						{submitting ? "Starting..." : "Start profile"}
-					</button>
-				</form>
-				{#if error}
-					<p class="mt-3 flex items-center gap-1.5 text-sm text-red-400" role="alert">
-						<Octicon name="alert" size={16} />{error}
-					</p>
+					<datalist id="profile-suggestions">{#each choices as key (key)}<option value={key}></option>{/each}</datalist>
+					{#key provider}<SourceDiscovery {provider} onselect={key=>{ target=key;error=""; }} />{/key}
+				{:else}
+					{#if provider !== "bitbucket-server"}<label class="block font-semibold">{provider === "github" ? "GitHub enterprise slug" : "Enterprise group (required on GitLab.com)"}
+						<input bind:value={target} required={provider === "github"} class="control" /></label>{/if}
+					<p class="text-sm text-gray-400">Profiles all eligible namespaces, including previously completed profiles. No migrations are started.</p>
+					{#if queue}<p class="text-sm text-gray-400">{queue} · <button type="button" class="text-blue-400" onclick={readQueue}>Refresh queue</button></p>{/if}
 				{/if}
-			{:else}
-				<p class="mt-5 flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-gray-300">
-					<Octicon name="shield-lock" size={16} class="shrink-0 text-amber-400" />
-					{sourceAdapter.displayName} source credentials must be configured on the server before a profile can start.
-				</p>
-			{/if}
+			{:else}<p class="text-sm text-amber-400">Configure this source in <a href="/setup" class="underline">Setup</a> before profiling.</p>{/if}
+		</fieldset>
+		{#if error}<p role="alert" class="text-sm text-red-400">{error}</p>{/if}
+		<div class="flex justify-end gap-2 border-t border-gray-700 pt-4">
+			<button type="button" disabled={busy} onclick={()=>dialog.close()} class="rounded-md border border-gray-600 px-3 py-1">Cancel</button>
+			<button type="submit" disabled={busy || !providerAuthAvailable[provider]} class="primary">{busy ? "Starting…" : "Start profile"}</button>
 		</div>
-	</div>
-</section>
+	</form>
+</dialog>
+<style>
+	.primary{background:var(--button-primary-bgColor-rest,#238636);color:white;padding:5px 13px;border-radius:6px;font-weight:600;white-space:nowrap;font-size:14px}.primary:disabled{opacity:.5}
+	.control{display:block;width:100%;background:var(--bgColor-default,#0d1117);border:1px solid var(--borderColor-default,#3d444d);border-radius:6px;margin-top:5px;padding:6px 10px;color:inherit;font-weight:400}
+</style>

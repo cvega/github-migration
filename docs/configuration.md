@@ -118,6 +118,7 @@ request.
 | `BITBUCKET_SERVER_USERNAME` | Bitbucket API username |
 | `BITBUCKET_SERVER_PASSWORD` | Bitbucket API password or token |
 | `BITBUCKET_SERVER_PROJECT_KEYS` | Optional comma-separated project scope |
+| `PROFILE_CONNECTION_SCOPE` | Optional provider IDs (`bitbucket-server`, `gitlab`, `github`) for credential-wide profiling; migration restrictions remain unchanged |
 | `BITBUCKET_SERVER_ALLOW_INSECURE_HTTP` | Allow plain HTTP for an explicitly trusted source |
 | `BITBUCKET_SERVER_SSH_HOST` | Administrative SSH host used for archive access |
 | `BITBUCKET_SERVER_SSH_PORT` | Administrative SSH port |
@@ -131,6 +132,9 @@ Plain HTTP is rejected unless its explicit override is enabled. SSH transfers
 require a pinned host key.
 
 ## GHES Targets
+
+Only Bitbucket Server migrations can use the GHES target. Configuring a
+GitLab exporter does not enable the paused GitLab-to-GHES route.
 
 | Variable | Purpose |
 |---|---|
@@ -170,3 +174,27 @@ never passed to exporter containers.
 
 Exporter processes run without target credentials. Their network, memory, CPU,
 PID, and temporary-storage limits should remain bounded in production.
+
+For Bitbucket-to-GHES migrations, Compose defaults to the local image
+`gh-migrate/bbs-exporter:1.13.0-validation`. Place the exporter source outside
+this repository at `../bbs-exporter-1.13.0`, or set
+`BBS_EXPORTER_BUILD_CONTEXT` to its location, then build the image:
+
+```sh
+docker compose --profile tools build bbs-exporter-image
+```
+
+The tools profile builds the image; it is not a long-running exporter service.
+The dashboard creates a container for each migration and shares the archive
+volume with it. Set `BBS_EXPORTER_IMAGE` to use a different image, and ensure
+the exporter network can reach Bitbucket. A real export and GHES import must be
+validated separately. For production, publish the approved build to your
+registry and set `BBS_EXPORTER_IMAGE` to its immutable `registry/image@sha256:...`
+reference. On a clean worker, pull that exact reference and inspect its
+`RepoDigests` before enabling the route. The local `-validation` tag does not
+establish image provenance or availability on another worker.
+
+The Compose dashboard also joins the external `bitbucket-local_default`
+network for the local Bitbucket instance. Start that Bitbucket Compose project
+first so the network exists; set `EXPORTER_NETWORK=bitbucket-local_default` to
+connect exporter containers to it as well.

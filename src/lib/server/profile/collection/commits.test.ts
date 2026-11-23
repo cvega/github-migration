@@ -17,7 +17,7 @@ test("counts commits from the pagination last link", async () => {
   ).toBe(42);
 });
 
-test("skips empty repositories and degrades request failures", async () => {
+test("skips confirmed empty repositories but fails denied commit requests", async () => {
   let calls = 0;
   const rest = {
     request: async () => {
@@ -32,12 +32,12 @@ test("skips empty repositories and degrades request failures", async () => {
       nameWithOwner: "acme/empty",
     } as never),
   ).toBe(0);
-  expect(
-    await countRepoCommits(rest, {
+  await expect(
+    countRepoCommits(rest, {
       isEmpty: false,
       defaultBranch: "main",
       nameWithOwner: "acme/repo",
     } as never),
-  ).toBe(0);
+  ).rejects.toThrow("denied");
   expect(calls).toBe(1);
 });

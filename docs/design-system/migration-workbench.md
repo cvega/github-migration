@@ -256,8 +256,8 @@ configuration and as the lead element during review.
 - Height: at least 64px; border-top only.
 - Back or cancel is left aligned. Continue or launch is right aligned.
 - The primary button remains in the same position at every stage.
-- Primary continue and safe-launch actions use Primer's green primary button.
-  Blue is reserved for path, selection, links, and focus. Production launch is
+- Continue and launch with source locking disabled use Primer's green primary button.
+  Blue is reserved for path, selection, links, and focus. Launch with source locking enabled is
   amber and destructive action is red.
 - Mobile actions remain 44px high and may span the available width.
 
@@ -337,23 +337,24 @@ above the form.
 ### Review Stage
 
 Review is a launch decision, not a success dashboard. It leads with the route,
-then mappings, then run mode and capacity immediately above the action dock.
+then mappings, then source handling and capacity immediately above the action dock.
 
 ```text
 Review and launch                                      1 repository
-Confirm the route, destination, and execution mode.
+Confirm the route, destination, and source repository handling.
 
-[GL] GitLab ─────────────────────────────────────→ [GH] GitHub Enterprise Cloud
+[GH] GitHub ─────────────────────────────────────→ [GH] GitHub Enterprise Cloud
 
 REPOSITORY MAPPINGS
 Source repository                    Target repository
 test-group/test                    → test-target-org/test
 
-RUN MODE                          CAPACITY
-(●) Dry run  ( ) Production      Available now
+SOURCE REPOSITORY HANDLING                       CAPACITY
+(●) Keep source unlocked  ( ) Lock and archive source   Available now
+Both choices write repository data to the destination.
 
 ───────────────────────────────────────────────────────────────────
-Back                                                   Start dry run
+Back                                                 Start migration
 ```
 
 Do not add a second readiness header, success stripe, or launch-settings card.
@@ -384,7 +385,7 @@ A migration workflow implementation is acceptable only when all are true:
 3. Source and target options share exact computed dimensions and state styling.
 4. All six workflow positions remain understandable at desktop and mobile.
 5. The primary action has one stable location throughout the flow.
-6. Empty, selected, disabled, validation, dry-run, production, queued, and ready
+6. Empty, selected, disabled, validation, unlocked, lock-and-archive, queued, and ready
    states preserve layout geometry.
 7. Screenshots at 1280×800, 1024×768, and 390×844 pass visual review.
 8. Browser measurements confirm no overflow, clipped text, or wrapped short

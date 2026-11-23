@@ -10,6 +10,9 @@ services:
     env_file: .env
     ports:
       - "${GH_MIGRATE_PUBLISH_HOST:-127.0.0.1}:3000:3000"
+    networks:
+      - default
+      - bitbucket-local
     volumes:
       - gh-migrate-data:/data
       - gh-migrate-archives:/archives
@@ -18,6 +21,7 @@ services:
       - DATA_DIR=/data
       - ARCHIVE_DIR=/archives
       - EXPORTER_ARCHIVE_VOLUME=${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}
+      - BBS_EXPORTER_IMAGE=${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
       - PORT=3000
       - ORIGIN=${ORIGIN:-http://localhost:3000}
     healthcheck:
@@ -31,6 +35,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  bbs-exporter-image:
+    profiles: [tools]
+    image: ${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
+    build:
+      context: ${BBS_EXPORTER_BUILD_CONTEXT:-../bbs-exporter-1.13.0}
 
   profile-analyzer:
     image: ${GH_MIGRATE_ANALYZER_IMAGE:-gh-migrate-profile-analyzer:local}
@@ -54,6 +64,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  bitbucket-local:
+    external: true
+    name: bitbucket-local_default
 
 volumes:
   gh-migrate-data:

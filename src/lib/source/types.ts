@@ -31,6 +31,7 @@ interface BitbucketServerProjectDetails {
   description?: string | null;
   scmId?: string;
   forkable?: boolean;
+  rootLfsRules?: "found" | "none" | "unknown";
   forkedFromPath?: string;
   state?: string;
 }
@@ -128,10 +129,27 @@ export interface BitbucketProjectMetrics {
   forks: ProfileNumericMetric;
 }
 
+export interface BitbucketActivity {
+  defaultBranch: string | null;
+  tipCommittedAt: string | null;
+  review: {
+    open: number;
+    merged: number;
+    declined: number;
+    oldestOpenCreatedAt: string | null;
+    latestUpdatedAt: string | null;
+  } | null;
+}
+
 export interface BitbucketProfileEnrichment {
   version: 2;
   provider: "bitbucket-server";
   sourceApiUrl: string;
   namespace: string;
-  projects: Array<{ sourceId: string; path: string; metrics: BitbucketProjectMetrics }>;
+  projects: Array<{
+    sourceId: string;
+    path: string;
+    metrics: BitbucketProjectMetrics;
+    activity?: BitbucketActivity;
+  }>;
 }

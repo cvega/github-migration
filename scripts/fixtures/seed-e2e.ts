@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
+import type { Progress } from "../../src/lib/migrate/types";
 import type { RepoSignals } from "../../src/lib/server/profile/types";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 
@@ -40,6 +41,44 @@ insert.run(
   "target-two",
   "repository-two",
   startedAt,
+  completedAt,
+);
+
+const unverifiedProgress: Progress = {
+  current: {
+    timestamp: completedAt,
+    migrationState: "SUCCEEDED",
+    failureReason: "",
+    migrationLogUrl: "",
+    warningsCount: 0,
+    repoExists: true,
+    countsAuthoritative: false,
+    repoSize: 0,
+    commits: 0,
+    branches: 0,
+    tags: 0,
+    issues: 0,
+    pullRequests: 0,
+    releases: 0,
+    phase: "SUCCEEDED",
+    elapsed: 60,
+  },
+  previous: null,
+  deltaCommits: 0,
+  deltaBranches: 0,
+  deltaTags: 0,
+  deltaIssues: 0,
+  deltaPRs: 0,
+  deltaReleases: 0,
+  deltaSize: 0,
+  commitsPerMin: 0,
+  issuesPerMin: 0,
+};
+db.prepare(
+  `INSERT INTO events (migration_id, event_type, phase, payload, created_at)
+   VALUES ('seed-e2e-migration-two', 'complete', 'SUCCEEDED', ?, ?)`,
+).run(
+  JSON.stringify({ progress: unverifiedProgress, sourceCounts: null, elapsed: 60 }),
   completedAt,
 );
 
@@ -493,4 +532,18 @@ insertFailedNativeMigration.run(
   completedAt,
 );
 
+db.prepare(
+  "UPDATE migrations SET batch_id='seed-e2e-batch-bitbucket', target_platform='ghes', target_profile_id='ghes', failure_reason=? WHERE id='seed-e2e-bitbucket-failed'",
+).run(
+  "Bundler will use /tmp temporarily.\nPermission denied @ rb_sysopen - /workspace/export.tar.gz (Errno::EACCES)\nfrom /opt/bbs-exporter/lib/bbs_exporter/archiver.rb",
+);
+const importStep = db.prepare(`INSERT INTO events (migration_id,event_type,payload,created_at)
+  VALUES ('seed-e2e-bitbucket-failed', ?, ?, ?)`);
+for (const [type, message] of [
+  ["step", "Previous attempt"],
+  ["restart", "Migration restarted"],
+  ["step", "Starting Bitbucket Server export"],
+] as const) {
+  importStep.run(type, JSON.stringify({ message }), startedAt);
+}
 db.close();

@@ -1,18 +1,11 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { goto, invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
-	import AuthStatus from "$lib/components/AuthStatus.svelte";
-	import GitHubStatus from "$lib/components/GitHubStatus.svelte";
 	import MigrationCard from "$lib/components/migrate/MigrationCard.svelte";
+	import MigrationRouteStatus from "$lib/components/migrate/MigrationRouteStatus.svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import Pagination from "$lib/components/Pagination.svelte";
-	import {
-		AUTH_PILL_KEY,
-		type AuthPillContext,
-		GH_STATUS_KEY,
-		type GhStatusContext,
-	} from "$lib/context-keys";
 	import { timeAgo } from "$lib/format";
 	import type { UsedIconName } from "$lib/icons.generated";
 	import { eventChangesBatchSummary } from "$lib/migrate/events";
@@ -29,8 +22,6 @@
 	import { getTargetPlatformPresentation } from "$lib/migration-target";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 
-	const ghStatusCtx = getContext<GhStatusContext>(GH_STATUS_KEY);
-	const auth = getContext<AuthPillContext>(AUTH_PILL_KEY);
 	let { data } = $props();
 
 	$effect(() => {
@@ -44,6 +35,7 @@
 		data: migrationRows,
 	});
 	let batchesResult = $derived<PaginatedResult<BatchListItem>>(data.batches);
+	const routes = $derived([...migrationRows, ...batchesResult.data]);
 	let batchRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	$effect(() => {
@@ -92,6 +84,7 @@
 	);
 	const q = $derived(data.q ?? "");
 	const searching = $derived(q.length > 0);
+	const sectionCount = $derived([batchesResult.data.length, active.length, finished.length].filter(Boolean).length);
 
 	function clearSearch() {
 		goto("/migrate", { reset: false });
@@ -198,21 +191,7 @@
 			</div>
 		</div>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2 sm:justify-end">
-			<AuthStatus
-				label="Source"
-				isApp={auth.sourceApp}
-				rateText={auth.sourceRateText}
-				ratePct={auth.sourceRatePct}
-				migrating={auth.migrating}
-			/>
-			<AuthStatus
-				label="Target"
-				isApp={auth.targetApp}
-				rateText={auth.targetRateText}
-				ratePct={auth.targetRatePct}
-				migrating={auth.migrating}
-			/>
-			<GitHubStatus status={ghStatusCtx.value} />
+			<MigrationRouteStatus {routes} />
 		</div>
 	</div>
 
@@ -232,9 +211,9 @@
 		</div>
 	{/if}
 
-	{#if !searching && (batchesResult.total > 0 || activeTotal > 0 || finishedTotal > 0)}
-		<nav aria-label="Migration views" class="grid min-w-0 grid-cols-3 border-b border-gray-700 sm:flex">
-			{#if batchesResult.total > 0}
+	{#if !searching && sectionCount > 1}
+		<nav aria-label="Migration views" class="grid min-w-0 grid-flow-col auto-cols-fr border-b border-gray-700 sm:flex">
+			{#if batchesResult.data.length > 0}
 				<a
 					href="#batches"
 					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"
@@ -246,7 +225,7 @@
 					>
 				</a>
 			{/if}
-			{#if activeTotal > 0}
+			{#if active.length > 0}
 				<a
 					href="#active"
 					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"
@@ -258,7 +237,7 @@
 					>
 				</a>
 			{/if}
-			{#if finishedTotal > 0}
+			{#if finished.length > 0}
 				<a
 					href="#finished"
 					class="inline-flex h-12 min-w-0 items-center justify-center gap-1 border-b-2 border-transparent px-0.5 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-gray-50 sm:shrink-0 sm:gap-2 sm:px-3 sm:text-sm"

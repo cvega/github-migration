@@ -63,13 +63,20 @@ do not use this gate.
 The migration manager selects an executor from the source provider and target
 platform, persists the request, and submits it to an app-wide FIFO queue.
 
+Bitbucket, GitLab, and GitHub use separate source-specific executors. Bitbucket
+and GitLab clients and exporters stay in their own provider modules; GitHub
+source archive operations stay separate from them. The executor registry and
+application adapters compose these implementations. Common GHEC import APIs,
+GHES import orchestration, target authentication, and resource counts are shared
+target infrastructure, not calls into another source provider.
+
 <!-- BEGIN GENERATED: support-matrix -->
 | Source | Target | Executor |
 |---|---|---|
 | GitHub | GitHub Enterprise Cloud | `github-api` |
 | GitHub | GitHub Enterprise Server | Not supported |
 | GitLab | GitHub Enterprise Cloud | `gitlab-native` |
-| GitLab | GitHub Enterprise Server | `gitlab-ghes` |
+| GitLab | GitHub Enterprise Server | Not supported |
 | Bitbucket Server | GitHub Enterprise Cloud | `bitbucket-server-native` |
 | Bitbucket Server | GitHub Enterprise Server | `bitbucket-server-ghes` |
 <!-- END GENERATED: support-matrix -->
@@ -102,7 +109,7 @@ GitLab and Bitbucket Server use provider-native source exports, upload those
 archives through GitHub's archive API, and then start the same repository
 migration mutation. The executor IDs identify the source-side strategy.
 
-GHES targets use containerized GitLab or Bitbucket Server exporters plus
+GHES targets use a containerized Bitbucket Server exporter plus
 `ghe-migrator` instead of the GitHub migration APIs.
 
 For GHEC targets, execution progresses through provider-specific preflight,
@@ -112,11 +119,27 @@ post-migration indexing lag cannot overwrite them with transient zeroes.
 
 ### GHES imports
 
-GitLab and Bitbucket Server can target an administrator-configured GHES
+Bitbucket Server can target an administrator-configured GHES
 profile. A one-shot exporter writes an archive into the shared archive volume.
 The dashboard verifies its hash, transfers it over host-key-pinned SSH, then
 runs the prepare, mapping, import, audit, unlock, and cleanup operations.
+Once GHES finishes importing the archive, the pipeline shows both Git and
+metadata as complete during audit and unlock. Done waits for success.
 Exporter containers never receive GHES credentials.
+
+Target remapping can reveal further conflicts, such as an existing team in
+the destination organization. The importer rechecks conflicts after each map
+and applies the same mapping policy, including GHES-recommended team merges.
+Repeated unresolved mappings or more than three mapping passes stop for
+operator review before import.
+
+After a successful import and source unlock, GHES resource counts are read
+through the target's REST and GraphQL APIs and persisted with the result.
+A count lookup failure is reported without changing the successful import
+state. The detail page distinguishes unavailable counts from zero and lets
+operators inspect current totals when no completion snapshot exists. The
+read validates the stored target against its current profile and timestamps
+the observation. It never substitutes it for historical counts.
 
 <!-- BEGIN GENERATED: ghes-import-phases -->
 **GHES import phases:** `pending`, `exporting`, `archive_ready`, `transferring`, `preparing`, `mapping`, `importing`, `auditing`, `unlocking`, `succeeded`, `failed`, `cancelled`, `reconciliation_required`.
@@ -128,23 +151,35 @@ dashboard cannot prove whether the remote operation completed.
 
 ## Mannequin attribution
 
-The Mannequins workspace uses the configured GHEC target credential to list a
-target organization's mannequins and visible members. Operators can filter the
-source identities, select a target member, and submit GitHub's attribution
-invitation mutation. Successful submissions append an operator audit event.
+The identity workspace supports configured GHEC and GHES target profiles.
+Operators can save mappings manually or import a CSV before accounts and
+mannequins exist. Decisions are scoped to the target API, organization, source
+type, and exact source identity; unrelated source URLs and mannequin logins are
+not automatically equated. Operators can check user and membership readiness.
+GHES imports performed with `ghe-migrator` discover user conflicts over SSH and
+apply matching approved URLs after checking target users exist.
+
+For mannequin attribution, the workspace matches IDs or unique logins across
+the complete organization list and sends invitations only to active members.
+It skips duplicate or ambiguous matches and records invitation attempts and
+operator audit events.
 
 Discovery and invitation submission are live GitHub operations, not durable
-migration jobs. The dashboard shows GitHub's current claimant when available,
-but it does not persist invitation state or poll `Invited`, `Completed`, and
-`Rejected` transitions. Retries and rejected-invitation replacement therefore
-remain operator-managed in GitHub.
+migration jobs. The dashboard records approved decisions and whether an
+invitation was sent or has an uncertain outcome. It shows GitHub's current
+claimant when available, but does not poll invitation rejection transitions.
+Verify uncertain or rejected invitations in GitHub before taking further action.
 
 ## Concurrency and recovery
 
 The manager enforces one app-wide limit of ten executing migrations. Requests
 beyond capacity remain durable in `queued` state. When an execution promise
 settles, a transactional dequeue claims the oldest recoverable item and starts
-it. Batch migrations use the same queue; a batch is durable membership and
+it. The configured GHES appliance runs one dashboard migration at a time because
+`ghe-migrator` holds an appliance-wide lock. Other GHES requests wait in order,
+including single runs and restarts. Cloud work can use the remaining slots.
+This does not coordinate imports started outside the dashboard.
+Batch migrations use the same queue; a batch is durable membership and
 identity metadata rather than a second execution mechanism.
 
 On startup, queued requests using server-owned environment PAT or GitHub App
@@ -181,7 +216,7 @@ than one process.
 
 | Boundary | Current behavior |
 |---|---|
-| Source and target support | GitHub can target GHEC. GitLab and Bitbucket Server can target GHEC or a configured GHES profile. GitHub-to-GHES is not supported. |
+| Source and target support | All three providers can target GHEC. Only Bitbucket Server can target a configured GHES profile. |
 | Migration capacity | At most ten migrations execute app-wide. Additional requests remain durable in FIFO order. |
 | Batch size | A batch accepts at most 500 repository mappings and uses the same queue as single migrations. |
 | Profile capacity | One profile per source provider can run at a time. |
@@ -192,8 +227,9 @@ than one process.
 Provider-specific constraints also apply:
 
 - GitHub sources can target GHEC only.
-- GitLab exports are bounded by archive-size and download-timeout settings;
-	GitLab-to-GHES requires the configured external exporter.
+- GitLab-to-GHEC exports are bounded by archive-size and download-timeout settings.
+  GitLab-to-GHES execution is paused. Recovery fails unstarted queued jobs and
+  retains jobs with uncertain remote outcomes for operator review without resuming them.
 - Bitbucket Server and Data Center discovery enforces the supported server
 	version. Native GHEC exports require pinned SFTP access to shared home, while
 	GHES migrations require the configured external exporter.
@@ -259,6 +295,8 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `events` | Append-only migration event log | Replayed for SSE catch-up |
 | `ghes_import_jobs` | Durable exporter-to-GHES import state | Stores exporter identity, archive path and hash, ghe-migrator GUID, source lock state, phase, and failure reason |
 | `migration_batch_items` | Durable batch membership | Enforces unique source and target identities per batch |
+| `migration_identity_mappings` | Approved source-to-target identity decisions | Scoped by target API, organization, source kind, and source identity |
+| `profile_queue` | Namespaces awaiting a profile run | One pending entry per provider and namespace; dispatch failures are retained until retried |
 | `profile_runs` | Profile lifecycle and rollups | Stores provider, namespace, counters, API calls, timestamps, and terminal failure |
 | `profile_repos` | Repository analysis within a profile | Idempotent per run and repository; queried in filtered pages |
 | `profile_source_inventories` | Provider-neutral inventory summary | One normalized summary per profile run |
@@ -302,6 +340,8 @@ root.
 Every production module under `src/lib/server/` must belong to one of these
 classified layers. Browser-capable modules cannot import server modules. The
 `boundaries` gate enforces these constraints for absolute and relative imports.
+It also rejects cross-provider imports between source clients, exporters, and
+executors, while allowing shared target protocols and composition modules.
 
 Client-facing provider, migration, and profile contracts live outside
 `src/lib/server` so Svelte components can consume them without pulling server

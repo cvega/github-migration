@@ -18,11 +18,15 @@
 
 	let {
 		providerName,
+		bitbucket = false,
+		profileId,
 		running,
 		progress,
 		summary,
 	}: {
 		providerName: string;
+		bitbucket?: boolean;
+		profileId?: string;
 		running: boolean;
 		progress: { discovered: number; page: number } | null;
 		summary: ProfileInventorySummary | null;
@@ -49,11 +53,13 @@
 		summary
 			? [
 					{ label: "Repository data", value: summary.storage.repositorySizeBytes, icon: "repo" },
+					...(bitbucket ? [] : [
 					{ label: "Total storage", value: summary.storage.storageSizeBytes, icon: "database" },
 					{ label: "LFS objects", value: summary.storage.lfsObjectsSizeBytes, icon: "file-binary" },
 					{ label: "Packages", value: summary.storage.packagesSizeBytes, icon: "package" },
 					{ label: "Wikis", value: summary.storage.wikiSizeBytes, icon: "book" },
-					{ label: "Uploads", value: summary.storage.uploadsSizeBytes, icon: "upload" },
+					] as const),
+					{ label: bitbucket ? "Attachments" : "Uploads", value: summary.storage.uploadsSizeBytes, icon: "upload" },
 				] satisfies Array<{ label: string; value: NumericObservation; icon: UsedIconName }>
 			: [],
 	);
@@ -88,12 +94,12 @@
 	{/if}
 
 	{#if summary}
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+		<div class="grid grid-cols-2 gap-3 {bitbucket ? 'sm:grid-cols-4' : 'sm:grid-cols-3 lg:grid-cols-5'}">
 			<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 				<div class="text-2xl font-semibold text-gray-50">{formatObservation(summary.projectCount)}</div>
-				<div class="mt-1 text-xs text-gray-400">Projects discovered</div>
+				<div class="mt-1 text-xs text-gray-400">{bitbucket ? "Repositories discovered" : "Projects discovered"}</div>
 			</div>
-			{#each VISIBILITIES as visibility}
+			{#each VISIBILITIES.filter((visibility) => !bitbucket || visibility !== "internal") as visibility}
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 					<div class="text-2xl font-semibold text-gray-50">{summary.visibility[visibility].toLocaleString()}</div>
 					<div class="mt-1 text-xs capitalize text-gray-400">{visibility}</div>
@@ -108,7 +114,7 @@
 		{#if profileMetricTiles.length > 0}
 			<section>
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="repo" size={16} />Repository contents</h2>
-				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? 'lg:grid-cols-5' : 'lg:grid-cols-6'}">
 					{#each profileMetricTiles as tile (tile.label)}
 						<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 							<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value)}</div>
@@ -121,7 +127,13 @@
 
 		<section>
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="database" size={16} />Source storage</h2>
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? '' : 'lg:grid-cols-6'}">
+			{#if bitbucket && summary.projectsCaptured === 0}
+					<p class="col-span-full text-sm text-gray-400">No captured repositories to size.</p>
+			{:else if bitbucket && unavailableStorageMetrics === storageTiles.length}
+					{@const repo = summary.storage.repositorySizeBytes}
+					<p class="col-span-full text-sm text-gray-400">{repo.kind === "unavailable" && repo.reason === "forbidden" ? "The Bitbucket connection cannot read repository size details." : "This profile has no Bitbucket size details. Run a new profile to request them."}</p>
+			{:else}
 				{#each storageTiles as tile (tile.label)}
 					<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 						<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value, formatBytes)}</div>
@@ -129,16 +141,30 @@
 						{#if tile.value.kind === "unavailable"}<div class="mt-1 text-xs text-gray-500">{tile.value.reason}</div>{/if}
 					</div>
 				{/each}
+			{/if}
+			{#if bitbucket && summary.lfsTracking && summary.projectsCaptured}
+				{@const tracking = summary.lfsTracking}
+				<div class="col-span-2 rounded-lg border border-gray-700 bg-gray-900 p-4 sm:col-span-1">
+					<div class="flex items-center justify-between gap-2">
+						<div class="text-lg font-semibold text-gray-50">{tracking.checked ? `${tracking.found} of ${tracking.checked}` : "Not verified"}</div>
+						{#if profileId}<a href={`/api/profile/${encodeURIComponent(profileId)}?view=lfs`} download aria-label="Export LFS tracking report (JSON)" title="Export LFS tracking report (JSON)" class="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"><Octicon name="download" size={12} />Export</a>{/if}
+					</div>
+					<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name="file-binary" size={12} class="text-gray-500" />Repos with LFS tracking rules</div>
+					{#if tracking.checked && tracking.checked < summary.projectsCaptured}<div class="mt-1 text-xs text-gray-400">{summary.projectsCaptured - tracking.checked} not verified</div>{/if}
+				</div>
+			{/if}
 			</div>
 		</section>
 
-		<section>
-			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="alert" size={16} />Migration risks and coverage</h2>
-			<div class="grid gap-px overflow-hidden rounded-lg border border-gray-700 bg-gray-700 sm:grid-cols-3">
-				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.archivedProjects.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Archived projects to review</div></div>
-				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.projectsWithoutDefaultBranch.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Without a default branch</div></div>
-				<div class="bg-gray-900 p-4"><div class="text-xl font-semibold {unavailableStorageMetrics > 0 ? 'text-amber-400' : 'text-green-400'}">{unavailableStorageMetrics}</div><div class="mt-1 text-xs text-gray-400">Unavailable storage metrics</div></div>
-			</div>
-		</section>
+		{#if !bitbucket}
+			<section>
+				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="alert" size={16} />Migration risks and coverage</h2>
+				<div class="grid gap-px overflow-hidden rounded-lg border border-gray-700 bg-gray-700 sm:grid-cols-3">
+					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.archivedProjects.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Archived projects to review</div></div>
+					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.projectsWithoutDefaultBranch.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Without a default branch</div></div>
+					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold {unavailableStorageMetrics > 0 ? 'text-amber-400' : 'text-green-400'}">{unavailableStorageMetrics}</div><div class="mt-1 text-xs text-gray-400">Unavailable storage metrics</div></div>
+				</div>
+			</section>
+		{/if}
 	{/if}
 </section>

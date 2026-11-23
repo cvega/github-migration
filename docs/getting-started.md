@@ -5,9 +5,9 @@
 - Docker Engine with Compose for deployment, or Bun 1.4.4 for development.
 - Source-provider credentials with access to the repositories being profiled or migrated.
 - GitHub target credentials with organization and migration permissions.
-- An absolute `ARCHIVE_DIR` for GitLab-to-GHEC and all GitLab/Bitbucket-to-GHES paths.
+- An absolute `ARCHIVE_DIR` for GitLab-to-GHEC and Bitbucket-to-GHES.
 - Pinned SFTP credentials plus an absolute `ARCHIVE_DIR` for Bitbucket-to-GHEC.
-- The matching exporter image for GitLab/Bitbucket-to-GHES paths.
+- The Bitbucket exporter image for Bitbucket-to-GHES.
 
 ## Start The Dashboard
 
@@ -31,10 +31,11 @@ to that exact browser-visible origin before starting the containers.
 |---|---|---|
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
-| Migrate to GHES | GitLab or Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
-| Attribute mannequins | Migrated source identities in a GHEC organization | Configure a GHEC target organization and credential, open **Mannequins**, map each source identity to a visible target member, and send the attribution invitation. |
+| Migrate to GHES | Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
+| Map identities | GHES users and teams, or mannequin attribution | Open **Mappings**. Save an exact match manually or by CSV. GHES resolves archive conflicts before import; mannequin attribution happens after import. |
 
-GitHub-to-GHES migration is not supported. See the generated
+GitHub-to-GHES migration is not supported. GitLab-to-GHES execution is paused;
+GitLab profiling and migration to GHEC remain available. See the generated
 [support matrix](architecture.md#migration-pipeline) for the authoritative
 source and target combinations.
 
@@ -62,19 +63,113 @@ repositories with warnings or blockers. Start that analysis from the completed
 profile page and wait for the analyzer service to finish, or retry failed
 repository jobs there. Clear repositories remain eligible without analysis.
 
+### Discover namespaces for profiling
+
+In **Profile**, **Recent profiles** shows 10 runs per page. Search by namespace
+or provider across the full history, or use the numbered pager. Expand a row
+to review its observations or open the full report. Choose **New profile**, pick
+the source, select the single-namespace scope, then **Discover namespaces**. Filter the loaded
+results, load another page, or refresh to pick up newly created projects.
+Selecting a row fills the namespace; **Start profile** collects its repository data.
+Counts here describe loaded entries, not the size of the enterprise.
+
+Bitbucket Data Center profiles aggregate commits on the default branch, incoming
+pull requests, branches, tags and forks from separate repository APIs. The profile
+shows private and public repository counts; Bitbucket has no internal visibility
+category. Archived status is counted separately. These
+counts describe repository contents, not programming languages. Unlike GitHub's
+repository languages API, Bitbucket Data Center has no documented equivalent
+that returns bytes per language; that breakdown requires analyzing source files.
+
+Bitbucket profiles also request **Retrieve size details** from each repository's
+settings (one additional read per repository). Source storage shows the reported
+repository and attachment bytes, not a clone estimate or total disk usage.
+This settings endpoint varies by version and access; missing measurements are
+not counted as zero. Partial sums are labeled “At least.” Older snapshots are
+not backfilled.
+
+Bitbucket repository rows identify a fork's immediate upstream when Bitbucket
+reports one. New profiles also read up to 100 lines of the default branch's
+root `.gitattributes` through the browse API, looking for explicit `filter=lfs`
+rules. **Source storage → Repos with LFS tracking rules** shows how many checked
+repositories have a rule. **Export** downloads each captured repository's name,
+default branch, and tracking result as JSON. Unverified repositories are excluded from
+the denominator. This is not an object count or byte total.
+A missing root file is not proof that a repository has no LFS objects.
+Unreadable or incomplete checks without a match are shown as not verified.
+No clone, history scan, file listing, or LFS payload download is required.
+
+Discovery uses the configured source host and credential: Bitbucket projects,
+GitLab groups (including subgroup paths), and GitHub user organizations or the
+organization owning the configured App installation's visible repositories.
+The existing namespace restrictions apply by default. To authorize all dashboard
+operators to profile what a particular source credential can read, set
+`PROFILE_CONNECTION_SCOPE` to one or more provider IDs (`bitbucket-server`,
+`gitlab`, `github`). Use a least-privilege source credential. This opt-in affects
+discovery and profile submission, not migration authorization.
+
+Select **Entire enterprise** in **New profile** and click **Start profile** to
+discover all eligible namespaces, not just the
+loaded page. On Bitbucket this means visible projects on the configured
+instance. For GitHub enter the enterprise slug; the source credential must be
+able to list its organizations and read the repositories you want to profile.
+For GitLab.com specify the enterprise group; on self-managed GitLab leave it
+blank to cover visible groups. A parent group profile includes its subgroups.
+The server queues work only after discovery finishes, and processes namespaces
+one at a time per provider. You can close the page once queued. Pending work
+survives a restart; interrupted runs are reported as failed in **Profile runs**.
+Running and queued namespaces are not added twice. Completed profiles are
+refreshed. Coverage is limited to the source credential and profile policy;
+an empty result does not certify an empty enterprise.
+
 ## Start A Migration
 
 1. Choose a supported source and target route.
 2. Select single or batch mode and enter repository mappings.
 3. Confirm source access, destination, visibility, and execution options.
 4. Resolve readiness errors and review the final mapping.
-5. Type the production confirmation when required, then launch.
+5. Launch the migration. For GitHub sources, **Keep source unlocked** skips both
+   locking and archiving. **Lock and archive source** asks for confirmation:
+   each source is locked during migration and archived after its migration succeeds.
+   Both choices write repository data to the destination, for single and batch migrations.
 
 The migration appears immediately. Work beyond capacity remains queued and
 starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
 
+The event log grows with its rows and scrolls once it reaches its maximum
+height. Use the download icon beside the event count to save the full log for one
+migration as newline-delimited JSON, oldest first. A download during a run
+includes events recorded up to the start of the download. Cancellation requests
+are distinct from confirmed cancellations: if the remote outcome is uncertain,
+the log records that review is required. Review and restart appear in the same
+log before the next attempt's steps.
+
+After success, **Target repository contents** lists one resource per row with
+its exact destination total, not
+the number of items transferred. Commit counts cover the default branch's
+history. If counts are unavailable, **Fetch counts** shows the current
+repository at the target path. It does not backdate those counts or update
+Statistics: the repository could have changed or been recreated since import.
+
+All migration directions use the same six-stage pipeline. The event log shows
+provider-specific operations; they do not add stages to the pipeline.
+For new GHES archive imports, export and archive import events advance the rail
+as they happen. The downloaded step's `payload.executorPhase` identifies the
+specific operation (for example, `mapping` or `auditing`), even when there is
+no corresponding shared `phase`. Once the archive is ready, the rail marks
+Exporting complete and shows the current transfer, preparation, or mapping
+operation above the steps. Git Import starts when GHES starts the import,
+not when the archive is uploaded. GHES imports Git and metadata together.
+“Queue” represents the queued phase. A completed rail is a summary, not
+evidence that the run spent time in a queue. “Checking for GHES import
+errors” announces the post-import audit, not a finding.
+
 ## Export Statistics
+
+**Top failure reasons** groups historical failures within the selected filters.
+Follow the dated run link for the full diagnostic; a reason can remain on the
+report after a later migration succeeds.
 
 Open **Statistics**, select the report filters, and choose the printer icon
 (**Print or save PDF**).
@@ -91,13 +186,46 @@ repository totals, not a count of items transferred. Coverage is shown beside
 the totals. Commit counts represent default-branch history; older counts may
 contain zeros from unavailable API data.
 
-## Attribute Mannequins
+## Map Identities
 
-Choose **Mannequins**, select a configured GHEC organization, and map each
-unclaimed source identity to a visible organization member. The dashboard sends
-the invitation through GitHub and records the operator action, but GitHub owns
-acceptance. Invitation status is not persisted or polled by the dashboard, so
-review pending or rejected invitations in GitHub before sending another.
+Choose **Mappings**. The **Users** and **Teams** lists show approved decisions across
+configured organizations, not a feed of migration conflicts. Choose **Add** or **Import CSV**;
+the organization and source type in the form scope that decision across repos.
+For a manual Bitbucket user mapping, enter the **Bitbucket username**. Saved rows
+show that source username beside the target GitHub login; no source URL is needed.
+Bitbucket → GHES applies approved identities present in the prepared archive
+with the organization and repository mappings, then checks for remaining conflicts.
+Different Bitbucket groups in the same project require separate approvals when they conflict.
+Each repository migration processes only its own archive, including when it belongs to a batch.
+Bitbucket → GHES preserves Git tags in the mirrored repository but excludes release
+metadata, so tags do not create GitHub Releases.
+For Bitbucket → GHES the worker reads that archive's identity records locally instead
+of launching a GHES mapping audit. If it cannot read the manifests within five
+seconds it falls back to the remote audit. GHES applies the mappings to its prepared
+import, not to the Bitbucket repository or the export archive, and checks
+for unresolved conflicts before import.
+Use the pencil on a saved user or team mapping to change its GitHub target without
+changing the source identity. The trash button removes the saved mapping.
+For a manual Bitbucket team mapping, enter the **Bitbucket project key** and
+**Bitbucket group name**. Project-scoped rows show the Bitbucket project key
+in the source column and only the GitHub team slug in the destination column. The importer still
+matches the exact archive identity. User CSV header: `source_identity,target_username`. Team CSV header:
+`source_identity,target_team_slug`. Keep the exact source URL, including a Bitbucket
+group's project fragment. Mannequin mappings use an exact mannequin login or node ID.
+GHES prepares the archive, queries conflicts, applies matching approved users and teams
+and rechecks before import. A team merge requires a saved decision. If a decision is
+missing, the run stops before import: save the indicated mapping, review the run status,
+then restart. Team mappings are not GHEC mannequin invitations.
+Mappings can be saved before the target user joins or the mannequin exists.
+
+Use **Check mappings** to check target users, organization membership, and
+mannequin matches. GHES imports apply matching user URLs after checking that
+the target account exists. For mannequin mappings, **Send matched invitations**
+sends invitations only for unique matches with active organization members.
+Ambiguous, missing, and pending matches are skipped and reported. GitHub owns
+acceptance; run the check again to see claimants. The dashboard does not detect
+rejections, so verify uncertain or rejected invitations in GitHub before
+taking further action.
 
 ## Stop The Dashboard
 

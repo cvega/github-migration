@@ -6,6 +6,7 @@ import {
 import { getBitbucketMigrationSourceConfig } from "$lib/server/migrate/ports/source-runtime";
 import { BitbucketExporterWorker } from "../exporters/bitbucket";
 import type { ExporterWorker } from "../exporters/worker";
+import { bitbucketArchiveRecords } from "../ghes/archive-records";
 import {
   defaultGhesWait,
   type ExporterGhesSourceAdapter,
@@ -54,6 +55,7 @@ function adapter(): ExporterGhesSourceAdapter {
       dependencies.createWorker(config as ReturnType<typeof getBitbucketGhesTargetExecutionConfig>),
     createSshClient: dependencies.createSshClient,
     sourceWasLocked: async () => true,
+    localMappingRecords: bitbucketArchiveRecords,
     wait: dependencies.wait,
   };
 }

@@ -3,7 +3,11 @@ import type { Migration } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
-import { __setGitLabToGhesDependenciesForTests, runGitLabToGhesMigration } from "./gitlab-to-ghes";
+import {
+  __setGitLabToGhesDependenciesForTests,
+  resumeGitLabToGhesMigration,
+  runGitLabToGhesMigration,
+} from "./gitlab-to-ghes";
 
 let restore = () => {};
 
@@ -76,4 +80,18 @@ test("fails before export when the configured GitLab source changed", async () =
   expect(result.state).toBe("failed");
   expect(result.failureReason).toContain("Configured GitLab source URL changed");
   expect(workerCreated).toBe(false);
+});
+
+test("the retained recovery adapter cannot resume another provider's GHES job", () => {
+  const record: Migration = { ...migration(), sourceProvider: "bitbucket-server" };
+  restore = __setGitLabToGhesDependenciesForTests({
+    getSourceClient: () => ({
+      apiUrl: "https://gitlab.example/api/v4",
+      isProjectArchived: async () => false,
+      unarchiveProject: async () => {},
+    }),
+  });
+  expect(() => resumeGitLabToGhesMigration(record, () => {})).toThrow(
+    "Only GitLab-to-GHES migrations can use this recovery path",
+  );
 });

@@ -1,6 +1,11 @@
-import { parseSourceApiUrl } from "$lib/source/url";
+import { assertPersistableSourceApiUrl, parseSourceApiUrl } from "$lib/source/url";
+import type { SourceProvider } from "$lib/source-provider";
 
 export { parseSourceApiUrl } from "$lib/source/url";
+
+export function parseConfiguredSourceInventory(value: unknown) {
+  return parseInventory(value, assertMigrationSourceApiUrl);
+}
 
 export function normalizeGitLabApiUrl(
   value: string,
@@ -30,3 +35,23 @@ export function normalizeBitbucketServerApiUrl(
   url.pathname = path.endsWith("/rest/api/1.0") ? path : `${path}/rest/api/1.0`;
   return url.toString().replace(/\/$/, "");
 }
+
+export function assertMigrationSourceApiUrl(value: string, provider?: SourceProvider): void {
+  const url = parseSourceApiUrl(value);
+  if (
+    url.protocol === "http:" &&
+    provider === "bitbucket-server" &&
+    process.env.BITBUCKET_SERVER_ALLOW_INSECURE_HTTP === "true"
+  ) {
+    const configuredUrl = normalizeBitbucketServerApiUrl(process.env.BITBUCKET_SERVER_URL ?? "", {
+      allowInsecureHttp: true,
+    });
+    if (value !== configuredUrl) {
+      throw new TypeError("Source API URL must match the configured Bitbucket Server URL");
+    }
+    return;
+  }
+  assertPersistableSourceApiUrl(value);
+}
+
+import { parseSourceNamespaceInventory as parseInventory } from "$lib/source/inventory";

@@ -81,6 +81,7 @@ const sourceProjectProviderDetailsSchema = z.discriminatedUnion("provider", [
       description: z.string().max(10_000).nullable().optional(),
       scmId: z.string().min(1).max(255).optional(),
       forkable: z.boolean().optional(),
+      rootLfsRules: z.enum(["found", "none", "unknown"]).optional(),
       forkedFromPath: z.string().min(1).max(2_048).optional(),
       state: z.string().min(1).max(255).optional(),
     })
@@ -119,15 +120,6 @@ const sourceNamespaceInventorySchema = z
   .strict()
   .superRefine((inventory, context) => {
     const adapter = getSourceProviderAdapter(inventory.provider);
-    try {
-      assertPersistableSourceApiUrl(inventory.sourceApiUrl);
-    } catch {
-      context.addIssue({
-        code: "custom",
-        path: ["sourceApiUrl"],
-        message: "must be an HTTP(S) URL without credentials, query, or fragment",
-      });
-    }
     if (!adapter.isValidNamespace(inventory.namespace)) {
       context.addIssue({
         code: "custom",
@@ -205,8 +197,13 @@ const sourceNamespaceInventorySchema = z
     }
   });
 
-export function parseSourceNamespaceInventory(value: unknown): SourceNamespaceInventory {
-  return sourceNamespaceInventorySchema.parse(value) as SourceNamespaceInventory;
+export function parseSourceNamespaceInventory(
+  value: unknown,
+  validateUrl: (url: string, provider: SourceProvider) => void = assertPersistableSourceApiUrl,
+): SourceNamespaceInventory {
+  const parsed = sourceNamespaceInventorySchema.parse(value);
+  validateUrl(parsed.sourceApiUrl, parsed.provider);
+  return parsed;
 }
 
 export function parseSourceProjectInventory(value: unknown): SourceProjectInventory {

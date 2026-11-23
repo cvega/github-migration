@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
@@ -7,60 +8,21 @@ import {
   listProfileRunsWithInventoryCounts,
   ProfileRunCapacityError,
 } from "$lib/server/profile/database/runs";
-import {
-  runBitbucketInventoryProfile,
-  runGitLabInventoryProfile,
-} from "$lib/server/profile/inventory-runner";
 import { validateStartProfileRequest } from "$lib/server/profile/request";
 import {
   BitbucketProfileCapacityError,
   GitLabProfileCapacityError,
-  startBitbucketServerProfile,
-  startGitLabProfile,
-  startOrgProfile,
 } from "$lib/server/profile/service";
-import { BitbucketServerApiError } from "$lib/server/source/bitbucket/client";
-import {
-  BitbucketServerSourceConfigurationError,
-  getBitbucketServerSourceClient,
-} from "$lib/server/source/bitbucket/config";
-import { discoverBitbucketInventory } from "$lib/server/source/bitbucket/inventory";
-import { collectBitbucketProfileEnrichment } from "$lib/server/source/bitbucket/profile";
-import { GitLabApiError } from "$lib/server/source/gitlab/client";
-import {
-  GitLabSourceConfigurationError,
-  getGitLabSourceClient,
-} from "$lib/server/source/gitlab/config";
-import { discoverGitLabInventory } from "$lib/server/source/gitlab/inventory";
-import { collectGitLabProfileEnrichment } from "$lib/server/source/gitlab/profile";
+import { BitbucketServerSourceConfigurationError } from "$lib/server/source/bitbucket/config";
+import { GitLabSourceConfigurationError } from "$lib/server/source/gitlab/config";
 import type { RequestHandler } from "./$types";
 
 const defaults = {
   countProfileRuns,
   listProfileRuns: listProfileRunsWithInventoryCounts,
-  startOrgProfile,
-  startGitLabProfile: (namespace: string) =>
-    startGitLabProfile(namespace, {
-      buildSourceClient: getGitLabSourceClient,
-      run: (client, input, onProgress) =>
-        runGitLabInventoryProfile(client, input, onProgress, {
-          discover: discoverGitLabInventory,
-          enrich: collectGitLabProfileEnrichment,
-          isApiError: (error) => error instanceof GitLabApiError,
-        }),
-      newId: () => Bun.randomUUIDv7(),
-    }),
-  startBitbucketServerProfile: (namespace: string) =>
-    startBitbucketServerProfile(namespace, {
-      buildSourceClient: getBitbucketServerSourceClient,
-      run: (client, input, onProgress) =>
-        runBitbucketInventoryProfile(client, input, onProgress, {
-          discover: discoverBitbucketInventory,
-          enrich: collectBitbucketProfileEnrichment,
-          isApiError: (error) => error instanceof BitbucketServerApiError,
-        }),
-      newId: () => Bun.randomUUIDv7(),
-    }),
+  startOrgProfile: profileStarters.github,
+  startGitLabProfile: profileStarters.gitlab,
+  startBitbucketServerProfile: profileStarters["bitbucket-server"],
 };
 let dependencies = { ...defaults };
 export function __setProfileRouteDependenciesForTests(

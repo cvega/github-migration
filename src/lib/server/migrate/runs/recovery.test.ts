@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getMigration, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import { activeMigrationRuns } from "./active";
@@ -42,6 +42,39 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
+  test("fails unstarted paused work but preserves uncertain GHES jobs for review", () => {
+    for (const state of ["queued", "running", "cancelling"] as const) {
+      insertMigration({
+        ...migration(state, state),
+        sourceProvider: "gitlab",
+        targetProfileId: "enterprise",
+      });
+    }
+    getDb()
+      .prepare(`INSERT INTO ghes_import_jobs (id, migration_id, phase, created_at, updated_at)
+      VALUES ('job', 'running', 'exporting', '', '')`)
+      .run();
+    recoverMigrationRuns({
+      launchRecoveredPipeline: () => {
+        throw new Error("must not resume");
+      },
+      drainQueue: () => {},
+    });
+    expect(activeMigrationRuns.takeQueued("queued")).toBeUndefined();
+    expect(getMigration("queued")).toMatchObject({
+      state: "failed",
+      failureReason: expect.stringContaining("paused"),
+    });
+    for (const id of ["running", "cancelling"]) {
+      expect(getMigration(id)).toMatchObject({
+        state: "reconciliation_required",
+        failureReason: expect.stringContaining("paused"),
+      });
+    }
+    expect(getDb().query("SELECT phase FROM ghes_import_jobs WHERE id = 'job'").get()).toEqual({
+      phase: "exporting",
+    });
+  });
   test("resumes durable work and rebuilds queued env-auth requests", () => {
     insertMigration(migration("active", "running"));
     insertMigration(migration("queued", "queued"));

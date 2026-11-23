@@ -7,6 +7,7 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 
 	await expect(page.getByText("Review required", { exact: true })).toBeVisible();
 	const reviewButton = page.getByRole("button", { name: "Review remote status" });
+	await expect(reviewButton).toHaveCSS("height", "28px");
 	await expect(reviewButton).toHaveAttribute("aria-expanded", "false");
 	await reviewButton.click();
 	await expect(reviewButton).toHaveAttribute("aria-expanded", "true");

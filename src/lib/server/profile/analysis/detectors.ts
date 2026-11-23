@@ -1,6 +1,7 @@
 import type { RepoSignals } from "../types";
 
-type Detector = (signals: RepoSignals) => string | null;
+// A null finding is clear; undefined means its evidence could not be read.
+type Detector = (signals: RepoSignals) => string | null | undefined;
 
 function count(value: number, noun: string): string {
   return `${value} ${noun}${value === 1 ? "" : "s"}`;
@@ -33,21 +34,31 @@ export const DETECTORS: Readonly<Record<string, Detector>> = {
       : null,
   rulesets: (signals) => (signals.rulesetCount > 0 ? count(signals.rulesetCount, "ruleset") : null),
   "tag-protection": (signals) =>
-    signals.tagProtectionCount > 0
-      ? `${count(signals.tagProtectionCount, "tag protection rule")} (recreate as rulesets)`
-      : null,
+    signals.tagProtectionCount === null
+      ? undefined
+      : signals.tagProtectionCount > 0
+        ? `${count(signals.tagProtectionCount, "tag protection rule")} (recreate as rulesets)`
+        : null,
   webhooks: (signals) =>
-    signals.webhooksCount > 0 ? count(signals.webhooksCount, "webhook") : null,
+    signals.webhooksCount === null
+      ? undefined
+      : signals.webhooksCount > 0
+        ? count(signals.webhooksCount, "webhook")
+        : null,
   "repo-collaborators": (signals) =>
-    signals.collaboratorsCount > 0
-      ? `${count(signals.collaboratorsCount, "direct collaborator")} (access not migrated)`
-      : null,
+    signals.collaboratorsCount === null
+      ? undefined
+      : signals.collaboratorsCount > 0
+        ? `${count(signals.collaboratorsCount, "direct collaborator")} (access not migrated)`
+        : null,
   pages: (signals) =>
     signals.hasPages ? "GitHub Pages enabled (reconfigure on the target)" : null,
   "code-scanning-history": (signals) =>
-    signals.hasCodeScanningAlerts
-      ? "code scanning alerts present (history & states not migrated)"
-      : null,
+    signals.hasCodeScanningAlerts === null
+      ? undefined
+      : signals.hasCodeScanningAlerts
+        ? "code scanning alerts present (history & states not migrated)"
+        : null,
   "stars-watchers": (signals) =>
     signals.stargazerCount > 0 || signals.watcherCount > 0
       ? `${count(signals.stargazerCount, "star")}, ${count(signals.watcherCount, "watcher")}`

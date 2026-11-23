@@ -109,6 +109,7 @@ export function analyzeRepo(signals: RepoSignals): RepoProfile {
     const detector = DETECTORS[entry.id];
     if (!detector) return { entry, status: "indeterminate" };
     const evidence = detector(signals);
+    if (evidence === undefined) return { entry, status: "indeterminate" };
     return evidence != null
       ? { entry, status: "applies" as const, evidence }
       : { entry, status: "clear" as const };

@@ -1,6 +1,7 @@
 import { parseProfileNumericMetric } from "$lib/source/observations";
 import { parseBitbucketProfileEnrichment } from "$lib/source/profile";
 import type {
+  BitbucketActivity,
   BitbucketProfileEnrichment,
   BitbucketProjectMetrics,
   ProfileNumericMetric,
@@ -25,6 +26,14 @@ interface BitbucketProjectProfile {
   sourceId: string;
   path: string;
   metrics: BitbucketProjectMetrics;
+  activity: BitbucketActivity;
+}
+
+function timestamp(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return null;
+  const date = new Date(value);
+  const year = date.getUTCFullYear();
+  return year >= 0 && year <= 9999 ? date.toISOString() : null;
 }
 
 function repositoryPath(project: Pick<SourceProjectInventory, "path">): string {
@@ -67,6 +76,7 @@ async function collectEnumeratedMetric(
   scope: string,
   query: Record<string, string | number | boolean>,
   options: { signal?: AbortSignal; nowMs?: number },
+  observePage?: (values: unknown[]) => void,
 ): Promise<ProfileNumericMetric> {
   try {
     let value = 0;
@@ -76,6 +86,7 @@ async function collectEnumeratedMetric(
       { signal: options.signal },
     )) {
       value += page.length;
+      observePage?.(page);
     }
     return metric(
       endpointFamily,
@@ -93,6 +104,7 @@ export async function collectBitbucketCommitMetric(
   client: BitbucketServerClient,
   project: Pick<SourceProjectInventory, "path" | "defaultBranch">,
   options: { signal?: AbortSignal; nowMs?: number } = {},
+  observeTip?: (committedAt: string | null) => void,
 ): Promise<ProfileNumericMetric> {
   const nowMs = options.nowMs ?? Date.now();
   if (!project.defaultBranch) {
@@ -105,9 +117,17 @@ export async function collectBitbucketCommitMetric(
   try {
     const response = await client.get<unknown>(
       `${repositoryPath(project)}/commits`,
-      { until: project.defaultBranch, withCounts: true, limit: 1 },
+      { until: project.defaultBranch, withCounts: true, limit: 100 },
       { signal: options.signal },
     );
+    if (
+      response &&
+      typeof response === "object" &&
+      "values" in response &&
+      Array.isArray(response.values)
+    ) {
+      observeTip?.(timestamp(response.values[0]?.committerTimestamp));
+    }
     const totalCount =
       typeof response === "object" &&
       response !== null &&
@@ -117,6 +137,26 @@ export async function collectBitbucketCommitMetric(
       response.totalCount >= 0
         ? response.totalCount
         : null;
+    // Bitbucket may count only through the next item when more pages exist.
+    if (
+      response &&
+      typeof response === "object" &&
+      "isLastPage" in response &&
+      response.isLastPage === false &&
+      "values" in response &&
+      Array.isArray(response.values)
+    ) {
+      return metric(
+        "repository-commits",
+        {
+          kind: "at-least",
+          value: response.values.length,
+          reason: "page-cap",
+          scope: BITBUCKET_COMMITS_SCOPE,
+        },
+        nowMs,
+      );
+    }
     return metric(
       "repository-commits",
       totalCount === null
@@ -140,8 +180,18 @@ async function collectBitbucketPullRequestMetric(
   client: BitbucketServerClient,
   project: Pick<SourceProjectInventory, "path">,
   options: { signal?: AbortSignal; nowMs?: number } = {},
-): Promise<ProfileNumericMetric> {
-  return collectEnumeratedMetric(
+) {
+  const review: NonNullable<BitbucketActivity["review"]> = {
+    open: 0,
+    merged: 0,
+    declined: 0,
+    oldestOpenCreatedAt: null,
+    latestUpdatedAt: null,
+  };
+  let unknownState = false,
+    missingCreated = false,
+    missingUpdated = false;
+  const metric = await collectEnumeratedMetric(
     client,
     project,
     "pull-requests",
@@ -149,7 +199,32 @@ async function collectBitbucketPullRequestMetric(
     BITBUCKET_PULL_REQUESTS_SCOPE,
     { direction: "INCOMING", state: "ALL" },
     options,
+    (values) => {
+      for (const pr of values) {
+        if (!pr || typeof pr !== "object") {
+          unknownState = true;
+          continue;
+        }
+        const state = "state" in pr ? pr.state : null;
+        if (state === "OPEN") {
+          review.open++;
+          const created = timestamp("createdDate" in pr ? pr.createdDate : null);
+          if (!created) missingCreated = true;
+          else if (!review.oldestOpenCreatedAt || created < review.oldestOpenCreatedAt)
+            review.oldestOpenCreatedAt = created;
+        } else if (state === "MERGED") review.merged++;
+        else if (state === "DECLINED") review.declined++;
+        else unknownState = true;
+        const updated = timestamp("updatedDate" in pr ? pr.updatedDate : null);
+        if (!updated) missingUpdated = true;
+        else if (!review.latestUpdatedAt || updated > review.latestUpdatedAt)
+          review.latestUpdatedAt = updated;
+      }
+    },
   );
+  if (missingCreated) review.oldestOpenCreatedAt = null;
+  if (missingUpdated) review.latestUpdatedAt = null;
+  return { metric, review: metric.observation.kind === "exact" && !unknownState ? review : null };
 }
 
 export async function collectBitbucketBranchMetric(
@@ -220,14 +295,27 @@ export async function collectBitbucketProfileEnrichment(
       const position = nextProject++;
       const project = inventory.projects[position];
       if (!project) return;
-      const commits = await collectBitbucketCommitMetric(client, project, options);
-      const pullRequests = await collectBitbucketPullRequestMetric(client, project, options);
+      const activity: BitbucketActivity = {
+        defaultBranch: project.defaultBranch,
+        tipCommittedAt: null,
+        review: null,
+      };
+      const commits = await collectBitbucketCommitMetric(client, project, options, (date) => {
+        activity.tipCommittedAt = date;
+      });
+      const { metric: pullRequests, review } = await collectBitbucketPullRequestMetric(
+        client,
+        project,
+        options,
+      );
+      activity.review = review;
       const branches = await collectBitbucketBranchMetric(client, project, options);
       const tags = await collectBitbucketTagMetric(client, project, options);
       const forks = await collectBitbucketForkMetric(client, project, options);
       projects[position] = {
         sourceId: project.sourceId,
         path: project.path,
+        activity,
         metrics: { commits, pullRequests, branches, tags, forks },
       };
     }
