@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { enhance } from "$app/forms";
 	import { page } from "$app/state";
+	import CompactButton from "$lib/components/CompactButton.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 	import ErrorDetail from "$lib/components/ErrorDetail.svelte";
 	import MigrationForm from "$lib/components/migrate/MigrationForm.svelte";
@@ -132,7 +133,7 @@
 					break;
 				case "auditing":
 				case "unlocking":
-					handoff = { completed: "IMPORTING_GIT", operation: event.payload.message };
+					handoff = { completed: "IMPORTING_METADATA", operation: event.payload.message };
 					break;
 			}
 		}
@@ -444,30 +445,22 @@
 					</button>
 				{/if}
 				{#if isActive}
-					<button
-						type="button"
+					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showCancelDialog}
 						onclick={() => (showCancelDialog = true)}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300 focus-visible:outline-2 focus-visible:outline-red-400"><Octicon name="stop" size={16} />Cancel migration</button
-					>
+						aria-label="Cancel migration">Cancel</CompactButton>
 				{:else if migration.state === "reconciliation_required" && restartSupported}
-					<button
-						type="button"
+					<CompactButton
 						aria-label="Review remote status"
 						aria-haspopup="dialog"
 						aria-expanded={showReconciliationDialog}
-						onclick={() => (showReconciliationDialog = true)}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="shield-check" size={16} />Review status</button
-					>
+						onclick={() => (showReconciliationDialog = true)}>Review status</CompactButton>
 				{:else if isRestartable}
-					<button
-						type="button"
+					<CompactButton
 						aria-haspopup="dialog"
 						aria-expanded={showRestartForm}
-						onclick={openRestartForm}
-						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-blue-500"><Octicon name="sync" size={16} />Restart</button
-					>
+						onclick={openRestartForm}>Restart</CompactButton>
 				{/if}
 			</div>
 		</div>

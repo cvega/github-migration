@@ -201,7 +201,8 @@ Bitbucket → GHES preserves Git tags in the mirrored repository but excludes re
 metadata, so tags do not create GitHub Releases.
 For Bitbucket → GHES the worker reads that archive's identity records locally instead
 of launching a GHES mapping audit. If it cannot read the manifests within five
-seconds it falls back to the remote audit. GHES still applies the map and checks
+seconds it falls back to the remote audit. GHES applies the mappings to its prepared
+import, not to the Bitbucket repository or the export archive, and checks
 for unresolved conflicts before import.
 Use the pencil on a saved user or team mapping to change its GitHub target without
 changing the source identity. The trash button removes the saved mapping.

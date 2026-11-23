@@ -123,6 +123,8 @@ Bitbucket Server can target an administrator-configured GHES
 profile. A one-shot exporter writes an archive into the shared archive volume.
 The dashboard verifies its hash, transfers it over host-key-pinned SSH, then
 runs the prepare, mapping, import, audit, unlock, and cleanup operations.
+Once GHES finishes importing the archive, the pipeline shows both Git and
+metadata as complete during audit and unlock. Done waits for success.
 Exporter containers never receive GHES credentials.
 
 Target remapping can reveal further conflicts, such as an existing team in

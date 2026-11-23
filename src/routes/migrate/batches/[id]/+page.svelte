@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from "svelte";
 	import { goto, invalidateAll } from "$app/navigation";
 	import { page } from "$app/state";
+	import CompactButton from "$lib/components/CompactButton.svelte";
 	import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
 	import MigrationCard from "$lib/components/migrate/MigrationCard.svelte";
 	import MigrationForm from "$lib/components/migrate/MigrationForm.svelte";
@@ -282,7 +283,7 @@
 						<button type="button" onclick={openRestartForm} class="batch-action batch-action-default"><Octicon name="sync" size={16} />{restartLabel}</button>
 					{/if}
 					{#if isActive}
-						<button type="button" onclick={openCancelDialog} class="batch-action batch-action-danger"><Octicon name="x-circle" size={16} />Cancel all</button>
+						<CompactButton aria-haspopup="dialog" aria-expanded={showCancelDialog} onclick={openCancelDialog}>Cancel all</CompactButton>
 					{/if}
 				</div>
 			{/if}
@@ -305,7 +306,7 @@
 	</section>
 
 	<div class="flex justify-center">
-		<a href="/migrate" class="inline-flex h-9 items-center gap-2 rounded-md border border-gray-700 bg-gray-900 px-3 text-sm font-medium text-gray-300 transition-colors hover:border-gray-600 hover:bg-gray-800 hover:text-gray-50"><Octicon name="chevron-left" size={16} />Back to Dashboard</a>
+		<CompactButton href="/migrate">Back to dashboard</CompactButton>
 	</div>
 </div>
 
@@ -401,21 +402,4 @@
 		background: var(--button-default-bgColor-active);
 	}
 
-	.batch-action-danger {
-		border-color: var(--button-danger-borderColor-rest);
-		background: var(--button-danger-bgColor-rest);
-		color: var(--button-danger-fgColor-rest);
-	}
-
-	.batch-action-danger:hover {
-		border-color: var(--button-danger-borderColor-hover);
-		background: var(--button-danger-bgColor-hover);
-		color: var(--button-danger-fgColor-hover);
-	}
-
-	.batch-action-danger:active {
-		border-color: var(--button-danger-borderColor-active);
-		background: var(--button-danger-bgColor-active);
-		color: var(--button-danger-fgColor-active);
-	}
 </style>

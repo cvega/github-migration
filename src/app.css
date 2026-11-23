@@ -167,6 +167,36 @@ textarea {
 	font: inherit;
 }
 
+.compact-neutral-action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 28px;
+	padding: 0 10px;
+	border: 1px solid var(--button-default-borderColor-rest);
+	border-radius: 6px;
+	background: var(--button-default-bgColor-rest);
+	color: var(--button-default-fgColor-rest);
+	box-shadow: var(--button-default-shadow-resting);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 20px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.compact-neutral-action:hover {
+	background: var(--button-default-bgColor-hover);
+	border-color: var(--button-default-borderColor-hover);
+}
+.compact-neutral-action:active {
+	background: var(--button-default-bgColor-active);
+	border-color: var(--button-default-borderColor-active);
+}
+.compact-neutral-action:focus-visible {
+	outline: 2px solid var(--focus-outlineColor);
+	outline-offset: 2px;
+}
+
 code,
 kbd,
 pre,

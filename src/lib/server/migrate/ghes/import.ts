@@ -251,7 +251,7 @@ async function execute(
             options.emit,
             migration.id,
             "mapping",
-            `Read this repository's mapping records locally in ${Math.round(performance.now() - start)} ms; skipped GHES mapping audit`,
+            `Read source identities from this repository's local archive in ${Math.round(performance.now() - start)} ms`,
           );
         } catch (error) {
           options.signal?.throwIfAborted();
@@ -335,7 +335,7 @@ async function execute(
             options.emit,
             migration.id,
             "mapping",
-            "Applying mappings to the prepared Bitbucket archive",
+            "Applying mappings on GHES for this repository's import",
           );
         await ssh.map(guid, mapping);
         appliedMappings.add(mapping);

@@ -5,6 +5,9 @@ test("batch header reports only indicators for its migration route", async ({ pa
 	for (const width of [390, 1174, 1440]) {
 		await page.setViewportSize({ width, height: 900 });
 		await page.goto("/migrate/batches/seed-e2e-batch-bitbucket");
+		const back = page.getByRole("link", { name: "Back to dashboard", exact: true });
+		await expect(back).toHaveAttribute("href", "/migrate");
+		await expect(back).toHaveCSS("height", "28px");
 		await expect(header.getByText("Bitbucket API", { exact: true })).toBeVisible();
 		await expect(header.getByText("GHES import over SSH")).toBeVisible();
 		await expect(header).not.toContainText(/API token|GitHub App|GitHub operational|active incidents?/);
@@ -239,7 +242,16 @@ test("opens active migration cancellation confirmation without changing state", 
 
 	await expect(page.getByText("Starting", { exact: true })).toBeVisible();
 	await expect(page.getByText("Waiting for events...")).toBeVisible();
-	await page.getByRole("button", { name: "Cancel migration" }).click();
+	const cancel = page.getByRole("button", { name: "Cancel migration" });
+	await expect(cancel).toHaveText("Cancel");
+	await expect(cancel).toHaveCSS("height", "28px");
+	for (const width of [390, 1146, 1440]) {
+		await page.setViewportSize({ width, height: 900 });
+		await expect(cancel).toBeInViewport();
+		await expect(cancel).toHaveCSS("font-size", "13px");
+		await expect(cancel.locator("svg")).toHaveCount(0);
+	}
+	await cancel.click();
 
 	const dialog = page.getByRole("dialog", { name: "Cancel this migration?" });
 	await expect(dialog).toBeVisible();
@@ -285,3 +297,18 @@ test("GHES preparation after archive ready is not an active export or import", a
 	await expect(rail.getByRole("listitem").filter({ hasText: "Exporting" })).toContainText("Complete");
 	await expect(rail.getByRole("listitem").filter({ hasText: "Git Import" })).toContainText("Not started");
 });
+
+for (const executorPhase of ["auditing", "unlocking"]) {
+	test(`GHES ${executorPhase} follows completed Git and metadata import`, async ({ page }) => {
+		const id = "seed-e2e-ghe-active";
+		await page.route(`**/api/migrate/${id}/events*`, route => route.fulfill({
+			contentType: "text/event-stream",
+			body: `id: 1\ndata: ${JSON.stringify({ id: 1, migrationId: id, eventType: "step", phase: null, payload: { executorPhase, message: executorPhase }, createdAt: "2026-11-21T23:57:49Z" })}\n\n`,
+		}));
+		await page.goto(`/migrate/${id}`);
+		const rail = page.getByRole("region", { name: "Migration pipeline" });
+		for (const label of ["Git Import", "Metadata"])
+			await expect(rail.getByRole("listitem").filter({ hasText: label })).toContainText("Complete");
+		await expect(rail.getByRole("listitem").filter({ hasText: "Done" })).toContainText("Not started");
+	});
+}
