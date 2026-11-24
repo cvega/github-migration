@@ -4,22 +4,6 @@ All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
 ## [0.3.0] - 2026-11-24
 
-### ♻️ Refactoring
-
-- Update setup page layout and styles for improved readability and usability
-- Enhance MigrationProgress component with new view options and improve layout consistency
-- Rename completed to finished in migration overview and update related logic
-- Enhance profile components for improved layout, styling, and functionality
-- Improve ProfileProgress and Plan components for better heading management and layout consistency
-- Enhance layout and styling consistency across profile components
-- Update profile components for improved layout and styling consistency
-- Remove Makefile and update Playwright config for CI compatibility
-- Update linter rules, enhance search form structure, and improve styleguide semantics
-- Update scripts and workflows to use new Bun command structure
-- Clean up database files and improve migration error handling
-- Remove unused font-face declarations and preload links for Mona Sans
-- Rename assessment to profile throughout the application
-
 ### ⚙️ CI/CD
 
 - **deps:** Bump actions/checkout from 6 to 7
@@ -33,7 +17,6 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 
 - Separate assigned destinations from plan actions
 - Support hashed adapter handler in postbuild patch
-- Harden production runtime and upgrade SvelteKit
 
 ### 📌 Other
 
@@ -68,14 +51,6 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - Implement identity mapping functionality with tests
 - Update dependencies and improve code formatting across multiple files
 - **seed:** Generate Profile workspace data alongside migrations
-- Add Prometheus metrics endpoint with token authentication and update documentation
-- Enhance migration statistics UI with improved iconography and styling
-- Enhance statistics filters with improved labels and responsive design
-- Add 'dashboard' target to Docker build in workflows and update documentation
-- Implement mannequin management features including listing, inviting, and pagination
-- Implement repository analysis functionality
-- Introduce credential scope validation and source runtime management
-- Add password change functionality for users
 
 ### 🧹 Chores
 
@@ -83,13 +58,6 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - **jscpd:** Drop invalid $schema, silence promo tips
 - **jscpd:** Consolidate ignore patterns in jscpd configuration
 - **dup:** Exclude all test code from jscpd, not just *.test.ts
-- Reorganize .gitignore for better clarity and structure
-- Update Bun version to 1.4.4 across documentation and scripts
-- Add .visual-data to .gitignore
-- **deps:** Update dependencies to latest versions
-- Remove obsolete plans and documentation files
-- Update dependencies in package.json
-- Update Bun version to 1.4.0 across documentation and configuration files
 ## [0.2.0] - 2026-06-18
 
 ### ♻️ Refactoring
@@ -363,6 +331,19 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 
 - Centralize database schema management and update dependencies
 - Update getRepoCounts calls to use GraphQL clients
+- Update setup page layout and styles for improved readability and usability
+- Enhance MigrationProgress component with new view options and improve layout consistency
+- Rename completed to finished in migration overview and update related logic
+- Enhance profile components for improved layout, styling, and functionality
+- Improve ProfileProgress and Plan components for better heading management and layout consistency
+- Enhance layout and styling consistency across profile components
+- Update profile components for improved layout and styling consistency
+- Remove Makefile and update Playwright config for CI compatibility
+- Update linter rules, enhance search form structure, and improve styleguide semantics
+- Update scripts and workflows to use new Bun command structure
+- Clean up database files and improve migration error handling
+- Remove unused font-face declarations and preload links for Mona Sans
+- Rename assessment to profile throughout the application
 
 ### 🐛 Bug Fixes
 
@@ -386,6 +367,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - Update type assertion for parsed data in batch and migration POST handlers
 - Define Error interface with message property in app.d.ts
 - Add missing Bun reference for seed script
+- Harden production runtime and upgrade SvelteKit
 
 ### 🚀 Features
 
@@ -412,4 +394,22 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - Add database seeding script for stress-testing and include favicon
 - Add CI workflow for linting, building, and Docker deployment
 - Implement crash recovery for in-flight migrations with new schema and logic
+- Add Prometheus metrics endpoint with token authentication and update documentation
+- Enhance migration statistics UI with improved iconography and styling
+- Enhance statistics filters with improved labels and responsive design
+- Add 'dashboard' target to Docker build in workflows and update documentation
+- Implement mannequin management features including listing, inviting, and pagination
+- Implement repository analysis functionality
+- Introduce credential scope validation and source runtime management
+- Add password change functionality for users
+
+### 🧹 Chores
+
+- Reorganize .gitignore for better clarity and structure
+- Update Bun version to 1.4.4 across documentation and scripts
+- Add .visual-data to .gitignore
+- **deps:** Update dependencies to latest versions
+- Remove obsolete plans and documentation files
+- Update dependencies in package.json
+- Update Bun version to 1.4.0 across documentation and configuration files
 
