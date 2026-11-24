@@ -182,9 +182,10 @@ PID, and temporary-storage limits should remain bounded in production.
 
 For Bitbucket-to-GHES, the default `BBS_EXPORTER_IMAGE` is the **local** tag
 `gh-migrate/bbs-exporter:1.13.0-validation`. The dashboard does not distribute
-the exporter. [Build it from the supplied release tarball](bitbucket-datacenter-to-ghes.md#build-the-exporter-from-the-release-tarball);
-no exporter repository access is required. `BBS_EXPORTER_BUILD_CONTEXT` must
-point to the **extracted directory containing the exporter's Dockerfile** (Compose
+the exporter. [Use the supplied folder directly](bitbucket-datacenter-to-ghes.md#use-an-existing-exporter-folder)
+or [unpack the release tarball](bitbucket-datacenter-to-ghes.md#build-the-exporter-from-the-release-tarball);
+neither requires exporter repository access. In both cases, `BBS_EXPORTER_BUILD_CONTEXT`
+points to the **directory containing the exporter's Dockerfile** (Compose
 default: `../bbs-exporter-1.13.0`), not the tarball itself. For a deployment host
 using a private registry, [pull an approved image by digest](bitbucket-datacenter-to-ghes.md#use-an-approved-prebuilt-image).
 [Verify the CLI version](bitbucket-datacenter-to-ghes.md#verify-the-exporter-image)
