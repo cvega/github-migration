@@ -38,7 +38,9 @@ describe("migration form state", () => {
     });
 
     form.reset();
+    expect(JSON.parse(JSON.stringify(form.buildPayload()))).toEqual({});
     expect(form.state).toEqual({
+      useSavedOptions: true,
       sourceAuthMode: "env-app",
       targetAuthMode: "env-pat",
       sourceToken: "",

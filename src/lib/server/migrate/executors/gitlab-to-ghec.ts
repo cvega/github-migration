@@ -1,5 +1,5 @@
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
-import type { GitHubClients } from "$lib/server/core/github";
+import type { GitHubTargetClients } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
 import {
@@ -8,7 +8,7 @@ import {
   getGitLabMigrationSourceClient,
   isDefinitiveGitLabApiError,
 } from "$lib/server/migrate/ports/source-runtime";
-import { getSourceExportId, updateGitLabExportCheckpoint } from "../database/migrations";
+import { getResumableSourceExportId, updateGitLabExportCheckpoint } from "../database/migrations";
 import { abortRepositoryMigration, createGitLabMigrationSource } from "../github/migration-source";
 import type { MigrationEventEmitter } from "../github/monitor";
 import { emitNativeStep } from "../runs/events";
@@ -47,39 +47,21 @@ export function __setGitLabToGhecDependenciesForTests(
   };
 }
 
-function recoveredRequest(migration: Migration): GitLabToGhecOptions {
-  return {
-    sourceProvider: "gitlab",
-    sourceApiUrl: migration.sourceApiUrl,
-    sourceRepo: projectPath(migration),
-    targetProfileId: migration.targetProfileId,
-    targetOrg: migration.targetOrg,
-    targetRepo: migration.targetRepo,
-    emit: () => {},
-  };
-}
-
 export async function resumeGitLabToGhecMigration(
   migration: Migration,
   emit: MigrationEventEmitter,
   signal?: AbortSignal,
 ): Promise<Migration> {
-  const options = { ...recoveredRequest(migration), signal, emit };
   return resumeNativeToGhecMigration({
-    request: options,
+    signal,
+    emit,
     migration,
     dependencies,
-    validateSourceCheckpoint: () => {
-      if (getSourceExportId(migration.id) !== "gitlab") {
-        throw new Error(
-          `Cannot resume migration ${migration.id}: missing GitLab export checkpoint`,
-        );
-      }
-    },
+    getSourceExportId: () =>
+      getResumableSourceExportId(migration.id) === "gitlab" ? "gitlab" : null,
     getSourceClient: dependencies.getSourceClient,
-    sourceUrlChangedMessage: `Cannot resume migration ${migration.id}: GitLab source URL changed`,
     resumeMessage: () => "Resuming GitLab export",
-    executeFromExport: (sourceClient, clients, markRemoteStartMayHaveSucceeded) =>
+    executeFromExport: (options, sourceClient, clients, markRemoteStartMayHaveSucceeded) =>
       executeFromExport(options, migration, sourceClient, clients, markRemoteStartMayHaveSucceeded),
   });
 }
@@ -162,7 +144,7 @@ async function executeFromExport(
   options: GitLabToGhecOptions,
   migration: Migration,
   client: GitLabMigrationSourceClient,
-  clients: GitHubClients,
+  clients: GitHubTargetClients,
   markRemoteStartMayHaveSucceeded: (unknown: boolean) => void,
 ): Promise<Migration> {
   await waitForExport(client, migration, options.signal, options.emit);
@@ -194,7 +176,7 @@ export async function runGitLabToGhecMigration(options: GitLabToGhecOptions): Pr
   assertSupportedOptions(options);
   const sourceClient = dependencies.getSourceClient();
   const migration = createMigration(options, sourceClient.apiUrl);
-  let clients: GitHubClients | null = null;
+  let clients: GitHubTargetClients | null = null;
   let sourceWriteMayHaveSucceeded = false;
   let remoteStartMayHaveSucceeded = false;
   try {
@@ -204,13 +186,12 @@ export async function runGitLabToGhecMigration(options: GitLabToGhecOptions): Pr
     dependencies.updateGitLabExportCheckpoint(migration.id, "source_export");
     sourceWriteMayHaveSucceeded = false;
     emitNativeStep(options.emit, migration.id, "GitLab export started");
-    return executeFromExport(options, migration, sourceClient, clients, (unknown) => {
+    return await executeFromExport(options, migration, sourceClient, clients, (unknown) => {
       remoteStartMayHaveSucceeded = unknown;
     });
   } catch (error) {
     if (dependencies.isDefinitiveApiError(error)) sourceWriteMayHaveSucceeded = false;
     return classifyNativeFailure({
-      error,
       signal: options.signal,
       migration,
       clients,

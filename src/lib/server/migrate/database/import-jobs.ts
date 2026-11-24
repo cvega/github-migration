@@ -94,7 +94,7 @@ export function updateGhesImportJobCheckpoint(
 				 archive_sha256 = COALESCE($archive_sha256, archive_sha256),
 				 ghes_import_id = COALESCE($ghes_import_id, ghes_import_id),
 				 source_was_archived = COALESCE($source_was_archived, source_was_archived),
-				 failure_reason = COALESCE($failure_reason, failure_reason),
+				 failure_reason = $failure_reason,
 				 updated_at = $updated_at
 			 WHERE id = $id`,
     )

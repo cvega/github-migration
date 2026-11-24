@@ -1,5 +1,5 @@
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
-import type { GitHubClients } from "$lib/server/core/github";
+import type { GitHubTargetClients } from "$lib/server/core/github";
 import { getRepoCounts } from "$lib/server/core/github";
 import { updateCheckpoint } from "../database/migrations";
 import {
@@ -29,7 +29,7 @@ export function __setArchiveToGhecDependenciesForTests(
 }
 
 export interface ArchiveToGhecOptions {
-  clients: GitHubClients;
+  clients: GitHubTargetClients;
   migration: Migration;
   request: Pick<CreateMigrationRequest, "lockSource" | "skipReleases" | "targetRepoVisibility">;
   sourceRepoUrl: string;
@@ -54,7 +54,7 @@ function emitStep(options: ArchiveToGhecOptions, message: string): void {
 }
 
 export async function monitorGhecMigration(
-  clients: GitHubClients,
+  clients: GitHubTargetClients,
   migration: Migration,
   githubMigrationId: string,
   emit: MigrationEventEmitter,
@@ -66,8 +66,6 @@ export async function monitorGhecMigration(
     githubMigrationId,
     targetOrg: migration.targetOrg,
     targetRepo: migration.targetRepo,
-    sourceOrg: migration.sourceOrg,
-    sourceRepo: migration.sourceRepo,
     sourceCounts: migration.sourceCounts,
     signal,
     emit,
@@ -88,8 +86,8 @@ export async function monitorGhecMigration(
           migration.targetOrg,
           migration.targetRepo,
         );
-      } catch (error) {
-        console.warn("Final target repository counts unavailable.", error);
+      } catch {
+        console.warn("Final target repository counts unavailable.");
       }
     }
   } else {

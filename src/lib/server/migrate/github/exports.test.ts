@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
 import type { GitHubClient, GitHubClients } from "$lib/server/core/github";
+import { createSingleClient } from "$lib/server/core/github";
 import {
   __setArchiveTransportDependenciesForTests,
   assertTrustedArchiveHost,
@@ -18,6 +19,38 @@ function client(
 }
 
 describe("GitHub archive exports", () => {
+  test("uses exactly one API prefix on every GHES export request", async () => {
+    const github = createSingleClient({ token: "fixture" }, "https://fixture.invalid/api/v3");
+    const urls: string[] = [];
+    github.hook.wrap("request", async (_request, options) => {
+      const { url } = github.request.endpoint(options);
+      urls.push(new URL(url).pathname);
+      if (url.endsWith("/archive")) {
+        expect(options.request?.redirect).toBe("manual");
+        return {
+          data: "",
+          headers: { location: "https://fixture.invalid/archive" },
+          status: 302,
+          url,
+        };
+      }
+      const data = { installed_version: "3.15.0", state: "exported", id: 42 };
+      return { data, headers: {}, status: 200, url };
+    });
+    await checkGhesVersion(github);
+    await startGitArchiveExport(github, "org", "repo");
+    await startMetadataArchiveExport(github, "org", "repo", true, false);
+    expect(await waitForArchive(github, "org", 42, undefined, 0)).toBe(
+      "https://fixture.invalid/archive",
+    );
+    expect(urls).toEqual([
+      "/api/v3/meta",
+      "/api/v3/orgs/org/migrations",
+      "/api/v3/orgs/org/migrations",
+      "/api/v3/orgs/org/migrations/42",
+      "/api/v3/orgs/org/migrations/42/archive",
+    ]);
+  });
   test("requires GHES 3.15 or newer", async () => {
     await expect(
       checkGhesVersion(client(async () => ({ data: { installed_version: "3.14.9" } }))),

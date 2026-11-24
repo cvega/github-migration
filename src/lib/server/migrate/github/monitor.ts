@@ -7,7 +7,7 @@ import type {
   Progress,
   Snapshot,
 } from "$lib/migrate/types";
-import { doesRepoExist, type GitHubClients, getRepoCounts } from "$lib/server/core/github";
+import { doesRepoExist, type GitHubTargetClients, getRepoCounts } from "$lib/server/core/github";
 import { pollWithRetry, sleep } from "$lib/server/core/polling";
 import { getRepositoryMigration } from "./migration-source";
 
@@ -32,13 +32,11 @@ export function __setMonitorDependenciesForTests(
 export type MigrationEventEmitter = (event: MigrationEvent) => void;
 
 export interface MonitorConfig {
-  clients: GitHubClients;
+  clients: GitHubTargetClients;
   migrationId: string;
   githubMigrationId: string;
   targetOrg: string;
   targetRepo: string;
-  sourceOrg?: string;
-  sourceRepo?: string;
   sourceCounts?: Counts | null;
   pollInterval?: number;
   signal?: AbortSignal;
@@ -68,27 +66,7 @@ export async function monitorRepositoryMigration(config: MonitorConfig): Promise
   let lastPhase: Phase | null = null;
   let terminalPhase: Phase = "UNKNOWN";
   let finalCounts: Counts | null = null;
-  let sourceCounts: Counts | null = config.sourceCounts ?? null;
-
-  if (!sourceCounts && config.sourceOrg && config.sourceRepo) {
-    try {
-      sourceCounts = await dependencies.getRepoCounts(
-        config.clients.source,
-        config.clients.sourceGraphql,
-        config.sourceOrg,
-        config.sourceRepo,
-      );
-      config.emit({
-        migrationId: config.migrationId,
-        eventType: "step",
-        phase: null,
-        payload: { message: "Source counts fetched", counts: sourceCounts },
-        createdAt: new Date().toISOString(),
-      });
-    } catch {
-      // Source percentages are optional.
-    }
-  }
+  const sourceCounts = config.sourceCounts ?? null;
 
   const poll = async (): Promise<boolean> => {
     const snapshot = await takeSnapshot(config, startTime, sourceCounts);
@@ -148,16 +126,15 @@ export async function monitorRepositoryMigration(config: MonitorConfig): Promise
       wait: () => dependencies.wait(interval, config.signal),
       shouldStop: () => config.signal?.aborted ?? false,
       maxConsecutiveErrors,
-      onError: (error, consecutiveErrors) => {
+      onError: (_error, consecutiveErrors) => {
         console.warn(
           `Monitor poll error (${consecutiveErrors}/${maxConsecutiveErrors}) - will retry`,
-          error,
         );
       },
     });
-  } catch (error) {
+  } catch {
     throw new Error(
-      `Monitor: ${maxConsecutiveErrors} consecutive poll failures - aborting. Last error: ${error instanceof Error ? error.message : String(error)}`,
+      `Monitor: ${maxConsecutiveErrors} consecutive poll failures; check the target migration ID`,
     );
   }
   return { phase: terminalPhase, finalCounts };
@@ -195,8 +172,8 @@ async function takeSnapshot(
         config.targetRepo,
       );
       countsAuthoritative = true;
-    } catch (error) {
-      console.warn("Target repository counts unavailable; a later poll will retry.", error);
+    } catch {
+      console.warn("Target repository counts unavailable; a later poll will retry.");
     }
   }
   return {

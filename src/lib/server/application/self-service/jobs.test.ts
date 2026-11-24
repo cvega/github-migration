@@ -15,6 +15,8 @@ import {
 } from "../../../../routes/api/migrate/[id]/+server";
 import { GET as logRoute } from "../../../../routes/api/migrate/[id]/events/+server";
 import { POST as restartRoute } from "../../../../routes/api/migrate/[id]/restart/+server";
+import { POST as adminProfileBatch } from "../../../../routes/api/migrate/batches/+server";
+import { POST as operatorProfileBatch } from "../../../../routes/api/profile/[id]/+server";
 import { assignGrant } from "./grants";
 import {
   cancelOwnJob,
@@ -119,6 +121,40 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
   }));
   return { selection: { sourceProvider, namespace: "SRC", repos: ["repo"] }, grant, run, executor };
 }
+
+test.each(["admin", "operator"] as const)(
+  "%s cannot admit a partial batch with a flagged, unanalyzed repo",
+  async (role) => {
+    const { run } = fixture();
+    getDb().run(
+      "INSERT INTO profile_repos(run_id,name_with_owner,warnings,created_at) VALUES ('profile','SRC/flagged',1,'now')",
+    );
+    const scoped = role === "operator";
+    const body = scoped
+      ? { repos: ["repo", "flagged"] }
+      : {
+          profileRunId: "profile",
+          repos: ["SRC/repo", "SRC/flagged"],
+          targetProfileId: "ghec",
+          targetOrg: "dest",
+        };
+    const response = await (scoped ? operatorProfileBatch : adminProfileBatch)({
+      params: { id: "profile" },
+      locals: { user: { id: scoped ? "alice" : "admin", role } },
+      request: new Request("https://fixture.invalid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    } as never);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Repository 'SRC/flagged' requires successful Git analysis",
+    });
+    expect(getDb().query("SELECT count(*) AS n FROM migrations").get()).toEqual({ n: 0 });
+    expect(run).not.toHaveBeenCalled();
+  },
+);
 
 test.each([
   ["github", "ghec"],

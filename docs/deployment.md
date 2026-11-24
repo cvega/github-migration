@@ -15,8 +15,10 @@ docker compose up -d --build --wait
 ```
 
 Compose publishes the dashboard on `127.0.0.1:3000` by default. The dashboard
-mounts the shared data volume and archive volume and exposes the container
-runtime socket for bounded one-shot source exporters. The profile analyzer
+mounts the shared data volume and archive volume. The base stack needs neither
+a container runtime socket nor an external Bitbucket network. For deployments
+that launch exporters, use the [exporter overrides](configuration.md) instead.
+The profile analyzer
 mounts the same data volume plus its own analysis workspace. Both images run as
 a non-root application user after the entrypoint fixes mounted-directory
 ownership.
@@ -27,7 +29,11 @@ revision; the publishing workflows do not publish an analyzer image.
 
 The reusable verification workflow builds and scans both production images.
 It checks authenticated login, same-origin JSON validation, cross-origin
-rejection, live SQLite backup, and analyzer toolchain/database startup.
+rejection, SQLite backup and paired archive restore, and analyzer startup. It
+also starts base Compose without a local Bitbucket network or Docker socket;
+only the optional exporter override mounts the socket. See the
+[exporter configuration](configuration.md) before upgrading an existing
+Bitbucket deployment.
 
 Use immutable release tags or digests through `GH_MIGRATE_IMAGE` and
 `GH_MIGRATE_ANALYZER_IMAGE` when deploying an audited build. Build both from the
@@ -83,57 +89,65 @@ plaintext passwords and raw session tokens are never stored.
 
 ## Promotion And Rollback
 
-Pin both the candidate and previous image by immutable tag or digest. The
-following stopped-volume backup includes SQLite WAL files and archives:
+Pin the previous and candidate dashboard **and analyzer** images by digest.
+Block admission/traffic during promotion, drain active jobs, and resolve
+**Needs review** before taking the rollback snapshot. Record the current image
+digests, volume names, Compose project/overrides and protected configuration
+alongside it. Stop both services; a health probe is not a quiescence check.
+Run the following in a fail-fast shell from the repository root:
 
 ```bash
-release_image=registry.example.com/gh-migrate@sha256:replace-me
-analyzer_image=registry.example.com/gh-migrate-profile-analyzer@sha256:replace-me
-dashboard_container=$(docker compose ps -q gh-migrate)
-analyzer_container=$(docker compose ps -q profile-analyzer)
-previous_image=$(docker inspect --format '{{.Config.Image}}' "$dashboard_container")
-previous_analyzer_image=$(docker inspect --format '{{.Config.Image}}' "$analyzer_container")
+set -eu
+umask 077
 backup="$PWD/backups/$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -p "$backup"
-chmod 700 "$backup"
-printf '%s\n' "$previous_image" > "$backup/previous-image"
-printf '%s\n' "$previous_analyzer_image" > "$backup/previous-analyzer-image"
-cp .env docker-compose.yml "$backup/"
-
+mkdir -p "$PWD/backups"
+mkdir "$backup"
+helper="$PWD/scripts/packaging/volume-snapshot.sh"
 docker compose stop gh-migrate profile-analyzer
 docker compose run --rm --no-deps --entrypoint sh \
-	-v "$backup:/backup" gh-migrate -c \
-	'mkdir -p /backup/data /backup/archives && cp -a /data/. /backup/data/ && cp -a /archives/. /backup/archives/'
-
-GH_MIGRATE_IMAGE="$release_image" GH_MIGRATE_ANALYZER_IMAGE="$analyzer_image" \
-	docker compose up -d --no-build --wait
-curl --fail http://127.0.0.1:3000/api/health
-curl --fail http://127.0.0.1:3000/api/ready
+	-v "$helper:/snapshot.sh:ro" -v "$backup:/backup" gh-migrate \
+	/snapshot.sh backup /backup/snapshot /data /archives
 ```
 
-Persist both image variables in the deployment environment after promotion. To
-roll back, stop the candidate services, replace the durable mounted directories
-from the same backup, clear the disposable analysis workspace, and start the
-recorded images:
+Switch both image variables to the candidate and run `docker compose up -d
+--no-build --wait`. Keep admission closed while verifying readiness and deciding
+whether to promote. Keep the protected snapshot outside the live volumes.
+
+**Rollback is a switch, not an overwrite.** Stop both candidate services; keep
+their volumes and configuration. With the **candidate volume settings still
+active**, compare current jobs and GHES checkpoints with the backup. If history
+changed, an exporter is still running, the target has work not accounted for,
+or users/grants/config changed, stop: reconcile those changes against the
+candidate and providers before allowing traffic or starting workers. Never
+rerun a migration just because it is absent from the backup.
 
 ```bash
-backup="$PWD/backups/replace-with-backup-directory"
-previous_image=$(cat "$backup/previous-image")
-previous_analyzer_image=$(cat "$backup/previous-analyzer-image")
-
+set -eu
+: "${backup:?Set the trusted backup directory}" "${previous_image:?Set recorded dashboard digest}" \
+  "${previous_analyzer_image:?Set recorded analyzer digest}"
+helper="$PWD/scripts/packaging/volume-snapshot.sh"
 docker compose stop gh-migrate profile-analyzer
-GH_MIGRATE_IMAGE="$previous_image" docker compose run --rm --no-deps --entrypoint sh \
-	-v "$backup:/backup:ro" gh-migrate -c \
-	'find /data -mindepth 1 -maxdepth 1 -exec rm -rf {} +; find /archives -mindepth 1 -maxdepth 1 -exec rm -rf {} +; cp -a /backup/data/. /data/; cp -a /backup/archives/. /archives/'
-GH_MIGRATE_ANALYZER_IMAGE="$previous_analyzer_image" docker compose run --rm --no-deps --entrypoint sh \
-	profile-analyzer -c 'find /analysis -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
-GH_MIGRATE_IMAGE="$previous_image" GH_MIGRATE_ANALYZER_IMAGE="$previous_analyzer_image" \
-	docker compose up -d --no-build --wait
+docker compose run --rm --no-deps --entrypoint sh \
+	-v "$helper:/snapshot.sh:ro" -v "$backup:/backup:ro" gh-migrate \
+	/snapshot.sh check-current /backup/snapshot /data
+
+# Unique new volumes for this restore; never pass current volume names.
+restore="gh-migrate-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+export GH_MIGRATE_DATA_VOLUME="$restore-data" EXPORTER_ARCHIVE_VOLUME="$restore-archives"
+export GH_MIGRATE_ANALYSIS_VOLUME="$restore-analysis"
+export GH_MIGRATE_IMAGE="$previous_image" GH_MIGRATE_ANALYZER_IMAGE="$previous_analyzer_image"
+docker compose run --rm --no-deps --entrypoint sh \
+	-v "$helper:/snapshot.sh:ro" -v "$backup:/backup:ro" gh-migrate \
+	/snapshot.sh restore /backup/snapshot /data /archives
+# Only after checks pass and outstanding remote work has been reconciled:
+docker compose up -d --no-build --wait
 curl --fail http://127.0.0.1:3000/api/ready
 ```
 
-Restore the backed-up `.env` first if configuration changed with the candidate.
-Keep the failed candidate volumes until the rollback has been verified.
+Persist the selected images, volume names and overrides before reopening
+traffic. Verify both services use the restored database and exporters use the
+restored archive volume. Keep the candidate volumes until rollback is verified.
+If any check fails, leave workers stopped; do not clear or reuse either set.
 
 ## Runtime Security
 

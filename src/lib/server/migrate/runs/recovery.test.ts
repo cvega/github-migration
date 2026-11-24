@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Migration } from "$lib/migrate/types";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
-import { getMigration, insertMigration } from "../database/migrations";
+import { getMigration, getRecoverableMigrations, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import { activeMigrationRuns } from "./active";
 import { recoverMigrationRuns } from "./recovery";
@@ -42,6 +46,57 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
+  test.each(["gitlab", "bitbucket-server"] as const)(
+    "%s never resumes a source export after the target accepted but the worker lost the ID",
+    (provider) => {
+      closeStore();
+      const directory = mkdtempSync(join(tmpdir(), "accepted-import-"));
+      const database = join(directory, "jobs.db");
+      const ledger = join(directory, "accepted");
+      const id = `${provider}-job`;
+      try {
+        initStore(database, [migrateStore]);
+        insertMigration({
+          ...migration(id, "running"),
+          githubMigrationId: null,
+          sourceProvider: provider,
+          sourceApiUrl:
+            provider === "gitlab"
+              ? "https://gitlab.example/api/v4"
+              : "https://bbs.example/rest/api/1.0",
+          requestOptions: "{}",
+        });
+        getDb()
+          .prepare(
+            "UPDATE migrations SET pipeline_step='archive_upload', source_export_id=? WHERE id=?",
+          )
+          .run(provider === "gitlab" ? "gitlab" : "42", id);
+        closeStore();
+        const fixture = fileURLToPath(
+          new URL("../../../../../tests/fixtures/crash-at-import.ts", import.meta.url),
+        );
+        const worker = Bun.spawnSync([process.execPath, fixture, database, ledger, id]);
+        expect(worker.signalCode).toBe("SIGKILL");
+        initStore(database, []);
+        expect(
+          getDb().query("SELECT pipeline_step, github_migration_id FROM migrations").get(),
+        ).toEqual({ pipeline_step: "ghec_starting", github_migration_id: null });
+        expect(getRecoverableMigrations()).toHaveLength(0);
+        recoverMigrationRuns({
+          validateScope: () => null,
+          launchRecoveredPipeline: () => {
+            throw new Error("A second submission was scheduled");
+          },
+          drainQueue: () => {},
+        });
+        expect(getMigration(id)?.state).toBe("reconciliation_required");
+        expect(readFileSync(ledger, "utf8")).toBe(`${id}\n`);
+      } finally {
+        closeStore();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
   test("fails unstarted paused work but preserves uncertain GHES jobs for review", () => {
     for (const state of ["queued", "running", "cancelling"] as const) {
       insertMigration({

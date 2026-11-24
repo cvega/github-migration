@@ -10,21 +10,18 @@ import { getGitHubSourcePlatform } from "$lib/source-provider";
 import { getOrgDatabaseId } from "./migration-source";
 import { uploadArchive } from "./upload";
 
-interface GhesMetaResponse {
-  installed_version: string;
-}
-
-interface GhesMigrationResponse {
-  id: number;
-  state: string;
-}
-
 const MIN_GHES_VERSION = "3.15.0";
 
+function exportId(value: number | bigint): number {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Invalid GHES export ID");
+  return id;
+}
+
 export async function checkGhesVersion(client: GitHubClient): Promise<string> {
-  const { data } = await client.request("GET /api/v3/meta");
-  const version = (data as GhesMetaResponse).installed_version;
-  if (!version) throw new Error("Could not determine GHES version");
+  const { data } = await client.request("GET /meta");
+  const version = "installed_version" in data && data.installed_version;
+  if (typeof version !== "string" || !version) throw new Error("Could not determine GHES version");
   if (!isVersionAtLeast(version, MIN_GHES_VERSION)) {
     throw new Error(`GHES version ${version} is below minimum required ${MIN_GHES_VERSION}`);
   }
@@ -36,12 +33,12 @@ export async function startGitArchiveExport(
   org: string,
   repo: string,
 ): Promise<number> {
-  const { data } = await client.request("POST /api/v3/orgs/{org}/migrations", {
+  const { data } = await client.request("POST /orgs/{org}/migrations", {
     org,
     repositories: [repo],
     exclude_metadata: true,
   });
-  return (data as GhesMigrationResponse).id;
+  return exportId(data.id);
 }
 
 export async function startMetadataArchiveExport(
@@ -51,7 +48,7 @@ export async function startMetadataArchiveExport(
   skipReleases: boolean,
   lockSource: boolean,
 ): Promise<number> {
-  const { data } = await client.request("POST /api/v3/orgs/{org}/migrations", {
+  const { data } = await client.request("POST /orgs/{org}/migrations", {
     org,
     repositories: [repo],
     exclude_git_data: true,
@@ -59,7 +56,7 @@ export async function startMetadataArchiveExport(
     lock_repositories: lockSource,
     exclude_owner_projects: true,
   });
-  return (data as GhesMigrationResponse).id;
+  return exportId(data.id);
 }
 
 async function getArchiveStatus(
@@ -67,11 +64,11 @@ async function getArchiveStatus(
   org: string,
   archiveId: number,
 ): Promise<string> {
-  const { data } = await client.request("GET /api/v3/orgs/{org}/migrations/{migration_id}", {
+  const { data } = await client.request("GET /orgs/{org}/migrations/{migration_id}", {
     org,
     migration_id: archiveId,
   });
-  return (data as GhesMigrationResponse).state;
+  return data.state;
 }
 
 async function getArchiveUrl(
@@ -79,11 +76,17 @@ async function getArchiveUrl(
   org: string,
   archiveId: number,
 ): Promise<string> {
-  const { data } = await client.request(
-    "GET /api/v3/orgs/{org}/migrations/{migration_id}/archive",
-    { org, migration_id: archiveId },
+  const { data, headers } = await client.request(
+    "GET /orgs/{org}/migrations/{migration_id}/archive",
+    {
+      org,
+      migration_id: archiveId,
+      request: { redirect: "manual" },
+    },
   );
-  return typeof data === "string" ? data.trim() : "";
+  const location = headers?.location || (typeof data === "string" ? data.trim() : "");
+  if (!location) throw new Error(`GHES export ${archiveId} did not return an archive URL`);
+  return location;
 }
 
 export async function waitForArchive(

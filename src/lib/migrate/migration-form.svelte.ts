@@ -35,6 +35,7 @@ export function createMigrationForm(getEnv: () => EnvAuthFlags) {
     targetAppId: "",
     targetAppKey: "",
     targetAppInstallationId: "",
+    useSavedOptions: false,
     skipReleases: false,
     migrationMode: "dry-run" as "dry-run" | "production",
     directPassthrough: false,
@@ -64,6 +65,7 @@ export function createMigrationForm(getEnv: () => EnvAuthFlags) {
     state.directPassthrough = false;
     state.noSslVerify = false;
     state.targetRepoVisibility = "";
+    state.useSavedOptions = true;
     initAuthModes();
   }
 
@@ -86,11 +88,15 @@ export function createMigrationForm(getEnv: () => EnvAuthFlags) {
           }
         : undefined;
 
-    return {
+    const credentials = {
       sourceToken: state.sourceAuthMode === "pat" ? state.sourceToken || undefined : undefined,
       targetToken: state.targetAuthMode === "pat" ? state.targetToken || undefined : undefined,
       sourceApp,
       targetApp,
+    };
+    if (state.useSavedOptions) return credentials;
+    return {
+      ...credentials,
       skipReleases: state.skipReleases,
       lockSource: state.migrationMode === "production",
       archiveSource: state.migrationMode === "production",

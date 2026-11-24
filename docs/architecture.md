@@ -148,6 +148,11 @@ the observation. It never substitutes it for historical counts.
 Ambiguous remote writes are never replayed automatically. An interruption
 during prepare, mapping, or import becomes `reconciliation_required` when the
 dashboard cannot prove whether the remote operation completed.
+After import, the saved GUID and audit/unlock phase survive errors and
+cancellation. A restart continues finalization on that GUID; it does not
+prepare or import the archive again. For a legacy failed job with a GUID but
+no trustworthy phase, inspect `ghe-migrator` on the appliance rather than
+submitting another import.
 
 ## Mannequin attribution
 
@@ -205,7 +210,17 @@ flowchart TD
 An interrupted profile is retained as failed audit history and must be run
 again. A migration enters `reconciliation_required` when repeating a remote
 write could duplicate or corrupt work; the operator must inspect the source and
-target, confirm the remote outcome, and then start a new attempt.
+target before confirming it is safe to restart. A saved GHEC import ID means
+monitor that import, never submit it again automatically. A native export ID is
+only resumable *before* the target-start checkpoint. Without a target ID after
+that checkpoint, **Needs review** takes precedence over the export ID.
+
+Immediate, queued, and restarted jobs use the admitted source host and saved
+nonsecret options. Restart credentials do not replace those options. If a
+legacy GHEC job has no saved plan, review the settings and explicitly choose
+target visibility before restarting. For native GHEC jobs, source counts are
+unavailable; upgrading clears previously sampled GitHub source counts from
+those jobs and their events without changing target counts.
 
 The process holds an exclusive lock in its data directory for its lifetime.
 This keeps in-memory queue ownership, SQLite state, and recovery decisions

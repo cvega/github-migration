@@ -1,6 +1,10 @@
 import type { Migration, MigrationState } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
-import { getMigration, updateMigrationState } from "../database/migrations";
+import {
+  getMigration,
+  hasUnresolvedRemoteWork,
+  updateMigrationState,
+} from "../database/migrations";
 import { activeMigrationRuns } from "./active";
 import { broadcastMigrationEvent, closeMigrationEventStream, insertLifecycleStep } from "./events";
 
@@ -81,12 +85,14 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
     finish(id, runToken, isTerminalMigrationState(finalState) ? finalState : undefined);
   }
 
-  function settleError(id: string, runToken: symbol, error: unknown): void {
+  function settleError(id: string, runToken: symbol): void {
     if (!activeMigrationRuns.owns(id, runToken)) return;
 
-    const state = getMigration(id)?.state === "cancelling" ? "reconciliation_required" : "failed";
-    console.error(`Migration ${id} crashed:`, error);
-    const failureReason = error instanceof Error ? error.message : String(error);
+    const state = hasUnresolvedRemoteWork(id) ? "reconciliation_required" : "failed";
+    // Provider errors can retain GraphQL variables, headers and signed URLs.
+    const failureReason =
+      "Unexpected executor failure; check the source and target before restarting";
+    console.error(`[migrate] ${id}: ${failureReason}`);
     const settled = updateMigrationState(
       id,
       state,

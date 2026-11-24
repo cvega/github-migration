@@ -29,6 +29,26 @@ const MIGRATION_COLUMNS = [
 
 export const MIGRATION_COLS = MIGRATION_COLUMNS.join(", ");
 
+// Only a checkpoint *before* the target write permits restarting from a native export.
+export const PRE_IMPORT_EXPORT_SQL = `(target_platform = 'ghec' AND source_provider IN ('gitlab', 'bitbucket-server')
+    AND github_migration_id IS NULL
+    AND source_export_id IS NOT NULL
+    AND coalesce(pipeline_step, '') IN ('source_export', 'source_export_ready', 'archive_upload'))`;
+
+export const RECOVERABLE_CHECKPOINT_SQL = `(
+  github_migration_id IS NOT NULL OR ${PRE_IMPORT_EXPORT_SQL}
+  OR (target_platform = 'ghes' AND EXISTS (
+    SELECT 1 FROM ghes_import_jobs job WHERE job.migration_id = migrations.id
+      AND job.phase NOT IN ('failed', 'cancelled', 'reconciliation_required')
+      AND (job.exporter_job_id IS NOT NULL OR job.ghes_import_id IS NOT NULL)
+  ))
+)`;
+
+export const UNRESOLVED_REMOTE_WORK_SQL = `(state = 'cancelling' OR github_migration_id IS NOT NULL
+  OR source_export_id IS NOT NULL OR pipeline_step = 'ghec_starting'
+  OR (source_provider IN ('gitlab', 'bitbucket-server') AND pipeline_step = 'source_export')
+  OR EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id))`;
+
 /** A legacy checkpoint or serialized target can contradict the migrated column defaults. */
 export const PAUSED_GITLAB_ROUTE_SQL = `(source_provider = 'gitlab' AND (
   target_platform != 'ghec' OR target_profile_id != 'ghec' OR target_api_url != 'https://api.github.com'

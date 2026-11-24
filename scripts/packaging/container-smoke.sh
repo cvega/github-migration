@@ -106,6 +106,22 @@ docker exec -i "$container" sh <<'SQLITE_SMOKE'
 	test "$(sqlite3 /tmp/backup.db "SELECT COUNT(*) FROM app_users;")" = 1
 SQLITE_SMOKE
 
+# Use the independent online backup, never the running service's /data.
+docker cp scripts/packaging/volume-snapshot.sh "$container:/tmp/volume-snapshot.sh"
+docker exec -i "$container" sh <<'RESTORE_SMOKE'
+	set -eu
+	work=$(mktemp -d)
+	cd "$work"
+	mkdir data archives fresh-data fresh-archives
+	cp /tmp/backup.db data/gh-migrate.db
+	printf 'fixture\n' > archives/sample
+	sh /tmp/volume-snapshot.sh backup snapshot data archives
+	sh /tmp/volume-snapshot.sh check-current snapshot data
+	sh /tmp/volume-snapshot.sh restore snapshot fresh-data fresh-archives
+	test "$(sqlite3 fresh-data/gh-migrate.db 'SELECT count(*) FROM app_users')" = 1
+	cmp archives/sample fresh-archives/sample
+RESTORE_SMOKE
+
 if [ -n "$analyzer_image" ]; then
 	docker run --rm --network none "$analyzer_image" sh -c '
 		set -eu

@@ -80,6 +80,44 @@ test("prunes only terminal migrations beyond the retention limit", () => {
 });
 
 describe("migration provider schema upgrade", () => {
+  test("invalidates only legacy GitHub-derived native source observations, including event replay", () => {
+    const db = new Database(":memory:");
+    try {
+      migrateStore.applySchema(db);
+      db.run("UPDATE app_schema_versions SET version=8 WHERE domain='migrate'");
+      for (const provider of ["gitlab", "bitbucket-server", "github"]) {
+        insertMigration(db, provider);
+        db.run(
+          `UPDATE migrations SET source_provider=?, source_counts='{"issues":42}', target_counts='{"issues":5}' WHERE id=?`,
+          [provider, provider],
+        );
+        for (const [type, payload] of [
+          ["snapshot", '{"sourceCounts":{"issues":42}}'],
+          ["complete", '{"sourceCounts":{"issues":42},"elapsed":4}'],
+          ["step", '{"message":"Source counts fetched","counts":{"issues":42}}'],
+        ]) {
+          db.run(
+            "INSERT INTO events(migration_id,event_type,payload,created_at) VALUES(?,?,?,'now')",
+            [provider, type!, payload!],
+          );
+        }
+      }
+      migrateStore.applySchema(db);
+      for (const provider of ["gitlab", "bitbucket-server", "github"]) {
+        expect(
+          db.query("SELECT source_counts, target_counts FROM migrations WHERE id=?").get(provider),
+        ).toEqual({
+          source_counts: provider === "github" ? '{"issues":42}' : null,
+          target_counts: '{"issues":5}',
+        });
+        const events = db.query("SELECT payload FROM events WHERE migration_id=?").all(provider);
+        expect(events).toHaveLength(3);
+        expect(JSON.stringify(events).includes("42")).toBe(provider === "github");
+      }
+    } finally {
+      db.close();
+    }
+  });
   test("backfills legacy rows to GitHub across a file-backed reopen", () => {
     const directory = mkdtempSync(join(tmpdir(), "migration-provider-upgrade-"));
     const path = join(directory, "migrate.db");
@@ -180,7 +218,7 @@ describe("migration provider schema upgrade", () => {
       );
       expect(
         db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
-      ).toEqual({ version: 8 });
+      ).toEqual({ version: 9 });
       expect(
         (db.query("PRAGMA table_info(migrations)").all() as Array<{ name: string }>).map(
           (column) => column.name,

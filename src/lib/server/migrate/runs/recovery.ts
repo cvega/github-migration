@@ -8,7 +8,7 @@ import {
 } from "../database/migrations";
 import { recoverInterruptedMigrations } from "../database/schema";
 import {
-  requestFromPersistedOptions,
+  requestForMigration,
   safeParsePersistedRequestOptions,
   validatePersistedServerCredentialScope,
 } from "../validate";
@@ -47,7 +47,7 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const request = persistedRequest(migration);
+    const request = requestForMigration(migration);
     const scopeError = dependencies.validateScope(request);
     if (scopeError) {
       updateMigrationState(migration.id, "reconciliation_required", {
@@ -77,7 +77,7 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const request = persistedRequest(migration, requestFromPersistedOptions(options));
+    const request = requestForMigration(migration, options);
     const scopeError = dependencies.validateScope(request);
     if (scopeError) {
       updateMigrationState(migration.id, "failed", {
@@ -90,22 +90,4 @@ export function recoverMigrationRuns(
   }
 
   dependencies.drainQueue();
-}
-
-function persistedRequest(
-  migration: Migration,
-  request: CreateMigrationRequest = {
-    sourceRepo: `${migration.sourceOrg}/${migration.sourceRepo}`,
-    targetOrg: migration.targetOrg,
-  },
-): CreateMigrationRequest {
-  return {
-    ...request,
-    sourceProvider: migration.sourceProvider,
-    sourceApiUrl: request.sourceApiUrl || migration.sourceApiUrl,
-    targetProfileId: migration.targetProfileId,
-    sourceRepo: request.sourceRepo || `${migration.sourceOrg}/${migration.sourceRepo}`,
-    targetOrg: request.targetOrg || migration.targetOrg,
-    targetRepo: request.targetRepo || migration.targetRepo,
-  };
 }

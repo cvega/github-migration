@@ -51,6 +51,16 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	await expect(restart.getByRole("heading", { name: "Source Authentication" })).toBeVisible();
 	await expect(restart.getByRole("heading", { name: "Target Authentication" })).toBeVisible();
 	await expect(restart.getByLabel("Personal access token", { exact: true })).toHaveCount(2);
+	const saved = restart.getByRole("checkbox", { name: "Use each migration's saved options" });
+	await expect(saved).toBeChecked();
+	await expect(restart.getByLabel("Skip releases")).toHaveCount(0);
+	for (const width of [390, 1280, 1440]) {
+		await page.setViewportSize({width,height:800});
+		await expect(saved).toBeVisible();
+		expect(await restart.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+	}
+	await saved.focus();
+	await page.keyboard.press("Space");
 	await expect(restart.getByRole("button", { name: "Dry Run" })).toHaveAttribute(
 		"aria-pressed",
 		"true",

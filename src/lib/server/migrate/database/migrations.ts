@@ -23,7 +23,13 @@ import { getDb } from "$lib/server/core/db";
 import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
-import { PAUSED_GITLAB_ROUTE_SQL, MIGRATION_COLS as STORED_COLS } from "./columns";
+import {
+  PAUSED_GITLAB_ROUTE_SQL,
+  PRE_IMPORT_EXPORT_SQL,
+  RECOVERABLE_CHECKPOINT_SQL,
+  MIGRATION_COLS as STORED_COLS,
+  UNRESOLVED_REMOTE_WORK_SQL,
+} from "./columns";
 
 export const MIGRATION_COLS = `${STORED_COLS}, owner_user_id, ${PAUSED_GITLAB_ROUTE_SQL} AS route_paused`;
 
@@ -494,11 +500,20 @@ export function updateGitLabExportCheckpoint(
     .run({ $id: id, $step: step });
 }
 
-export function getSourceExportId(id: string): string | null {
-  const row = getDb().prepare("SELECT source_export_id FROM migrations WHERE id = ?").get(id) as {
-    source_export_id: unknown;
-  } | null;
-  return row && typeof row.source_export_id === "string" ? row.source_export_id : null;
+export function getResumableSourceExportId(id: string): string | null {
+  return (
+    getDb()
+      .query<{ source_export_id: string }, [string]>(
+        `SELECT source_export_id FROM migrations WHERE id = ? AND ${PRE_IMPORT_EXPORT_SQL}`,
+      )
+      .get(id)?.source_export_id ?? null
+  );
+}
+
+export function hasUnresolvedRemoteWork(id: string): boolean {
+  return !!getDb()
+    .query(`SELECT 1 FROM migrations WHERE id = ? AND ${UNRESOLVED_REMOTE_WORK_SQL}`)
+    .get(id);
 }
 
 export function updateMigrationSourceSize(id: string, sizeKb: number): void {
@@ -513,16 +528,7 @@ export function getRecoverableMigrations(): Migration[] {
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})
 				 AND auth_mode IN ('env-app', 'env-pat')
-				 AND (
-					 github_migration_id IS NOT NULL
-					 OR (source_provider IN ('gitlab', 'bitbucket-server') AND source_export_id IS NOT NULL)
-					 OR (target_platform = 'ghes' AND EXISTS (
-						 SELECT 1 FROM ghes_import_jobs job
-						 WHERE job.migration_id = migrations.id
-							 AND job.phase NOT IN ('succeeded', 'failed', 'cancelled', 'reconciliation_required')
-							 AND (job.exporter_job_id IS NOT NULL OR job.ghes_import_id IS NOT NULL)
-					 ))
-				 )
+				 AND ${RECOVERABLE_CHECKPOINT_SQL}
 				 AND id NOT LIKE 'seed-%'
 			 ORDER BY started_at ASC`,
     )

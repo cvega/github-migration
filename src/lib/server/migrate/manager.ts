@@ -56,7 +56,9 @@ import { drainMigrationQueue, shouldQueueMigration } from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
 import {
   determineAuthModeFromRequest,
+  requestForMigration,
   requireCredentialScope,
+  safeParsePersistedRequestOptions,
   serializeRequestOptions,
 } from "./validate";
 
@@ -94,7 +96,9 @@ function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
   const promise = Promise.resolve()
     .then(() =>
       executor.run({
-        ...(migration.ownerUserId !== undefined ? ownedRequest(migration) : request),
+        ...(migration.ownerUserId !== undefined
+          ? ownedRequest(migration)
+          : requestForMigration(migration, request)),
         id,
         signal: registration.signal,
         emit: createMigrationEventHandler(id, registration.token),
@@ -209,14 +213,14 @@ export function enqueueOwnedBatch(ownerUserId: string, requests: CreateMigration
 
 export function start(request: CreateMigrationRequest, batchId?: string): Migration {
   const migration = newMigration(request, batchId);
+  migration.requestOptions = serializeRequestOptions(requestForMigration(migration, request));
+  migration.authMode = determineAuthModeFromRequest(request);
   let queued = false;
   let existing: Migration | null = null;
   getDb().transaction(() => {
     if (shouldQueueMigration(migration)) {
       queued = true;
       migration.state = "queued";
-      migration.authMode = determineAuthModeFromRequest(request);
-      migration.requestOptions = serializeRequestOptions(request);
     }
     try {
       insertMigration(migration);
@@ -272,15 +276,15 @@ function restartRequest(
   existing: Migration,
   credentials: RestartMigrationRequest,
 ): CreateMigrationRequest {
-  return {
-    ...credentials,
-    sourceProvider: existing.sourceProvider,
-    sourceApiUrl: existing.sourceApiUrl,
-    targetProfileId: existing.targetProfileId,
-    sourceRepo: `${existing.sourceOrg}/${existing.sourceRepo}`,
-    targetOrg: existing.targetOrg,
-    targetRepo: existing.targetRepo,
-  };
+  const stored = existing.requestOptions
+    ? safeParsePersistedRequestOptions(existing.requestOptions)
+    : null;
+  if (!stored && existing.targetPlatform === "ghec" && !credentials.targetRepoVisibility) {
+    throw new Error(
+      "Cannot restart with saved settings: the original options are unavailable. Review the options and select a target visibility.",
+    );
+  }
+  return requestForMigration(existing, { ...stored, ...credentials });
 }
 
 export function restart(migrationId: string, credentials: RestartMigrationRequest): Migration {

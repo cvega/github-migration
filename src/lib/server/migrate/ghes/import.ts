@@ -162,6 +162,22 @@ async function execute(
     const priorSourceWasLocked = job?.sourceWasArchived ?? null;
     sourceUnlockRequired = Boolean(source.unlockSource && job?.sourceWasArchived === false);
 
+    if (job?.phase === "succeeded") {
+      // The target is finished. Only source cleanup may have been interrupted.
+      if (sourceUnlockRequired) {
+        sourceUnlockRequired = false;
+        await source.unlockSource!(migration);
+      }
+      return await completeGhesMigration(migration, source, options.emit);
+    }
+    if (
+      job?.ghesImportId &&
+      ["failed", "cancelled", "reconciliation_required"].includes(job.phase)
+    ) {
+      throw new ReconciliationRequiredError(
+        `Legacy GHES job ${job.ghesImportId} has no reliable import phase; inspect the GUID on GHES. Do not submit another import.`,
+      );
+    }
     if (
       job &&
       (job.phase === "pending" ||
@@ -187,10 +203,10 @@ async function execute(
       job = await submitExporterArchive(migration, worker, options.signal, sourceWasLocked);
     }
 
-    if (job.phase === "succeeded") {
-      throw new ReconciliationRequiredError(
-        "GHES import job already succeeded while the migration remained incomplete",
-      );
+    if (job.phase === "mapping" && !recovering && job.ghesImportId) {
+      // An explicitly authorized restart may re-read conflicts for this GUID, before import.
+      updateGhesImportJobCheckpoint(job.id, "preparing");
+      job = { ...job, phase: "preparing" };
     }
     if (job.phase === "mapping" || job.phase === "importing") {
       throw new ReconciliationRequiredError(
@@ -391,7 +407,12 @@ async function execute(
     if (options.signal?.aborted && current?.phase === "exporting" && current.exporterJobId) {
       await worker?.cancel(current.exporterJobId).catch(() => {});
     }
+    const afterImport =
+      current?.phase === "auditing" ||
+      current?.phase === "unlocking" ||
+      current?.phase === "succeeded";
     const ambiguous =
+      afterImport ||
       error instanceof ReconciliationRequiredError ||
       (current !== null &&
         (current.phase === "mapping" ||
@@ -402,8 +423,14 @@ async function execute(
       : options.signal?.aborted
         ? "cancelled"
         : "failed";
-    const reason = error instanceof Error ? error.message : String(error);
-    if (current) updateGhesImportJobCheckpoint(current.id, state, { failureReason: reason });
+    const detail = error instanceof Error ? error.message : String(error);
+    const reason = afterImport
+      ? `GHES import ${current.ghesImportId} reached ${current.phase}; check audit and unlock for that GUID before continuing.`
+      : detail;
+    if (current)
+      updateGhesImportJobCheckpoint(current.id, current.ghesImportId ? current.phase : state, {
+        failureReason: reason,
+      });
     result = settled(migration, state, reason);
   } finally {
     ssh?.disconnect();
@@ -418,37 +445,43 @@ async function execute(
         const reason = `${source.displayName} source unlock requires reconciliation: ${error instanceof Error ? error.message : String(error)}`;
         const current = getGhesImportJobByMigrationId(migration.id);
         if (current) {
-          updateGhesImportJobCheckpoint(current.id, "reconciliation_required", {
-            failureReason: reason,
-          });
+          updateGhesImportJobCheckpoint(
+            current.id,
+            current.ghesImportId ? current.phase : "reconciliation_required",
+            {
+              failureReason: reason,
+            },
+          );
         }
         result = settled(migration, "reconciliation_required", reason);
       }
     }
   }
-  if (result?.state === "succeeded") {
+  if (result?.state === "succeeded") return completeGhesMigration(result, source, options.emit);
+  return result ?? settled(migration, "failed", "GHES migration did not settle");
+}
+
+async function completeGhesMigration(
+  migration: Migration,
+  source: ExporterGhesSourceAdapter,
+  emit: MigrationEventEmitter,
+) {
+  const result = settled(migration, "succeeded");
+  emitImportStep(emit, migration.id, "succeeded", "GHES migration completed", "SUCCEEDED");
+  try {
+    result.targetCounts = await (source.fetchTargetCounts ?? fetchMigrationTargetCounts)(result);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`Target resource counts unavailable for migration ${migration.id}: ${reason}`);
     emitImportStep(
-      options.emit,
+      emit,
       migration.id,
       "succeeded",
-      "GHES migration completed",
+      `Migration succeeded, but target resource counts could not be collected: ${reason}. Use Fetch counts on the migration detail page to retry.`,
       "SUCCEEDED",
     );
-    try {
-      result.targetCounts = await (source.fetchTargetCounts ?? fetchMigrationTargetCounts)(result);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`Target resource counts unavailable for migration ${migration.id}: ${reason}`);
-      emitImportStep(
-        options.emit,
-        migration.id,
-        "succeeded",
-        `Migration succeeded, but target resource counts could not be collected: ${reason}. Use Fetch counts on the migration detail page to retry.`,
-        "SUCCEEDED",
-      );
-    }
   }
-  return result ?? settled(migration, "failed", "GHES migration did not settle");
+  return result;
 }
 
 export async function runExporterGhesMigration(

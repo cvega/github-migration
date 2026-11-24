@@ -31,6 +31,20 @@ export interface GitHubClients {
   getTargetToken: () => Promise<string>;
 }
 
+export type GitHubTargetClients = Pick<
+  GitHubClients,
+  "target" | "targetGraphql" | "getTargetToken"
+>;
+
+export function createTargetClients(targetAuth: AuthInput, apiUrl: string): GitHubTargetClients {
+  const { client, getToken } = buildSide(targetAuth, apiUrl, makeThrottleOptions());
+  return {
+    target: client,
+    targetGraphql: client.graphql as typeof graphql,
+    getTargetToken: getToken,
+  };
+}
+
 /**
  * Build an Octokit instance + a token-getter function for one side.
  * When GitHub App credentials are provided, Octokit uses `createAppAuth`
@@ -149,15 +163,11 @@ export function createClients(opts: {
   );
 
   const tgtBaseUrl = opts.targetApiUrl || "https://api.github.com";
-  const tgtSide = buildSide(opts.targetAuth, tgtBaseUrl, throttleOpts);
-
   return {
+    ...createTargetClients(opts.targetAuth, tgtBaseUrl),
     source: srcSide.client,
     sourceGraphql: srcSide.client.graphql as typeof graphql,
-    target: tgtSide.client,
-    targetGraphql: tgtSide.client.graphql as typeof graphql,
     getSourceToken: srcSide.getToken,
-    getTargetToken: tgtSide.getToken,
   };
 }
 
