@@ -9,8 +9,21 @@ supported analyzer concurrency is one worker.
 
 ## Container Deployment
 
+For **Bitbucket Data Center → GHES**, use the [first deployment walkthrough](bitbucket-datacenter-to-ghes.md).
+It configures authenticated access, the external exporter, its archive volume,
+and the appliance **before** starting the stack. For a fresh base deployment,
+create a private environment file first:
+
 ```bash
-cp .env.example .env
+umask 077
+test ! -e .env && cp .env.example .env
+```
+
+For a shared deployment, set `GH_MIGRATE_ALLOW_UNAUTHENTICATED=false`, supply
+both first-administrator bootstrap values, and set the browser `ORIGIN` in
+`.env` before starting either service:
+
+```bash
 docker compose up -d --build --wait
 ```
 

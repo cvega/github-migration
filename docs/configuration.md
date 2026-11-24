@@ -112,12 +112,15 @@ request.
 
 ## Bitbucket Server Source
 
+For a complete GHES deployment, including a working Compose configuration, see
+[Bitbucket Data Center to GHES](bitbucket-datacenter-to-ghes.md).
+
 | Variable | Purpose |
 |---|---|
 | `BITBUCKET_SERVER_URL` | Bitbucket Server/Data Center base URL |
 | `BITBUCKET_SERVER_USERNAME` | Bitbucket API username |
 | `BITBUCKET_SERVER_PASSWORD` | Bitbucket API password or token |
-| `BITBUCKET_SERVER_PROJECT_KEYS` | Optional comma-separated project scope |
+| `BITBUCKET_SERVER_PROJECT_KEYS` | Project-key allowlist for server-owned migration credentials; set it explicitly to restrict the source scope |
 | `PROFILE_CONNECTION_SCOPE` | Optional provider IDs (`bitbucket-server`, `gitlab`, `github`) for credential-wide profiling; migration restrictions remain unchanged |
 | `BITBUCKET_SERVER_ALLOW_INSECURE_HTTP` | Allow plain HTTP for an explicitly trusted source |
 | `BITBUCKET_SERVER_SSH_HOST` | Administrative SSH host used for archive access |
@@ -128,8 +131,10 @@ request.
 | `BITBUCKET_SERVER_SHARED_HOME` | Bitbucket shared-home path on the source host |
 | `BITBUCKET_SERVER_MAX_ARCHIVE_BYTES` | Maximum accepted Bitbucket archive size |
 
-Plain HTTP is rejected unless its explicit override is enabled. SSH transfers
-require a pinned host key.
+Plain HTTP is rejected unless its explicit override is enabled. The Bitbucket
+SSH and shared-home settings are for native archive retrieval on **Bitbucket →
+GHEC** only. For **Bitbucket → GHES**, the exporter uses Bitbucket HTTP(S)
+credentials; SSH and the pinned host key are on the **GHES** side.
 
 ## GHES Targets
 
@@ -141,9 +146,9 @@ GitLab exporter does not enable the paused GitLab-to-GHES route.
 | `GHES_TARGET_ID` | Stable identifier for the configured GHES target profile |
 | `GHES_TARGET_NAME` | Operator-facing GHES target name |
 | `GHES_TARGET_API_URL` | GHES API URL |
-| `GHES_TARGET_ORG` | Default target organization |
-| `GHES_TARGET_ADMIN_USERNAME` | GHES administrative API username |
-| `GHES_TARGET_ADMIN_PAT` | GHES administrative API token |
+| `GHES_TARGET_ORG` | Comma-separated GHES organization allowlist for server-owned credentials; these organizations also appear in Manage targets |
+| `GHES_TARGET_ADMIN_USERNAME` | GHES site-admin login used for `ghe-migrator import` (distinct from the SSH account) |
+| `GHES_TARGET_ADMIN_PAT` | PAT for that site admin, issued by the GHES appliance; also used for target API reads |
 | `GHES_TARGET_SSH_HOST` | GHES administrative SSH host |
 | `GHES_TARGET_SSH_PORT` | GHES administrative SSH port |
 | `GHES_TARGET_SSH_USERNAME` | GHES administrative SSH username |
@@ -152,14 +157,14 @@ GitLab exporter does not enable the paused GitLab-to-GHES route.
 | `GHES_TARGET_REMOTE_DIR` | Remote staging directory for migration archives |
 
 The dashboard currently exposes one configured GHES profile plus the built-in
-GHEC target. GHES API and SSH credentials stay in the dashboard process and are
-never passed to exporter containers.
+GHEC target. GHES API and SSH credentials are server-owned and never passed to
+exporter containers.
 
 ## Exporters And Archives
 
 | Variable | Purpose |
 |---|---|
-| `ARCHIVE_DIR` | Host-visible archive working directory |
+| `ARCHIVE_DIR` | Absolute archive directory visible to the dashboard process; Compose mounts the shared archive volume at `/archives` |
 | `EXPORTER_RUNTIME` | Container runtime command for source exporters |
 | `EXPORTER_NETWORK` | Container network mode or network name |
 | `EXPORTER_MEMORY` | Exporter memory limit |

@@ -29,6 +29,10 @@ trusted proxy. Existing sessions can be revoked from **Manage users**.
 
 ## Provider Setup Is Unavailable
 
+For a first Bitbucket Data Center → GHES installation, use the
+[deployment and pilot checklist](bitbucket-datacenter-to-ghes.md). The base
+Compose file alone can start a healthy dashboard without a usable exporter.
+
 Review the **Setup** page and [Configuration](configuration.md). GitHub App mode
 requires ID, private key, and installation ID together. GitLab and Bitbucket
 credentials are server-owned. Request credentials are hidden when credential
@@ -76,8 +80,11 @@ Never bypass host-key verification to diagnose production transfers.
 
 `reconciliation_required` means a remote write may have completed but the
 dashboard cannot prove its outcome. Inspect the source, target, persisted event
-log, and GHES import state. Use the confirmation endpoint/UI only after deciding
-that repeating the next operation is safe.
+log, and GHES import state. For GHES, inspect the **saved GUID** on the appliance.
+A missing target repository is not proof that the import never ran. A known
+audit or unlock checkpoint continues on that GUID; do not submit another import
+or erase its checkpoint. Use the confirmation endpoint/UI only after deciding
+that the next operation is safe.
 
 ## Live Progress Disconnects
 

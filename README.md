@@ -21,9 +21,13 @@ restart, reconciliation, crash recovery, and operational statistics.
 - Queue up to 500 batch members under an app-wide concurrency limit of ten.
 - Resume work from durable provider, GitHub, and GHES import checkpoints.
 - Authenticate GitHub with PATs or Apps while keeping provider and GHES secrets server-only.
-- Run as one non-root container with SQLite WAL persistence and readiness probes.
+- Run one dashboard with SQLite WAL persistence and readiness probes, alongside the profile analyzer; GHES exports use short-lived workers.
 
 ## Quick Start
+
+**Deploying for Bitbucket Data Center → GitHub Enterprise Server?** Start with the
+[deployment and first migration guide](docs/bitbucket-datacenter-to-ghes.md).
+The base stack below is a loopback-only preview; it cannot launch a Bitbucket exporter.
 
 ```bash
 cp .env.example .env
@@ -66,6 +70,7 @@ bun run verify
 | Guide | Audience |
 |---|---|
 | [Getting Started](docs/getting-started.md) | First-time operators and task-oriented paths |
+| [Bitbucket Data Center → GHES](docs/bitbucket-datacenter-to-ghes.md) | Deployers setting up the exporter, GHES appliance access, and a one-repository pilot |
 | [Configuration](docs/configuration.md) | Deployment owners |
 | [Deployment](docs/deployment.md) | Container and proxy operators |
 | [Architecture](docs/architecture.md) | Developers and reviewers |

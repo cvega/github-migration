@@ -129,11 +129,12 @@ Exporter containers never receive GHES credentials.
 
 Target remapping can reveal further conflicts, such as an existing team in
 the destination organization. The importer rechecks conflicts after each map
-and applies the same mapping policy, including GHES-recommended team merges.
+and applies the same mapping policy. A team merge requires an approved mapping
+to a target team slug; a GHES recommendation is not sufficient.
 Repeated unresolved mappings or more than three mapping passes stop for
 operator review before import.
 
-After a successful import and source unlock, GHES resource counts are read
+After the imported repository is unlocked on GHES, resource counts are read
 through the target's REST and GraphQL APIs and persisted with the result.
 A count lookup failure is reported without changing the successful import
 state. The detail page distinguishes unavailable counts from zero and lets
@@ -160,10 +161,10 @@ The identity workspace supports configured GHEC and GHES target profiles.
 Saved mappings are visible before the page finishes loading. The mapping type
 switcher, Add, Import CSV, and Edit enable once their browser handlers are ready;
 Remove is a server form and does not require JavaScript.
-Operators can save mappings manually or import a CSV before accounts and
+Dashboard administrators can save mappings manually or import a CSV before accounts and
 mannequins exist. Decisions are scoped to the target API, organization, source
 type, and exact source identity; unrelated source URLs and mannequin logins are
-not automatically equated. Operators can check user and membership readiness.
+not automatically equated. Administrators can check user and membership readiness.
 GHES imports performed with `ghe-migrator` discover user conflicts over SSH and
 apply matching approved URLs after checking target users exist.
 
