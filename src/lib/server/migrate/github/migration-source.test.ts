@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { graphql } from "@octokit/graphql";
+import { createTargetClients } from "$lib/server/core/github";
 import {
   abortRepositoryMigration,
   archiveRepository,
@@ -21,6 +22,33 @@ function gqlMock(
 }
 
 describe("GitHub migration GraphQL operations", () => {
+  test("does not retry a target start on a lost upstream response", async () => {
+    let submissions = 0;
+    const gql = createTargetClients(
+      { token: "fixture" },
+      "https://fixture.invalid",
+    ).targetGraphql.defaults({
+      request: {
+        fetch: async () => {
+          submissions++;
+          return Response.json({ message: "Upstream disconnected" }, { status: 502 });
+        },
+      },
+    });
+    await expect(
+      startRepositoryMigration(gql, {
+        migrationSourceId: "source",
+        sourceRepoUrl: "https://source.invalid/org/repo",
+        orgId: "org",
+        repoName: "repo",
+        sourceToken: "fixture",
+        targetToken: "fixture",
+        gitArchiveUrl: "",
+        metadataArchiveUrl: "",
+      }),
+    ).rejects.toThrow();
+    expect(submissions).toBe(1);
+  });
   test("creates source types with the target organization owner", async () => {
     const variables: Record<string, unknown>[] = [];
     const gql = gqlMock((_query, input) => {

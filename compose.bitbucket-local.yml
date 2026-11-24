@@ -1,0 +1,7 @@
+services:
+  gh-migrate:
+    networks: [default, bitbucket-local]
+networks:
+  bitbucket-local:
+    external: true
+    name: bitbucket-local_default

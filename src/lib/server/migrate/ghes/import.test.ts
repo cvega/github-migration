@@ -572,6 +572,7 @@ describe("GHES import execution", () => {
       createdAt: now,
       updatedAt: now,
     });
+
     const worker: ExporterWorker = {
       submit: async () => ({ jobId: "unused" }),
       inspect: async () => ({ jobId: "unused", state: "running" }),
@@ -581,4 +582,109 @@ describe("GHES import execution", () => {
     expect(result.state).toBe("reconciliation_required");
     expect(result.failureReason).toContain("ambiguous ghe-migrator importing");
   });
+
+  test.each(["failed", "cancelled", "reconciliation_required"] as const)(
+    "keeps a legacy %s job with an uncertain GUID",
+    async (phase) => {
+      const record = migration("legacy-guid");
+      insertMigration(record);
+      const now = new Date().toISOString();
+      insertGhesImportJob({
+        id: "old-job",
+        migrationId: record.id,
+        phase,
+        exporterJobId: "export",
+        archivePath: "/tmp/archive",
+        archiveSha256: "a".repeat(64),
+        ghesImportId: "already-prepared",
+        sourceWasArchived: true,
+        failureReason: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      let submitted = 0;
+      const source = adapter({
+        submit: async () => {
+          submitted++;
+          return { jobId: "new" };
+        },
+        inspect: async () => ({ jobId: "new", state: "running" }),
+        cancel: async () => {},
+      });
+      expect(
+        (
+          await runExporterGhesMigration(
+            { id: record.id, sourceProvider: record.sourceProvider, emit: () => {} },
+            source,
+          )
+        ).state,
+      ).toBe("reconciliation_required");
+      expect(getGhesImportJobByMigrationId(record.id)?.ghesImportId).toBe("already-prepared");
+      expect(submitted).toBe(0);
+    },
+  );
+
+  test.each(["auditing", "unlocking", "cancel-after-import", "source-unlock"] as const)(
+    "continues with the same GHES GUID after %s without re-importing",
+    async (failure) => {
+      const record = { ...migration("post-import"), sourceProvider: "bitbucket-server" as const };
+      insertMigration(record);
+      let imports = 0;
+      const expectedGuid = "migration-guid-123";
+      const source = adapter({
+        submit: async () => ({ jobId: "export" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/fixture.tar", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      source.provider = record.sourceProvider;
+      source.localMappingRecords = async () =>
+        "model_name,source_url,target_url,state\nrepository,https://bb.example/project,,exported\n";
+      const ssh = source.createSshClient({} as never);
+      source.createSshClient = () => ssh;
+      const cancel = new AbortController();
+      let fail = true;
+      if (failure === "source-unlock") {
+        source.sourceWasLocked = async () => false;
+        source.unlockSource = async () => {
+          if (fail) throw new Error("Fixture disconnected");
+        };
+      }
+      ssh.import = async (_path, guid) => {
+        expect(guid).toBe(expectedGuid);
+        imports++;
+        if (failure === "cancel-after-import") cancel.abort();
+        return { stdout: "", stderr: "" };
+      };
+      for (const [method, phase] of [
+        ["auditFailures", "auditing"],
+        ["unlock", "unlocking"],
+      ] as const) {
+        ssh[method] = async (guid) => {
+          expect(guid).toBe(expectedGuid);
+          if (fail && failure === phase) throw new Error("Fixture disconnected");
+          return { stdout: "", stderr: "" };
+        };
+      }
+      const options = { id: record.id, sourceProvider: record.sourceProvider, emit: () => {} };
+      expect(
+        (await runExporterGhesMigration({ ...options, signal: cancel.signal }, source)).state,
+      ).toBe("reconciliation_required");
+      expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+        phase:
+          failure === "source-unlock"
+            ? "succeeded"
+            : failure === "unlocking"
+              ? "unlocking"
+              : "auditing",
+        ghesImportId: expectedGuid,
+      });
+      fail = false;
+      expect((await runExporterGhesMigration(options, source)).state).toBe("succeeded");
+      expect(imports).toBe(1);
+    },
+  );
 });

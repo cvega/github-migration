@@ -12,8 +12,8 @@ import {
   getBitbucketLfsReportRows,
 } from "$lib/server/profile/database/inventories";
 import type { RepoReadinessFilter } from "$lib/server/profile/database/repos";
-import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
 import { getProfileRun } from "$lib/server/profile/database/runs";
+import { profileSelectionError } from "$lib/server/profile/selection";
 import {
   getProfileDetail,
   getProfileRepoPage,
@@ -100,14 +100,15 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         /^[a-zA-Z0-9._-]{1,100}$/.test(name) &&
         name !== "." &&
         name !== "..",
-    ) ||
-    findMissingProfileProjectPaths(
-      params.id,
-      repos.map((name) => `${own.run.org}/${name}`),
-    ).length
+    )
   ) {
     return json({ error: "Invalid repository selection" }, { status: 400 });
   }
+  const selectionError = profileSelectionError(
+    own.run,
+    repos.map((name) => `${own.run.org}/${name}`),
+  );
+  if (selectionError) return json({ error: selectionError }, { status: 400 });
   try {
     const batch = submitOwnBatch(locals.user.id, {
       sourceProvider: own.run.sourceProvider,

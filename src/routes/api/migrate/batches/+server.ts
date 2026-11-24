@@ -8,6 +8,7 @@ import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas"
 import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
 import { findRepositoriesAwaitingAnalysis } from "$lib/server/profile/database/repository-analysis-runs";
 import { getProfileRun } from "$lib/server/profile/database/runs";
+import { profileSelectionError } from "$lib/server/profile/selection";
 import type { RequestHandler } from "./$types";
 
 const defaults = {
@@ -43,21 +44,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         { status: 400 },
       );
     const sourceRepos = body.items?.map((item) => item.sourceRepo) ?? body.repos ?? [];
-    const missing = dependencies.findMissingProfileProjectPaths(run.id, sourceRepos);
-    if (missing.length > 0)
-      return json(
-        { error: `Repository '${missing[0]}' is not part of the profile run` },
-        { status: 400 },
-      );
-    if (run.sourceProvider === "github") {
-      const awaitingAnalysis = dependencies.findRepositoriesAwaitingAnalysis(run.id, sourceRepos);
-      if (awaitingAnalysis.length > 0) {
-        return json(
-          { error: `Repository '${awaitingAnalysis[0]}' requires successful Git analysis` },
-          { status: 400 },
-        );
-      }
-    }
+    const error = profileSelectionError(run, sourceRepos, dependencies);
+    if (error) return json({ error }, { status: 400 });
     body = { ...body, sourceProvider: run.sourceProvider, sourceApiUrl: run.sourceApiUrl };
   }
   const authError = validateAuthAvailable(body, { locals, resourceType: "batch" });

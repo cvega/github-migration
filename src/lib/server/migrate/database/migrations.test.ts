@@ -7,7 +7,7 @@ import {
   getMigration,
   getNextQueuedMigration,
   getRecoverableMigrations,
-  getSourceExportId,
+  getResumableSourceExportId,
   insertMigration,
   likePattern,
   listMigrationsPaginated,
@@ -196,15 +196,15 @@ describe("migration database lifecycle", () => {
     insertMigration(
       migration({
         id: "recoverable",
-        sourceProvider: "gitlab",
-        sourceApiUrl: "https://gitlab.example.com/api/v4",
+        sourceProvider: "bitbucket-server",
+        sourceApiUrl: "https://bitbucket.example.com/rest/api/1.0",
         state: "running",
         authMode: "env-pat",
       }),
     );
     insertMigration(migration({ id: "request-auth", state: "running", authMode: "request-pat" }));
     updateSourceExportCheckpoint("recoverable", "source_export", "42");
-    expect(getSourceExportId("recoverable")).toBe("42");
+    expect(getResumableSourceExportId("recoverable")).toBe("42");
     expect(getRecoverableMigrations().map(({ id }) => id)).toEqual(["recoverable"]);
     expect(() => updateSourceExportCheckpoint("recoverable", "source_export", "0")).toThrow();
   });

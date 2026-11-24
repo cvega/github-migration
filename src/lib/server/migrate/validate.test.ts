@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
 import {
-  requestFromPersistedOptions,
   restartValidationInput,
   serializeRequestOptions,
   validateMigrationTargetSelection,
@@ -25,18 +24,10 @@ describe("migration request validation", () => {
       skipReleases: true,
     });
     expect(serialized).not.toContain("secret");
-    expect(requestFromPersistedOptions(JSON.parse(serialized))).toEqual({
-      sourceApiUrl: undefined,
+    expect(JSON.parse(serialized)).toEqual({
       sourceRepo: "acme/widget",
-      targetProfileId: undefined,
       targetOrg: "acme-cloud",
-      targetRepo: undefined,
-      noSslVerify: undefined,
       skipReleases: true,
-      lockSource: undefined,
-      archiveSource: undefined,
-      targetRepoVisibility: undefined,
-      directPassthrough: undefined,
     });
   });
 

@@ -3,10 +3,10 @@ import type { AuthMode, CreateMigrationRequest, Migration } from "$lib/migrate/t
 import type { MigrationTargetProfile } from "$lib/migration-target";
 import { resolveTargetAuth } from "$lib/server/core/auth";
 import {
-  createClients,
+  createTargetClients,
   doesOrgExist,
   doesRepoExist,
-  type GitHubClients,
+  type GitHubTargetClients,
 } from "$lib/server/core/github";
 import type { SourceProvider } from "$lib/source/types";
 import { getSourceProjectIdentity } from "$lib/source-provider";
@@ -15,13 +15,14 @@ import { type abortRepositoryMigration, getOrgDatabaseId } from "../github/migra
 import type { MigrationEventEmitter } from "../github/monitor";
 import { uploadArchive } from "../github/upload";
 import { emitNativeStep } from "../runs/events";
+import { requestForMigration, safeParsePersistedRequestOptions } from "../validate";
 import { executeArchiveToGhec, type monitorGhecMigration } from "./archive-to-ghec";
 
 const PLACEHOLDER_SOURCE_TOKEN = "not-used";
 
 export interface NativeToGhecDependencies {
   resolveTargetAuth: typeof resolveTargetAuth;
-  createClients: typeof createClients;
+  createClients: typeof createTargetClients;
   doesOrgExist: typeof doesOrgExist;
   doesRepoExist: typeof doesRepoExist;
   getOrgDatabaseId: typeof getOrgDatabaseId;
@@ -32,7 +33,7 @@ export interface NativeToGhecDependencies {
 
 export const nativeToGhecDependencies: NativeToGhecDependencies = {
   resolveTargetAuth,
-  createClients,
+  createClients: createTargetClients,
   doesOrgExist,
   doesRepoExist,
   getOrgDatabaseId,
@@ -89,14 +90,9 @@ function createNativeTargetClients(
   request: CreateMigrationRequest,
   targetApiUrl: string,
   dependencies: Pick<NativeToGhecDependencies, "resolveTargetAuth" | "createClients">,
-): GitHubClients {
+): GitHubTargetClients {
   const targetAuth = dependencies.resolveTargetAuth(request.targetToken, request.targetApp);
-  return dependencies.createClients({
-    sourceApiUrl: targetApiUrl,
-    sourceAuth: targetAuth,
-    targetApiUrl,
-    targetAuth,
-  });
+  return dependencies.createClients(targetAuth, targetApiUrl);
 }
 
 export async function prepareNativeTarget(
@@ -106,7 +102,7 @@ export async function prepareNativeTarget(
     NativeToGhecDependencies,
     "resolveTargetAuth" | "createClients" | "doesOrgExist" | "doesRepoExist" | "updateCheckpoint"
   >,
-): Promise<GitHubClients> {
+): Promise<GitHubTargetClients> {
   const clients = createNativeTargetClients(request, migration.targetApiUrl, dependencies);
   dependencies.updateCheckpoint(migration.id, "preflight", {
     authMode: nativeTargetAuthMode(request, dependencies),
@@ -127,57 +123,85 @@ export async function prepareNativeTarget(
 }
 
 export async function resumeNativeToGhecMigration<SourceClient extends { apiUrl: string }>(input: {
-  request: CreateMigrationRequest & { signal?: AbortSignal; emit: MigrationEventEmitter };
+  signal?: AbortSignal;
+  emit: MigrationEventEmitter;
   migration: Migration;
   dependencies: Pick<NativeToGhecDependencies, "resolveTargetAuth" | "createClients"> & {
     abortMigration: typeof abortRepositoryMigration;
     monitorGhecMigration: typeof monitorGhecMigration;
   };
-  validateSourceCheckpoint: () => void;
+  getSourceExportId: () => string | null;
   getSourceClient: () => SourceClient;
-  sourceUrlChangedMessage: string;
-  resumeMessage: () => string;
+  resumeMessage: (exportId: string) => string;
   executeFromExport: (
+    request: CreateMigrationRequest & { signal?: AbortSignal; emit: MigrationEventEmitter },
     sourceClient: SourceClient,
-    clients: GitHubClients,
+    clients: GitHubTargetClients,
     markRemoteStartMayHaveSucceeded: (unknown: boolean) => void,
+    exportId: string,
   ) => Promise<Migration>;
 }): Promise<Migration> {
-  let clients: GitHubClients | null = null;
+  const saved = input.migration.requestOptions
+    ? safeParsePersistedRequestOptions(input.migration.requestOptions)
+    : null;
+  const checkpoint = input.migration.githubMigrationId
+    ? { kind: "monitor", id: input.migration.githubMigrationId }
+    : { kind: "export", id: input.getSourceExportId() };
+  if (!checkpoint.id || (checkpoint.kind === "export" && !saved)) {
+    return {
+      ...input.migration,
+      state: "reconciliation_required",
+      failureReason: !checkpoint.id
+        ? "No confirmed pre-import export checkpoint; check the target before restarting"
+        : "Approved import options are missing; review the plan and target before restarting",
+      completedAt: new Date().toISOString(),
+    };
+  }
+  const request = {
+    ...requestForMigration(input.migration, saved ?? {}),
+    emit: input.emit,
+    signal: input.signal,
+  };
+  let clients: GitHubTargetClients | null = null;
   let remoteStartMayHaveSucceeded = false;
   try {
-    clients = createNativeTargetClients(
-      input.request,
-      input.migration.targetApiUrl,
-      input.dependencies,
-    );
-    if (input.migration.githubMigrationId) {
+    clients = createNativeTargetClients(request, input.migration.targetApiUrl, input.dependencies);
+    if (checkpoint.kind === "monitor") {
       emitNativeStep(
-        input.request.emit,
+        input.emit,
         input.migration.id,
-        `Reconnecting to in-flight migration ${input.migration.githubMigrationId}`,
+        `Reconnecting to in-flight migration ${checkpoint.id}`,
       );
-      return input.dependencies.monitorGhecMigration(
+      return await input.dependencies.monitorGhecMigration(
         clients,
         input.migration,
-        input.migration.githubMigrationId,
-        input.request.emit,
-        input.request.signal,
+        checkpoint.id,
+        input.emit,
+        input.signal,
       );
     }
-    input.validateSourceCheckpoint();
     const sourceClient = input.getSourceClient();
     if (sourceClient.apiUrl !== input.migration.sourceApiUrl) {
-      throw new Error(input.sourceUrlChangedMessage);
+      return {
+        ...input.migration,
+        state: "reconciliation_required",
+        failureReason: "Configured source URL changed since submission; check the recorded export",
+        completedAt: new Date().toISOString(),
+      };
     }
-    emitNativeStep(input.request.emit, input.migration.id, input.resumeMessage());
-    return input.executeFromExport(sourceClient, clients, (unknown) => {
-      remoteStartMayHaveSucceeded = unknown;
-    });
-  } catch (error) {
+    emitNativeStep(input.emit, input.migration.id, input.resumeMessage(checkpoint.id));
+    return await input.executeFromExport(
+      request,
+      sourceClient,
+      clients,
+      (unknown) => {
+        remoteStartMayHaveSucceeded = unknown;
+      },
+      checkpoint.id,
+    );
+  } catch {
     return classifyNativeFailure({
-      error,
-      signal: input.request.signal,
+      signal: input.signal,
       migration: input.migration,
       clients,
       sourceWriteMayHaveSucceeded: false,
@@ -191,7 +215,7 @@ export async function resumeNativeToGhecMigration<SourceClient extends { apiUrl:
 export async function uploadAndExecuteNativeArchive(input: {
   request: CreateMigrationRequest;
   migration: Migration;
-  clients: GitHubClients;
+  clients: GitHubTargetClients;
   archivePath: string;
   archiveName: string;
   uploadMessage: string;
@@ -239,13 +263,12 @@ export async function uploadAndExecuteNativeArchive(input: {
 }
 
 export async function classifyNativeFailure(input: {
-  error: unknown;
   signal?: AbortSignal;
   migration: Migration;
-  clients: GitHubClients | null;
+  clients: GitHubTargetClients | null;
   sourceWriteMayHaveSucceeded: boolean;
   remoteStartMayHaveSucceeded: boolean;
-  abortMigration: (clients: GitHubClients, migrationId: string) => Promise<boolean>;
+  abortMigration: (clients: GitHubTargetClients, migrationId: string) => Promise<boolean>;
 }): Promise<Migration> {
   const cancelled = input.signal?.aborted ?? false;
   if (cancelled && input.migration.githubMigrationId && input.clients) {
@@ -256,22 +279,27 @@ export async function classifyNativeFailure(input: {
       ))
         ? "cancelled"
         : "reconciliation_required";
-    } catch (error) {
+    } catch {
       input.migration.state = "reconciliation_required";
-      input.migration.failureReason = error instanceof Error ? error.message : String(error);
     }
+    if (input.migration.state === "reconciliation_required")
+      input.migration.failureReason =
+        "GHEC cancellation could not be confirmed; check the target before restarting";
   } else if (
     input.sourceWriteMayHaveSucceeded ||
     input.remoteStartMayHaveSucceeded ||
     input.migration.githubMigrationId
   ) {
     input.migration.state = "reconciliation_required";
+    input.migration.failureReason = input.sourceWriteMayHaveSucceeded
+      ? "Source export outcome is unknown; check the source before restarting"
+      : "GHEC import outcome is unknown; check the target before restarting";
   } else {
     input.migration.state = cancelled ? "cancelled" : "failed";
   }
   if (!input.migration.failureReason && input.migration.state !== "cancelled") {
     input.migration.failureReason =
-      input.error instanceof Error ? input.error.message : String(input.error);
+      "Native migration failed before target import; check source export and target configuration";
   }
   input.migration.completedAt = new Date().toISOString();
   input.migration.elapsedSeconds =

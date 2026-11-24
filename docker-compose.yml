@@ -10,13 +10,9 @@ services:
     env_file: .env
     ports:
       - "${GH_MIGRATE_PUBLISH_HOST:-127.0.0.1}:3000:3000"
-    networks:
-      - default
-      - bitbucket-local
     volumes:
       - gh-migrate-data:/data
       - gh-migrate-archives:/archives
-      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DATA_DIR=/data
       - ARCHIVE_DIR=/archives
@@ -35,12 +31,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  bbs-exporter-image:
-    profiles: [tools]
-    image: ${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
-    build:
-      context: ${BBS_EXPORTER_BUILD_CONTEXT:-../bbs-exporter-1.13.0}
 
   profile-analyzer:
     image: ${GH_MIGRATE_ANALYZER_IMAGE:-gh-migrate-profile-analyzer:local}
@@ -65,13 +55,10 @@ services:
         max-size: "10m"
         max-file: "3"
 
-networks:
-  bitbucket-local:
-    external: true
-    name: bitbucket-local_default
-
 volumes:
   gh-migrate-data:
+    name: ${GH_MIGRATE_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_gh-migrate-data}
   gh-migrate-analysis-workspaces:
+    name: ${GH_MIGRATE_ANALYSIS_VOLUME:-${COMPOSE_PROJECT_NAME}_gh-migrate-analysis-workspaces}
   gh-migrate-archives:
     name: ${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}

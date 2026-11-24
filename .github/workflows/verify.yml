@@ -77,6 +77,23 @@ jobs:
       - name: Exercise production images
         run: sh scripts/packaging/container-smoke.sh gh-migrate:smoke-dashboard gh-migrate:smoke-analyzer
 
+      - name: Start base Compose without a local Bitbucket or runtime socket
+        env:
+          COMPOSE_PROJECT_NAME: clean-host-smoke
+          GH_MIGRATE_IMAGE: gh-migrate:smoke-dashboard
+          GH_MIGRATE_ANALYZER_IMAGE: gh-migrate:smoke-analyzer
+          EXPORTER_ARCHIVE_VOLUME: clean-host-smoke-archives
+        run: |
+          work=$(mktemp -d)
+          cp docker-compose.yml compose.exporter.yml "$work"
+          cd "$work"
+          echo 'GH_MIGRATE_ALLOW_UNAUTHENTICATED=true' > .env
+          trap 'docker compose down --volumes' EXIT
+          docker compose up --no-build -d --wait --wait-timeout 90
+          docker compose exec -T gh-migrate sh -ec 'test ! -e /var/run/docker.sock'
+          docker compose -f docker-compose.yml -f compose.exporter.yml run --rm --no-deps \
+            --entrypoint sh gh-migrate -ec 'test -S /var/run/docker.sock && test -d /archives'
+
       - name: Scan dashboard image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

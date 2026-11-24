@@ -22,10 +22,7 @@ import {
   getSourceProviderAdapter,
   type SourceProvider,
 } from "$lib/source-provider";
-import {
-  type PersistedRequestOptions,
-  tryParsePersistedRequestOptions,
-} from "./database/migrations";
+import { tryParsePersistedRequestOptions } from "./database/migrations";
 import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 
 export function validateMigrationTargetSelection(input: {
@@ -98,40 +95,25 @@ export function serializeRequestOptions(request: CreateMigrationRequest): string
   });
 }
 
-export function requestFromPersistedOptions(
-  options: PersistedRequestOptions,
+/** Keep the admitted route and repository identity authoritative on every dispatch. */
+export function requestForMigration(
+  migration: Migration,
+  options: Partial<CreateMigrationRequest> = {},
 ): CreateMigrationRequest {
-  const stringValue = (value: unknown): string | undefined =>
-    typeof value === "string" ? value : undefined;
-  const booleanValue = (value: unknown): boolean | undefined =>
-    typeof value === "boolean" ? value : undefined;
-  const visibility = options.targetRepoVisibility;
-  return {
-    sourceApiUrl: stringValue(options.sourceApiUrl),
-    sourceRepo: stringValue(options.sourceRepo) ?? "",
-    targetProfileId: stringValue(options.targetProfileId),
-    targetOrg: stringValue(options.targetOrg) ?? "",
-    targetRepo: stringValue(options.targetRepo),
-    noSslVerify: booleanValue(options.noSslVerify),
-    skipReleases: booleanValue(options.skipReleases),
-    lockSource: booleanValue(options.lockSource),
-    archiveSource: booleanValue(options.archiveSource),
-    targetRepoVisibility:
-      visibility === "private" || visibility === "public" || visibility === "internal"
-        ? visibility
-        : undefined,
-    directPassthrough: booleanValue(options.directPassthrough),
-  };
-}
-
-export function restartValidationInput(migration: Migration, options: MigrationOptions) {
   return {
     ...options,
     sourceProvider: migration.sourceProvider,
     sourceApiUrl: migration.sourceApiUrl,
     sourceRepo: `${migration.sourceOrg}/${migration.sourceRepo}`,
-    targetOrg: migration.targetOrg,
     targetProfileId: migration.targetProfileId,
+    targetOrg: migration.targetOrg,
+    targetRepo: migration.targetRepo,
+  };
+}
+
+export function restartValidationInput(migration: Migration, options: MigrationOptions) {
+  return {
+    ...requestForMigration(migration, options),
     targetPlatform: migration.targetPlatform,
   };
 }

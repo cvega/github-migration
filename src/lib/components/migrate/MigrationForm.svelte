@@ -130,6 +130,11 @@
 					<Octicon name="gear" size={16} />Options
 				</h3>
 
+				<label class="flex items-center gap-3 text-sm text-gray-300">
+					<input type="checkbox" bind:checked={form.state.useSavedOptions} />
+					Use each migration's saved options
+				</label>
+				{#if !form.state.useSavedOptions}
 				{#if capabilities.migrationMode}
 					<div>
 						<span class="mb-1.5 block text-sm font-medium text-gray-400">Migration Mode</span>
@@ -176,7 +181,7 @@
 						bind:value={form.state.targetRepoVisibility}
 						class="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
 					>
-						<option value="">Default</option>
+						<option value="">Keep saved visibility</option>
 						<option value="private">Private</option>
 						<option value="public">Public</option>
 						<option value="internal">Internal</option>
@@ -200,6 +205,7 @@
 						<input type="checkbox" bind:checked={form.state.noSslVerify} />
 						<span class="text-sm text-gray-400">{sslVerifyLabel}</span>
 					</label>
+				{/if}
 				{/if}
 			</div>
 

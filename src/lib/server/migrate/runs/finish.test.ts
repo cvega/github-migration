@@ -111,11 +111,17 @@ describe("migration run settlement", () => {
     insertMigration(migration("migration-1"));
     const registration = claimedRun("migration-1");
     const finisher = createMigrationRunFinisher(() => {});
-    finisher.settleError("migration-1", registration.token, new Error("executor crashed"));
+    const error = Object.assign(new Error("private-fixture"), {
+      request: { variables: { githubPat: "private-fixture" } },
+    });
+    finisher.settleError("migration-1", registration.token, error);
     expect(getMigration("migration-1")).toMatchObject({
       state: "failed",
-      failureReason: "executor crashed",
+      failureReason: expect.stringContaining("Unexpected executor failure"),
     });
+    expect(consoleError.mock.calls.flat()).not.toContain(error);
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain("private-fixture");
+    expect(JSON.stringify(getEvents("migration-1"))).not.toContain("private-fixture");
     finisher.settleResult("migration-1", registration.token, migration("migration-1", "succeeded"));
     expect(getMigration("migration-1")?.state).toBe("failed");
   });

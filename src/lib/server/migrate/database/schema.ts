@@ -21,7 +21,12 @@ import {
   type DurableTableContract,
 } from "$lib/server/core/db";
 import { SOURCE_PROVIDERS } from "$lib/source-provider";
-import { MIGRATION_COLS, PAUSED_GITLAB_ROUTE_SQL } from "./columns";
+import {
+  MIGRATION_COLS,
+  PAUSED_GITLAB_ROUTE_SQL,
+  RECOVERABLE_CHECKPOINT_SQL,
+  UNRESOLVED_REMOTE_WORK_SQL,
+} from "./columns";
 
 export const MIGRATE_DURABLE_TABLES = [
   {
@@ -330,18 +335,12 @@ export function recoverInterruptedMigrations(db: Database, nowMs: number = Date.
     .prepare(
       `UPDATE migrations
        SET state = CASE
-             WHEN state = 'cancelling' OR github_migration_id IS NOT NULL
-               OR (pipeline_step = 'ghec_starting' AND github_migration_id IS NULL)
-                 OR (source_provider IN ('gitlab', 'bitbucket-server')
-                   AND pipeline_step = 'source_export' AND source_export_id IS NULL)
+             WHEN ${UNRESOLVED_REMOTE_WORK_SQL}
                THEN 'reconciliation_required'
              ELSE 'failed'
            END,
            failure_reason = CASE
-             WHEN state = 'cancelling' OR github_migration_id IS NOT NULL
-               OR (pipeline_step = 'ghec_starting' AND github_migration_id IS NULL)
-                 OR (source_provider IN ('gitlab', 'bitbucket-server')
-                   AND pipeline_step = 'source_export' AND source_export_id IS NULL)
+             WHEN ${UNRESOLVED_REMOTE_WORK_SQL}
                THEN 'Server restarted with an unresolved remote migration outcome'
              ELSE 'Server restarted during migration'
            END,
@@ -350,26 +349,16 @@ export function recoverInterruptedMigrations(db: Database, nowMs: number = Date.
          AND source_provider IN (${providerPlaceholders})
          AND id NOT LIKE 'seed-%'
          AND NOT (
-           auth_mode IN ('env-app', 'env-pat')
+           coalesce(auth_mode IN ('env-app', 'env-pat'), 0)
            AND state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})
-           AND (
-             github_migration_id IS NOT NULL
-             OR (source_provider IN ('gitlab', 'bitbucket-server')
-               AND source_export_id IS NOT NULL)
-             OR (target_platform = 'ghes' AND EXISTS (
-               SELECT 1 FROM ghes_import_jobs job
-               WHERE job.migration_id = migrations.id
-                 AND job.phase NOT IN ('succeeded', 'failed', 'cancelled', 'reconciliation_required')
-                 AND (job.exporter_job_id IS NOT NULL OR job.ghes_import_id IS NOT NULL)
-             ))
-           )
+           AND ${RECOVERABLE_CHECKPOINT_SQL}
          )
-         AND NOT (auth_mode IN ('env-app', 'env-pat') AND state = 'queued')`,
+         AND NOT (coalesce(auth_mode IN ('env-app', 'env-pat'), 0) AND state = 'queued')`,
     )
     .run(providerBindings);
   if (orphaned.changes > 0) {
     console.log(
-      `[migrate] Marked ${orphaned.changes} non-recoverable orphaned migration(s) as failed`,
+      `[migrate] Stopped ${orphaned.changes} interrupted migration(s); check Failed and Needs review before restarting`,
     );
   }
 }
@@ -460,6 +449,7 @@ export const migrateStore: DomainStore = {
       );
       db.run("UPDATE app_schema_versions SET version = 8 WHERE domain = 'migrate' AND version < 8");
     })();
+    invalidateLegacyNativeSourceCounts(db);
   },
   onInit(db) {
     recoverInterruptedMigrations(db);
@@ -467,3 +457,24 @@ export const migrateStore: DomainStore = {
     if (pruned > 0) console.log(`[migrate] Pruned ${pruned} retained migration(s)`);
   },
 };
+
+// Older native GHEC runs sampled the source name on GitHub with target credentials.
+// Invalidate that observation, including event replay, without changing target counts or job history.
+function invalidateLegacyNativeSourceCounts(db: Database): void {
+  db.transaction(() => {
+    const upgraded = db.run(
+      "UPDATE app_schema_versions SET version = 9 WHERE domain = 'migrate' AND version < 9",
+    );
+    if (!upgraded.changes) return;
+    const native = "target_platform = 'ghec' AND source_provider IN ('gitlab', 'bitbucket-server')";
+    db.run(
+      `UPDATE migrations SET source_counts = NULL WHERE source_counts IS NOT NULL AND ${native}`,
+    );
+    db.run(`UPDATE events SET payload = json_set(payload, '$.sourceCounts', NULL)
+      WHERE migration_id IN (SELECT id FROM migrations WHERE ${native})
+        AND event_type IN ('snapshot','complete') AND json_valid(payload) AND json_type(payload,'$.sourceCounts') = 'object'`);
+    db.run(`UPDATE events SET payload = json_object('message','Source counts unavailable')
+      WHERE migration_id IN (SELECT id FROM migrations WHERE ${native})
+        AND event_type = 'step' AND json_valid(payload) AND json_extract(payload,'$.message') = 'Source counts fetched'`);
+  })();
+}

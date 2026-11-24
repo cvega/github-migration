@@ -103,6 +103,8 @@ export async function startRepositoryMigration(
   const result = await gql<{
     startRepositoryMigration: { repositoryMigration: { id: string } };
   }>(mutation, {
+    // A 5xx can arrive after acceptance; do not replay this mutation in the SDK.
+    request: { retries: 0 },
     sourceId: options.migrationSourceId,
     ownerId: options.orgId,
     sourceRepositoryUrl: options.sourceRepoUrl,

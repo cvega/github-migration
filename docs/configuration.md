@@ -181,7 +181,9 @@ this repository at `../bbs-exporter-1.13.0`, or set
 `BBS_EXPORTER_BUILD_CONTEXT` to its location, then build the image:
 
 ```sh
+export COMPOSE_FILE=docker-compose.yml:compose.exporter.yml
 docker compose --profile tools build bbs-exporter-image
+docker compose up -d --wait
 ```
 
 The tools profile builds the image; it is not a long-running exporter service.
@@ -194,7 +196,9 @@ reference. On a clean worker, pull that exact reference and inspect its
 `RepoDigests` before enabling the route. The local `-validation` tag does not
 establish image provenance or availability on another worker.
 
-The Compose dashboard also joins the external `bitbucket-local_default`
-network for the local Bitbucket instance. Start that Bitbucket Compose project
-first so the network exists; set `EXPORTER_NETWORK=bitbucket-local_default` to
-connect exporter containers to it as well.
+Only include `compose.exporter.yml` where the dashboard must launch exporter
+containers. For a local Bitbucket on the external `bitbucket-local_default`
+network, also append `:compose.bitbucket-local.yml` to `COMPOSE_FILE` and set
+`EXPORTER_NETWORK=bitbucket-local_default`. Start that Bitbucket project first.
+An externally reachable Bitbucket does not need the local network override.
+Keep the chosen `COMPOSE_FILE` in the deployment environment for future upgrades.

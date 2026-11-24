@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import type { Counts, MigrationEvent } from "$lib/migrate/types";
+import type { Counts, Migration, MigrationEvent } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
+import { monitorGhecMigration } from "../executors/archive-to-ghec";
 import { __setMonitorDependenciesForTests, monitorRepositoryMigration } from "./monitor";
 
 const counts: Counts = {
@@ -24,6 +25,48 @@ let restore = () => {};
 afterEach(() => restore());
 
 describe("GitHub migration monitor", () => {
+  test.each(["gitlab", "bitbucket-server"] as const)(
+    "does not look up a colliding %s source on GitHub",
+    async (sourceProvider) => {
+      const lookups: string[] = [];
+      restore = __setMonitorDependenciesForTests({
+        getRepositoryMigration: async () => ({
+          state: "SUCCEEDED",
+          repositoryName: "widget",
+          warningsCount: 0,
+          failureReason: "",
+          migrationLogUrl: "",
+        }),
+        doesRepoExist: async () => true,
+        getRepoCounts: async (_client, _gql, owner, repo) => {
+          lookups.push(`${owner}/${repo}`);
+          return counts;
+        },
+      });
+      const events: MigrationEvent[] = [];
+      const result = await monitorGhecMigration(
+        clients,
+        {
+          id: "collision",
+          sourceProvider,
+          sourceOrg: "other-owner",
+          sourceRepo: "widget",
+          targetOrg: "dest",
+          targetRepo: "widget",
+          sourceCounts: null,
+          startedAt: new Date().toISOString(),
+        } as Migration,
+        "remote",
+        (event) => events.push(event),
+      );
+      expect(lookups).toEqual(["dest/widget"]);
+      expect(events.at(-1)).toMatchObject({
+        eventType: "complete",
+        payload: { sourceCounts: null },
+      });
+      expect(result.targetCounts).toEqual(counts);
+    },
+  );
   test("returns authoritative counts from the successful terminal snapshot", async () => {
     restore = __setMonitorDependenciesForTests({
       getRepositoryMigration: async () => ({

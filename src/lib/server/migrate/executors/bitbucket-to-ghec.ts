@@ -1,5 +1,5 @@
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
-import type { GitHubClients } from "$lib/server/core/github";
+import type { GitHubTargetClients } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
 import {
@@ -8,7 +8,7 @@ import {
   getBitbucketMigrationSourceClient,
   isDefinitiveBitbucketApiError,
 } from "$lib/server/migrate/ports/source-runtime";
-import { getSourceExportId, updateSourceExportCheckpoint } from "../database/migrations";
+import { getResumableSourceExportId, updateSourceExportCheckpoint } from "../database/migrations";
 import {
   abortRepositoryMigration,
   createBitbucketMigrationSource,
@@ -124,7 +124,7 @@ async function executeFromExport(
   migration: Migration,
   exportId: string,
   client: BitbucketMigrationSourceClient,
-  clients: GitHubClients,
+  clients: GitHubTargetClients,
   markRemoteStartMayHaveSucceeded: (unknown: boolean) => void,
 ): Promise<Migration> {
   await waitForExport(client, exportId, migration, options.signal, options.emit);
@@ -153,7 +153,7 @@ export async function runBitbucketToGhecMigration(
 ): Promise<Migration> {
   const sourceClient = dependencies.getSourceClient();
   const migration = createMigration(options, sourceClient.apiUrl);
-  let clients: GitHubClients | null = null;
+  let clients: GitHubTargetClients | null = null;
   let sourceWriteMayHaveSucceeded = false;
   let remoteStartMayHaveSucceeded = false;
   try {
@@ -167,15 +167,21 @@ export async function runBitbucketToGhecMigration(
     dependencies.updateSourceExportCheckpoint(migration.id, "source_export", exportId);
     sourceWriteMayHaveSucceeded = false;
     emitNativeStep(options.emit, migration.id, `Bitbucket export ${exportId} started`);
-    return executeFromExport(options, migration, exportId, sourceClient, clients, (unknown) => {
-      remoteStartMayHaveSucceeded = unknown;
-    });
+    return await executeFromExport(
+      options,
+      migration,
+      exportId,
+      sourceClient,
+      clients,
+      (unknown) => {
+        remoteStartMayHaveSucceeded = unknown;
+      },
+    );
   } catch (error) {
     if (dependencies.isDefinitiveApiError(error)) {
       sourceWriteMayHaveSucceeded = false;
     }
     return classifyNativeFailure({
-      error,
       signal: options.signal,
       migration,
       clients,
@@ -187,39 +193,26 @@ export async function runBitbucketToGhecMigration(
   }
 }
 
-function recoveredRequest(migration: Migration): BitbucketToGhecOptions {
-  return {
-    sourceProvider: "bitbucket-server",
-    sourceApiUrl: migration.sourceApiUrl,
-    sourceRepo: `${migration.sourceOrg}/${migration.sourceRepo}`,
-    targetProfileId: migration.targetProfileId,
-    targetOrg: migration.targetOrg,
-    targetRepo: migration.targetRepo,
-    emit: () => {},
-  };
-}
-
 export async function resumeBitbucketToGhecMigration(
   migration: Migration,
   emit: MigrationEventEmitter,
   signal?: AbortSignal,
 ): Promise<Migration> {
-  const options = { ...recoveredRequest(migration), signal, emit };
-  let exportId = "";
   return resumeNativeToGhecMigration({
-    request: options,
+    signal,
+    emit,
     migration,
     dependencies,
-    validateSourceCheckpoint: () => {
-      exportId = getSourceExportId(migration.id) ?? "";
-      if (!exportId) {
-        throw new Error(`Cannot resume migration ${migration.id}: missing source export ID`);
-      }
-    },
+    getSourceExportId: () => getResumableSourceExportId(migration.id),
     getSourceClient: dependencies.getSourceClient,
-    sourceUrlChangedMessage: `Cannot resume migration ${migration.id}: Bitbucket source URL changed`,
-    resumeMessage: () => `Resuming Bitbucket export ${exportId}`,
-    executeFromExport: (sourceClient, clients, markRemoteStartMayHaveSucceeded) =>
+    resumeMessage: (exportId) => `Resuming Bitbucket export ${exportId}`,
+    executeFromExport: (
+      options,
+      sourceClient,
+      clients,
+      markRemoteStartMayHaveSucceeded,
+      exportId,
+    ) =>
       executeFromExport(
         options,
         migration,
