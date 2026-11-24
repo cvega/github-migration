@@ -26,7 +26,7 @@ checks apply regardless of whether a link is visible.
 | `GET` | `/api/profile` | List profile runs |
 | `GET` | `/api/profile/discover` | Discover a page of visible namespaces for `provider`; pass the returned `next` as `cursor` |
 | `GET` | `/api/profile/:id` | Read profile status and paginated repository detail |
-| `POST` | `/api/profile/:id` | Queue selected repositories from an assigned profile using its enforced destination |
+| `POST` | `/api/profile/:id` | Queue `{ "grantId": "...", "repos": ["repo"] }` for an operator's assigned source and destination. The grant must belong to this user, match this report's source and permit migration. |
 | `GET` | `/api/profile/:id/events` | Stream profile progress and terminal state |
 | `POST` | `/api/migrate` | Start one repository migration |
 | `GET` | `/api/migrate` | List or search migrations |

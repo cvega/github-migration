@@ -17,7 +17,7 @@ test("reports server configuration readiness and opens profile", async ({ page }
 
 	await expect(page.getByRole("heading", { name: "GitHub Enterprise Cloud" })).toBeVisible();
 	await expect(page.getByText("Execution setup incomplete", { exact: true })).toBeVisible();
-	await expect(page.getByText("test-target-org", { exact: true })).toBeVisible();
+	await expect(page.getByText("test-target-org, alternate-org, archive-org", { exact: true })).toBeVisible();
 	await expect(page.getByText("Blocked", { exact: true })).toHaveCount(3);
 
 	await page.getByRole("link", { name: "Start profile" }).click();

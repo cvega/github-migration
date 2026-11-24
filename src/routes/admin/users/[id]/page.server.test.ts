@@ -26,13 +26,18 @@ afterEach(() => {
   else process.env.GH_TARGET_ORG = originalOrg;
 });
 
-function event(actor: string, id: string, input: Record<string, string> = {}) {
+function event(actor: string, id: string, input: Record<string, string | string[]> = {}) {
+  const url = new URL(`https://example.test/admin/users/${id}`);
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(input))
+    for (const item of [value].flat()) body.append(key, item);
   return {
+    url,
     locals: { user: findUserById(actor), authEnabled: true },
     params: { id },
-    request: new Request(`https://example.test/admin/users/${id}`, {
+    request: new Request(url, {
       method: "POST",
-      body: new URLSearchParams(input),
+      body,
     }),
   };
 }
@@ -45,42 +50,56 @@ function action(
   name: "assign" | "removeAssignment",
   actor: string,
   id: string,
-  input: Record<string, string>,
+  input: Record<string, string | string[]>,
 ) {
   const submit = actions[name]!;
   return submit(event(actor, id, input) as Parameters<typeof submit>[0]);
 }
 
-test("assignments use the panel's user, pin the destination and cannot be revoked from another panel", async () => {
+test("grants multiple destinations atomically for the panel's user without pinning other users", async () => {
   const data = await page("admin", "alice");
   const [first, other] = data.profiles[0]!.destinations;
-  const fields = { userId: "bob", route: first!.key, permission: "view" };
+  const fields = {
+    userId: "bob",
+    source: data.profiles[0]!.key,
+    route: [first!.key, other!.key],
+    permission: "view",
+  };
+  expect(
+    await action("assign", "admin", "alice", { ...fields, route: [first!.key, "stale"] }),
+  ).toMatchObject({ status: 400 });
+  expect(listGrants("alice")).toEqual([]);
   expect(await action("assign", "admin", "disabled", fields)).toMatchObject({ status: 400 });
   expect(await action("assign", "admin", "alice", fields)).toMatchObject({
-    success: "Profile assigned.",
+    success: "Assigned 2 destinations.",
   });
   expect(await action("assign", "admin", "alice", fields)).toMatchObject({ status: 400 });
   expect(listGrants("alice")[0]?.canMigrate).toBe(false);
   const bob = await page("admin", "bob");
   expect(bob.grants).toEqual([]);
-  expect(bob.profiles[0]?.destinations).toEqual([first!]);
+  expect(bob.profiles[0]?.destinations).toEqual([first!, other!]);
   expect(await action("assign", "admin", "bob", { ...fields, route: other!.key })).toMatchObject({
-    status: 400,
+    success: "Assigned 1 destination.",
   });
   const grantId = (await page("admin", "alice")).grants[0]!.id;
   expect(await action("removeAssignment", "admin", "bob", { grantId })).toMatchObject({
     status: 400,
   });
-  expect(listGrants("alice")).toHaveLength(1);
+  expect(listGrants("alice")).toHaveLength(2);
   expect(await action("removeAssignment", "admin", "alice", { grantId })).toMatchObject({
     success: "Profile access removed.",
   });
-  expect(listGrants("alice")).toEqual([]);
+  expect(listGrants("alice")).toHaveLength(1);
+  expect(listGrants("bob")).toHaveLength(1);
 });
 
 test("rejects forged options and options that are no longer configured or completed", async () => {
-  const route = (await page("admin", "alice")).profiles[0]!.destinations[0]!.key;
-  const fields = { route, permission: "migrate" };
+  const profile = (await page("admin", "alice")).profiles[0]!;
+  const fields = {
+    source: profile.key,
+    route: profile.destinations[0]!.key,
+    permission: "migrate",
+  };
   for (const input of [
     { ...fields, route: "unknown" },
     { ...fields, permission: "owner" },

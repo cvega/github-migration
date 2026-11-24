@@ -10,20 +10,19 @@ import {
   restart,
   setOwnedDispatchPolicy,
 } from "$lib/server/migrate/manager";
-import { isSourceProvider, type SourceProvider } from "$lib/source-provider";
-import { type Grant, listGrants, resolveGrant } from "./grants";
+import { type Grant, grantsForSource, listGrants } from "./grants";
 import { lookupCurrentRepository } from "./inventory";
 
 const denied = () => new Error("Operator migration is not available");
 
 function ownedExecutionGrant(userId: string, job: Migration): Grant | null {
   if (job.ownerUserId !== userId) return null;
-  const grant = resolveGrant(userId, job.sourceProvider, job.sourceApiUrl, job.sourceOrg);
+  const grant = grantsForSource(userId, job.sourceProvider, job.sourceApiUrl, job.sourceOrg).find(
+    (g) => g.targetProfileId === job.targetProfileId && g.targetOrg === job.targetOrg,
+  );
   const target = getMigrationTargetProfile(job.targetProfileId);
   if (
     !grant ||
-    grant.targetProfileId !== job.targetProfileId ||
-    grant.targetOrg !== job.targetOrg ||
     !target ||
     target.apiUrl !== job.targetApiUrl ||
     target.platform !== job.targetPlatform ||
@@ -74,27 +73,21 @@ export function ownJobActions(userId: string, id: string) {
 export function submitOwnBatch(
   userId: string,
   selection: {
-    sourceProvider: SourceProvider;
-    namespace: string;
+    grantId: string;
     repos: string[];
   },
 ) {
   if (
     !selection ||
-    Object.keys(selection).some((k) => !["sourceProvider", "namespace", "repos"].includes(k)) ||
-    !isSourceProvider(selection.sourceProvider) ||
-    typeof selection.namespace !== "string" ||
+    Object.keys(selection).some((k) => !["repos", "grantId"].includes(k)) ||
+    typeof selection.grantId !== "string" ||
     !Array.isArray(selection.repos) ||
     selection.repos.length < 1 ||
     selection.repos.length > 500
   )
     throw denied();
-  const matches = listGrants(userId).filter(
-    (grant) =>
-      grant.sourceProvider === selection.sourceProvider && grant.namespace === selection.namespace,
-  );
-  const grant = matches[0];
-  if (matches.length !== 1 || !grant?.canMigrate) throw denied();
+  const grant = listGrants(userId).find((g) => g.id === selection.grantId);
+  if (!grant?.canMigrate) throw denied();
   const targets = new Set<string>();
   const requests = selection.repos.map((repo) => {
     // Match exactly; do not normalize user input into an authorized name.

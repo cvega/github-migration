@@ -1,24 +1,24 @@
 import { MAX_PROFILE_PLAN_REPOS } from "$lib/profile/migration-plan";
-import { listGrants, resolveGrant } from "$lib/server/application/self-service/grants";
+import { grantsForSource, listGrants } from "$lib/server/application/self-service/grants";
 import { getDb } from "$lib/server/core/db";
 import { buildProfileDetailRollup } from "$lib/server/profile/analysis/rollup";
 import { getScopedInventorySummary } from "$lib/server/profile/database/inventories";
 import { repositoryNamespace } from "$lib/server/profile/database/namespace";
 import { getRunRepoPlanProfiles, iterateRunRepoProfiles } from "$lib/server/profile/database/repos";
 import { getRepositoryAnalysisDetail } from "$lib/server/profile/database/repository-analysis-runs";
-import { getProfileRun, profileSearch } from "$lib/server/profile/database/runs";
+import {
+  completedSourceRuns,
+  getProfileRun,
+  latestSourceReports,
+  profileSearch,
+} from "$lib/server/profile/database/runs";
 import { getProfileRepoPage, type ProfileDetail } from "$lib/server/profile/service";
 import type { ProfileRun } from "$lib/server/profile/types";
 
 function eligibleRuns(userId: string, query: string) {
   const { sql, terms } = profileSearch(query);
-  const routes = listGrants(userId).map((g) => [g.sourceProvider, g.sourceApiUrl, g.namespace]);
-  return {
-    from: `FROM profile_runs WHERE state = 'completed' AND completed_at IS NOT NULL
-      AND (source_provider, source_api_url, org COLLATE BINARY) IN
-        (SELECT value ->> 0, value ->> 1, value ->> 2 FROM json_each(?))${sql}`,
-    params: [JSON.stringify(routes), ...terms],
-  };
+  const { from, params } = completedSourceRuns(listGrants(userId));
+  return { from: from + sql, params: [...params, ...terms] };
 }
 
 export function countOwnProfileRuns(userId: string, query = "") {
@@ -75,8 +75,12 @@ export function listOwnProfileRuns(userId: string, limit: number, offset: number
 export function resolveOwnProfile(userId: string, id: string) {
   const run = getProfileRun(id);
   if (run?.state !== "completed" || !run.completedAt) return null;
-  const grant = resolveGrant(userId, run.sourceProvider, run.sourceApiUrl, run.org);
-  return grant && { run, grant };
+  const grants = grantsForSource(userId, run.sourceProvider, run.sourceApiUrl, run.org);
+  return grants.length ? { run, grants } : null;
+}
+
+export function ownSourceChoices(userId: string) {
+  return latestSourceReports(listGrants(userId));
 }
 
 export function getOwnProfileDetail(

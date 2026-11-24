@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { getTargetPlatformPresentation, isTargetPlatform } from "$lib/migration-target";
 	import type { ProfileMigrationPlannerController } from "./planner.svelte";
@@ -9,11 +10,18 @@
 		embedded = false,
 	}: { planner: ProfileMigrationPlannerController; canExport: boolean; embedded?: boolean } = $props();
 	const assignment = $derived(planner.assignment);
-	const canLaunch = $derived(!assignment || assignment.canMigrate);
+	const scoped = $derived(planner.scoped);
+	const choices = $derived(planner.assignments ?? []);
+	let interactive = $state(false);
+	onMount(() => { interactive = true; });
+	const canLaunch = $derived(!scoped || (assignment ? assignment.canMigrate : choices.some((g) => g.canMigrate)));
+	function targetLabel(id: string) {
+		return isTargetPlatform(id) ? getTargetPlatformPresentation(id).displayName : `Target profile: ${id}`;
+	}
 </script>
 
 <section aria-labelledby="profile-plan-heading" class="rounded-md border border-gray-700 bg-gray-950/40 p-4">
-	<div class="grid gap-4 {assignment ? 'md:grid-cols-[minmax(0,1fr)_auto] md:items-center' : 'lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end'}">
+	<div class="grid gap-4 {scoped ? 'md:grid-cols-[minmax(0,1fr)_auto] md:items-center' : 'lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end'}">
 		<div class="min-w-0 self-start">
 			{#if embedded}
 				<h3 id="profile-plan-heading" class="flex items-center gap-2 text-base font-semibold text-gray-100">
@@ -24,15 +32,26 @@
 					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
 				</h2>
 			{/if}
-			{#if assignment}
+			{#if choices.length > 1 || (scoped && !assignment)}
+				<label class="mt-2 ml-6 block text-sm text-gray-400">Assigned destination
+					<select disabled={!interactive} value={assignment?.id ?? ""} onchange={(event) => planner.chooseAssignment(event.currentTarget.value)}
+						class="mt-1 block w-full max-w-md rounded-md border border-gray-700 bg-gray-950 px-2 py-2 text-gray-100">
+						<option value="" disabled>Choose a destination</option>
+						{#each choices as choice (choice.id)}
+							<option value={choice.id}>{isTargetPlatform(choice.targetProfileId) ? getTargetPlatformPresentation(choice.targetProfileId).label : choice.targetProfileId} · {choice.targetOrg}{choice.canMigrate ? "" : " · Read only"}</option>
+						{/each}
+					</select>
+				</label>
+				{#if assignment}
+					<p class="mt-1 ml-6 text-sm text-gray-400">{targetLabel(assignment.targetProfileId)} · {assignment.canMigrate ? "View and migrate" : "Read only"}</p>
+				{/if}
+			{:else if assignment}
 				<dl class="mt-2 ml-6 text-sm">
 					<dt class="text-gray-400">Assigned destination</dt>
 					<dd class="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
 						<strong class="text-machine min-w-0 font-semibold text-gray-100 wrap-anywhere">{assignment.targetOrg}</strong>
 						<span class="min-w-0 text-gray-400 wrap-anywhere">
-							{isTargetPlatform(assignment.targetProfileId)
-								? getTargetPlatformPresentation(assignment.targetProfileId).displayName
-								: `Target profile: ${assignment.targetProfileId}`}
+							{targetLabel(assignment.targetProfileId)}
 						</span>
 						{#if !canLaunch}<span class="whitespace-nowrap text-gray-300">Read only</span>{/if}
 					</dd>
@@ -42,7 +61,7 @@
 			{/if}
 		</div>
 		<div class="flex flex-wrap items-end gap-2 empty:hidden lg:justify-end">
-			{#if !assignment}
+			{#if !scoped}
 			<label class="block w-full text-sm font-medium text-gray-400 sm:w-64">
 				Destination
 				<select required value={planner.targetProfileId} onchange={(event) => planner.setTargetProfileId(event.currentTarget.value)} class="mt-1 block h-9 w-full rounded-md border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100">
@@ -70,7 +89,7 @@
 				{/if}
 			{/if}
 			{#if canLaunch || (!embedded && canExport)}
-				<div class={assignment ? "flex flex-wrap gap-2" : "contents"}>
+				<div class={scoped ? "flex flex-wrap gap-2" : "contents"}>
 					{#if !embedded && canExport}
 						<button type="button" onclick={() => planner.exportPlan()} disabled={planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40">
 							<Octicon name="download" size={16} />Export
@@ -92,14 +111,14 @@
 			<div class="flex items-center justify-between gap-3 border-b border-gray-700 bg-gray-950/60 px-3 py-2 text-xs">
 				<span class="text-gray-400">Discovered projects</span>
 				<div class="flex items-center gap-3">
-					<button type="button" onclick={() => planner.selectInventoryProjects()} class="font-medium text-blue-400 hover:text-blue-300">Select all</button>
-					<button type="button" onclick={() => planner.clearSelection()} class="font-medium text-gray-400 hover:text-gray-200">Clear</button>
+					<button type="button" disabled={!interactive} onclick={() => planner.selectInventoryProjects()} class="font-medium text-blue-400 hover:text-blue-300">Select all</button>
+					<button type="button" disabled={!interactive} onclick={() => planner.clearSelection()} class="font-medium text-gray-400 hover:text-gray-200">Clear</button>
 				</div>
 			</div>
 			<div class="max-h-80 divide-y divide-gray-800 overflow-y-auto">
 				{#each planner.planningRepos as repo (repo.nameWithOwner)}
-					<div class="grid min-h-12 items-center gap-3 px-3 py-2 {assignment ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)]'}">
-						<input type="checkbox" checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
+					<div class="grid min-h-12 items-center gap-3 px-3 py-2 {scoped ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)]'}">
+						<input type="checkbox" disabled={!interactive} checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
 						<div class="min-w-0 break-all">
 							<span class="text-machine text-gray-300">{repo.nameWithOwner}</span>
 							{#if repo.providerDetails?.provider === "bitbucket-server"}
@@ -108,7 +127,7 @@
 								<div class="mt-1 text-xs text-gray-400">{details.rootLfsRules === "found" ? "LFS tracking rule found" : details.rootLfsRules === "none" ? "No root LFS rule found" : "LFS rules not verified"}</div>
 							{/if}
 						</div>
-						{#if !assignment}
+						{#if !scoped}
 							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
 						{/if}
 					</div>

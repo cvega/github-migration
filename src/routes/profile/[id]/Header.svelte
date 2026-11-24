@@ -2,11 +2,12 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { timeAgo } from "$lib/format";
 	import type { ProfileRun } from "$lib/profile/types";
-	import type { getSourceProviderAdapter } from "$lib/source-provider";
+	import { getSourceProviderAdapter } from "$lib/source-provider";
+	import type { PageData } from "./$types";
 
 	type Provider = ReturnType<typeof getSourceProviderAdapter>;
 
-	let { run, provider }: { run: ProfileRun; provider: Provider } = $props();
+	let { run, provider, sources }: { run: ProfileRun; provider: Provider; sources: PageData["sourceChoices"] } = $props();
 
 	const stateBadge = {
 		running: { label: "Running", className: "border-blue-500/40 text-blue-300", icon: "sync" },
@@ -44,6 +45,20 @@
 				{/if}
 			</p>
 		</div>
+		{#if sources.length > 1}
+			<details class="w-full text-sm sm:w-auto sm:max-w-sm">
+				<summary class="cursor-pointer rounded-md border border-gray-600 px-3 py-2 text-gray-200 hover:bg-gray-800">Switch source</summary>
+				<nav aria-label="Assigned sources" class="mt-1 max-h-60 overflow-y-auto">
+					{#each sources as source (source.id)}
+						{@const current = source.namespace === run.org && source.sourceProvider === run.sourceProvider && source.sourceApiUrl === run.sourceApiUrl}
+						<a href={`/profile/${encodeURIComponent(current ? run.id : source.id)}`} aria-current={current ? "page" : undefined}
+							class="block rounded-md px-3 py-2 break-words text-gray-300 hover:bg-gray-800 aria-current:text-blue-300">
+							{source.namespace} · {getSourceProviderAdapter(source.sourceProvider).displayName}
+						</a>
+					{/each}
+				</nav>
+			</details>
+		{/if}
 	</div>
 </header>
 

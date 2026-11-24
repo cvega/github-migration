@@ -46,7 +46,7 @@ export default defineConfig({
       GH_SOURCE_PAT: "",
       GH_TARGET_PAT: "",
       GH_SOURCE_ORG: "test-source-org",
-      GH_TARGET_ORG: "test-target-org",
+      GH_TARGET_ORG: "test-target-org,alternate-org,archive-org",
       GITLAB_SOURCE_API_URL: "",
       GITLAB_SOURCE_PAT: "",
       GITLAB_SOURCE_NAMESPACE: "",

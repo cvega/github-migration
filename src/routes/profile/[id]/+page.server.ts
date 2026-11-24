@@ -1,6 +1,7 @@
 import { error, fail } from "@sveltejs/kit";
 import {
   getOwnProfileDetail,
+  ownSourceChoices,
   resolveOwnProfile,
 } from "$lib/server/application/self-service/profiles";
 import { isSourceAuthAvailable } from "$lib/server/core/auth";
@@ -30,16 +31,26 @@ export const load: PageServerLoad = ({ params, url, locals }) => {
   if (locals?.user?.role === "operator") {
     const profile = resolveOwnProfile(locals.user.id, params.id);
     if (!profile) error(404, "Profile run not found");
-    const { targetProfileId, targetOrg, canMigrate } = profile.grant;
     return {
       ...getOwnProfileDetail(profile.run, options),
       repositoryAnalysisAvailable: false,
-      assignment: { targetProfileId, targetOrg, canMigrate },
+      assignments: profile.grants.map(({ id, targetProfileId, targetOrg, canMigrate }) => ({
+        id,
+        targetProfileId,
+        targetOrg,
+        canMigrate,
+      })),
+      sourceChoices: ownSourceChoices(locals.user.id),
     };
   }
   const detail = getProfileDetail(params.id, options);
   if (!detail) error(404, "Profile run not found");
-  return { ...detail, repositoryAnalysisAvailable: isSourceAuthAvailable(), assignment: null };
+  return {
+    ...detail,
+    repositoryAnalysisAvailable: isSourceAuthAvailable(),
+    assignments: null,
+    sourceChoices: [],
+  };
 };
 
 function actionFailure(cause: unknown) {

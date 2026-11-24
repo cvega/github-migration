@@ -20,10 +20,20 @@ Open `http://localhost:3000`. The example configuration is intentionally open
 for trusted local use. Before publishing it beyond that network, replace
 unauthenticated mode with first-administrator bootstrap credentials; see
 [Configuration](configuration.md#core). Add operators from **Manage users**
-after signing in. Open an operator's user record to assign an existing source
-profile and destination organization. Grant view access to review reports, or
-migration access to submit repositories to that destination. The operator uses
-the same **Profile** and **Migrations** tabs and report URLs as the administrator.
+after signing in. On the operator’s user record, open **Migration access**.
+Pick a source, check one or more destinations, choose **View only** or
+**View and migrate**, and select **Assign destinations**. Repeat for other
+sources or for destinations that need a different permission.
+
+The sources are not user accounts or manually created mappings. Each is a
+provider, instance and namespace from a completed **Profile** run. **View
+latest source report** opens its inventory. Destinations come from the
+configured target organizations (`GH_TARGET_ORG` for cloud, `GHES_TARGET_ORG`
+for server); only combinations supported for that source are offered.
+Operators use the same **Profile** and **Migrations** tabs as admins.
+**Switch source** appears when more than one source is assigned. In **Build
+migration plan**, a single destination is shown directly; with several, the
+operator must choose one. A batch goes to one destination, not all of them.
 An account without assignments has empty lists, not access to every profile.
 
 If using another hostname, IP address, port, or HTTPS, set `ORIGIN` in `.env`

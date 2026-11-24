@@ -204,7 +204,7 @@
 						</button>
 					</td>
 					<td class="px-4 py-2">
-						{#if planning && !planner.assignment && planner.selectedNames.includes(repo.nameWithOwner)}
+						{#if planning && !planner.scoped && planner.selectedNames.includes(repo.nameWithOwner)}
 							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine w-full min-w-32 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none" />
 						{:else}
 							<span class="text-machine text-gray-500">{shortRepoName(repo.nameWithOwner)}</span>
@@ -272,7 +272,7 @@
 									</p>
 								</div>
 							{/if}
-							{#if !planner.assignment && analysis && (analysisJob?.state === "failed" || analysisJob?.state === "cancelled")}
+							{#if !planner.scoped && analysis && (analysisJob?.state === "failed" || analysisJob?.state === "cancelled")}
 								<form method="POST" action="?/retryAnalysisJob" use:enhance class="mt-3">
 									<input type="hidden" name="analysisRunId" value={analysis.run.id} />
 									<input type="hidden" name="jobId" value={analysisJob.id} />

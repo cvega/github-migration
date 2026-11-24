@@ -24,7 +24,7 @@ export const AUTH_DURABLE_TABLES = [
   },
   {
     name: "self_service_routes",
-    purpose: "One pinned destination per delegated source namespace",
+    purpose: "Exact source-to-destination routes available for delegation",
     notes: "Identities include the source provider and instance, not an ephemeral profile run",
   },
   {
@@ -93,16 +93,18 @@ const AUTH_DDL = `
   CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_audit_events_resource
     ON audit_events(resource_type, resource_id, created_at DESC);
+`;
 
+const ROUTES_DDL = `
   CREATE TABLE IF NOT EXISTS self_service_routes (
     id INTEGER PRIMARY KEY,
     source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab', 'bitbucket-server')),
     source_api_url TEXT NOT NULL,
-    namespace TEXT NOT NULL COLLATE NOCASE,
+    namespace TEXT NOT NULL,
     target_profile_id TEXT NOT NULL,
     target_api_url TEXT NOT NULL,
     target_org TEXT NOT NULL,
-    UNIQUE (source_provider, source_api_url, namespace)
+    UNIQUE (source_provider, source_api_url, namespace, target_profile_id, target_api_url, target_org)
   );
   CREATE TABLE IF NOT EXISTS self_service_grants (
     id TEXT PRIMARY KEY,
@@ -111,16 +113,38 @@ const AUTH_DDL = `
     can_migrate INTEGER NOT NULL CHECK (can_migrate IN (0, 1)),
     UNIQUE (user_id, route_id)
   );
+  CREATE INDEX IF NOT EXISTS idx_self_service_grants_route ON self_service_grants(route_id);
 `;
 
 export const authStore: DomainStore = {
   applySchema(database: Database): void {
-    database.run(AUTH_DDL);
     database
-      .prepare(
-        `INSERT INTO app_schema_versions (domain, version) VALUES ('auth', 2)
-         ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-      )
-      .run();
+      .transaction(() => {
+        database.run(AUTH_DDL);
+        const version = database
+          .query<{ version: number }, []>(
+            "SELECT version FROM app_schema_versions WHERE domain='auth'",
+          )
+          .get()?.version;
+        if (version !== undefined && version > 3)
+          throw new Error("Unsupported dashboard auth schema");
+        if (version === 2) {
+          // Rebuild both sides of the foreign key with enforcement still enabled.
+          database.run(`ALTER TABLE self_service_routes RENAME TO self_service_routes_v2;
+          ALTER TABLE self_service_grants RENAME TO self_service_grants_v2;`);
+        }
+        database.run(ROUTES_DDL);
+        if (version === 2) {
+          database.run(`INSERT INTO self_service_routes
+            SELECT id,source_provider,source_api_url,namespace,target_profile_id,target_api_url,target_org FROM self_service_routes_v2;
+          INSERT INTO self_service_grants SELECT id,route_id,user_id,can_migrate FROM self_service_grants_v2;
+          DROP TABLE self_service_grants_v2;
+          DROP TABLE self_service_routes_v2;`);
+        }
+        if (version !== 3)
+          database.run(`INSERT INTO app_schema_versions (domain,version) VALUES ('auth',3)
+          ON CONFLICT(domain) DO UPDATE SET version=excluded.version`);
+      })
+      .immediate();
   },
 };

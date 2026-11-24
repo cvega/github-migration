@@ -289,9 +289,12 @@ source. Disabled users, expired sessions, and revoked sessions are rejected.
 
 Administrators grant access on the user record. Operators share the existing
 dashboard, profile reports and migration screens. Their scope is the exact
-provider, source instance and namespace together with its assigned destination.
-On a profile report, **Build migration plan** shows the operator's assigned
-organization and target below the heading instead of an editable destination picker.
+provider, source instance and namespace paired with a target profile, instance
+and organization. A user may have several distinct pairs with independent
+permissions; granting a second pair does not imply their cross-product.
+The profile planner sends its selected grant ID and repository names, not a
+client-provided organization or host. Admission matches the grant to the report;
+dispatch and restart recheck current permission on the persisted pair.
 Viewing a project does not authorize submitting migrations, and viewing a
 migration is not permission to modify another operator's job. Private routes
 are denied unless they enforce that scope. Session-scoped responses are not
@@ -317,7 +320,7 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `app_sessions` | Revocable dashboard sessions | Stores SHA-256 token digests, never raw cookie values |
 | `auth_login_attempts` | Persistent sign-in throttling | Bounded failed attempts keyed by username and client address |
 | `audit_events` | Authentication and operator action attribution | Stores actors and resources without credentials or session tokens |
-| `self_service_routes` | One pinned destination per delegated source namespace | Identities include the source provider and instance, not an ephemeral profile run |
+| `self_service_routes` | Exact source-to-destination routes available for delegation | Identities include the source provider and instance, not an ephemeral profile run |
 | `self_service_grants` | Named operator assignments | Grants inventory access with a separate migration permission |
 | `app_schema_versions` | Per-domain schema versions | Supports idempotent startup upgrades |
 | `migrations` | One row per repository migration | Includes batch ID, source provider, native and GitHub checkpoints, state, pipeline step, auth mode, request options, counts, and timestamps |
