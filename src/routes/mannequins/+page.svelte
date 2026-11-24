@@ -1,11 +1,15 @@
 <script lang="ts">
+	import { onMount, tick } from "svelte";
 	import { enhance } from "$app/forms";
 	import Octicon from "$lib/components/Octicon.svelte";
 
 	let { data, form } = $props();
+	type RowEditor = { row: (typeof data.identityMappings)[number]; trigger: HTMLButtonElement };
+	let interactive = $state(false);
+	onMount(() => { interactive = true; });
 	let teams = $state(false);
-	let editor = $state<"manual" | "csv" | "edit" | null>(null);
-	let editing = $state.raw<(typeof data.identityMappings)[number] | null>(null);
+	let editor = $state.raw<"manual" | "csv" | RowEditor | null>(null);
+	const rowEditor = $derived(typeof editor === "object" ? editor : null);
 	let selection = $state("");
 	let source = $state("");
 	let busy = $state(false);
@@ -24,11 +28,20 @@
 	const rows = $derived(data.identityMappings.filter(m => m.sourceKind.endsWith(":team") === teams));
 	const attributionScopes = $derived(data.scopes.filter(s => data.identityMappings.some(m =>
 		m.targetId === s.target && m.targetOrg === s.organization && m.sourceKind.startsWith("mannequin-"))));
+	async function closeEditor() {
+		const trigger = rowEditor?.trigger;
+		editor = null;
+		if (trigger) {
+			await tick();
+			trigger.focus();
+		}
+	}
 	const submit: NonNullable<Parameters<typeof enhance>[1]> = () => {
 		busy = true;
 		return async ({ result, update }) => {
-			try { await update(); if (result.type === "success") editor = null; }
+			try { await update(); }
 			finally { busy = false; }
+			if (result.type === "success") await closeEditor();
 		};
 	};
 </script>
@@ -39,7 +52,7 @@
 		<p class="mt-1 text-sm text-gray-400">Match source users and teams to GitHub identities across repositories.</p></header>
 	<fieldset class="flex gap-2 border-b border-gray-700"><legend class="sr-only">Mapping type</legend>
 		{#each [false, true] as isTeam (isTeam)}
-			<button type="button" aria-pressed={teams === isTeam} onclick={() => {teams = isTeam; editor = null;}}
+			<button type="button" disabled={!interactive || busy} aria-pressed={teams === isTeam} onclick={() => {teams = isTeam; editor = null;}}
 				class="border-b-2 px-3 py-2 text-sm font-medium {teams === isTeam ? 'border-orange-400 text-gray-50' : 'border-transparent text-gray-400'}">
 				{isTeam ? "Teams" : "Users"} <span class="ml-1 rounded-full bg-gray-800 px-2">{data.identityMappings.filter(m => m.sourceKind.endsWith(":team") === isTeam).length}</span>
 			</button>
@@ -47,18 +60,22 @@
 	</fieldset>
 	<div class="flex flex-wrap items-center gap-2">
 		<h2 class="mr-auto w-full text-base font-semibold sm:w-auto">Saved {kind} mappings</h2>
-		<button type="button" class="secondary" disabled={!options.length || busy} onclick={() => editor = "csv"}>Import CSV</button>
-		<button type="button" class="primary" disabled={!options.length || busy} onclick={() => editor = "manual"}>Add {kind} mapping</button>
+		<button type="button" class="secondary" disabled={!interactive || !options.length || busy} onclick={() => editor = "csv"}>Import CSV</button>
+		<button type="button" class="primary" disabled={!interactive || !options.length || busy} onclick={() => editor = "manual"}>Add {kind} mapping</button>
 	</div>
+	<noscript><p class="text-sm text-gray-400">Enable JavaScript to add, import, or edit mappings and to switch mapping type.</p></noscript>
 	{#if !options.length}<p class="text-sm text-gray-400">{teams ? "Team merges are supported for GHES imports only." : "No target organizations configured."} <a href="/setup#targets" class="text-blue-400">Open Setup</a></p>{/if}
-	{#if editor === "edit" && editing}
+	{#if rowEditor}
+		{@const editing = rowEditor.row}
 		<form method="POST" action="?/editMapping" use:enhance={submit} class="space-y-3 rounded-md border border-gray-700 bg-gray-900 p-4">
 			<h3 class="font-semibold">Edit {kind} mapping for {editing.sourceLabel}</h3>
 			<input type="hidden" name="target" value={editing.targetId} /><input type="hidden" name="organization" value={editing.targetOrg} />
 			<input type="hidden" name="sourceKind" value={editing.sourceKind} /><input type="hidden" name="sourceIdentity" value={editing.sourceIdentity} />
 			<input type="hidden" name="previousLogin" value={editing.targetLogin} />
-			<label>{teams ? "Target team slug" : "Target username"}<input name="targetLogin" value={editing.targetLogin} required maxlength={teams ? 100 : 39} /></label>
-			<div class="flex justify-end gap-2"><button type="button" class="secondary" onclick={() => editor = null}>Cancel</button>
+			{#key rowEditor}
+				<label>{teams ? "Target team slug" : "Target username"}<input name="targetLogin" value={editing.targetLogin} required maxlength={teams ? 100 : 39} {@attach (input) => input.focus()} /></label>
+			{/key}
+			<div class="flex justify-end gap-2"><button type="button" class="secondary" disabled={busy} onclick={closeEditor}>Cancel</button>
 				<button type="submit" class="primary" disabled={busy}>Save changes</button></div>
 		</form>
 	{:else if editor && scope}
@@ -103,7 +120,7 @@
 				<span class="min-w-0 break-words font-mono text-sm">{teams ? "" : "@"}{row.targetLogin}</span>
 				<form method="POST" action="?/removeMapping" use:enhance={submit} class="flex gap-2 sm:justify-end">
 					<input type="hidden" name="target" value={row.targetId} /><input type="hidden" name="organization" value={row.targetOrg} /><input type="hidden" name="sourceKind" value={row.sourceKind} /><input type="hidden" name="sourceIdentity" value={row.sourceIdentity} />
-					<button type="button" disabled={busy} aria-label={`Edit mapping for ${row.sourceLabel}`} title="Edit mapping" class="row-action hover:text-blue-400" onclick={() => { editing = row; editor = "edit"; }}><Octicon name="pencil" /></button>
+					<button type="button" disabled={!interactive || busy} aria-label={`Edit mapping for ${row.sourceLabel}`} title="Edit mapping" class="row-action hover:text-blue-400" onclick={(event) => editor = { row, trigger: event.currentTarget }}><Octicon name="pencil" /></button>
 					<button type="submit" disabled={busy} aria-label={`Remove mapping for ${row.sourceLabel}`} title="Remove mapping" class="row-action hover:text-red-400"><Octicon name="trash" /></button>
 				</form>
 			</div>

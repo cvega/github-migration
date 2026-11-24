@@ -157,6 +157,9 @@ submitting another import.
 ## Mannequin attribution
 
 The identity workspace supports configured GHEC and GHES target profiles.
+Saved mappings are visible before the page finishes loading. The mapping type
+switcher, Add, Import CSV, and Edit enable once their browser handlers are ready;
+Remove is a server form and does not require JavaScript.
 Operators can save mappings manually or import a CSV before accounts and
 mannequins exist. Decisions are scoped to the target API, organization, source
 type, and exact source identity; unrelated source URLs and mannequin logins are
