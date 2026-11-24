@@ -1,5 +1,9 @@
 # Getting Started
 
+**Deploying Bitbucket Data Center → GitHub Enterprise Server?** Follow the
+[dedicated getting-started guide](bitbucket-datacenter-to-ghes.md) instead of the
+base start command below. It includes the exporter override and the GHES-side setup.
+
 ## Requirements
 
 - Docker Engine with Compose for deployment, or Bun 1.4.4 for development.
@@ -60,7 +64,7 @@ to that exact browser-visible origin before starting the containers.
 |---|---|---|
 | Profile a source | GitHub organization, GitLab namespace, or Bitbucket project | Configure the source credentials, open **Profile**, and review the completed readiness report before planning migrations. |
 | Migrate to GHEC | GitHub, GitLab, or Bitbucket Server to GitHub Enterprise Cloud | Configure source and target credentials. GitLab also requires an absolute archive directory; Bitbucket requires pinned SFTP archive access. Profile the source when readiness findings are needed, then choose **New migration** and the GHEC target. |
-| Migrate to GHES | Bitbucket Server to a configured GitHub Enterprise Server target | Configure the source, GHES API and SSH credentials, archive storage, and exporter image; verify the pinned SSH host key before choosing the GHES target. |
+| Migrate to GHES | Bitbucket Server/Data Center to GitHub Enterprise Server | Follow the [deployment and pilot walkthrough](bitbucket-datacenter-to-ghes.md); this route uses the external exporter and GHES administrative SSH. |
 | Map identities | GHES users and teams, or mannequin attribution | Open **Mappings**. Save an exact match manually or by CSV. GHES resolves archive conflicts before import; mannequin attribution happens after import. |
 
 GitHub-to-GHES migration is not supported. GitLab-to-GHES execution is paused;
@@ -70,11 +74,16 @@ source and target combinations.
 
 ## Configure Providers
 
-1. Configure one GitHub source and target credential mode: PAT or all three App values.
-2. Add GitLab or Bitbucket server-owned credentials when those providers are needed.
-3. Configure archive storage for GitLab-to-GHEC and pinned SFTP archive access for Bitbucket-to-GHEC.
-4. Add a GHES target profile and pinned SSH host key for exporter-to-GHES migrations.
-5. Restart the container and check `/api/ready`.
+1. Configure only the source you are using: GitHub PAT or App, GitLab token, or
+   Bitbucket server-owned username and password/token.
+2. For a **GHEC** destination, configure a GitHub.com target PAT or App. Add
+   archive storage for GitLab and pinned source SFTP access for Bitbucket.
+3. For a **GHES** destination, configure the GHES site-admin PAT, administrative
+   SSH key and host fingerprint, shared archive volume, and Bitbucket exporter.
+   A GitHub.com credential and Bitbucket SFTP are not used on this route.
+4. While idle, apply changed environment or mounts with `docker compose up -d --wait`
+   using your deployment's Compose files. A plain restart keeps the old environment.
+   Check `/api/ready` and the route in **Setup → Targets**.
 
 The **Setup** page reports available providers, credentials, target profiles,
 and migration paths without exposing secret values.
@@ -167,8 +176,11 @@ starts automatically. Detail and batch pages reconnect to durable event cursors
 after navigation or transient network loss.
 
 The event log grows with its rows and scrolls once it reaches its maximum
-height. Use the download icon beside the event count to save the full log for one
-migration as newline-delimited JSON, oldest first. A download during a run
+height. Named operators see progress for their assigned routes, with provider
+messages reduced to safe phase labels; their download contains only recent,
+filtered events. An administrator can use the download
+icon beside the event count to save the full log for one migration as
+newline-delimited JSON, oldest first. A download during a run
 includes events recorded up to the start of the download. Cancellation requests
 are distinct from confirmed cancellations: if the remote outcome is uncertain,
 the log records that review is required. Review and restart appear in the same
@@ -217,7 +229,7 @@ contain zeros from unavailable API data.
 
 ## Map Identities
 
-Choose **Mappings**. The **Users** and **Teams** lists show approved decisions across
+As a dashboard administrator, choose **Mappings**. The **Users** and **Teams** lists show approved decisions across
 configured organizations, not a feed of migration conflicts. Choose **Add** or **Import CSV**;
 the organization and source type in the form scope that decision across repos.
 For a manual Bitbucket user mapping, enter the **Bitbucket username**. Saved rows

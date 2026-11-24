@@ -24,8 +24,8 @@ under bounded concurrency and request budgets.
 
 Native GHEC migration requests a project export, polls completion, downloads
 the archive with a size and timeout bound, and records a durable export
-checkpoint. GHES migration uses the external exporter and restores source lock
-state after a safe terminal outcome.
+checkpoint. GitLab-to-GHES execution is paused; configuring a GitLab exporter
+does not enable it.
 
 ## Bitbucket Server
 
@@ -37,7 +37,8 @@ even when server responses omit optional totals.
 For each selected repository, profiling collects commits, pull requests,
 branches, tags, and fork data. Native GHEC migration starts the Bitbucket export
 and retrieves its archive from shared home over pinned SFTP. GHES migration uses
-the read-only external exporter and does not lock the source.
+the read-only external exporter and does not lock the source. See
+[Bitbucket Data Center to GHES](bitbucket-datacenter-to-ghes.md) for deployment and a pilot.
 
 On the Migrations list and batch detail pages, Bitbucket-to-GHES results show **Bitbucket API → GHES
 import over SSH**. This describes the transport, not a health check. GitHub
