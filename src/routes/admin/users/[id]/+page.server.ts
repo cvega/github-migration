@@ -1,9 +1,10 @@
 import { error, fail } from "@sveltejs/kit";
 import {
-  assignableProfiles,
   assignProfileDestinations,
   GrantPolicyError,
   listAdminGrants,
+  mappingChoices,
+  mappingSources,
   revokeGrant,
 } from "$lib/server/application/self-service/grants";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
@@ -17,20 +18,33 @@ import {
 } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals, params, url }) => {
+export const load = (({ locals, params, url }) => {
   const currentUser = requireAdmin(locals);
   const user = findUserById(params.id);
   if (!user) error(404, "User not found");
-  const profiles = user.isActive && user.role === "operator" ? assignableProfiles() : [];
+  const profiles = user.isActive && user.role === "operator" ? mappingSources() : [];
+  const grants = listAdminGrants(user.id);
   const selectedKey = url.searchParams.get("source");
+  const selected =
+    selectedKey !== null
+      ? profiles.find((p) => p.key === selectedKey)
+      : (profiles.find((p) =>
+          grants.some(
+            (g) =>
+              p.sourceProvider === g.sourceProvider &&
+              p.sourceApiUrl === g.sourceApiUrl &&
+              p.namespace === g.namespace,
+          ),
+        ) ?? profiles[0]);
   return {
     currentUser,
     user,
-    grants: listAdminGrants(user.id),
+    grants,
     profiles,
-    selectedSource: selectedKey ?? profiles[0]?.key ?? null,
+    selectedSource: selectedKey ?? selected?.key ?? null,
+    ...mappingChoices(selected),
   };
-};
+}) satisfies PageServerLoad;
 
 function failure(cause: unknown) {
   return fail(400, { error: cause instanceof Error ? cause.message : "User update failed." });

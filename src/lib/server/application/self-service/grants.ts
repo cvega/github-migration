@@ -2,9 +2,11 @@ import { supportsMigrationTarget } from "$lib/migration-target";
 import { getGitHubSourceConfig } from "$lib/server/core/auth";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { findUserById } from "$lib/server/core/auth/users";
-import { validateCredentialScope } from "$lib/server/core/credential-scope";
+import {
+  validateCredentialScope,
+  validateProfileCredentialScope,
+} from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
-import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/server/core/targets";
 import { latestSourceReports } from "$lib/server/profile/database/runs";
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
 import { getGitLabSourceConfig } from "$lib/server/source/gitlab/config";
@@ -13,6 +15,7 @@ import {
   isSourceProvider,
   type SourceProvider,
 } from "$lib/source-provider";
+import { targetConnections } from "./target-catalog";
 
 export interface Grant {
   sourceProvider: SourceProvider;
@@ -36,72 +39,81 @@ export function configuredGrantSource(provider: SourceProvider): string {
   }
 }
 
-function allowedTarget(grant: Grant) {
-  if (!isSourceProvider(grant.sourceProvider)) return null;
-  const adapter = getSourceProviderAdapter(grant.sourceProvider);
+type Source = Pick<Grant, "sourceProvider" | "sourceApiUrl" | "namespace">;
+type Connections = ReturnType<typeof targetConnections>;
+
+function sourceRestriction(source: Source) {
   if (
-    !grant.sourceApiUrl ||
-    grant.sourceApiUrl !== configuredGrantSource(grant.sourceProvider) ||
-    !adapter.isValidNamespace(grant.namespace) ||
-    // Namespace paths are literal identifiers, not encoded paths or patterns.
-    !/^[A-Za-z0-9._/-]+$/.test(grant.namespace)
+    !isSourceProvider(source.sourceProvider) ||
+    !source.sourceApiUrl ||
+    source.sourceApiUrl !== configuredGrantSource(source.sourceProvider)
   )
-    return null;
-  const target = getMigrationTargetProfile(grant.targetProfileId);
+    return "This report belongs to a source connection that is no longer configured.";
   if (
-    !target ||
-    grant.targetProfileId !== target.id ||
-    !supportsMigrationTarget(grant.sourceProvider, target.platform) ||
-    !getSourceProviderAdapter("github").isValidNamespace(grant.targetOrg) ||
-    !target.organizations.includes(grant.targetOrg) ||
-    validateCredentialScope({
-      sourceProvider: grant.sourceProvider,
-      targetProfileId: grant.targetProfileId,
-      targetOrg: grant.targetOrg,
-      sourceRepo: `${grant.namespace}/repo`,
-    })
+    !getSourceProviderAdapter(source.sourceProvider).isValidNamespace(source.namespace) ||
+    !/^[A-Za-z0-9._/-]+$/.test(source.namespace)
   )
-    return null;
-  return target;
+    return "This source name cannot be used for an exact mapping.";
+  return validateProfileCredentialScope(source.sourceProvider, source.namespace);
 }
 
-export function assignableProfiles() {
-  const profiles = latestSourceReports(null);
-  const targets = getMigrationTargetProfiles();
-  return profiles.flatMap((profile) => {
-    const destinations = targets.flatMap((target) =>
-      target.organizations.flatMap((targetOrg) => {
-        const grant = { ...profile, targetProfileId: target.id, targetOrg, canMigrate: false };
-        if (!allowedTarget(grant)) return [];
-        return [
-          {
-            key: JSON.stringify([
-              profile.sourceProvider,
-              profile.sourceApiUrl,
-              profile.namespace,
-              target.id,
-              target.apiUrl,
-              targetOrg,
-            ]),
-            platform: target.platform,
-            targetProfileId: target.id,
-            targetApiUrl: target.apiUrl,
-            targetOrg,
-          },
-        ];
-      }),
-    );
-    return destinations.length
-      ? [
-          {
-            ...profile,
-            key: JSON.stringify([profile.sourceProvider, profile.sourceApiUrl, profile.namespace]),
-            label: `${profile.namespace} (${getSourceProviderAdapter(profile.sourceProvider).displayName})`,
-            destinations,
-          },
-        ]
-      : [];
+function migrationRestriction(grant: Omit<Grant, "canMigrate">) {
+  return validateCredentialScope({
+    sourceProvider: grant.sourceProvider,
+    targetProfileId: grant.targetProfileId,
+    targetOrg: grant.targetOrg,
+    sourceRepo: `${grant.namespace}/repo`,
   });
+}
+
+function allowedTarget(grant: Grant, targets: Connections) {
+  if (sourceRestriction(grant)) return null;
+  const target = targets.find(
+    (t) =>
+      t.id === grant.targetProfileId &&
+      supportsMigrationTarget(grant.sourceProvider, t.platform) &&
+      t.entries.some((e) => e.org === grant.targetOrg),
+  );
+  return target && (!grant.canMigrate || !migrationRestriction(grant)) ? target : null;
+}
+
+export function mappingSources() {
+  return latestSourceReports(null).map((source) => ({
+    ...source,
+    key: JSON.stringify([source.sourceProvider, source.sourceApiUrl, source.namespace]),
+    label: `${source.namespace} (${getSourceProviderAdapter(source.sourceProvider).displayName})`,
+  }));
+}
+
+export function mappingChoices(source: Source | undefined) {
+  if (!source) return { restriction: null, destinations: [] };
+  const restriction = sourceRestriction(source);
+  const destinations = restriction
+    ? []
+    : targetConnections().flatMap((target) =>
+        supportsMigrationTarget(source.sourceProvider, target.platform)
+          ? target.entries.map(({ org: targetOrg }) => ({
+              key: JSON.stringify([
+                source.sourceProvider,
+                source.sourceApiUrl,
+                source.namespace,
+                target.id,
+                target.apiUrl,
+                targetOrg,
+              ]),
+              platform: target.platform,
+              targetProfileId: target.id,
+              targetApiUrl: target.apiUrl,
+              targetOrg,
+              migrationRestriction: migrationRestriction({
+                ...source,
+                targetProfileId: target.id,
+                targetOrg,
+              }),
+            }))
+          : [],
+      );
+  return { restriction, destinations };
 }
 
 type JoinedRow = Omit<Grant, "canMigrate"> & {
@@ -152,18 +164,21 @@ const ELIGIBLE =
 
 type AssignedGrant = Grant & { id: string };
 
-function currentGrant(row: JoinedRow): AssignedGrant | null {
+function currentGrant(row: JoinedRow, targets: Connections): AssignedGrant | null {
   const grant = publicGrant(row);
-  return allowedTarget(grant)?.apiUrl === row.targetApiUrl ? { ...grant, id: row.id } : null;
+  return allowedTarget(grant, targets)?.apiUrl === row.targetApiUrl
+    ? { ...grant, id: row.id }
+    : null;
 }
 
 export function listGrants(userId: string): AssignedGrant[] {
+  const targets = targetConnections();
   return getDb()
     .query<JoinedRow, [string]>(
       `${JOINED} WHERE ${ELIGIBLE} ORDER BY r.source_provider, r.namespace, r.target_profile_id, r.target_org`,
     )
     .all(userId)
-    .map(currentGrant)
+    .map((row) => currentGrant(row, targets))
     .filter((grant) => grant !== null);
 }
 
@@ -187,13 +202,18 @@ export function assignProfileDestinations(
 ) {
   getDb()
     .transaction(() => {
-      const profile = assignableProfiles().find((p) => p.key === source);
+      const profile = mappingSources().find((p) => p.key === source);
       if (!profile || !destinations.length || new Set(destinations).size !== destinations.length)
         throw new GrantPolicyError("Choose a source and one or more distinct destinations.");
+      const choices = mappingChoices(profile).destinations;
       for (const key of destinations) {
-        const target = profile.destinations.find((d) => d.key === key);
+        const target = choices.find((d) => d.key === key);
         if (!target)
           throw new GrantPolicyError("A selected destination is not available for this source.");
+        if (canMigrate && target.migrationRestriction)
+          throw new GrantPolicyError(
+            `${target.migrationRestriction}. Choose View only or update the deployment scope.`,
+          );
         assignGrant(actorId, userId, {
           sourceProvider: profile.sourceProvider,
           sourceApiUrl: profile.sourceApiUrl,
@@ -221,7 +241,7 @@ export function assignGrant(actorUserId: string, userId: string, grant: Grant): 
     const user = findUserById(userId);
     if (user?.role !== "operator" || !user.isActive)
       throw new GrantPolicyError("Choose an active operator.");
-    const target = allowedTarget(grant);
+    const target = allowedTarget(grant, targetConnections());
     if (!target || typeof grant.canMigrate !== "boolean")
       throw new GrantPolicyError(
         "Choose a configured source, exact namespace, and supported destination.",

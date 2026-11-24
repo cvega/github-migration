@@ -1,5 +1,6 @@
 import { getSourceClients, isSourceAppConfigured } from "$lib/server/core/auth";
 import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
+import { organizationPage } from "$lib/server/core/github-organizations";
 import { getBitbucketServerSourceClient } from "$lib/server/source/bitbucket/config";
 import { getGitLabSourceClient } from "$lib/server/source/gitlab/config";
 import { getSourceProviderAdapter, type SourceProvider } from "$lib/source-provider";
@@ -48,29 +49,9 @@ async function readPage(provider: SourceProvider, cursor: number, signal: AbortS
     };
   }
   const { rest, sourceApiUrl } = getSourceClients();
-  const host = new URL(sourceApiUrl).host;
-  if (isSourceAppConfigured()) {
-    // Each installation belongs to a single account, even with selected repository access.
-    const { data } = await rest.request("GET /installation/repositories", {
-      per_page: 1,
-      request: { signal },
-    });
-    const owner = data.repositories[0]?.owner;
-    return {
-      host,
-      entries: owner?.type === "Organization" ? [{ key: owner.login, name: owner.login }] : [],
-      next: null,
-    };
-  }
-  const { data, headers } = await rest.orgs.listForAuthenticatedUser({
-    per_page: limit,
-    page: cursor + 1,
-    request: { signal },
-  });
   return {
-    host,
-    entries: data.map((org) => ({ key: org.login, name: org.login })),
-    next: headers.link?.includes('rel="next"') ? cursor + 1 : null,
+    host: new URL(sourceApiUrl).host,
+    ...(await organizationPage(rest, isSourceAppConfigured(), cursor, signal)),
   };
 }
 

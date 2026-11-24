@@ -21,16 +21,28 @@ for trusted local use. Before publishing it beyond that network, replace
 unauthenticated mode with first-administrator bootstrap credentials; see
 [Configuration](configuration.md#core). Add operators from **Manage users**
 after signing in. On the operator’s user record, open **Migration access**.
-Open **Source profile**, pick a source, check one or more destinations, choose **View only** or
+Open the source picker, filter by project or organization, check one or more destinations, choose **View only** or
 **View and migrate**, and select **Assign destinations**. Repeat for other
 sources or for destinations that need a different permission. An assigned
 destination shows its permission and a **Remove** action instead of a checkbox.
 
 The sources are not user accounts or manually created mappings. Each is a
 provider, instance and namespace from a completed **Profile** run. **View
-report** opens its latest completed inventory. Destinations come from the
-configured target organizations (`GH_TARGET_ORG` for cloud, `GHES_TARGET_ORG`
-for server); only combinations supported for that source are offered.
+report** opens its latest completed inventory. A source stays in the picker
+even when no target is listed or deployment credentials cannot migrate it.
+
+**Manage targets** opens the independent target list. Under **Cloud** or
+**Server**, enter an existing GitHub organization login, or select **Find
+organizations** and add a result from that connection. Discovery uses the
+target credential's organization memberships (or its App installation);
+it does not enumerate every organization on GitHub. A listed target belongs
+to that connection and grants nobody access until you map it to a user.
+Deployment organizations (`GH_TARGET_ORG`, `GHES_TARGET_ORG`) appear
+automatically and are managed by configuration. A listed route outside the
+migration credential scope can be assigned **View only** if the source's
+profiling scope allows it. To enable migration, add that specific source
+or target to its deployment allowlist; do not remove the allowlist.
+
 Operators use the same **Profile** and **Migrations** tabs as admins.
 **Switch source** appears when more than one source is assigned. In **Build
 migration plan**, a single destination is shown directly; with several, the

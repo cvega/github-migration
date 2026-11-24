@@ -78,7 +78,7 @@ test("admin and operator use the same report and migration pages, with disjoint 
       await expect(page.locator("main")).toContainText(`private-${tag}`);
       await expect(page.locator("main")).not.toContainText(`private-${tag === "a" ? "b" : "a"}`);
       expect((await page.goto(`/migrate/${own}`))?.status()).toBe(200);
-      for (const path of [`/profile/${other}`, `/migrate/${other}`, `/admin/users`, `/api/migrate/events`])
+      for (const path of [`/profile/${other}`, `/migrate/${other}`, `/admin/users`, `/admin/targets`, `/api/migrate/events`])
         expect((await context.request.get(path)).status(), path).toBe(404);
     } finally { await context.close(); }
   }
@@ -192,4 +192,40 @@ test("admin can assign and remove routes without JavaScript, even after the oper
     await expect(page.getByRole("status")).toHaveText("Profile access removed.");
     await expect(access.getByRole("button",{name:/^Remove/})).toHaveCount(0);
   } finally { await context.close(); }
+});
+
+test("admin maintains a target list independently, then maps a filtered provider source", async ({ page }) => {
+  const {suffix} = seedOperators();
+  const user = `portal-a-${suffix}`, source = `PORTALA${suffix}`, org = `landing-${suffix.toLowerCase()}`;
+  await page.goto(`/admin/users?q=${user}`);
+  await page.getByRole("link",{name:`Manage ${user}`}).click();
+  const userPage = page.url();
+  await page.getByRole("link",{name:"Manage targets"}).click();
+  const cloud = page.getByRole("region",{name:"Cloud target organizations"});
+  await cloud.getByRole("button",{name:"Find organizations"}).click();
+  await expect(page.getByRole("alert")).toContainText("Check target credentials");
+  await cloud.getByLabel("Organization login").fill(org);
+  await cloud.getByRole("button",{name:"Add target"}).click();
+  await expect(page.getByRole("status")).toContainText("No user access was granted");
+  await page.reload();
+  await expect(cloud.getByText(org,{exact:true})).toBeVisible();
+  await page.goto(userPage);
+  const access = page.getByRole("region",{name:"Migration access"});
+  await access.getByLabel(/^Choose a source:/).click();
+  await access.getByRole("searchbox",{name:"Filter profiled sources"}).fill(source);
+  const nav = access.getByRole("navigation",{name:"Choose a source"});
+  await expect(nav.getByRole("link")).toHaveCount(1);
+  await nav.getByRole("link",{name:`${source} (Bitbucket Server)`}).click();
+  const option = access.getByRole("checkbox",{name:`Cloud ${org}`});
+  await expect(option).not.toBeChecked();
+  await access.getByLabel("Permission for new destinations").selectOption("migrate");
+  await option.check();
+  const permission = access.getByLabel("Permission for new destinations");
+  await expect(permission).toHaveValue("view");
+  await expect(permission.getByRole("option",{name:"View and migrate"})).toBeDisabled();
+  await access.getByRole("button",{name:"Assign destinations"}).click();
+  await expect(page.getByRole("status")).toHaveText("Assigned 1 destination.");
+  await access.getByRole("link",{name:"Manage targets"}).click();
+  await cloud.getByRole("button",{name:`Remove ${org} from Cloud`}).click();
+  await expect(page.getByRole("alert")).toContainText("Remove user mappings");
 });

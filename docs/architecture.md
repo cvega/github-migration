@@ -322,6 +322,7 @@ schema upgrades, interrupted-run recovery, and retention pruning.
 | `audit_events` | Authentication and operator action attribution | Stores actors and resources without credentials or session tokens |
 | `self_service_routes` | Exact source-to-destination routes available for delegation | Identities include the source provider and instance, not an ephemeral profile run |
 | `self_service_grants` | Named operator assignments | Grants inventory access with a separate migration permission |
+| `target_organizations` | Administrator-listed migration destinations | Organization logins belong to one target connection and API instance; listing grants no access |
 | `app_schema_versions` | Per-domain schema versions | Supports idempotent startup upgrades |
 | `migrations` | One row per repository migration | Includes batch ID, source provider, native and GitHub checkpoints, state, pipeline step, auth mode, request options, counts, and timestamps |
 | `events` | Append-only migration event log | Replayed for SSE catch-up |

@@ -115,6 +115,7 @@ GH_SOURCE_PAT=github_pat_...</pre>
 					<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
 						<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{setup.gitlabSourceApiUrl || "Not configured"}</dd></div>
 						<div><dt class="text-xs text-gray-500">Archive storage</dt><dd class="mt-0.5 {setup.gitlabMigrationReady ? 'text-gray-300' : 'text-gray-400'}">{setup.gitlabMigrationReady ? "Configured" : "Required for migration"}</dd></div>
+						<div class="sm:col-span-2"><dt class="text-xs text-gray-500">Migration scope · GITLAB_SOURCE_NAMESPACE</dt><dd class="text-machine mt-0.5 wrap-anywhere text-gray-300">{data.gitlabNamespaces?.join(", ") || "Not restricted by namespace"}</dd></div>
 					</dl>
 					{#if setup.gitlabMigrationReady}
 						<p class="flex items-center gap-2 text-xs text-gray-500"><Octicon name="check" size={12} class="text-green-400" />Ready for profiling and migration.</p>
@@ -137,6 +138,7 @@ ARCHIVE_DIR=/data/archives</pre>
 					<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
 						<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{setup.bitbucketSourceApiUrl || "Not configured"}</dd></div>
 						<div><dt class="text-xs text-gray-500">Export transfer</dt><dd class="mt-0.5 {setup.bitbucketMigrationReady ? 'text-gray-300' : 'text-gray-400'}">{setup.bitbucketMigrationReady ? "SFTP configured" : "SFTP required for migration"}</dd></div>
+						<div class="sm:col-span-2"><dt class="text-xs text-gray-500">Migration scope · BITBUCKET_SERVER_PROJECT_KEYS</dt><dd class="text-machine mt-0.5 wrap-anywhere text-gray-300">{data.bitbucketProjectKeys?.join(", ") || "Not restricted by project key"}</dd></div>
 					</dl>
 					{#if setup.bitbucketMigrationReady}
 						<p class="flex items-center gap-2 text-xs text-gray-500"><Octicon name="check" size={12} class="text-green-400" />Ready for profiling and migration.</p>
@@ -155,7 +157,9 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 	<section id="targets" class="scroll-mt-6 space-y-3" aria-labelledby="migration-target-heading">
 		<div>
 			<h2 id="migration-target-heading" class="text-base font-semibold text-gray-100">Migration targets</h2>
-			<p class="mt-1 text-sm text-gray-500">GitHub destinations and supported source paths.</p>
+			<p class="mt-1 text-sm text-gray-400">GitHub connections and supported source paths.
+				{#if data.currentUser?.role === "admin"}<a href="/admin/targets" class="text-blue-400 hover:underline">Manage target organizations</a>{/if}
+			</p>
 		</div>
 		<div class="divide-y divide-gray-700 overflow-hidden rounded-md border border-gray-700">
 			{#each targetProfiles as profile (profile.id)}
@@ -167,7 +171,7 @@ BITBUCKET_SERVER_SSH_PRIVATE_KEY=...</pre>
 					<div class="mt-3 space-y-4">
 						<dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
 							<div><dt class="text-xs text-gray-500">API URL</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{profile.apiUrl}</dd></div>
-							<div><dt class="text-xs text-gray-500">Organizations</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Set in migration plan"}</dd></div>
+							<div><dt class="text-xs text-gray-500">Migration credential scope</dt><dd class="text-machine mt-0.5 break-all text-gray-300">{profile.organizations.length ? profile.organizations.join(", ") : "Not restricted by organization"}</dd></div>
 						</dl>
 						<div class="divide-y divide-gray-700 border-y border-gray-700">
 							{#each profile.capabilities ?? [] as capability (`${capability.sourceProvider}:${profile.id}`)}
