@@ -33,9 +33,30 @@ test("admin and operator use the same report and migration pages, with disjoint 
       await expect(page.locator("main")).toContainText(ownProject);
       expect((await page.goto(`/profile/${own}`))?.status()).toBe(200);
       await expect(page.locator("main")).toContainText(`private-${tag}`);
+      const plan = page.getByRole("region", { name: "Build migration plan" });
+      const destination = plan.getByRole("definition");
+      await expect(plan.getByText("Assigned destination", { exact: true })).toBeVisible();
+      await expect(destination).toContainText("test-target-org");
+      await expect(destination).toContainText("GitHub Enterprise Cloud");
+      await expect(plan.getByRole("combobox")).toHaveCount(0);
+      const launch = plan.getByRole("button", { name: "Launch batch" });
       if (tag === "a") {
         await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
         await page.screenshot({ path: info.outputPath("operator-profile.png") });
+        await page.setViewportSize({ width: 390, height: 844 });
+        const exportPlan = plan.getByRole("button", { name: "Export" });
+        const exportBox = await exportPlan.boundingBox();
+        const launchBox = await launch.boundingBox();
+        if (!exportBox || !launchBox) throw new Error("Expected both plan actions to be visible");
+        expect(await destination.evaluate((el) => el.getBoundingClientRect().bottom)).toBeLessThan(exportBox.y);
+        expect(launchBox.x).toBeGreaterThanOrEqual(exportBox.x + exportBox.width);
+        expect(launchBox.y).toBeLessThan(exportBox.y + exportBox.height);
+        await expect(launch).toBeDisabled();
+        await plan.getByRole("checkbox", { name: `Select ${ownProject}/private-a` }).check();
+        await expect(launch).toBeEnabled();
+      } else {
+        await expect(destination).toContainText("Read only");
+        await expect(launch).toHaveCount(0);
       }
       await nav.getByRole("link", { name: /^Migrations/ }).click();
       await expect(page.getByRole("heading", { name: "Migrations", exact: true })).toBeVisible();

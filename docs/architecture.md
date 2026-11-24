@@ -290,6 +290,8 @@ source. Disabled users, expired sessions, and revoked sessions are rejected.
 Administrators grant access on the user record. Operators share the existing
 dashboard, profile reports and migration screens. Their scope is the exact
 provider, source instance and namespace together with its assigned destination.
+On a profile report, **Build migration plan** shows the operator's assigned
+organization and target below the heading instead of an editable destination picker.
 Viewing a project does not authorize submitting migrations, and viewing a
 migration is not permission to modify another operator's job. Private routes
 are denied unless they enforce that scope. Session-scoped responses are not
