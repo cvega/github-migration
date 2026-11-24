@@ -31,14 +31,16 @@ provider, instance and namespace from a completed **Profile** run. **View
 report** opens its latest completed inventory. A source stays in the picker
 even when no target is listed or deployment credentials cannot migrate it.
 
-**Manage targets** opens the independent target list. Under **Cloud** or
-**Server**, enter an existing GitHub organization login, or select **Find
-organizations** and add a result from that connection. Discovery uses the
+**Manage targets** shows destinations grouped by GitHub connection. The same
+login on Cloud and Server represents two separate targets. Select **Add
+target**, choose **Cloud** or **Server**, then enter an existing organization
+login or use **Find organizations** and add a result. Discovery uses the
 target credential's organization memberships (or its App installation);
 it does not enumerate every organization on GitHub. A listed target belongs
 to that connection and grants nobody access until you map it to a user.
 Deployment organizations (`GH_TARGET_ORG`, `GHES_TARGET_ORG`) appear
-automatically and are managed by configuration. A listed route outside the
+automatically and are managed by configuration. **Connection details** shows
+the endpoints and explains each connection's migration scope. A listed route outside the
 migration credential scope can be assigned **View only** if the source's
 profiling scope allows it. To enable migration, add that specific source
 or target to its deployment allowlist; do not remove the allowlist.
