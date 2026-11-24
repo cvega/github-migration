@@ -1,33 +1,27 @@
-<p align="center">
-	<img src="static/imgs/github-logo.png" width="80" height="80" alt="GitHub" />
-</p>
-<h1 align="center">GitHub Migration Dashboard</h1>
+# GitHub Migration Toolkit
 
-<p align="center">
-	<strong>Profile, plan, and migrate repositories from GitHub, GitLab, or Bitbucket Server to GitHub targets.</strong>
-</p>
+Plan and track repository migrations to GitHub Enterprise from a dashboard you host.
+Profile a source to find repositories that need attention, choose their destination,
+and verify one import before moving the rest.
 
-The dashboard combines provider-aware source profiling, guided single and
-batch setup, durable migration execution, live SSE progress, cancellation,
-restart, reconciliation, crash recovery, and operational statistics.
+## Choose your destination
 
-## Capabilities
+| Destination | Supported sources | Start here |
+|---|---|---|
+| GitHub Enterprise Cloud (GHEC) | GitHub, GitLab, Bitbucket Server / Data Center | [Configure your source and Cloud target](docs/getting-started.md#configure-providers) |
+| GitHub Enterprise Server (GHES) | Bitbucket Server / Data Center | [Deploy the dashboard and run a pilot](docs/bitbucket-datacenter-to-ghes.md) |
 
-- Profile GitHub organizations, GitLab namespaces, and Bitbucket projects.
-- Analyze GitHub repository history and LFS evidence in a separate worker.
-- Build migration plans from readiness findings and repository mappings.
-- Migrate to GHEC or a configured GHES target where the provider path supports it.
-- Map GHEC mannequins to target organization members and send attribution invitations.
-- Queue up to 500 batch members under an app-wide concurrency limit of ten.
-- Resume work from durable provider, GitHub, and GHES import checkpoints.
-- Authenticate GitHub with PATs or Apps while keeping provider and GHES secrets server-only.
-- Run one dashboard with SQLite WAL persistence and readiness probes, alongside the profile analyzer; GHES exports use short-lived workers.
+## Your first migration
+
+1. **Profile the source.** Pick one repository from the report and review its warnings before planning the import. Profiling does not write to the destination.
+2. **Migrate one repository.** Choose the destination organization, confirm the repository name is available, and launch the migration.
+3. **Verify the result.** Compare the default branch and its latest commit with the source. Check repository access and the metadata your team relies on before migrating a batch.
 
 ## Quick Start
 
-**Deploying for Bitbucket Data Center → GitHub Enterprise Server?** Start with the
-[deployment and first migration guide](docs/bitbucket-datacenter-to-ghes.md).
-The base stack below is a loopback-only preview; it cannot launch a Bitbucket exporter.
+Use the base stack below for a local preview. Before running a migration,
+[configure your source and destination](docs/getting-started.md#configure-providers),
+including any archive storage or exporter your route requires.
 
 ```bash
 cp .env.example .env
@@ -48,22 +42,6 @@ bun run dev
 bun test
 bun run verify
 ```
-
-## Screenshots
-
-| Sign in | Workspace |
-|---|---|
-| ![Sign in](static/imgs/screenshots/login.png) | ![Workspace](static/imgs/screenshots/home.png) |
-| Profiles | Profile readiness |
-| ![Profile runs](static/imgs/screenshots/profile.png) | ![Profile readiness](static/imgs/screenshots/profile-detail.png) |
-| Migration dashboard | Migration search |
-| ![Migration dashboard](static/imgs/screenshots/dashboard.png) | ![Migration search results](static/imgs/screenshots/search.png) |
-| New migration | Active batch |
-| ![New migration](static/imgs/screenshots/new-migration.png) | ![Active batch](static/imgs/screenshots/batch.png) |
-| Migration detail | Statistics |
-| ![Migration detail](static/imgs/screenshots/migration-detail.png) | ![Migration statistics](static/imgs/screenshots/stats.png) |
-| Mannequins | Setup |
-| ![Mannequin user map](static/imgs/screenshots/mannequins.png) | ![Provider setup](static/imgs/screenshots/setup.png) |
 
 ## Documentation
 
