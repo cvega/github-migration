@@ -58,7 +58,7 @@ function action(
 
 test("grants multiple destinations atomically for the panel's user without pinning other users", async () => {
   const data = await page("admin", "alice");
-  const [first, other] = data.profiles[0]!.destinations;
+  const [first, other] = data.destinations;
   const fields = {
     userId: "bob",
     source: data.profiles[0]!.key,
@@ -77,7 +77,7 @@ test("grants multiple destinations atomically for the panel's user without pinni
   expect(listGrants("alice")[0]?.canMigrate).toBe(false);
   const bob = await page("admin", "bob");
   expect(bob.grants).toEqual([]);
-  expect(bob.profiles[0]?.destinations).toEqual([first!, other!]);
+  expect(bob.destinations).toEqual([first!, other!]);
   expect(await action("assign", "admin", "bob", { ...fields, route: other!.key })).toMatchObject({
     success: "Assigned 1 destination.",
   });
@@ -94,10 +94,10 @@ test("grants multiple destinations atomically for the panel's user without pinni
 });
 
 test("rejects forged options and options that are no longer configured or completed", async () => {
-  const profile = (await page("admin", "alice")).profiles[0]!;
+  const data = await page("admin", "alice");
   const fields = {
-    source: profile.key,
-    route: profile.destinations[0]!.key,
+    source: data.profiles[0]!.key,
+    route: data.destinations[0]!.key,
     permission: "migrate",
   };
   for (const input of [
@@ -122,5 +122,61 @@ test("only an authenticated administrator can load or change assignments", async
     await expect(page(actor, "bob")).rejects.toMatchObject({ status });
     for (const name of ["assign", "removeAssignment"] as const)
       await expect(action(name, actor, "bob", {})).rejects.toMatchObject({ status });
+  }
+});
+
+test("51 profiled projects stay selectable with a two-project migration scope; only the chosen pair is delegated", async () => {
+  const keys = [
+    "BITBUCKET_SERVER_URL",
+    "BITBUCKET_SERVER_PROJECT_KEYS",
+    "PROFILE_CONNECTION_SCOPE",
+  ] as const;
+  const saved = keys.map((k) => process.env[k]);
+  try {
+    process.env.BITBUCKET_SERVER_URL = "https://bb.example";
+    process.env.BITBUCKET_SERVER_PROJECT_KEYS = "P00,P01";
+    process.env.PROFILE_CONNECTION_SCOPE = "bitbucket-server";
+    const api = configuredGrantSource("bitbucket-server");
+    getDb().run("DELETE FROM profile_runs");
+    const insert =
+      getDb().query(`INSERT INTO profile_runs(id,source_provider,source_api_url,org,state,started_at,completed_at)
+      VALUES (?,'bitbucket-server',?,?,'completed','start',?)`);
+    for (let i = 0; i < 51; i++) {
+      const name = `P${String(i).padStart(2, "0")}`;
+      insert.run(name, api, name, "2026-01-01");
+    }
+    insert.run("second-report", api, "P50", "2026-02-01");
+    const { profiles } = await page("admin", "alice");
+    expect(profiles).toHaveLength(51);
+    const restricted = profiles.find((p) => p.namespace === "P50")!;
+    expect(restricted.id).toBe("second-report");
+    const eventFor = (key: string) => {
+      const req = event("admin", "alice");
+      req.url.searchParams.set("source", key);
+      return req as Parameters<typeof load>[0];
+    };
+    const choice = (await load(eventFor(restricted.key)))!.destinations[0]!;
+    expect(choice.migrationRestriction).toContain("P50");
+    const input = { source: restricted.key, route: choice.key, permission: "migrate" };
+    expect(await action("assign", "admin", "alice", input)).toMatchObject({ status: 400 });
+    expect(
+      await action("assign", "admin", "alice", { ...input, permission: "view" }),
+    ).toHaveProperty("success");
+    expect(listGrants("alice")).toMatchObject([
+      { namespace: "P50", targetOrg: choice.targetOrg, canMigrate: false },
+    ]);
+    expect(listGrants("bob")).toEqual([]);
+    expect(
+      (await load(eventFor(profiles[0]!.key)))!.destinations[0]?.migrationRestriction,
+    ).toBeNull();
+    process.env.GH_TARGET_ORG = "";
+    const empty = await load(eventFor(restricted.key));
+    expect(empty!.profiles).toHaveLength(51);
+    expect(empty!.destinations).toEqual([]);
+  } finally {
+    keys.forEach((key, i) => {
+      if (saved[i] === undefined) delete process.env[key];
+      else process.env[key] = saved[i];
+    });
   }
 });

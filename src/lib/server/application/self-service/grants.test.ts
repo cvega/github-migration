@@ -9,6 +9,7 @@ import {
   listGrants,
   revokeGrant,
 } from "./grants";
+import { changeCatalogTarget, requireTargetConnection, targetConnections } from "./target-catalog";
 
 const cloud: Grant = {
   sourceProvider: "github",
@@ -61,6 +62,42 @@ afterEach(() => {
 });
 
 describe("exact operator grants", () => {
+  test("listed targets are independent of environment defaults, connection-specific, and never imply grants or credential scope", () => {
+    const connection = targetConnections().find((c) => c.id === "enterprise")!;
+    changeCatalogTarget("admin", connection.key, "new-target", true);
+    expect(listGrants("alice")).toEqual([]);
+    expect(() => changeCatalogTarget("admin", connection.key, "NEW-target", true)).toThrow(
+      "already listed",
+    );
+    expect(() => changeCatalogTarget("admin", connection.key, "on-prem", false)).toThrow(
+      "Only organizations",
+    );
+    expect(() => assignGrant("admin", "alice", { ...cloud, targetOrg: "new-target" })).toThrow();
+    const exact = { ...server, targetOrg: "new-target" };
+    expect(() => assignGrant("admin", "alice", exact)).toThrow();
+    assignGrant("admin", "alice", { ...exact, canMigrate: false });
+    expect(() => changeCatalogTarget("admin", connection.key, "new-target", false)).toThrow(
+      "Remove user mappings",
+    );
+    expect(listGrants("alice")).toMatchObject([
+      { targetProfileId: "enterprise", targetOrg: "new-target", canMigrate: false },
+    ]);
+    process.env.GHES_TARGET_API_URL = "https://elsewhere.example";
+    expect(() => requireTargetConnection(connection.key)).toThrow("changed");
+    expect(targetConnections().flatMap((c) => c.entries.map((e) => e.org))).not.toContain(
+      "new-target",
+    );
+    expect(listGrants("alice")).toEqual([]);
+    process.env.GHES_TARGET_API_URL = settings.GHES_TARGET_API_URL;
+    revokeGrant("admin", listAdminGrants("alice")[0]!.id);
+    process.env.GHES_TARGET_ORG = "";
+    assignGrant("admin", "bob", exact);
+    expect(listGrants("bob")).toMatchObject([exact]);
+    revokeGrant("admin", listAdminGrants("bob")[0]!.id);
+    changeCatalogTarget("admin", connection.key, "new-target", false);
+    expect(requireTargetConnection(connection.key).entries).toEqual([]);
+  });
+
   test("isolates users, provider, instance and group path across all four supported routes", () => {
     const subgroup = { ...gitlab, namespace: "team/child" };
     assignGrant("admin", "alice", gitlab);

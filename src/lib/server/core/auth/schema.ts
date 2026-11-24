@@ -32,6 +32,12 @@ export const AUTH_DURABLE_TABLES = [
     purpose: "Named operator assignments",
     notes: "Grants inventory access with a separate migration permission",
   },
+  {
+    name: "target_organizations",
+    purpose: "Administrator-listed migration destinations",
+    notes:
+      "Organization logins belong to one target connection and API instance; listing grants no access",
+  },
 ] as const satisfies readonly DurableTableContract[];
 
 const AUTH_DDL = `
@@ -96,6 +102,12 @@ const AUTH_DDL = `
 `;
 
 const ROUTES_DDL = `
+  CREATE TABLE IF NOT EXISTS target_organizations (
+    target_profile_id TEXT NOT NULL,
+    target_api_url TEXT NOT NULL,
+    organization TEXT NOT NULL COLLATE NOCASE,
+    PRIMARY KEY (target_profile_id, target_api_url, organization)
+  );
   CREATE TABLE IF NOT EXISTS self_service_routes (
     id INTEGER PRIMARY KEY,
     source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab', 'bitbucket-server')),
@@ -126,7 +138,7 @@ export const authStore: DomainStore = {
             "SELECT version FROM app_schema_versions WHERE domain='auth'",
           )
           .get()?.version;
-        if (version !== undefined && version > 3)
+        if (version !== undefined && version > 4)
           throw new Error("Unsupported dashboard auth schema");
         if (version === 2) {
           // Rebuild both sides of the foreign key with enforcement still enabled.
@@ -141,8 +153,8 @@ export const authStore: DomainStore = {
           DROP TABLE self_service_grants_v2;
           DROP TABLE self_service_routes_v2;`);
         }
-        if (version !== 3)
-          database.run(`INSERT INTO app_schema_versions (domain,version) VALUES ('auth',3)
+        if (version !== 4)
+          database.run(`INSERT INTO app_schema_versions (domain,version) VALUES ('auth',4)
           ON CONFLICT(domain) DO UPDATE SET version=excluded.version`);
       })
       .immediate();
