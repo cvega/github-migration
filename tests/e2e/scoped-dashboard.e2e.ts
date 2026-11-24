@@ -202,13 +202,19 @@ test("admin maintains a target list independently, then maps a filtered provider
   const userPage = page.url();
   await page.getByRole("link",{name:"Manage targets"}).click();
   const cloud = page.getByRole("region",{name:"Cloud target organizations"});
-  await cloud.getByRole("button",{name:"Find organizations"}).click();
+  const editor = page.getByRole("region",{name:"Add target"});
+  await expect(editor).toHaveCount(0);
+  await page.getByRole("link",{name:"Add target",exact:true}).click();
+  await editor.getByRole("button",{name:"Find organizations"}).click();
   await expect(page.getByRole("alert")).toContainText("Check target credentials");
-  await cloud.getByLabel("Organization login").fill(org);
-  await cloud.getByRole("button",{name:"Add target"}).click();
+  await editor.getByLabel("Organization login").fill(org);
+  await editor.getByRole("button",{name:"Add target"}).click();
   await expect(page.getByRole("status")).toContainText("No user access was granted");
+  await editor.getByRole("link",{name:"Close"}).click();
   await page.reload();
-  await expect(cloud.getByText(org,{exact:true})).toBeVisible();
+  const target = cloud.getByRole("listitem").filter({hasText:org});
+  await expect(target).toContainText("Added by an admin");
+  await expect(target).toContainText("View only");
   await page.goto(userPage);
   const access = page.getByRole("region",{name:"Migration access"});
   await access.getByLabel(/^Choose a source:/).click();
@@ -228,4 +234,27 @@ test("admin maintains a target list independently, then maps a filtered provider
   await access.getByRole("link",{name:"Manage targets"}).click();
   await cloud.getByRole("button",{name:`Remove ${org} from Cloud`}).click();
   await expect(page.getByRole("alert")).toContainText("Remove user mappings");
+});
+
+test("target directory works with native links and forms", async ({ browser, page: admin }) => {
+  const org = `native-${crypto.randomUUID().slice(0,8)}`;
+  const context = await browser.newContext({javaScriptEnabled:false,storageState:await admin.context().storageState()});
+  try {
+    const page = await context.newPage();
+    await page.goto("/admin/targets");
+    await page.getByText("Connection details",{exact:true}).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("GH_TARGET_ORG",{exact:true})).toBeVisible();
+    await page.getByRole("link",{name:"Add target",exact:true}).click();
+    const editor = page.getByRole("region",{name:"Add target"});
+    await expect(editor.getByRole("link",{name:"Cloud"})).toHaveAttribute("aria-current","page");
+    await editor.getByLabel("Organization login").fill(org);
+    await editor.getByRole("button",{name:"Add target"}).click();
+    await expect(page.getByRole("status")).toContainText("Target listed");
+    await editor.getByRole("link",{name:"Close"}).click();
+    const cloud = page.getByRole("region",{name:"Cloud target organizations"});
+    await cloud.getByRole("button",{name:`Remove ${org} from Cloud`}).click();
+    await expect(page.getByRole("status")).toContainText("Target removed");
+    await expect(cloud.getByText(org,{exact:true})).toHaveCount(0);
+  } finally { await context.close(); }
 });
