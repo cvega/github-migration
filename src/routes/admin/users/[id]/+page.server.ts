@@ -1,7 +1,7 @@
 import { error, fail } from "@sveltejs/kit";
 import {
   assignableProfiles,
-  assignGrant,
+  assignProfileDestinations,
   GrantPolicyError,
   listAdminGrants,
   revokeGrant,
@@ -17,15 +17,18 @@ import {
 } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ locals, params }) => {
+export const load: PageServerLoad = ({ locals, params, url }) => {
   const currentUser = requireAdmin(locals);
   const user = findUserById(params.id);
   if (!user) error(404, "User not found");
+  const profiles = user.isActive && user.role === "operator" ? assignableProfiles() : [];
+  const selectedKey = url.searchParams.get("source");
   return {
     currentUser,
     user,
     grants: listAdminGrants(user.id),
-    profiles: user.isActive && user.role === "operator" ? assignableProfiles() : [],
+    profiles,
+    selectedSource: selectedKey ?? profiles[0]?.key ?? null,
   };
 };
 
@@ -37,29 +40,31 @@ export const actions: Actions = {
   assign: async ({ locals, params, request }) => {
     const actor = requireAdmin(locals);
     const data = await request.formData();
-    const key = data.get("route");
+    const source = data.get("source");
+    const destinations = data.getAll("route");
     const permission = data.get("permission");
     if (permission !== "view" && permission !== "migrate")
       return fail(400, { error: "Choose a permission." });
-    for (const profile of assignableProfiles()) {
-      const destination = profile.destinations.find((item) => item.key === key);
-      if (!destination) continue;
-      try {
-        assignGrant(actor.id, params.id, {
-          sourceProvider: profile.sourceProvider,
-          sourceApiUrl: profile.sourceApiUrl,
-          namespace: profile.namespace,
-          targetProfileId: destination.targetProfileId,
-          targetOrg: destination.targetOrg,
-          canMigrate: permission === "migrate",
-        });
-        return { success: "Profile assigned." };
-      } catch (cause) {
-        if (cause instanceof GrantPolicyError) return failure(cause);
-        throw cause;
-      }
+    if (
+      typeof source !== "string" ||
+      !destinations.every((key): key is string => typeof key === "string")
+    )
+      return fail(400, { error: "Choose a source and its destinations." });
+    try {
+      assignProfileDestinations(
+        actor.id,
+        params.id,
+        source,
+        destinations,
+        permission === "migrate",
+      );
+      return {
+        success: `Assigned ${destinations.length} ${destinations.length === 1 ? "destination" : "destinations"}.`,
+      };
+    } catch (cause) {
+      if (cause instanceof GrantPolicyError) return failure(cause);
+      throw cause;
     }
-    return fail(400, { error: "Choose an available profile and destination." });
   },
   removeAssignment: async ({ locals, params, request }) => {
     const actor = requireAdmin(locals);

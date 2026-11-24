@@ -74,7 +74,7 @@
 		getPlanningRepos: () => eligiblePlanningRepos,
 		getDefaultTargetOrg: () => "",
 		getTargets: () => data.targetProfiles ?? [],
-		getAssignment: () => data.assignment,
+		getAssignments: () => data.assignments,
 		isRepoEligible: (name) => eligiblePlanningNames.includes(name),
 	});
 </script>
@@ -82,7 +82,7 @@
 <svelte:head><title>{run.org} - Source profile</title></svelte:head>
 
 <div class="space-y-6">
-	<Header {run} {provider} />
+	<Header {run} {provider} sources={data.sourceChoices} />
 
 	{#if provider.profileKind === "source-inventory"}
 		<SourceInventory
@@ -129,7 +129,7 @@
 			<RepositoryAnalysis
 				analysis={repositoryAnalysis}
 				available={data.repositoryAnalysisAvailable}
-				readOnly={!!data.assignment}
+				readOnly={planner.scoped}
 				{form}
 			/>
 			{#if eligiblePlanningRepos.length > 0 && provider.capabilities.planning}

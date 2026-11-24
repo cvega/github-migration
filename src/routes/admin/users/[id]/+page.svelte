@@ -3,10 +3,10 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import { getSourceProviderAdapter } from "$lib/source-provider";
 	import type { PageProps } from "./$types";
+	import RouteAccess from "./RouteAccess.svelte";
 
 	let { data, form }: PageProps = $props();
 	let submitting = $state(false);
-	const field = "mt-1 block w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-gray-50";
 </script>
 
 <svelte:head><title>{data.user.username} - Users - GitHub Migration Toolkit</title></svelte:head>
@@ -24,7 +24,7 @@
 
 	<div class="divide-y divide-gray-700 rounded-md border border-gray-700 bg-gray-900">
 		<section aria-labelledby="profiles-heading" class="space-y-4 p-5 text-sm text-gray-300">
-			<h2 id="profiles-heading" class="font-semibold text-gray-200">Assigned profiles</h2>
+			<h2 id="profiles-heading" class="font-semibold text-gray-200">Migration access</h2>
 			{#if data.grants.length}
 				<ul class="divide-y divide-gray-700">
 					{#each data.grants as grant (grant.id)}
@@ -35,37 +35,18 @@
 							</div>
 							<form method="POST" action="?/removeAssignment" use:enhance>
 								<input type="hidden" name="grantId" value={grant.id} />
-								<button type="submit" aria-label={`Remove access to ${grant.namespace} on ${grant.sourceProvider}`} class="rounded-md border border-gray-600 px-3 py-2 hover:bg-gray-800">Remove access</button>
+								<button type="submit" aria-label={`Remove ${grant.namespace} (${grant.sourceProvider}) to ${grant.targetOrg} (${grant.targetProfileId})`} class="rounded-md border border-gray-600 px-3 py-2 hover:bg-gray-800">Remove access</button>
 							</form>
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p>No profiles assigned.</p>
+				<p>No routes assigned.</p>
 			{/if}
 			{#if !data.user.isActive || data.user.role !== "operator"}
 				<p class="text-gray-400">Profiles can only be assigned to active operators.</p>
-			{:else if !data.profiles.length}
-				<p class="text-gray-400">Complete a source profile and configure an allowed destination before assigning access.</p>
 			{:else}
-				<form method="POST" action="?/assign" use:enhance class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-					<label class="min-w-0">Profile and destination
-						<select name="route" required class={field}>
-							<option value="">Choose a profile and destination</option>
-							{#each data.profiles as profile (profile.key)}
-								<optgroup label={profile.label}>
-									{#each profile.destinations as route (route.key)}
-										<option value={route.key}>{profile.label} → {route.label}</option>
-									{/each}
-								</optgroup>
-							{/each}
-						</select>
-					</label>
-					<label>Permission
-						<select name="permission" class={field}><option value="view">View only</option><option value="migrate">View and migrate</option></select>
-					</label>
-					<button type="submit" class="justify-self-start rounded-md bg-green-600 px-3 py-2 font-medium text-white hover:bg-green-500">Assign profile</button>
-				</form>
+				<RouteAccess {data} />
 			{/if}
 		</section>
 		<section class="flex flex-wrap items-center justify-between gap-4 p-5">

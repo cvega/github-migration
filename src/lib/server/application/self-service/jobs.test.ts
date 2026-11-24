@@ -17,7 +17,7 @@ import { GET as logRoute } from "../../../../routes/api/migrate/[id]/events/+ser
 import { POST as restartRoute } from "../../../../routes/api/migrate/[id]/restart/+server";
 import { POST as adminProfileBatch } from "../../../../routes/api/migrate/batches/+server";
 import { POST as operatorProfileBatch } from "../../../../routes/api/profile/[id]/+server";
-import { assignGrant } from "./grants";
+import { assignGrant, listGrants } from "./grants";
 import {
   cancelOwnJob,
   configureOperatorJobPolicy,
@@ -119,19 +119,24 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
     failureReason: "test worker result",
     completedAt: new Date().toISOString(),
   }));
-  return { selection: { sourceProvider, namespace: "SRC", repos: ["repo"] }, grant, run, executor };
+  return {
+    selection: { grantId: listGrants("alice")[0]!.id, repos: ["repo"] },
+    grant,
+    run,
+    executor,
+  };
 }
 
 test.each(["admin", "operator"] as const)(
   "%s cannot admit a partial batch with a flagged, unanalyzed repo",
   async (role) => {
-    const { run } = fixture();
+    const { run, selection } = fixture();
     getDb().run(
       "INSERT INTO profile_repos(run_id,name_with_owner,warnings,created_at) VALUES ('profile','SRC/flagged',1,'now')",
     );
     const scoped = role === "operator";
     const body = scoped
-      ? { repos: ["repo", "flagged"] }
+      ? { grantId: selection.grantId, repos: ["repo", "flagged"] }
       : {
           profileRunId: "profile",
           repos: ["SRC/repo", "SRC/flagged"],
@@ -211,6 +216,24 @@ test("late invalid selection rolls back the entire batch; rejects overrides and 
   expect(getDb().query("SELECT COUNT(*) AS n FROM migrations").get()).toEqual({ n: 0 });
   expect(getDb().query("SELECT COUNT(*) AS n FROM migration_batch_items").get()).toEqual({ n: 0 });
   expect(run).not.toHaveBeenCalled();
+});
+
+test("dispatch and restart use the chosen pair, never a sibling permission or another user's route", async () => {
+  const { grant, run } = fixture();
+  assignGrant("admin", "alice", { ...grant, targetOrg: "other" });
+  const other = listGrants("alice").find((g) => g.targetOrg === "other")!;
+  expect(() => submitOwnBatch("bob", { grantId: other.id, repos: ["repo"] })).toThrow();
+  const {
+    jobIds: [id],
+  } = submitOwnBatch("alice", { grantId: other.id, repos: ["repo"] });
+  await Bun.sleep(0);
+  expect(run.mock.calls[0]![0]).toMatchObject({ targetOrg: "other", targetProfileId: "ghec" });
+  expect(getVisibleJob("bob", id!)).toBeNull();
+  expect(ownJobActions("alice", id!).canRestart).toBe(true);
+  getDb().run("DELETE FROM self_service_grants WHERE id=?", [other.id]);
+  expect(ownJobActions("alice", id!).canRestart).toBe(false);
+  expect(() => restartOwnJob("alice", id!)).toThrow();
+  expect(run).toHaveBeenCalledTimes(1);
 });
 
 test("authorized colleagues see progress but not provider diagnostics or signed log links", async () => {

@@ -50,7 +50,7 @@ export const GET: RequestHandler = ({ params, url, locals }) => {
         project: run.org,
         scope:
           "Tracking rules in the default branch's root .gitattributes; not LFS object counts or bytes.",
-        repositories: getBitbucketLfsReportRows(run.id, own?.grant.namespace),
+        repositories: getBitbucketLfsReportRows(run.id, own?.run.org),
       },
       {
         headers: {
@@ -62,11 +62,11 @@ export const GET: RequestHandler = ({ params, url, locals }) => {
   if (view === "activity") {
     if (getProfileRun(params.id)?.sourceProvider !== "bitbucket-server")
       return json({ error: "Bitbucket profile not found" }, { status: 404 });
-    return json(getBitbucketActivityPage(params.id, page, own?.grant.namespace));
+    return json(getBitbucketActivityPage(params.id, page, own?.run.org));
   }
   if (own) {
     if (view === "repos")
-      return json(getProfileRepoPage(params.id, { ...options, namespace: own.grant.namespace }));
+      return json(getProfileRepoPage(params.id, { ...options, namespace: own.run.org }));
     return json(
       view === "status" ? getScopedProfileStatus(own.run) : getOwnProfileDetail(own.run, options),
     );
@@ -87,10 +87,14 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if ("error" in body) return json({ error: body.error }, { status: body.status });
   const own = resolveOwnProfile(locals.user.id, params.id);
   if (!own) return json({ error: "Profile run not found" }, { status: 404 });
-  if (!own.grant.canMigrate) return json({ error: "Migration not permitted" }, { status: 403 });
-  const repos = body.data.repos;
+  const { repos, grantId } = body.data;
+  if (typeof grantId !== "string" || !grantId)
+    return json(
+      { error: "Choose a destination for this source. Refresh the report if needed." },
+      { status: 400 },
+    );
   if (
-    Object.keys(body.data).length !== 1 ||
+    Object.keys(body.data).some((key) => key !== "repos" && key !== "grantId") ||
     !Array.isArray(repos) ||
     !repos.length ||
     repos.length > MAX_PROFILE_PLAN_REPOS ||
@@ -104,6 +108,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   ) {
     return json({ error: "Invalid repository selection" }, { status: 400 });
   }
+  const grant = own.grants.find((g) => g.id === grantId);
+  if (!grant?.canMigrate) return json({ error: "Migration not permitted" }, { status: 403 });
   const selectionError = profileSelectionError(
     own.run,
     repos.map((name) => `${own.run.org}/${name}`),
@@ -111,8 +117,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (selectionError) return json({ error: selectionError }, { status: 400 });
   try {
     const batch = submitOwnBatch(locals.user.id, {
-      sourceProvider: own.run.sourceProvider,
-      namespace: own.run.org,
+      grantId: grant.id,
       repos,
     });
     return json({ id: batch.batchId }, { status: 201 });

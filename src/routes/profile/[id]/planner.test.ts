@@ -61,14 +61,19 @@ describe("ProfileMigrationPlannerController", () => {
         })),
       getDefaultTargetOrg: () => "",
       getTargets: () => [],
-      getAssignment: () => ({ targetOrg: "assigned", targetProfileId: "ghec", canMigrate: true }),
+      getAssignments: () => [
+        { id: "grant-a", targetOrg: "assigned", targetProfileId: "ghec", canMigrate: true },
+      ],
     });
     const post = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ id: "batch" }));
     try {
       planner.toggleSelection("group/sub/two");
       await planner.launchBatch();
       expect(post.mock.lastCall?.[0]).toBe("/api/profile/profile");
-      expect(JSON.parse(String(post.mock.lastCall?.[1]?.body))).toEqual({ repos: ["two"] });
+      expect(JSON.parse(String(post.mock.lastCall?.[1]?.body))).toEqual({
+        grantId: "grant-a",
+        repos: ["two"],
+      });
     } finally {
       post.mockRestore();
     }

@@ -34,6 +34,31 @@ const RUN_COLS =
   "id, source_provider, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
 const SUPPORTED_PROVIDER_SQL = SOURCE_PROVIDERS.map((provider) => `'${provider}'`).join(", ");
 
+type SourceScope = { sourceProvider: SourceProvider; sourceApiUrl: string; namespace: string };
+
+export function completedSourceRuns(scopes: SourceScope[] | null) {
+  const from = "FROM profile_runs WHERE state='completed' AND completed_at IS NOT NULL";
+  if (scopes === null) return { from, params: [] as string[] };
+  return {
+    from: `${from} AND (source_provider,source_api_url,org COLLATE BINARY) IN
+      (SELECT value ->> 0,value ->> 1,value ->> 2 FROM json_each(?))`,
+    params: [JSON.stringify(scopes.map((g) => [g.sourceProvider, g.sourceApiUrl, g.namespace]))],
+  };
+}
+
+export function latestSourceReports(scopes: SourceScope[] | null) {
+  const { from, params } = completedSourceRuns(scopes);
+  return getDb()
+    .query<SourceScope & { id: string }, string[]>(
+      `SELECT id, namespace, sourceProvider, sourceApiUrl FROM (
+      SELECT id, org AS namespace, source_provider AS sourceProvider, source_api_url AS sourceApiUrl,
+        row_number() OVER (PARTITION BY source_provider,source_api_url,org COLLATE BINARY
+          ORDER BY completed_at DESC,started_at DESC,id DESC) AS rank ${from}
+    ) WHERE rank=1 ORDER BY namespace,sourceProvider,sourceApiUrl`,
+    )
+    .all(...params);
+}
+
 export class ProfileRunCapacityError extends Error {
   constructor(readonly sourceProvider: SourceProvider) {
     super(`A ${sourceProvider} profile is already running`);

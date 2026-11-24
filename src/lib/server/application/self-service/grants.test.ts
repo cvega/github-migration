@@ -4,9 +4,9 @@ import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import {
   assignGrant,
   type Grant,
+  grantsForSource,
   listAdminGrants,
   listGrants,
-  resolveGrant,
   revokeGrant,
 } from "./grants";
 
@@ -68,15 +68,17 @@ describe("exact operator grants", () => {
     assignGrant("admin", "bob", subgroup);
     assignGrant("admin", "bob", cloud);
     assignGrant("admin", "bob", { ...server, namespace: "OPS" });
-    expect(listGrants("alice")).toEqual([bitbucket, gitlab]);
+    expect(listGrants("alice")).toMatchObject([bitbucket, gitlab]);
     expect(listGrants("bob")).toHaveLength(3);
-    expect(resolveGrant("alice", "gitlab", gitlab.sourceApiUrl, "team/child")).toBeNull();
-    expect(resolveGrant("bob", "gitlab", gitlab.sourceApiUrl, "team")).toBeNull();
-    expect(resolveGrant("alice", "gitlab", "https://elsewhere.example/api/v4", "team")).toBeNull();
-    expect(resolveGrant("alice", "github", cloud.sourceApiUrl, "team")).toBeNull();
-    expect(resolveGrant("bob", "bitbucket-server", server.sourceApiUrl, "OPS")?.canMigrate).toBe(
-      true,
+    expect(grantsForSource("alice", "gitlab", gitlab.sourceApiUrl, "team/child")).toEqual([]);
+    expect(grantsForSource("bob", "gitlab", gitlab.sourceApiUrl, "team")).toEqual([]);
+    expect(grantsForSource("alice", "gitlab", "https://elsewhere.example/api/v4", "team")).toEqual(
+      [],
     );
+    expect(grantsForSource("alice", "github", cloud.sourceApiUrl, "team")).toEqual([]);
+    expect(grantsForSource("bob", "bitbucket-server", server.sourceApiUrl, "OPS")).toMatchObject([
+      { canMigrate: true },
+    ]);
   });
 
   test("restricts assignments to active named operators, configured supported routes and literal namespaces", () => {
@@ -98,18 +100,16 @@ describe("exact operator grants", () => {
     expect(listAdminGrants()).toEqual([]);
   });
 
-  test("never silently remaps a shared source; revoke only the named operator and preserve audit history", () => {
+  test("multiple destinations never remap a shared route; revoke only the named assignment", () => {
     assignGrant("admin", "alice", cloud);
-    expect(() => assignGrant("admin", "bob", { ...cloud, targetOrg: "other" })).toThrow();
     expect(() => assignGrant("admin", "alice", { ...cloud, canMigrate: true })).toThrow();
     assignGrant("admin", "bob", { ...cloud, canMigrate: true });
     const [first, second] = listAdminGrants();
-    revokeGrant("admin", first!.id);
-    expect(listGrants("alice")).toEqual([]);
-    expect(listGrants("bob")[0]?.canMigrate).toBe(true);
-    expect(() => assignGrant("admin", "alice", { ...cloud, targetOrg: "other" })).toThrow();
-    revokeGrant("admin", second!.id);
     assignGrant("admin", "alice", { ...cloud, targetOrg: "other" });
+    revokeGrant("admin", first!.id);
+    expect(listGrants("alice")).toMatchObject([{ targetOrg: "other", canMigrate: false }]);
+    expect(listGrants("bob")[0]?.canMigrate).toBe(true);
+    revokeGrant("admin", second!.id);
     expect(
       getDb()
         .query(
@@ -124,6 +124,7 @@ describe("exact operator grants", () => {
         resource_id: first!.id,
       }),
       expect.objectContaining({ action: "grant.assigned", target_user_id: "bob" }),
+      expect.objectContaining({ action: "grant.assigned", target_user_id: "alice" }),
       expect.objectContaining({
         action: "grant.revoked",
         actor_user_id: "admin",
@@ -132,7 +133,6 @@ describe("exact operator grants", () => {
         metadata: expect.stringContaining("landing"),
       }),
       expect.objectContaining({ action: "grant.revoked", target_user_id: "bob" }),
-      expect.objectContaining({ action: "grant.assigned", target_user_id: "alice" }),
     ]);
   });
 
@@ -146,11 +146,11 @@ describe("exact operator grants", () => {
       process.env[key] = value;
       expect(listGrants("alice")).toEqual([]);
       expect(
-        resolveGrant("alice", server.sourceProvider, server.sourceApiUrl, server.namespace),
-      ).toBeNull();
+        grantsForSource("alice", server.sourceProvider, server.sourceApiUrl, server.namespace),
+      ).toEqual([]);
       process.env[key] = settings[key];
     }
-    expect(listGrants("alice")).toEqual([server]);
+    expect(listGrants("alice")).toMatchObject([server]);
     for (const update of ["is_active = 0", "role = 'admin'", "must_change_password = 1"]) {
       getDb().run(`UPDATE app_users SET ${update} WHERE id = 'alice'`);
       expect(listGrants("alice")).toEqual([]);

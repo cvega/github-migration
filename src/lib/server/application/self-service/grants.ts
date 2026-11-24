@@ -5,6 +5,7 @@ import { findUserById } from "$lib/server/core/auth/users";
 import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
 import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/server/core/targets";
+import { latestSourceReports } from "$lib/server/profile/database/runs";
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
 import { getGitLabSourceConfig } from "$lib/server/source/gitlab/config";
 import {
@@ -65,32 +66,13 @@ function allowedTarget(grant: Grant) {
 }
 
 export function assignableProfiles() {
-  const profiles = getDb()
-    .query<{ sourceProvider: SourceProvider; sourceApiUrl: string; namespace: string }, []>(
-      `SELECT DISTINCT source_provider AS sourceProvider, source_api_url AS sourceApiUrl, org AS namespace
-     FROM profile_runs WHERE state = 'completed' AND completed_at IS NOT NULL ORDER BY namespace, sourceProvider`,
-    )
-    .all();
-  const existing = listAdminGrants();
+  const profiles = latestSourceReports(null);
   const targets = getMigrationTargetProfiles();
   return profiles.flatMap((profile) => {
-    const pinned = existing.find(
-      (g) =>
-        g.sourceProvider === profile.sourceProvider &&
-        g.sourceApiUrl === profile.sourceApiUrl &&
-        g.namespace === profile.namespace,
-    );
     const destinations = targets.flatMap((target) =>
       target.organizations.flatMap((targetOrg) => {
         const grant = { ...profile, targetProfileId: target.id, targetOrg, canMigrate: false };
-        if (
-          !allowedTarget(grant) ||
-          (pinned &&
-            (pinned.targetProfileId !== target.id ||
-              pinned.targetApiUrl !== target.apiUrl ||
-              pinned.targetOrg !== targetOrg))
-        )
-          return [];
+        if (!allowedTarget(grant)) return [];
         return [
           {
             key: JSON.stringify([
@@ -103,6 +85,7 @@ export function assignableProfiles() {
             ]),
             label: `${targetOrg} (${target.platform.toUpperCase()})`,
             targetProfileId: target.id,
+            targetApiUrl: target.apiUrl,
             targetOrg,
           },
         ];
@@ -152,7 +135,7 @@ export function listAdminGrants(userId?: string) {
   return getDb()
     .query<JoinedRow, string[]>(
       `${JOINED} ${userId === undefined ? "" : "WHERE g.user_id = ?"}
-       ORDER BY u.username, r.source_provider, r.namespace`,
+       ORDER BY u.username, r.source_provider, r.namespace, r.target_profile_id, r.target_org`,
     )
     .all(...(userId === undefined ? [] : [userId]))
     .map((row) => ({
@@ -167,34 +150,61 @@ export function listAdminGrants(userId?: string) {
 const ELIGIBLE =
   "g.user_id = ? AND u.role = 'operator' AND u.is_active = 1 AND u.must_change_password = 0";
 
-function currentGrant(row: JoinedRow): Grant | null {
+type AssignedGrant = Grant & { id: string };
+
+function currentGrant(row: JoinedRow): AssignedGrant | null {
   const grant = publicGrant(row);
-  return allowedTarget(grant)?.apiUrl === row.targetApiUrl ? grant : null;
+  return allowedTarget(grant)?.apiUrl === row.targetApiUrl ? { ...grant, id: row.id } : null;
 }
 
-export function listGrants(userId: string): Grant[] {
+export function listGrants(userId: string): AssignedGrant[] {
   return getDb()
     .query<JoinedRow, [string]>(
-      `${JOINED} WHERE ${ELIGIBLE} ORDER BY r.source_provider, r.namespace`,
+      `${JOINED} WHERE ${ELIGIBLE} ORDER BY r.source_provider, r.namespace, r.target_profile_id, r.target_org`,
     )
     .all(userId)
     .map(currentGrant)
-    .filter((grant): grant is Grant => grant !== null);
+    .filter((grant) => grant !== null);
 }
 
-export function resolveGrant(
+export function grantsForSource(
   userId: string,
   provider: SourceProvider,
   apiUrl: string,
   namespace: string,
-): Grant | null {
-  const row = getDb()
-    .query<JoinedRow, [string, string, string, string]>(
-      `${JOINED} WHERE ${ELIGIBLE} AND r.source_provider = ? AND r.source_api_url = ?
-     AND r.namespace = ? COLLATE BINARY`,
-    )
-    .get(userId, provider, apiUrl, namespace);
-  return row && currentGrant(row);
+) {
+  return listGrants(userId).filter(
+    (g) => g.sourceProvider === provider && g.sourceApiUrl === apiUrl && g.namespace === namespace,
+  );
+}
+
+export function assignProfileDestinations(
+  actorId: string,
+  userId: string,
+  source: string,
+  destinations: string[],
+  canMigrate: boolean,
+) {
+  getDb()
+    .transaction(() => {
+      const profile = assignableProfiles().find((p) => p.key === source);
+      if (!profile || !destinations.length || new Set(destinations).size !== destinations.length)
+        throw new GrantPolicyError("Choose a source and one or more distinct destinations.");
+      for (const key of destinations) {
+        const target = profile.destinations.find((d) => d.key === key);
+        if (!target)
+          throw new GrantPolicyError("A selected destination is not available for this source.");
+        assignGrant(actorId, userId, {
+          sourceProvider: profile.sourceProvider,
+          sourceApiUrl: profile.sourceApiUrl,
+          namespace: profile.namespace,
+          targetProfileId: target.targetProfileId,
+          targetOrg: target.targetOrg,
+          canMigrate,
+        });
+      }
+    })
+    .immediate();
 }
 
 function requireGrantAdministrator(actorUserId: string) {
@@ -219,7 +229,7 @@ export function assignGrant(actorUserId: string, userId: string, grant: Grant): 
     const key = [grant.sourceProvider, grant.sourceApiUrl, grant.namespace] as const;
     db.query(`INSERT INTO self_service_routes
       (source_provider, source_api_url, namespace, target_profile_id, target_api_url, target_org)
-      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (source_provider, source_api_url, namespace) DO NOTHING`).run(
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (source_provider, source_api_url, namespace, target_profile_id, target_api_url, target_org) DO NOTHING`).run(
       ...key,
       target.id,
       target.apiUrl,
@@ -231,8 +241,7 @@ export function assignGrant(actorUserId: string, userId: string, grant: Grant): 
        AND namespace = ? COLLATE BINARY AND target_profile_id = ? AND target_api_url = ? AND target_org = ?`,
       )
       .get(...key, target.id, target.apiUrl, grant.targetOrg);
-    if (!route)
-      throw new GrantPolicyError("Revoke existing assignments before changing a source route.");
+    if (!route) throw new Error("Assigned route was not persisted");
     const id = crypto.randomUUID();
     const change = db
       .query(`INSERT INTO self_service_grants (id, route_id, user_id, can_migrate)

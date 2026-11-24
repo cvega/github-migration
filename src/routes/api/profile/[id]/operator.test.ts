@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { assignGrant } from "$lib/server/application/self-service/grants";
+import { assignGrant, listGrants } from "$lib/server/application/self-service/grants";
 import * as jobs from "$lib/server/application/self-service/jobs";
 import {
   countOwnProfileRuns,
@@ -164,13 +164,13 @@ test("profile submission rejects destination overrides, missing paths, read-only
     batchId: "batch",
     jobIds: ["job"],
   });
+  const grantId = listGrants("alice")[0]!.id;
   try {
-    const response = await POST(event("mine", "", { repos: ["direct"] }));
+    const response = await POST(event("mine", "", { repos: ["direct"], grantId }));
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ id: "batch" });
     expect(submit).toHaveBeenCalledWith("alice", {
-      namespace: grant.namespace,
-      sourceProvider: grant.sourceProvider,
+      grantId,
       repos: ["direct"],
     });
   } finally {
@@ -182,10 +182,23 @@ test("profile submission rejects destination overrides, missing paths, read-only
     { repos: ["missing"] },
     { repos: ["child/name"] },
   ]) {
-    expect((await POST(event("mine", "", body))).status).toBe(400);
+    expect((await POST(event("mine", "", { ...body, grantId }))).status).toBe(400);
   }
   getDb().run("UPDATE self_service_grants SET can_migrate=0");
-  expect((await POST(event("mine", "", { repos: ["direct"] }))).status).toBe(403);
+  expect((await POST(event("mine", "", { repos: ["direct"], grantId }))).status).toBe(403);
   getDb().run("DELETE FROM self_service_grants");
   expect((await POST(event("mine", "", { repos: ["direct"] }))).status).toBe(404);
+});
+
+test("report submissions reject ambiguous, cross-source and read-only choices before creating jobs", async () => {
+  process.env.GH_TARGET_ORG = "landing,other";
+  const other = { ...grant, targetOrg: "other" };
+  assignGrant("admin", "alice", { ...other, canMigrate: false });
+  assignGrant("admin", "alice", { ...other, namespace: "other-group" });
+  snapshot("mine", [`${grant.namespace}/direct`]);
+  const choices = listGrants("alice");
+  for (const g of choices.filter((g) => g.targetOrg === "other"))
+    expect((await POST(event("mine", "", { repos: ["direct"], grantId: g.id }))).status).toBe(403);
+  expect((await POST(event("mine", "", { repos: ["direct"] }))).status).toBe(400);
+  expect(getDb().query("SELECT count(*) n FROM migrations").get()).toEqual({ n: 0 });
 });

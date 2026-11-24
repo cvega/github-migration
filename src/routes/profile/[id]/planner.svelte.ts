@@ -14,7 +14,7 @@ interface PlannerOptions {
   getPlanningRepos(): PageData["planningRepos"];
   getDefaultTargetOrg(): string;
   getTargets(): MigrationTargetProfile[];
-  getAssignment?(): { targetProfileId: string; targetOrg: string; canMigrate: boolean } | null;
+  getAssignments?(): PageData["assignments"];
   isRepoEligible?(name: string): boolean;
 }
 
@@ -60,15 +60,27 @@ export class ProfileMigrationPlannerController {
     return this.options.getPlanningRepos();
   }
 
+  get assignments() {
+    return this.options.getAssignments?.() ?? null;
+  }
+
+  get scoped(): boolean {
+    return this.assignments !== null;
+  }
+
   get assignment() {
-    return this.options.getAssignment?.() ?? null;
+    const choices = this.assignments;
+    if (!choices) return null;
+    if (this.targetChoice?.runId === this.runId)
+      return choices.find((g) => g.id === this.targetChoice?.value) ?? null;
+    return choices.length === 1 ? choices[0] : null;
   }
 
   get selectedNames(): string[] {
     const selected =
       this.selection?.runId === this.runId
         ? this.selection.value
-        : this.assignment
+        : this.scoped
           ? []
           : defaultProfilePlanSelection(this.options.getPlanningRepos());
     return selected.filter((name) => this.options.isRepoEligible?.(name) ?? true);
@@ -76,7 +88,9 @@ export class ProfileMigrationPlannerController {
 
   get targetOrg(): string {
     const override = this.targetOrgValue?.runId === this.runId ? this.targetOrgValue.value : null;
-    return this.assignment?.targetOrg ?? override ?? this.options.getDefaultTargetOrg();
+    return this.scoped
+      ? (this.assignment?.targetOrg ?? "")
+      : (override ?? this.options.getDefaultTargetOrg());
   }
 
   get targets() {
@@ -88,7 +102,7 @@ export class ProfileMigrationPlannerController {
   }
 
   get targetProfileId(): string {
-    if (this.assignment) return this.assignment.targetProfileId;
+    if (this.scoped) return this.assignment?.targetProfileId ?? "";
     return (
       this.targets.find(
         (target) =>
@@ -100,6 +114,12 @@ export class ProfileMigrationPlannerController {
   setTargetProfileId(id: string): void {
     this.targetChoice = { runId: this.runId, value: id };
     this.setTargetOrg("");
+    this.setError("");
+  }
+
+  chooseAssignment(id: string): void {
+    this.targetChoice = { runId: this.runId, value: id };
+    this.setBlockersAccepted(false);
     this.setError("");
   }
 
@@ -167,7 +187,7 @@ export class ProfileMigrationPlannerController {
   }
 
   targetNameFor(sourceRepo: string): string {
-    if (this.assignment) return projectName(sourceRepo);
+    if (this.scoped) return projectName(sourceRepo);
     return this.currentTargetNames[sourceRepo] ?? projectName(sourceRepo);
   }
 
@@ -254,7 +274,8 @@ export class ProfileMigrationPlannerController {
       this.setError("", runId);
       this.launchingValue = { runId, value: true };
       const assignment = this.assignment;
-      if (assignment && !assignment.canMigrate) throw new Error("This assignment is read-only.");
+      if (this.scoped && !assignment?.canMigrate)
+        throw new Error("Choose a destination with migration access.");
       const response = await fetch(
         assignment ? `/api/profile/${encodeURIComponent(runId)}` : "/api/migrate/batches",
         {
@@ -262,7 +283,10 @@ export class ProfileMigrationPlannerController {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
             assignment
-              ? { repos: plan.items.map((item) => projectName(item.sourceRepo)) }
+              ? {
+                  grantId: assignment.id,
+                  repos: plan.items.map((item) => projectName(item.sourceRepo)),
+                }
               : {
                   profileRunId: plan.profileRunId,
                   sourceProvider: plan.sourceProvider,
