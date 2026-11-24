@@ -21,13 +21,14 @@ for trusted local use. Before publishing it beyond that network, replace
 unauthenticated mode with first-administrator bootstrap credentials; see
 [Configuration](configuration.md#core). Add operators from **Manage users**
 after signing in. On the operator’s user record, open **Migration access**.
-Pick a source, check one or more destinations, choose **View only** or
+Open **Source profile**, pick a source, check one or more destinations, choose **View only** or
 **View and migrate**, and select **Assign destinations**. Repeat for other
-sources or for destinations that need a different permission.
+sources or for destinations that need a different permission. An assigned
+destination shows its permission and a **Remove** action instead of a checkbox.
 
 The sources are not user accounts or manually created mappings. Each is a
 provider, instance and namespace from a completed **Profile** run. **View
-latest source report** opens its inventory. Destinations come from the
+report** opens its latest completed inventory. Destinations come from the
 configured target organizations (`GH_TARGET_ORG` for cloud, `GHES_TARGET_ORG`
 for server); only combinations supported for that source are offered.
 Operators use the same **Profile** and **Migrations** tabs as admins.

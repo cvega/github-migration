@@ -83,7 +83,7 @@ export function assignableProfiles() {
               target.apiUrl,
               targetOrg,
             ]),
-            label: `${targetOrg} (${target.platform.toUpperCase()})`,
+            platform: target.platform,
             targetProfileId: target.id,
             targetApiUrl: target.apiUrl,
             targetOrg,
