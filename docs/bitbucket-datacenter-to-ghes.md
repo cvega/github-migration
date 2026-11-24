@@ -20,12 +20,12 @@ arrange a source write freeze rather than expecting later changes to be copied.
 | GHES management SSH | Have the appliance administrator add the deployment **public** key in **Management Console → SSH access**. Obtain the SSH host key's OpenSSH `SHA256:` fingerprint through a trusted, independent channel. This is the **server's** fingerprint, not the deployment key's. The remote staging directory must exist, be writable by the SSH account, and have room for the archive. |
 | Deployment host | Use a trusted Linux host with Docker Engine, Compose v2, and persistent storage. Both the dashboard and the exporter need DNS, trusted TLS, and HTTPS access to Bitbucket. The dashboard also needs GHES HTTPS and administrative SSH (normally TCP 122; the management and web hostnames may differ). Reserve space for the archive on the Docker host and for staging and import on GHES. |
 
-**Get the exporter before going further.** It is not included in this checkout
-or in the dashboard image. GitHub lists `bbs-exporter` as an
-[expert-led migration tool](https://docs.github.com/en/migrations/overview/migration-paths-to-github#bitbucket-server-or-bitbucket-data-center-to-github-enterprise-server).
-Obtain an approved image digest or an authorized build context from your migration
-team or [GitHub Expert Services](https://github.com/services/). A clean deployment
-cannot use the local validation tag unless you build it.
+**Bring the `bbs-exporter` release tarball supplied by your migration team.**
+This dashboard does not ship the exporter. You do **not** need access to the
+exporter repository: [build the image from the supplied `.tar.gz`](#build-the-exporter-from-the-release-tarball)
+using the Dockerfile inside it. If you have not received the bundle, contact
+your migration lead or [GitHub Expert Services](https://github.com/services/);
+GitHub lists this as an [expert-led migration path](https://docs.github.com/en/migrations/overview/migration-paths-to-github#bitbucket-server-or-bitbucket-data-center-to-github-enterprise-server).
 
 No GitHub.com PAT, GitHub App, Bitbucket administrative SSH key, or Bitbucket
 shared-home mount is needed. Source-side SFTP is for **Bitbucket → GHEC**.
@@ -74,7 +74,9 @@ GHES_TARGET_SSH_PRIVATE_KEY='<one-line base64 of the deployment private key>'
 GHES_TARGET_SSH_HOST_KEY_SHA256='SHA256:<verified appliance host fingerprint>'
 GHES_TARGET_REMOTE_DIR=/home/admin
 
-BBS_EXPORTER_IMAGE=registry.example.com/migrations/bbs-exporter@sha256:<approved-digest>
+# Example for a tarball containing bbs-exporter-1.13.0/Dockerfile; confirm in step 3.
+BBS_EXPORTER_BUILD_CONTEXT=../bbs-exporter-build/bbs-exporter-1.13.0
+BBS_EXPORTER_IMAGE=gh-migrate/bbs-exporter:1.13.0-validation
 EXPORTER_ARCHIVE_VOLUME=pilot-migration-archives
 EXPORTER_NETWORK=bridge
 ```
@@ -101,26 +103,88 @@ EXPORTER_NETWORK=bridge
 
 ## 3. Make the exporter available and start the dashboard
 
-Run these in the same checkout, against the Docker daemon used by the dashboard.
-Choose **one** exporter path:
+Run these commands from the **dashboard repository root** on the Docker host
+the dashboard will use. The build takes no dashboard, Bitbucket, or GHES credentials.
 
-- **Approved registry image:** keep the digest reference in `.env`. Authenticate
-  to your registry through its normal credential helper, then pull that exact image:
+### Build the exporter from the release tarball
 
-  ```sh
-  image=$(docker compose --profile tools config --images bbs-exporter-image)
-  docker pull "$image"
-  docker image inspect --format '{{json .RepoDigests}}' "$image"
-  ```
+1. Set `archive` to the file you received. This is the **exporter software
+   release**, not a repository migration archive or a saved Docker image. If
+   your migration team supplied a SHA-256, compare it with `sha256sum "$archive"`
+   before extracting; stop on a mismatch. List the Dockerfile path:
 
-  Check that the result contains your approved digest.
-- **Authorized source build for a pilot:** set `BBS_EXPORTER_IMAGE=gh-migrate/bbs-exporter:1.13.0-validation`
-  **instead of** the digest reference. Put the approved exporter build context
-  (including its Dockerfile) at `../bbs-exporter-1.13.0`, or set
-  `BBS_EXPORTER_BUILD_CONTEXT` to its path. Run
-  `docker compose --profile tools build bbs-exporter-image`. The tools profile
-  builds an image, not a long-running service. For production, publish an
-  approved build and use its digest.
+   ```sh
+   archive="$HOME/Downloads/bbs-exporter-1.13.0.tar.gz"  # use the actual path
+   tar -tzf "$archive" | grep -E '(^|/)Dockerfile$'
+   ```
+
+   If there is no exporter Dockerfile, stop and ask the sender for the complete
+   build bundle. Do not use the dashboard's Dockerfile or run `docker load`.
+2. In the same shell, unpack into a **new directory outside the dashboard**.
+   The `mkdir` check prevents extracting over an existing build:
+
+   ```sh
+   mkdir -m 700 ../bbs-exporter-build &&
+     tar --no-same-owner --no-same-permissions -xzf "$archive" -C ../bbs-exporter-build
+   ```
+
+3. In `.env`, set `BBS_EXPORTER_BUILD_CONTEXT` to the **extracted directory
+   containing the exporter's Dockerfile**, not the `.tar.gz` file. For example:
+
+   | Dockerfile path listed by `tar` | `BBS_EXPORTER_BUILD_CONTEXT` |
+   |---|---|
+   | `bbs-exporter-1.13.0/Dockerfile` | `../bbs-exporter-build/bbs-exporter-1.13.0` |
+   | `Dockerfile` or `./Dockerfile` | `../bbs-exporter-build` |
+
+   Keep secrets and the dashboard checkout out of this directory. Keep
+   `BBS_EXPORTER_IMAGE=gh-migrate/bbs-exporter:1.13.0-validation` for this pilot.
+4. From the dashboard directory, with `compose.exporter.yml` included in
+   `COMPOSE_FILE`, build just the exporter:
+
+   ```sh
+   docker compose --profile tools build bbs-exporter-image
+   ```
+
+   To build without the dashboard checkout or its `.env`, run
+   `docker build -t gh-migrate/bbs-exporter:1.13.0-validation .` **from the
+   extracted directory containing the Dockerfile** instead.
+
+   The `-validation` tag now names an image on this Docker host; it is not a
+   published download. Do **not** start an exporter service. Continue to
+   [verify the image](#verify-the-exporter-image); the dashboard will start a
+   short-lived container for each repository.
+
+### Use an approved prebuilt image
+
+Skip this section if you built from the tarball. If your organization distributes
+the approved build to other hosts via a private registry, set `BBS_EXPORTER_IMAGE`
+to its immutable `registry/image@sha256:…` reference instead of the local tag.
+Authenticate to the registry with your normal credential helper, then pull and check the digest:
+
+```sh
+image=$(docker compose --profile tools config --images bbs-exporter-image)
+docker pull "$image"
+docker image inspect --format '{{json .RepoDigests}}' "$image"
+```
+
+### Verify the exporter image
+
+For either path, run the **same image reference** Compose will give the
+dashboard. This prints the version without contacting Bitbucket or GHES,
+mounting archives, or passing credentials:
+
+```sh
+image=$(docker compose --profile tools config --images bbs-exporter-image)
+docker run --rm --pull=never --network none --read-only --user 65534:65534 \
+  --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp -e HOME=/tmp \
+  "$image" bbs-exporter --version
+```
+
+For the example build, expect `bbs-exporter 1.13.0`. If the image is missing,
+check the Docker context and `BBS_EXPORTER_IMAGE`; if the version differs from
+your approved release, stop before launching a migration.
+
+### Start the dashboard
 
 ```sh
 docker compose config --quiet
