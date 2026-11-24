@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import Octicon from "$lib/components/Octicon.svelte";
-	import { getSourceProviderAdapter } from "$lib/source-provider";
 	import type { PageProps } from "./$types";
 	import RouteAccess from "./RouteAccess.svelte";
 
@@ -23,32 +22,9 @@
 	{#if form?.temporaryPassword}<div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-200"><p>Share this temporary password securely. It will not be shown again.</p><code class="mt-3 block overflow-x-auto rounded-md bg-gray-950 px-3 py-2 text-gray-50">{form.temporaryPassword}</code></div>{/if}
 
 	<div class="divide-y divide-gray-700 rounded-md border border-gray-700 bg-gray-900">
-		<section aria-labelledby="profiles-heading" class="space-y-4 p-5 text-sm text-gray-300">
-			<h2 id="profiles-heading" class="font-semibold text-gray-200">Migration access</h2>
-			{#if data.grants.length}
-				<ul class="divide-y divide-gray-700">
-					{#each data.grants as grant (grant.id)}
-						<li class="flex flex-wrap items-center justify-between gap-3 py-2">
-							<div class="min-w-0 break-words">
-								<p>{grant.namespace} ({getSourceProviderAdapter(grant.sourceProvider).displayName}) → {grant.targetOrg} ({grant.targetProfileId})</p>
-								<p class="text-gray-400">{grant.canMigrate ? "View and migrate" : "View only"}</p>
-							</div>
-							<form method="POST" action="?/removeAssignment" use:enhance>
-								<input type="hidden" name="grantId" value={grant.id} />
-								<button type="submit" aria-label={`Remove ${grant.namespace} (${grant.sourceProvider}) to ${grant.targetOrg} (${grant.targetProfileId})`} class="rounded-md border border-gray-600 px-3 py-2 hover:bg-gray-800">Remove access</button>
-							</form>
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<p>No routes assigned.</p>
-			{/if}
-			{#if !data.user.isActive || data.user.role !== "operator"}
-				<p class="text-gray-400">Profiles can only be assigned to active operators.</p>
-			{:else}
-				<RouteAccess {data} />
-			{/if}
-		</section>
+		{#key JSON.stringify([data.user.id, data.selectedSource])}
+			<RouteAccess {data} />
+		{/key}
 		<section class="flex flex-wrap items-center justify-between gap-4 p-5">
 			<div><h2 class="text-sm font-semibold text-gray-200">Role</h2><p class="mt-1 text-xs text-gray-500">Administrators can manage users and all migration operations.</p></div>
 			<form method="POST" action="?/role" use:enhance><select name="role" aria-label="Role" disabled={data.currentUser.id === data.user.id} class="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-50"><option value="operator" selected={data.user.role === "operator"}>Operator</option><option value="admin" selected={data.user.role === "admin"}>Administrator</option></select><button type="submit" class="ml-2 rounded-md border border-gray-600 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800">Save</button></form>

@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 
-// The two scenarios seed the same disposable SQLite database.
+// The scenarios seed the same disposable SQLite database.
 test.describe.configure({ mode: "default" });
 
 function seedOperators() {
@@ -15,6 +15,13 @@ function seedOperators() {
     BITBUCKET_SERVER_PROJECT_KEYS: "", GH_TARGET_ORG: "test-target-org", PORTAL_TEST_PASSWORD: password,
   } });
   return {suffix,password};
+}
+
+async function chooseSource(access: Locator, namespace: string) {
+  const choices = access.getByRole("navigation", { name: "Choose a source" });
+  if (!(await choices.isVisible())) await access.getByLabel(/^Choose a source:/).press("Enter");
+  await choices.getByRole("link", { name: `${namespace} (Bitbucket Server)` }).click();
+  await expect(access.getByRole("group", { name: `GitHub destinations for ${namespace}` })).toBeVisible();
 }
 
 test("admin and operator use the same report and migration pages, with disjoint scope enforced", async ({ browser, page: admin }, info) => {
@@ -85,17 +92,33 @@ test("admin assigns destination sets per source; an operator switches sources wi
   await admin.goto(`/admin/users?q=${operator}`);
   await admin.getByRole("link",{name:`Manage ${operator}`}).click();
   const access = admin.getByRole("region",{name:"Migration access"});
-  const choose = access.getByRole("navigation",{name:"Choose a source"});
-  await choose.getByRole("link",{name:`${a} (Bitbucket Server)`}).click();
-  await expect(access.getByRole("link",{name:"View latest source report"})).toHaveAttribute("href",`/profile/${operator}`);
-  await access.getByLabel("alternate-org (GHEC)",{exact:true}).check();
-  await access.getByLabel("archive-org (GHEC)",{exact:true}).check();
+  await chooseSource(access, a);
+  await expect(access.getByRole("link",{name:`View report for ${a}`})).toHaveAttribute("href",`/profile/${operator}`);
+  const destinations = access.getByRole("group",{name:`GitHub destinations for ${a}`});
+  const assigned = destinations.getByRole("listitem").filter({hasText:"test-target-org"});
+  await expect(access.getByText("test-target-org",{exact:true})).toHaveCount(1);
+  await expect(assigned.getByRole("checkbox")).toHaveCount(0);
+  await expect(assigned.getByRole("button",{name:/^Remove/})).toBeVisible();
+  await expect(assigned).toContainText("View and migrate");
+  await expect(access.getByRole("button",{name:"Assign destinations"})).toBeDisabled();
+  for (const width of [971,1440,390]) {
+    await admin.setViewportSize({width,height:844});
+    expect(await admin.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    const section = await access.boundingBox();
+    const list = await destinations.boundingBox();
+    if (!section || !list) throw new Error("Expected destination list");
+    expect(list.width).toBeGreaterThan(section.width * 0.85);
+    await access.screenshot({path:info.outputPath(`admin-routes-${width}.png`)});
+  }
+  await access.getByRole("checkbox",{name:"Cloud alternate-org",exact:true}).check();
+  await access.getByRole("checkbox",{name:"Cloud archive-org",exact:true}).check();
+  await expect(access.getByText("2 selected",{exact:true})).toBeVisible();
   await access.getByRole("button",{name:"Assign destinations"}).click();
   await expect(admin.getByRole("status")).toHaveText("Assigned 2 destinations.");
   await expect(access.getByText("All available destinations are assigned for this source.")).toBeVisible();
-  await choose.getByRole("link",{name:`${b} (Bitbucket Server)`}).click();
-  const bDestinations = access.getByRole("group",{name:`Destinations for ${b}`});
-  const secondSourceTarget = bDestinations.getByLabel("alternate-org (GHEC)",{exact:true});
+  await chooseSource(access, b);
+  const bDestinations = access.getByRole("group",{name:`GitHub destinations for ${b}`});
+  const secondSourceTarget = bDestinations.getByRole("checkbox",{name:"Cloud alternate-org",exact:true});
   await secondSourceTarget.check();
   await expect(secondSourceTarget).toBeChecked();
   await access.getByLabel("Permission for new destinations").selectOption("migrate");
@@ -141,4 +164,32 @@ test("admin assigns destination sets per source; an operator switches sources wi
   } finally {
     await context.close();
   }
+});
+
+test("admin can assign and remove routes without JavaScript, even after the operator is disabled", async ({browser,page:admin}) => {
+  const {suffix} = seedOperators();
+  const username = `portal-a-${suffix}`;
+  const b = `PORTALB${suffix}`;
+  const context = await browser.newContext({javaScriptEnabled:false,storageState:await admin.context().storageState()});
+  try {
+    const page = await context.newPage();
+    await page.goto(`/admin/users?q=${username}`);
+    await page.getByRole("link",{name:`Manage ${username}`}).click();
+    const access = page.getByRole("region",{name:"Migration access"});
+    await chooseSource(access, b);
+    await access.getByRole("button",{name:"Assign destinations"}).click();
+    await expect(page.getByRole("alert")).toContainText("Choose a source and one or more distinct destinations");
+    await access.getByRole("checkbox",{name:"Cloud alternate-org",exact:true}).check();
+    await access.getByRole("button",{name:"Assign destinations"}).click();
+    await expect(page.getByRole("status")).toHaveText("Assigned 1 destination.");
+    const row = access.getByRole("group",{name:`GitHub destinations for ${b}`}).getByRole("listitem").filter({hasText:"alternate-org"});
+    await expect(row).toContainText("View only");
+    await row.getByRole("button",{name:/^Remove/}).click();
+    await expect(access.getByRole("checkbox",{name:"Cloud alternate-org",exact:true})).toBeVisible();
+    await page.getByRole("button",{name:"Disable user"}).click();
+    await expect(access).toContainText("Only active operators can receive route assignments");
+    await access.getByRole("button",{name:`Remove PORTALA${suffix} (bitbucket-server) to test-target-org (ghec)`}).click();
+    await expect(page.getByRole("status")).toHaveText("Profile access removed.");
+    await expect(access.getByRole("button",{name:/^Remove/})).toHaveCount(0);
+  } finally { await context.close(); }
 });
