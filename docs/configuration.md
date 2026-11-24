@@ -180,26 +180,16 @@ exporter containers.
 Exporter processes run without target credentials. Their network, memory, CPU,
 PID, and temporary-storage limits should remain bounded in production.
 
-For Bitbucket-to-GHES migrations, Compose defaults to the local image
-`gh-migrate/bbs-exporter:1.13.0-validation`. Place the exporter source outside
-this repository at `../bbs-exporter-1.13.0`, or set
-`BBS_EXPORTER_BUILD_CONTEXT` to its location, then build the image:
-
-```sh
-export COMPOSE_FILE=docker-compose.yml:compose.exporter.yml
-docker compose --profile tools build bbs-exporter-image
-docker compose up -d --wait
-```
-
-The tools profile builds the image; it is not a long-running exporter service.
-The dashboard creates a container for each migration and shares the archive
-volume with it. Set `BBS_EXPORTER_IMAGE` to use a different image, and ensure
-the exporter network can reach Bitbucket. A real export and GHES import must be
-validated separately. For production, publish the approved build to your
-registry and set `BBS_EXPORTER_IMAGE` to its immutable `registry/image@sha256:...`
-reference. On a clean worker, pull that exact reference and inspect its
-`RepoDigests` before enabling the route. The local `-validation` tag does not
-establish image provenance or availability on another worker.
+For Bitbucket-to-GHES, the default `BBS_EXPORTER_IMAGE` is the **local** tag
+`gh-migrate/bbs-exporter:1.13.0-validation`. The dashboard does not distribute
+the exporter. [Build it from the supplied release tarball](bitbucket-datacenter-to-ghes.md#build-the-exporter-from-the-release-tarball);
+no exporter repository access is required. `BBS_EXPORTER_BUILD_CONTEXT` must
+point to the **extracted directory containing the exporter's Dockerfile** (Compose
+default: `../bbs-exporter-1.13.0`), not the tarball itself. For a deployment host
+using a private registry, [pull an approved image by digest](bitbucket-datacenter-to-ghes.md#use-an-approved-prebuilt-image).
+[Verify the CLI version](bitbucket-datacenter-to-ghes.md#verify-the-exporter-image)
+on the dashboard's Docker daemon before the pilot. No exporter daemon is needed;
+the dashboard starts one container per repository.
 
 Only include `compose.exporter.yml` where the dashboard must launch exporter
 containers. For a local Bitbucket on the external `bitbucket-local_default`
