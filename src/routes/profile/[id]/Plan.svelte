@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Octicon from "$lib/components/Octicon.svelte";
+	import { getTargetPlatformPresentation, isTargetPlatform } from "$lib/migration-target";
 	import type { ProfileMigrationPlannerController } from "./planner.svelte";
 
 	let {
@@ -7,26 +8,41 @@
 		canExport,
 		embedded = false,
 	}: { planner: ProfileMigrationPlannerController; canExport: boolean; embedded?: boolean } = $props();
+	const assignment = $derived(planner.assignment);
+	const canLaunch = $derived(!assignment || assignment.canMigrate);
 </script>
 
-<section class="rounded-md border border-gray-700 bg-gray-950/40 p-4">
-	<div class="grid gap-4 lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end">
-		<div class="self-start">
+<section aria-labelledby="profile-plan-heading" class="rounded-md border border-gray-700 bg-gray-950/40 p-4">
+	<div class="grid gap-4 {assignment ? 'md:grid-cols-[minmax(0,1fr)_auto] md:items-center' : 'lg:grid-cols-[minmax(14rem,1fr)_auto] lg:items-end'}">
+		<div class="min-w-0 self-start">
 			{#if embedded}
-				<h3 class="flex items-center gap-2 text-base font-semibold text-gray-100">
+				<h3 id="profile-plan-heading" class="flex items-center gap-2 text-base font-semibold text-gray-100">
 					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
 				</h3>
 			{:else}
-				<h2 class="flex items-center gap-2 text-base font-semibold text-gray-100">
+				<h2 id="profile-plan-heading" class="flex items-center gap-2 text-base font-semibold text-gray-100">
 					<Octicon name="tasklist" size={16} class="text-gray-500" />Build migration plan
 				</h2>
 			{/if}
-			<p class="mt-1 ml-6 text-sm text-gray-400">{planner.assignment ? "Choose repositories for the assigned destination." : "Choose repositories and target names, then launch them as one batch."}</p>
-		</div>
-		<div class="flex flex-wrap items-end gap-2 lg:justify-end">
-			{#if planner.assignment}
-				<p class="text-sm text-gray-400">Assigned destination: <strong class="text-gray-100">{planner.targetOrg}</strong> · {planner.targetProfileId}{planner.assignment.canMigrate ? "" : " · Read only"}</p>
+			{#if assignment}
+				<dl class="mt-2 ml-6 text-sm">
+					<dt class="text-gray-400">Assigned destination</dt>
+					<dd class="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+						<strong class="text-machine min-w-0 font-semibold text-gray-100 wrap-anywhere">{assignment.targetOrg}</strong>
+						<span class="min-w-0 text-gray-400 wrap-anywhere">
+							{isTargetPlatform(assignment.targetProfileId)
+								? getTargetPlatformPresentation(assignment.targetProfileId).displayName
+								: `Target profile: ${assignment.targetProfileId}`}
+						</span>
+						{#if !canLaunch}<span class="whitespace-nowrap text-gray-300">Read only</span>{/if}
+					</dd>
+				</dl>
 			{:else}
+				<p class="mt-1 ml-6 text-sm text-gray-400">Choose repositories and target names, then launch them as one batch.</p>
+			{/if}
+		</div>
+		<div class="flex flex-wrap items-end gap-2 empty:hidden lg:justify-end">
+			{#if !assignment}
 			<label class="block w-full text-sm font-medium text-gray-400 sm:w-64">
 				Destination
 				<select required value={planner.targetProfileId} onchange={(event) => planner.setTargetProfileId(event.currentTarget.value)} class="mt-1 block h-9 w-full rounded-md border border-gray-700 bg-gray-950 px-2 text-sm text-gray-100">
@@ -52,17 +68,21 @@
 				{#if planner.selectedBlockers > 0}
 					<span class="inline-flex h-9 items-center gap-1 text-sm text-red-300"><Octicon name="stop" size={12} />{planner.selectedBlockers} {planner.selectedBlockers === 1 ? "blocker" : "blockers"}</span>
 				{/if}
-				{#if canExport}
-					<button type="button" onclick={() => planner.exportPlan()} disabled={planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40">
-						<Octicon name="download" size={16} />Export
-					</button>
-				{/if}
 			{/if}
-			{#if !planner.assignment || planner.assignment.canMigrate}
-			<button type="button" onclick={() => planner.launchBatch()} disabled={planner.launchingBatch || planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40">
-				<Octicon name={planner.launchingBatch ? "sync" : "rocket"} size={16} class={planner.launchingBatch ? "animate-spin" : ""} />
-				{planner.launchingBatch ? "Launching..." : "Launch batch"}
-			</button>
+			{#if canLaunch || (!embedded && canExport)}
+				<div class={assignment ? "flex flex-wrap gap-2" : "contents"}>
+					{#if !embedded && canExport}
+						<button type="button" onclick={() => planner.exportPlan()} disabled={planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md border border-gray-600 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40">
+							<Octicon name="download" size={16} />Export
+						</button>
+					{/if}
+					{#if canLaunch}
+						<button type="button" onclick={() => planner.launchBatch()} disabled={planner.launchingBatch || planner.submitDisabled} class="inline-flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-40">
+							<Octicon name={planner.launchingBatch ? "sync" : "rocket"} size={16} class={planner.launchingBatch ? "animate-spin" : ""} />
+							{planner.launchingBatch ? "Launching..." : "Launch batch"}
+						</button>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -78,7 +98,7 @@
 			</div>
 			<div class="max-h-80 divide-y divide-gray-800 overflow-y-auto">
 				{#each planner.planningRepos as repo (repo.nameWithOwner)}
-					<div class="grid min-h-12 grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)] items-center gap-3 px-3 py-2">
+					<div class="grid min-h-12 items-center gap-3 px-3 py-2 {assignment ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)]'}">
 						<input type="checkbox" checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
 						<div class="min-w-0 break-all">
 							<span class="text-machine text-gray-300">{repo.nameWithOwner}</span>
@@ -88,7 +108,7 @@
 								<div class="mt-1 text-xs text-gray-400">{details.rootLfsRules === "found" ? "LFS tracking rule found" : details.rootLfsRules === "none" ? "No root LFS rule found" : "LFS rules not verified"}</div>
 							{/if}
 						</div>
-						{#if !planner.assignment}
+						{#if !assignment}
 							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
 						{/if}
 					</div>
