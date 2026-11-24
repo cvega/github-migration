@@ -1,52 +1,83 @@
-# GitHub Migration Dashboard
+<p align="center">
+	<img src="static/imgs/github-logo.png" width="80" height="80" alt="GitHub" />
+</p>
+<h1 align="center">GitHub Migration Dashboard</h1>
 
-Move repositories to GitHub Enterprise from a dashboard you host. Profile a
-source to see which repositories need attention, choose where each one goes,
-and follow the import from the queue to the destination repository.
+<p align="center">
+	<strong>Profile, plan, and migrate repositories from GitHub, GitLab, or Bitbucket Server to GitHub targets.</strong>
+</p>
 
-## Choose your destination
+The dashboard combines provider-aware source profiling, guided single and
+batch setup, durable migration execution, live SSE progress, cancellation,
+restart, reconciliation, crash recovery, and operational statistics.
 
-For **GitHub Enterprise Server (GHES)**, the dashboard migrates from Bitbucket
-Server/Data Center only. [Deploy for GHES and migrate your first repository](docs/bitbucket-datacenter-to-ghes.md).
-The walkthrough covers the `bbs-exporter` folder or `.tar.gz` from your
-migration team, SSH access to the appliance, and how to verify the import.
+## Capabilities
 
-For **GitHub Enterprise Cloud (GHEC)**, choose GitHub, GitLab, or Bitbucket
-Server/Data Center as the source. [Configure your source and Cloud target](docs/getting-started.md#configure-providers)
-or [see a completed Cloud import and its event log](static/imgs/screenshots/migration-detail.png).
+- Profile GitHub organizations, GitLab namespaces, and Bitbucket projects.
+- Analyze GitHub repository history and LFS evidence in a separate worker.
+- Build migration plans from readiness findings and repository mappings.
+- Migrate to GHEC or a configured GHES target where the provider path supports it.
+- Map GHEC mannequins to target organization members and send attribution invitations.
+- Queue up to 500 batch members under an app-wide concurrency limit of ten.
+- Resume work from durable provider, GitHub, and GHES import checkpoints.
+- Authenticate GitHub with PATs or Apps while keeping provider and GHES secrets server-only.
+- Run one dashboard with SQLite WAL persistence and readiness probes, alongside the profile analyzer; GHES exports use short-lived workers.
 
-## Pilot: Bitbucket to GHES
+## Quick Start
 
-`PLAT/widgets` → `pilot-imports/widgets`
+**Deploying for Bitbucket Data Center → GitHub Enterprise Server?** Start with the
+[deployment and first migration guide](docs/bitbucket-datacenter-to-ghes.md).
+The base stack below is a loopback-only preview; it cannot launch a Bitbucket exporter.
 
-1. **Profile the source.** In **Profile**, select the `PLAT` project. Check
-   that `widgets` appears in the report and review its warnings. Profiling
-   reads Bitbucket; it does not start an import.
-2. **Confirm the destination.** In **Build migration plan**, select only
-   `widgets` and the `pilot-imports` organization. Check that the repository
-   name is unused. **Launch batch** writes to GHES, even for a single repository.
-3. **Check the imported repository.** Follow the run in **Migrations**. After it
-   succeeds, open `pilot-imports/widgets` and compare the default branch,
-   a pull request and its author, and repository permissions with the source.
-   If the run stops for review, [check the recorded import before retrying](docs/bitbucket-datacenter-to-ghes.md#if-the-pilot-stops).
-
-## Quick start
-
-For a **local preview**, use Docker Engine and Compose v2 from a fresh checkout:
-
-```sh
-umask 077
-test ! -e .env && cp .env.example .env &&
-  docker compose up -d --build --wait
+```bash
+cp .env.example .env
+docker compose up -d --build --wait
 ```
 
-Open [localhost:3000](http://localhost:3000) and choose **Setup** to see which
-connections are configured. The preview binds to loopback with sign-in **off**
-and cannot launch the Bitbucket exporter. Before sharing the dashboard,
-[enable sign-in and set its public URL](docs/deployment.md#authentication-and-network).
+The template enables unauthenticated access for a trusted local network. Before
+exposing the service, configure first-administrator bootstrap credentials. The
+dashboard stores Argon2id password hashes and revocable sessions in SQLite.
+Open `http://localhost:3000` and choose **Profile**, **New migration**, or
+**Mannequins**.
+
+For source development:
+
+```bash
+bun install
+bun run dev
+bun test
+bun run verify
+```
+
+## Screenshots
+
+| Sign in | Workspace |
+|---|---|
+| ![Sign in](static/imgs/screenshots/login.png) | ![Workspace](static/imgs/screenshots/home.png) |
+| Profiles | Profile readiness |
+| ![Profile runs](static/imgs/screenshots/profile.png) | ![Profile readiness](static/imgs/screenshots/profile-detail.png) |
+| Migration dashboard | Migration search |
+| ![Migration dashboard](static/imgs/screenshots/dashboard.png) | ![Migration search results](static/imgs/screenshots/search.png) |
+| New migration | Active batch |
+| ![New migration](static/imgs/screenshots/new-migration.png) | ![Active batch](static/imgs/screenshots/batch.png) |
+| Migration detail | Statistics |
+| ![Migration detail](static/imgs/screenshots/migration-detail.png) | ![Migration statistics](static/imgs/screenshots/stats.png) |
+| Mannequins | Setup |
+| ![Mannequin user map](static/imgs/screenshots/mannequins.png) | ![Provider setup](static/imgs/screenshots/setup.png) |
 
 ## Documentation
 
-- **Operate:** [Operator guide](docs/getting-started.md) · [Configuration](docs/configuration.md) · [Deployment and backups](docs/deployment.md) · [Troubleshooting](docs/troubleshooting.md)
-- **Integrate:** [API and events](docs/api.md) · [Architecture and supported routes](docs/architecture.md#migration-pipeline) · [Provider contracts](docs/provider-contracts.md)
-- **Contribute:** [Development setup](docs/development.md) · [Contributing](CONTRIBUTING.md) · [GitHub resource migration design](docs/github-resource-migration.md) · [Migration workbench](docs/design-system/migration-workbench.md)
+| Guide | Audience |
+|---|---|
+| [Getting Started](docs/getting-started.md) | First-time operators and task-oriented paths |
+| [Bitbucket Data Center → GHES](docs/bitbucket-datacenter-to-ghes.md) | Deployers setting up the exporter, GHES appliance access, and a one-repository pilot |
+| [Configuration](docs/configuration.md) | Deployment owners |
+| [Deployment](docs/deployment.md) | Container and proxy operators |
+| [Architecture](docs/architecture.md) | Developers and reviewers |
+| [API Reference](docs/api.md) | Integrators |
+| [Provider Contracts](docs/provider-contracts.md) | Provider maintainers |
+| [GitHub Resource Migration Design](docs/github-resource-migration.md) | Migration designers and implementers |
+| [Development](docs/development.md) | Contributors |
+| [Migration Workbench](docs/design-system/migration-workbench.md) | Designers and frontend contributors |
+| [Troubleshooting](docs/troubleshooting.md) | Operators and developers |
+| [Contributing](CONTRIBUTING.md) | Contributors |
