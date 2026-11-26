@@ -17,7 +17,7 @@ import {
   submitExporterArchive,
 } from "../exporters/worker";
 import type { MigrationEventEmitter } from "../github/monitor";
-import { fetchMigrationTargetCounts } from "../target-counts";
+import { fetchMigrationTargetCounts, targetCountFailureReason } from "../target-counts";
 import type { GhesImportJobPhase } from "./job";
 import {
   approvedBitbucketRecords,
@@ -471,7 +471,7 @@ async function completeGhesMigration(
   try {
     result.targetCounts = await (source.fetchTargetCounts ?? fetchMigrationTargetCounts)(result);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = targetCountFailureReason(error);
     console.warn(`Target resource counts unavailable for migration ${migration.id}: ${reason}`);
     emitImportStep(
       emit,

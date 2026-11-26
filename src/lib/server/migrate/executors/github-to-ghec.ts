@@ -16,13 +16,18 @@ import {
   updateCheckpoint,
   updateMigrationSourceSize,
 } from "../database/migrations";
-import { checkGhesVersion, resolveMigrationArchives } from "../github/exports";
+import {
+  checkGhesVersion,
+  IncompleteArchivePairError,
+  resolveMigrationArchives,
+} from "../github/exports";
 import {
   abortRepositoryMigration,
   archiveRepository,
   getRepositoryNodeId,
 } from "../github/migration-source";
 import type { MigrationEventEmitter } from "../github/monitor";
+import { isDefinitiveExportRejection } from "../ports/source-runtime";
 import { determineAuthModeFromRequest } from "../validate";
 import { executeArchiveToGhec, monitorGhecMigration } from "./archive-to-ghec";
 import { createRunningMigration } from "./native-to-ghec";
@@ -135,23 +140,23 @@ async function cancelRemoteMigration(
     );
     migration.state = aborted ? "cancelled" : "reconciliation_required";
     if (!aborted) migration.failureReason = "Remote migration could not be confirmed cancelled";
-  } catch (error) {
+  } catch {
     migration.state = "reconciliation_required";
-    migration.failureReason = error instanceof Error ? error.message : String(error);
+    migration.failureReason = "Remote migration could not be confirmed cancelled";
   }
 }
 
-function completeFailure(migration: Migration, error: unknown): void {
+function completeFailure(migration: Migration, reason: string): void {
   migration.completedAt = new Date().toISOString();
   migration.elapsedSeconds = (Date.now() - new Date(migration.startedAt).getTime()) / 1_000;
-  if (!migration.failureReason) {
-    migration.failureReason = error instanceof Error ? error.message : String(error);
-  }
+  migration.failureReason ||= reason;
 }
 
 export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Promise<Migration> {
   const migration = createMigration(options);
   let remoteStartMayHaveSucceeded = false;
+  let exportPending = false;
+  let reason = "GitHub preflight failed; check the source version and source and target access";
   try {
     const clients = dependencies.createClients({
       sourceApiUrl: migration.sourceApiUrl,
@@ -190,13 +195,20 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
       dependencies.updateMigrationSourceSize(migration.id, sourceSizeKb);
     }
 
-    dependencies.updateCheckpoint(migration.id, "archiving");
+    reason = "Could not prepare source archives; check the source export and archive configuration";
+    if (isGhecSource(migration.sourceApiUrl))
+      dependencies.updateCheckpoint(migration.id, "archiving");
     const archives = await dependencies.resolveArchives(
       clients,
       migration,
       { ...options, signal: options.signal },
       (message) => emitStep(options.emit, migration.id, message),
+      (pending) => {
+        dependencies.updateCheckpoint(migration.id, pending ? "source_export" : "archive_upload");
+        exportPending = pending;
+      },
     );
+    reason = "Could not prepare the GHEC import; check source and target access";
     const [sourceToken, targetToken] = await Promise.all([
       clients.getSourceToken(),
       clients.getTargetToken(),
@@ -225,25 +237,37 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
           migration.sourceOrg,
           migration.sourceRepo,
         );
-        await dependencies.archiveRepository(clients.sourceGraphql, repositoryId);
+        if (!(await dependencies.archiveRepository(clients.sourceGraphql, repositoryId))) {
+          throw new Error("Source archival was not confirmed");
+        }
         emitStep(
           options.emit,
           migration.id,
           `Source repository ${migration.sourceOrg}/${migration.sourceRepo} archived`,
           { operation: "source_archive", outcome: "succeeded" },
         );
-      } catch (error) {
+      } catch {
         emitStep(
           options.emit,
           migration.id,
-          `Failed to archive source repository: ${error instanceof Error ? error.message : String(error)}`,
+          "Source archival could not be confirmed; check the source repository",
           { operation: "source_archive", outcome: "failed" },
         );
       }
     }
     return result;
   } catch (error) {
-    if (options.signal?.aborted) {
+    if (
+      exportPending &&
+      !(error instanceof Error && "status" in error && isDefinitiveExportRejection(error.status))
+    ) {
+      migration.state = "reconciliation_required";
+      reason =
+        error instanceof IncompleteArchivePairError
+          ? error.message
+          : "Source export outcome is unknown; check the source before restarting";
+    } else if (options.signal?.aborted) {
+      reason = "Migration cancelled";
       if (migration.githubMigrationId) await cancelRemoteMigration(options, migration);
       else if (remoteStartMayHaveSucceeded) {
         migration.state = "reconciliation_required";
@@ -253,10 +277,11 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
       }
     } else if (remoteStartMayHaveSucceeded || migration.githubMigrationId) {
       migration.state = "reconciliation_required";
+      reason = "GHEC import outcome is unknown; check the target before restarting";
     } else {
       migration.state = "failed";
     }
-    completeFailure(migration, error);
+    completeFailure(migration, reason);
     if (migration.state === "failed") {
       options.emit({
         migrationId: migration.id,
@@ -309,7 +334,7 @@ export async function resumeGitHubToGhecMigration(
       );
     }
     return result;
-  } catch (error) {
+  } catch {
     if (signal?.aborted) {
       await cancelRemoteMigration(
         {
@@ -326,7 +351,12 @@ export async function resumeGitHubToGhecMigration(
     } else {
       migration.state = "reconciliation_required";
     }
-    completeFailure(migration, error);
+    completeFailure(
+      migration,
+      migration.state === "cancelled"
+        ? "Migration cancelled"
+        : "GHEC import outcome is unknown; check the target before restarting",
+    );
     return migration;
   }
 }

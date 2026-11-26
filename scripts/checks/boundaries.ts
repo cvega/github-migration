@@ -42,8 +42,8 @@ function layerOfFile(absFile: string): Layer | null {
 
 function serverImportPath(spec: string, fromFile: string): string | null {
   let abs: string;
-  if (spec.startsWith("$lib/server/")) {
-    abs = resolve(SERVER_DIR, spec.slice("$lib/server/".length));
+  if (spec.startsWith("$lib/")) {
+    abs = resolve("src/lib", spec.slice("$lib/".length));
   } else if (spec.startsWith(".")) {
     abs = resolve(dirname(fromFile), spec);
   } else {
@@ -121,7 +121,7 @@ for await (const file of new Glob("src/**/*.{ts,svelte}").scan(".")) {
       ...Array.from(text.matchAll(DYN_IMPORT_RE), (match) => match[1]),
     ];
     for (const spec of specs) {
-      if (spec?.startsWith("$lib/server")) {
+      if (spec && serverImportPath(spec, resolve(file)) !== null) {
         violations.push({
           file,
           line: index + 1,

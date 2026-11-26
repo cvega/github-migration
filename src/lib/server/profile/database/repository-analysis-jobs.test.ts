@@ -7,6 +7,7 @@ import {
   claimRepositoryAnalysisJob,
   completeRepositoryAnalysisJob,
   failRepositoryAnalysisJob,
+  renewRepositoryAnalysisJobLease,
   retryRepositoryAnalysisJob,
 } from "./repository-analysis-jobs";
 import {
@@ -85,6 +86,55 @@ describe("repository analysis jobs", () => {
     expect(claimRepositoryAnalysisJob({ leaseOwner: "worker-b", nowMs: 120 })).toBeNull();
     const recovered = claimRepositoryAnalysisJob({ leaseOwner: "worker-b", nowMs: 151 });
     expect(recovered).toMatchObject({ id: first?.id, attempt: 2 });
+  });
+
+  test("an expired or replaced attempt cannot renew, publish evidence, or fail its successor", () => {
+    queuedRun(["one"]);
+    const leaseOwner = "same-worker-name";
+    const first = claimRepositoryAnalysisJob({ leaseOwner, nowMs: 100, leaseMs: 50 });
+    if (!first) throw new Error("Expected a job");
+    const result = {
+      sourceRefFingerprint: "refs",
+      mirrorSizeBytes: 42,
+      gitVersion: "git",
+      gitLfsVersion: "git-lfs",
+      gitSizerVersion: "git-sizer",
+      metrics: {},
+      lfsPointers: [],
+    };
+    const rejectStaleAttempt = (nowMs: number) => {
+      const input = { job: first, jobId: first.id, attempt: first.attempt, leaseOwner, nowMs };
+      expect(renewRepositoryAnalysisJobLease(input)).toBe(false);
+      expect(() => completeRepositoryAnalysisJob({ ...input, resultId: "stale", result })).toThrow(
+        "lease is no longer active",
+      );
+      expect(() => failRepositoryAnalysisJob({ ...input, reason: "stale" })).toThrow(
+        "lease is no longer active",
+      );
+    };
+    rejectStaleAttempt(150);
+    const next = claimRepositoryAnalysisJob({ leaseOwner, nowMs: 150, leaseMs: 50 });
+    if (!next) throw new Error("Expected the expired lease to be reclaimed");
+    expect(next.attempt).toBe(2);
+    rejectStaleAttempt(151);
+    expect(
+      renewRepositoryAnalysisJobLease({
+        jobId: next.id,
+        attempt: next.attempt,
+        leaseOwner,
+        nowMs: 199,
+      }),
+    ).toBe(true);
+    completeRepositoryAnalysisJob({
+      job: next,
+      leaseOwner,
+      resultId: "current",
+      result,
+      nowMs: 201,
+    });
+    expect(
+      getDb().query("SELECT id, attempt FROM profile_repository_analysis_results").all(),
+    ).toEqual([{ id: "current", attempt: 2 }]);
   });
 
   test("persists normalized results and completes a successful run", () => {

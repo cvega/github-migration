@@ -426,7 +426,7 @@ describe("GHES import execution", () => {
     });
     source.provider = "bitbucket-server";
     source.fetchTargetCounts = async () => {
-      throw new Error("Target API unavailable");
+      throw new Error("private upstream diagnostic");
     };
     const ssh = source.createSshClient({} as never);
     ssh.mappingRecords = async () => ({
@@ -449,6 +449,7 @@ describe("GHES import execution", () => {
         message: expect.stringContaining("target resource counts could not be collected"),
       },
     });
+    expect(JSON.stringify(events)).not.toContain("private upstream diagnostic");
   });
 
   test("saves unresolved GHES users without guessing their target", async () => {

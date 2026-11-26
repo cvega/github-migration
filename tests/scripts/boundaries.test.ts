@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   checkBoundary,
   checkSourceProviderBoundary,
@@ -6,6 +9,25 @@ import {
 } from "../../scripts/checks/boundary-policy";
 
 describe("server architecture boundaries", () => {
+  test("rejects browser imports of a server module by relative path", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "browser-boundaries-"));
+    try {
+      mkdirSync(join(cwd, "src/lib/server/core"), { recursive: true });
+      writeFileSync(join(cwd, "src/lib/server/core/model.ts"), "export type Row = string;\n");
+      writeFileSync(
+        join(cwd, "src/lib/model.ts"),
+        'export type { Row } from "./server/core/model";\n',
+      );
+      const run = Bun.spawnSync(
+        [process.execPath, join(import.meta.dir, "../../scripts/checks/boundaries.ts")],
+        { cwd },
+      );
+      expect(run.exitCode).toBe(1);
+      expect(run.stderr.toString()).toContain("src/lib/model.ts:1");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
   test.each<Layer>(["core", "source", "profile", "migrate"])(
     "%s cannot import the application layer",
     (layer) => {

@@ -97,12 +97,13 @@ describe("repository analysis claim loop", () => {
   });
 
   test("persists analyzer failures without crashing the loop", async () => {
+    using log = spyOn(console, "error").mockImplementation(() => {});
     queuedAnalysis();
     const processed = await processNextRepositoryAnalysisJob(
       { workspaceRoot: "/analysis", leaseOwner: "worker" },
       {
         analyze: async () => {
-          throw new Error("clone failed");
+          throw new Error("private provider diagnostic");
         },
         getSourceToken: async () => "token",
         newId: () => "unused",
@@ -113,8 +114,9 @@ describe("repository analysis claim loop", () => {
       getDb().query("SELECT state, failure_reason FROM profile_repository_analysis_jobs").get(),
     ).toEqual({
       state: "failed",
-      failure_reason: "clone failed",
+      failure_reason: "Repository analysis failed; check source access and analyzer configuration",
     });
+    expect(JSON.stringify(log.mock.calls)).not.toContain("private provider diagnostic");
   });
 
   test("returns false when no repository analysis job is queued", async () => {
