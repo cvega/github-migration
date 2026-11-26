@@ -1,0 +1,12 @@
+services:
+  gh-migrate:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      BBS_EXPORTER_IMAGE: &image ${BBS_EXPORTER_IMAGE:-gh-migrate/bitbucket-exporter:1.13.0}
+  bitbucket-exporter:
+    profiles: [bitbucket-tools]
+    image: *image
+    build:
+      context: ${BBS_EXPORTER_BUILD_CONTEXT:-../bbs-exporter-1.13.0}
+      dockerfile: ${PWD:-.}/deploy/bitbucket/Dockerfile.bitbucket-exporter

@@ -1,0 +1,22 @@
+# Build context: the separately supplied bbs-exporter 1.13.0 release.
+FROM ruby:3.4.5-alpine@sha256:e284f39a2103a564dca9771a81bfecb455b04cd3be4149b133ed7e508ef1b65f
+RUN apk add --no-cache git sqlite-libs
+
+WORKDIR /opt/bbs-exporter
+COPY Gemfile Gemfile.lock bbs_exporter.gemspec LICENSE ./
+COPY lib/ lib/
+COPY exe/ exe/
+ENV BUNDLE_GEMFILE=/opt/bbs-exporter/Gemfile BUNDLE_FROZEN=true
+RUN apk add --no-cache --virtual .build-deps build-base cmake linux-headers openssl-dev sqlite-dev yaml-dev \
+ && gem install --no-document bundler -v 2.7.2 \
+ && bundle _2.7.2_ install --jobs 2 \
+ && apk del .build-deps \
+ && chmod -R a+rX /opt/bbs-exporter \
+ && chmod a+rx exe/bbs-exporter exe/bbs-exporter-askpass
+
+WORKDIR /workspace
+ENV HOME=/tmp PATH=/opt/bbs-exporter/exe:$PATH
+USER 65534:65534
+RUN version="$(bundle exec bbs-exporter --version)" && echo "$version" && test "$version" = "bbs-exporter 1.13.0"
+ENTRYPOINT ["bundle", "exec"]
+CMD ["bbs-exporter"]
