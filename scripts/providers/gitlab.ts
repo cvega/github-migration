@@ -2,12 +2,13 @@
 
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { GitLabClient } from "$lib/server/source/gitlab/client";
+import { gitlabComposeFile, verifyGitLabContract } from "../../tests/providers/gitlab/live";
 import {
   CommandError,
   type CommandOutput,
   createComposeRuntime,
   createJsonStateFile,
-  execute,
   printOutput,
   redactSecrets,
   runProviderCommand,
@@ -15,7 +16,6 @@ import {
 } from "./harness";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const COMPOSE_FILE = resolve(ROOT, "tests/providers/gitlab/compose.yml");
 const STATE_DIR = resolve(ROOT, ".provider-state");
 const STATE_FILE = resolve(STATE_DIR, "gitlab.json");
 const BASE_URL = "http://127.0.0.1:8929";
@@ -80,7 +80,7 @@ const composeEnvironment = () => ({
 
 const composeRuntime = createComposeRuntime({
   root: ROOT,
-  composeFile: COMPOSE_FILE,
+  composeFile: gitlabComposeFile,
   detectionEnvironment: composeEnvironment,
 });
 
@@ -414,40 +414,10 @@ async function seed(): Promise<void> {
 }
 
 async function testContract(): Promise<void> {
-  const state = await stateFile.read();
-  const env = {
-    ...process.env,
-    LIVE_GITLAB_REQUIRED: "1",
-    LIVE_GITLAB_EXPORT_REQUIRED: "1",
-    LIVE_GITLAB_PAGINATION_REQUIRED: "1",
-    LIVE_GITLAB_SELF_MANAGED_API_URL: BASE_URL,
-    LIVE_GITLAB_SELF_MANAGED_PAT: state.token,
-    LIVE_GITLAB_SELF_MANAGED_NAMESPACE: NAMESPACE,
-    LIVE_GITLAB_SELF_MANAGED_EXPORT_PROJECT: `${NAMESPACE}/service-api`,
-    LIVE_GITLAB_SELF_MANAGED_PAGINATED_NAMESPACE: PAGINATED_NAMESPACE,
-    LIVE_GITLAB_SELF_MANAGED_PAGINATED_PROJECTS: String(PAGINATED_PROJECT_COUNT),
-    LIVE_GITLAB_SELF_MANAGED_ALLOW_INSECURE_HTTP: "1",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_SUBGROUP_PROJECT: `${NAMESPACE}/platform/worker`,
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_ISSUE_PROJECT: `${NAMESPACE}/service-api`,
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_MULTIPLE_ISSUE_PROJECT: `${NAMESPACE}/web-client`,
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_ZERO_ISSUE_PROJECT: `${NAMESPACE}/platform/worker`,
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_RICH_PROJECT: `${NAMESPACE}/service-api`,
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_ISSUES: "3",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_MERGE_REQUESTS: "1",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_COMMITS: "5",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_BRANCHES: "4",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_TAGS: "1",
-    LIVE_GITLAB_SELF_MANAGED_EXPECTED_PROFILE_RELEASES: "1",
-    LIVE_GITLAB_SELF_MANAGED_MINIMUM_PROJECTS: "3",
-  };
-  for (const testFile of [
-    "src/lib/server/source/gitlab/live-contract.test.ts",
-    "src/lib/server/source/gitlab/export-live-contract.test.ts",
-    "src/lib/server/source/gitlab/pagination-live-contract.test.ts",
-  ]) {
-    const output = await execute(["bun", "test", testFile], { cwd: ROOT, env });
-    printCommandOutput(output, [state.token]);
-  }
+  const { token } = await stateFile.read();
+  const client = new GitLabClient({ baseUrl: BASE_URL, token, allowInsecureHttp: true });
+  await verifyGitLabContract(client, NAMESPACE, PAGINATED_NAMESPACE, PAGINATED_PROJECT_COUNT);
+  console.log("GitLab live inventory, profile, pagination and export contracts passed");
 }
 
 async function diagnostics(): Promise<void> {

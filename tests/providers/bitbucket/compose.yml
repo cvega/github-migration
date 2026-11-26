@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994
+    environment:
+      POSTGRES_DB: bitbucket
+      POSTGRES_USER: bitbucket
+      POSTGRES_PASSWORD: ${BITBUCKET_PROVIDER_DB_PASSWORD:?}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bitbucket", "-d", "bitbucket"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  opensearch:
+    image: opensearchproject/opensearch:2.19.8@sha256:0171f36eee4c50f5251e858458216612c4b86bbf4cba4eb28e3b0708944266cf
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - search:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  bitbucket:
+    image: atlassian/bitbucket:10.4.1@sha256:7771a7ff22be69d07cf4577827ed80bba28908785c6f5e6217f6306e20b97556
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    environment:
+      JDBC_DRIVER: org.postgresql.Driver
+      JDBC_URL: jdbc:postgresql://postgres:5432/bitbucket
+      JDBC_USER: bitbucket
+      JDBC_PASSWORD: ${BITBUCKET_PROVIDER_DB_PASSWORD:?}
+      SETUP_BASEURL: http://127.0.0.1:7990
+      SETUP_DISPLAYNAME: Provider Contract
+      SETUP_LICENSE: ${BITBUCKET_PROVIDER_LICENSE:?}
+      SETUP_SYSADMIN_USERNAME: ${BITBUCKET_PROVIDER_ADMIN_USERNAME:?}
+      SETUP_SYSADMIN_PASSWORD: ${BITBUCKET_PROVIDER_ADMIN_PASSWORD:?}
+      SETUP_SYSADMIN_DISPLAYNAME: Provider Admin
+      SETUP_SYSADMIN_EMAILADDRESS: provider-admin@example.invalid
+      SEARCH_ENABLED: "false"
+      PLUGIN_SEARCH_CONFIG_BASEURL: http://opensearch:9200
+    ports:
+      - "127.0.0.1:7990:7990"
+    volumes:
+      - home:/var/atlassian/application-data/bitbucket
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7990/status | grep -q RUNNING"]
+      interval: 10s
+      timeout: 5s
+      start_period: 8m
+      retries: 12
+
+volumes:
+  database:
+  search:
+  home:

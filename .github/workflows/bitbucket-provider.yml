@@ -28,8 +28,11 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Prepare provider harness
+        run: |
+          bun install --frozen-lockfile
+          bun run verify provider-fixtures
+          bun scripts/providers/bitbucket.ts config
 
       - name: Validate runner capacity and license
         run: |
@@ -39,16 +42,17 @@ jobs:
           docker compose version
 
       - name: Run Bitbucket provider contract
+        id: contract
         run: |
           set -o pipefail
           bun scripts/providers/bitbucket.ts run 2>&1 | tee bitbucket-provider.log
 
-      - name: Ensure provider cleanup
-        if: always()
+      - name: Retry cleanup after an unsuccessful provider run
+        if: always() && (steps.contract.outcome == 'failure' || steps.contract.outcome == 'cancelled')
         run: bun scripts/providers/bitbucket.ts down
 
       - name: Upload failure diagnostics
-        if: failure()
+        if: failure() && steps.contract.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bitbucket-provider-diagnostics

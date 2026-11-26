@@ -46,6 +46,7 @@ export const RECOVERABLE_CHECKPOINT_SQL = `(
 
 export const UNRESOLVED_REMOTE_WORK_SQL = `(state = 'cancelling' OR github_migration_id IS NOT NULL
   OR source_export_id IS NOT NULL OR pipeline_step IN ('ghec_starting', 'source_export')
+  OR (source_provider = 'github' AND pipeline_step = 'archive_upload')
   OR EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id))`;
 
 /** A legacy checkpoint or serialized target can contradict the migrated column defaults. */

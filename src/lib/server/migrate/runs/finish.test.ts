@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Migration, MigrationState } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { getEvents } from "../database/events";
-import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
+import {
+  getMigration,
+  insertMigration,
+  updateCheckpoint,
+  updateMigrationState,
+} from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import { activeMigrationRuns } from "./active";
 import { createMigrationRunFinisher } from "./finish";
@@ -124,5 +129,18 @@ describe("migration run settlement", () => {
     expect(JSON.stringify(getEvents("migration-1"))).not.toContain("private-fixture");
     finisher.settleResult("migration-1", registration.token, migration("migration-1", "succeeded"));
     expect(getMigration("migration-1")?.state).toBe("failed");
+  });
+
+  test("unexpected failure cannot make accepted GHES exports restartable", () => {
+    const id = "accepted-exports";
+    insertMigration({ ...migration(id, "running"), sourceApiUrl: "https://ghes.example/api/v3" });
+    updateCheckpoint(id, "archive_upload");
+    const registration = claimedRun(id);
+    createMigrationRunFinisher(() => {}).settleError(
+      id,
+      registration.token,
+      new Error("interrupted"),
+    );
+    expect(getMigration(id)?.state).toBe("reconciliation_required");
   });
 });
