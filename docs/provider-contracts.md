@@ -53,6 +53,20 @@ are listed in [Configuration](configuration.md).
 
 Offline provider tests use deterministic HTTP fixtures and real clients to
 assert headers, canonical paths, pagination, response parsing, bounds, and
-failure classification. Credentialed live-provider suites are not currently
-shipped; any future live checks must remain opt-in and target disposable
-provider data.
+failure classification. `bun run verify provider-fixtures` also checks that the
+live contract modules load and the pinned Compose manifests have the required
+services and health checks. This is an offline input check, not a live test.
+
+The scheduled [GitLab](../.github/workflows/gitlab-provider.yml) and
+[Bitbucket](../.github/workflows/bitbucket-provider.yml) workflows create disposable
+provider instances, seed repositories, and exercise the production discovery and
+profile clients. Each checks all 101 paginated entries and the seeded per-repository
+metrics. GitLab also exports a project and verifies the downloaded repository bundle.
+
+On a dedicated runner, install dependencies and run `bun run verify provider-fixtures`
+first. `bun scripts/providers/gitlab.ts config` and `bun scripts/providers/bitbucket.ts config`
+validate Compose without starting services or using a license. The `run` subcommand
+starts, seeds, tests, and removes the stack **including its volumes**; reserve
+loopback ports 8929 (GitLab) and 7990 (Bitbucket) for the fixtures. Do not run
+these harnesses against an operator instance. Bitbucket `run` requires the runner's
+`BITBUCKET_PROVIDER_LICENSE`; no license or provider credentials belong in the checkout.

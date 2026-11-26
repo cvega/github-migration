@@ -72,6 +72,7 @@ admission policy before broadening or bypassing this requirement.
 Use colocated provider tests and `tests/providers/{gitlab,bitbucket}/contract.test.ts`.
 Exercise the real parser/client against deterministic HTTP fixtures, asserting
 canonical paths, authentication headers, pagination, limits, observations and
-failure classification. The repository does not ship credentialed live-provider
-suites. Run `bun run verify boundaries` after changing imports and synchronize
-generated docs when supported routes or durable contracts change.
+failure classification. `bun run verify provider-fixtures` validates the scheduled
+live suites' inputs offline; the live contracts themselves require disposable
+dedicated runners. Run `bun run verify boundaries` after changing imports and
+synchronize generated docs when supported routes or durable contracts change.

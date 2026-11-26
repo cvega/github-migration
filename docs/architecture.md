@@ -123,7 +123,10 @@ source export acknowledgement, or a target start without a valid migration ID,
 requires reconciliation before restart. An explicit rejection of the first
 export differs from a gateway timeout or an unreadable success response. Once
 GHES acknowledges the Git archive, even a rejection of the metadata export
-leaves a partial pair to reconcile.
+leaves a partial pair to reconcile. Both export IDs are process-local: an
+interruption while polling, transferring, or preparing the target import also
+requires review rather than starting another pair. Once a target import ID is
+saved, recovery monitors that import instead.
 The final successful observation supplies persisted resource counts so
 post-migration indexing lag cannot overwrite them with transient zeroes.
 

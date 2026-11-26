@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempDisposable } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Migration, MigrationEvent } from "$lib/migrate/types";
+import { closeStore, initStore } from "$lib/server/core/db";
 import type { GitHubClients } from "$lib/server/core/github";
+import { getMigration, insertMigration } from "../database/migrations";
+import { migrateStore } from "../database/schema";
 import { __setArchiveTransportDependenciesForTests } from "../github/exports";
+import { restart } from "../manager";
 import {
   __setGitHubToGhecDependenciesForTests,
   resumeGitHubToGhecMigration,
@@ -228,6 +235,58 @@ describe("GitHub-to-GHEC executor", () => {
       }
     },
   );
+
+  test("an interruption after both source exports are accepted requires review before restart", async () => {
+    await using directory = await mkdtempDisposable(join(tmpdir(), "accepted-source-exports-"));
+    const database = join(directory.path, "migration.db");
+    initStore(database, [migrateStore]);
+    const record = { ...interruptedMigration(), githubMigrationId: null };
+    insertMigration(record);
+    const git = mock(async () => 41);
+    const metadata = mock(async () => 42);
+    const restoreExports = __setArchiveTransportDependenciesForTests({
+      startGitArchiveExport: git,
+      startMetadataArchiveExport: metadata,
+      waitForArchive: async () => {
+        closeStore();
+        initStore(database, [migrateStore]);
+        throw Object.assign(new Error("Polling interrupted"), { status: 404 });
+      },
+    });
+    const importToTarget = mock(async () => record);
+    restore = __setGitHubToGhecDependenciesForTests({
+      createClients: () => clients,
+      resolveSourceAuth: () => ({ token: "fixture" }),
+      resolveTargetAuth: () => ({ token: "fixture" }),
+      checkGhesVersion: async () => "3.15.0",
+      doesOrgExist: async () => true,
+      doesRepoExist: async () => false,
+      getRepoSize: async () => null,
+      getRepoCounts: async () => {
+        throw new Error("unavailable");
+      },
+      executeArchiveToGhec: importToTarget,
+    });
+    try {
+      const result = await runGitHubToGhecMigration({
+        id: record.id,
+        sourceApiUrl: record.sourceApiUrl,
+        sourceRepo: `${record.sourceOrg}/${record.sourceRepo}`,
+        targetOrg: record.targetOrg,
+        directPassthrough: true,
+        emit: () => {},
+      });
+      expect(getMigration(record.id)?.state).toBe("reconciliation_required");
+      expect(result.state).toBe("reconciliation_required");
+      expect(() => restart(record.id, {})).toThrow("reconciliation_required");
+      expect(git).toHaveBeenCalledTimes(1);
+      expect(metadata).toHaveBeenCalledTimes(1);
+      expect(importToTarget).not.toHaveBeenCalled();
+    } finally {
+      restoreExports();
+      closeStore();
+    }
+  });
 
   test("recovers an acknowledged import without repeating import or source archival", async () => {
     const migration = interruptedMigration();

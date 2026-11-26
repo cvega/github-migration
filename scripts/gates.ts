@@ -133,6 +133,10 @@ const GATES: Gate[] = [
     cmd: ["bun", "scripts/checks/workflow-actions-check.ts"],
   },
   {
+    name: "provider-fixtures",
+    cmd: ["bun", "scripts/checks/provider-fixtures.ts"],
+  },
+  {
     name: "runtime",
     cmd: ["bun", "scripts/checks/runtime-version-check.ts"],
   },

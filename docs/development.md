@@ -35,10 +35,11 @@ bun run test:e2e
 
 Unit and route integration tests are colocated with production modules under
 `src/`. Browser tests live under `tests/e2e`, and provider contract tests live
-under `tests/providers`. The scheduled GitLab and Bitbucket workflows are separate
-from `verify`. Their harnesses reference provider Compose fixtures and credentialed
-live-contract test files that are not shipped in this checkout; a green `verify`
-does not establish live-provider coverage.
+under `tests/providers`. `bun run verify provider-fixtures` loads the live contract
+modules and validates their checked-in Compose inputs without Docker, a license,
+or a provider connection. It does not run a live contract. The scheduled GitLab
+and Bitbucket workflows run those separately on dedicated runners; see
+[Provider Contracts](provider-contracts.md#verification).
 
 Prefer real in-memory SQLite stores for persistence and route behavior. When a
 module owns external I/O or time, use its explicit test dependency hook instead

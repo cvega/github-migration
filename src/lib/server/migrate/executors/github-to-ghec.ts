@@ -155,7 +155,7 @@ function completeFailure(migration: Migration, reason: string): void {
 export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Promise<Migration> {
   const migration = createMigration(options);
   let remoteStartMayHaveSucceeded = false;
-  let exportPending = false;
+  let sourceCheckpoint: "source_export" | "archive_upload" | undefined;
   let reason = "GitHub preflight failed; check the source version and source and target access";
   try {
     const clients = dependencies.createClients({
@@ -204,8 +204,9 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
       { ...options, signal: options.signal },
       (message) => emitStep(options.emit, migration.id, message),
       (pending) => {
-        dependencies.updateCheckpoint(migration.id, pending ? "source_export" : "archive_upload");
-        exportPending = pending;
+        const step = pending ? "source_export" : "archive_upload";
+        dependencies.updateCheckpoint(migration.id, step);
+        sourceCheckpoint = step;
       },
     );
     reason = "Could not prepare the GHEC import; check source and target access";
@@ -258,7 +259,7 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
     return result;
   } catch (error) {
     if (
-      exportPending &&
+      sourceCheckpoint === "source_export" &&
       !(error instanceof Error && "status" in error && isDefinitiveExportRejection(error.status))
     ) {
       migration.state = "reconciliation_required";
@@ -266,6 +267,13 @@ export async function runGitHubToGhecMigration(options: GitHubToGhecOptions): Pr
         error instanceof IncompleteArchivePairError
           ? error.message
           : "Source export outcome is unknown; check the source before restarting";
+    } else if (
+      sourceCheckpoint === "archive_upload" &&
+      !remoteStartMayHaveSucceeded &&
+      !migration.githubMigrationId
+    ) {
+      migration.state = "reconciliation_required";
+      reason = "Source exports were accepted; check the source exports before restarting";
     } else if (options.signal?.aborted) {
       reason = "Migration cancelled";
       if (migration.githubMigrationId) await cancelRemoteMigration(options, migration);

@@ -4,6 +4,11 @@ import { randomBytes } from "node:crypto";
 import { mkdir, mkdtempDisposable, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { BitbucketServerClient } from "$lib/server/source/bitbucket/client";
+import {
+  bitbucketComposeFile,
+  verifyBitbucketContract,
+} from "../../tests/providers/bitbucket/live";
 import {
   CommandError,
   type CommandOutput,
@@ -17,7 +22,6 @@ import {
 } from "./harness";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const COMPOSE_FILE = resolve(ROOT, "tests/providers/bitbucket/compose.yml");
 const STATE_DIR = resolve(ROOT, ".provider-state");
 const STATE_FILE = resolve(STATE_DIR, "bitbucket.json");
 const COMPOSE_PROJECT = "github-migration-bitbucket-provider";
@@ -79,7 +83,7 @@ function license(): string {
 }
 
 function redact(value: string, secrets: string[] = []): string {
-  return redactSecrets(value, secrets);
+  return redactSecrets(value, [...secrets, process.env.BITBUCKET_PROVIDER_LICENSE ?? ""]);
 }
 
 function composeEnvironment(state: ProviderState, providerLicense = "validation-placeholder") {
@@ -95,7 +99,7 @@ function composeEnvironment(state: ProviderState, providerLicense = "validation-
 
 const composeRuntime = createComposeRuntime({
   root: ROOT,
-  composeFile: COMPOSE_FILE,
+  composeFile: bitbucketComposeFile,
   detectionEnvironment: () =>
     composeEnvironment({
       adminUsername: "provider-admin",
@@ -135,13 +139,12 @@ async function waitForReady(): Promise<void> {
   });
 }
 
-async function up(): Promise<void> {
+async function up(providerLicense = license()): Promise<void> {
   const state: ProviderState = {
     adminUsername: "provider-admin",
     adminPassword: generatedSecret(),
     dbPassword: generatedSecret(),
   };
-  const providerLicense = license();
   await stateFile.write(state);
   try {
     printCommandOutput(await compose(["up", "--detach", "bitbucket"], state, providerLicense), [
@@ -357,9 +360,13 @@ async function seed(): Promise<void> {
   const serviceApi = await ensureRepository(state, PROJECT_KEY, "Service API", "service-api");
   await ensureRepository(state, PROJECT_KEY, "Web Client", "web-client");
   await ensureRepository(state, PROJECT_KEY, "Worker", "worker");
-  await seedRepositoryHistory(state, PROJECT_KEY, "service-api", true);
-  await seedRepositoryHistory(state, PROJECT_KEY, "web-client", false);
-  await seedRepositoryHistory(state, PROJECT_KEY, "worker", false);
+  for (const slug of ["service-api", "web-client", "worker"]) {
+    await seedRepositoryHistory(state, PROJECT_KEY, slug, slug === "service-api");
+    await apiRequest(state, `/projects/${PROJECT_KEY}/repos/${slug}/default-branch`, {
+      method: "PUT",
+      body: { id: "refs/heads/main" },
+    });
+  }
   await ensurePullRequest(state, serviceApi);
 
   await ensureProject(state, PAGINATED_PROJECT_KEY, "Provider Contract Pagination");
@@ -370,7 +377,7 @@ async function seed(): Promise<void> {
         return ensureRepository(
           state,
           PAGINATED_PROJECT_KEY,
-          `Pagination Repository ${number}`,
+          `Repository ${number}`,
           `repository-${number}`,
         );
       }),
@@ -384,26 +391,19 @@ async function seed(): Promise<void> {
 
 async function testContract(): Promise<void> {
   const state = await stateFile.read();
-  const env = {
-    ...process.env,
-    LIVE_BITBUCKET_SERVER_URL: BASE_URL,
-    LIVE_BITBUCKET_SERVER_USERNAME: state.adminUsername,
-    LIVE_BITBUCKET_SERVER_PASSWORD: state.adminPassword,
-    LIVE_BITBUCKET_SERVER_PROJECT_KEY: PROJECT_KEY,
-    LIVE_BITBUCKET_SERVER_ALLOW_INSECURE_HTTP: "1",
-    LIVE_BITBUCKET_SERVER_EXPECTED_REPOSITORY: `${PROJECT_KEY}/service-api`,
-    LIVE_BITBUCKET_SERVER_MINIMUM_REPOSITORIES: "3",
-    LIVE_BITBUCKET_SERVER_EXPECTED_PROFILE_COMMITS: "5",
-    LIVE_BITBUCKET_SERVER_EXPECTED_PROFILE_PULL_REQUESTS: "1",
-    LIVE_BITBUCKET_SERVER_EXPECTED_PROFILE_BRANCHES: "4",
-    LIVE_BITBUCKET_SERVER_EXPECTED_PROFILE_TAGS: "1",
-    LIVE_BITBUCKET_SERVER_EXPECTED_PROFILE_FORKS: "0",
-  };
-  const output = await execute(
-    ["bun", "test", "src/lib/server/source/bitbucket/live-contract.test.ts"],
-    { cwd: ROOT, env },
+  const client = new BitbucketServerClient({
+    baseUrl: BASE_URL,
+    username: state.adminUsername,
+    password: state.adminPassword,
+    allowInsecureHttp: true,
+  });
+  await verifyBitbucketContract(
+    client,
+    PROJECT_KEY,
+    PAGINATED_PROJECT_KEY,
+    PAGINATED_REPOSITORY_COUNT,
   );
-  printCommandOutput(output, [state.adminPassword, state.dbPassword]);
+  console.log("Bitbucket live inventory, profile and pagination contracts passed");
 }
 
 async function diagnostics(): Promise<void> {
@@ -457,8 +457,9 @@ async function validateConfig(): Promise<void> {
 }
 
 async function runAll(): Promise<void> {
+  const providerLicense = license();
   try {
-    await up();
+    await up(providerLicense);
     await seed();
     await seed();
     await testContract();
