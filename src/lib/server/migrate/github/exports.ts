@@ -12,7 +12,13 @@ import { uploadArchive } from "./upload";
 
 const MIN_GHES_VERSION = "3.15.0";
 
-function exportId(value: number | bigint): number {
+function exportId(value: unknown): number {
+  if (
+    typeof value !== "number" &&
+    typeof value !== "bigint" &&
+    !(typeof value === "string" && /^[1-9]\d*$/.test(value))
+  )
+    throw new Error("Invalid GHES export ID");
   const id = Number(value);
   if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Invalid GHES export ID");
   return id;
@@ -32,11 +38,13 @@ export async function startGitArchiveExport(
   client: GitHubClient,
   org: string,
   repo: string,
+  signal?: AbortSignal,
 ): Promise<number> {
   const { data } = await client.request("POST /orgs/{org}/migrations", {
     org,
     repositories: [repo],
     exclude_metadata: true,
+    request: { retries: 0, signal },
   });
   return exportId(data.id);
 }
@@ -47,6 +55,7 @@ export async function startMetadataArchiveExport(
   repo: string,
   skipReleases: boolean,
   lockSource: boolean,
+  signal?: AbortSignal,
 ): Promise<number> {
   const { data } = await client.request("POST /orgs/{org}/migrations", {
     org,
@@ -55,6 +64,7 @@ export async function startMetadataArchiveExport(
     exclude_releases: skipReleases,
     lock_repositories: lockSource,
     exclude_owner_projects: true,
+    request: { retries: 0, signal },
   });
   return exportId(data.id);
 }
@@ -157,6 +167,14 @@ async function runArchivePair<Left, Right>(
   }
 }
 
+export class IncompleteArchivePairError extends Error {
+  constructor(gitArchiveId: number) {
+    super(
+      `Git archive export ${gitArchiveId} was accepted; check the source exports before restarting`,
+    );
+  }
+}
+
 async function startArchivePair(
   clients: GitHubClients,
   migration: Migration,
@@ -166,15 +184,22 @@ async function startArchivePair(
     clients.source,
     migration.sourceOrg,
     migration.sourceRepo,
+    options.signal,
   );
-  const metadataArchiveId = await transportDependencies.startMetadataArchiveExport(
-    clients.source,
-    migration.sourceOrg,
-    migration.sourceRepo,
-    options.skipReleases ?? false,
-    options.lockSource ?? false,
-  );
-  return { gitArchiveId, metadataArchiveId };
+  try {
+    options.signal?.throwIfAborted();
+    const metadataArchiveId = await transportDependencies.startMetadataArchiveExport(
+      clients.source,
+      migration.sourceOrg,
+      migration.sourceRepo,
+      options.skipReleases ?? false,
+      options.lockSource ?? false,
+      options.signal,
+    );
+    return { gitArchiveId, metadataArchiveId };
+  } catch {
+    throw new IncompleteArchivePairError(gitArchiveId);
+  }
 }
 
 export async function resolveMigrationArchives(
@@ -182,6 +207,7 @@ export async function resolveMigrationArchives(
   migration: Migration,
   options: ArchiveOptions,
   emitStep: (message: string) => void,
+  markExportPending?: (pending: boolean) => void,
 ): Promise<{ gitArchiveUrl: string; metadataArchiveUrl: string }> {
   if (getGitHubSourcePlatform(migration.sourceApiUrl) === "ghec") {
     emitStep("GHEC to GHEC migration - no archive export needed");
@@ -193,7 +219,10 @@ export async function resolveMigrationArchives(
       ? "Exporting archives from source (direct transfer)"
       : "Exporting archives from source",
   );
+  options.signal?.throwIfAborted();
+  markExportPending?.(true);
   const { gitArchiveId, metadataArchiveId } = await startArchivePair(clients, migration, options);
+  markExportPending?.(false);
   if (options.directPassthrough) {
     const gitArchiveUrl = await transportDependencies.waitForArchive(
       clients.source,

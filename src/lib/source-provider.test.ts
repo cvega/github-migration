@@ -34,6 +34,9 @@ describe("source provider adapters", () => {
     expect(sourceBaseUrl("https://github.com")).toBe("https://github.com");
     expect(sourceBaseUrl("https://api.acme.ghe.com/api/v3///")).toBe("https://acme.ghe.com");
     expect(sourceBaseUrl("https://ghes.example.com/api/v3///")).toBe("https://ghes.example.com");
+    expect(sourceBaseUrl("https://api.enterprise.example/api/v3")).toBe(
+      "https://api.enterprise.example",
+    );
     expect(sourceBaseUrl("https://ghes.example.com/api/v3/repos")).toBe(
       "https://ghes.example.com/api/v3/repos",
     );

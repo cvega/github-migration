@@ -102,7 +102,9 @@ export function getGitHubSourcePlatform(apiUrl: string | null | undefined): Targ
 
 export function sourceBaseUrl(apiUrl: string): string {
   const normalized = apiUrl.replace(/\/+$/, "").replace(/\/api\/v3$/, "");
-  return normalized.replace("://api.", "://");
+  return getGitHubSourcePlatform(apiUrl) === "ghec"
+    ? normalized.replace("://api.", "://")
+    : normalized;
 }
 
 function apiWebBaseUrl(apiUrl: string, apiPath: string): string {

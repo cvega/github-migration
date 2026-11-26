@@ -35,8 +35,10 @@ bun run test:e2e
 
 Unit and route integration tests are colocated with production modules under
 `src/`. Browser tests live under `tests/e2e`, and provider contract tests live
-under `tests/providers`. The repository does not currently ship credentialed
-live-provider suites.
+under `tests/providers`. The scheduled GitLab and Bitbucket workflows are separate
+from `verify`. Their harnesses reference provider Compose fixtures and credentialed
+live-contract test files that are not shipped in this checkout; a green `verify`
+does not establish live-provider coverage.
 
 Prefer real in-memory SQLite stores for persistence and route behavior. When a
 module owns external I/O or time, use its explicit test dependency hook instead
@@ -108,7 +110,8 @@ follows TypeScript 7 semantics while that dependency is currently TypeScript 6.
 	behavior requires another domain.
 - Routes handle HTTP transport and delegate cross-domain policy to
 	`application`.
-- Browser-capable modules cannot import `$lib/server`.
+- Browser-capable modules cannot import `$lib/server`, including by relative
+  path or through a type re-export.
 - `schemas.ts` is the durable-domain composition root.
 - Root-level production server modules are rejected unless they are the schema
 	composition root.

@@ -33,6 +33,9 @@ interface ClaimRow {
   estimated_workspace_bytes: number | null;
 }
 
+const ACTIVE_LEASE = `id = $id AND state = 'running' AND lease_owner = $owner
+  AND attempt = $attempt AND lease_expires_at > $now`;
+
 function finalizeIfTerminal(analysisRunId: string, completedAt: string): void {
   const database = getDb();
   database
@@ -74,7 +77,7 @@ export function claimRepositoryAnalysisJob(input: {
         `UPDATE profile_repository_analysis_jobs
          SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL,
              failure_reason = 'Previous worker lease expired'
-         WHERE state = 'running' AND lease_expires_at < ?`,
+         WHERE state = 'running' AND lease_expires_at <= ?`,
       )
       .run(now);
     const row = database
@@ -121,6 +124,7 @@ export function claimRepositoryAnalysisJob(input: {
 
 export function renewRepositoryAnalysisJobLease(input: {
   jobId: string;
+  attempt: number;
   leaseOwner: string;
   nowMs?: number;
   leaseMs?: number;
@@ -129,11 +133,13 @@ export function renewRepositoryAnalysisJobLease(input: {
   const result = getDb()
     .prepare(
       `UPDATE profile_repository_analysis_jobs SET lease_expires_at = $expires
-       WHERE id = $id AND state = 'running' AND lease_owner = $owner`,
+       WHERE ${ACTIVE_LEASE}`,
     )
     .run({
       $id: input.jobId,
       $owner: input.leaseOwner,
+      $attempt: input.attempt,
+      $now: new Date(nowMs).toISOString(),
       $expires: new Date(nowMs + (input.leaseMs ?? 60_000)).toISOString(),
     });
   return result.changes === 1;
@@ -213,13 +219,19 @@ export function completeRepositoryAnalysisJob(input: {
   const database = getDb();
   const capturedAt = new Date(input.nowMs ?? Date.now()).toISOString();
   database.transaction(() => {
-    const active = database
+    const settled = database
       .prepare(
-        `SELECT 1 FROM profile_repository_analysis_jobs
-         WHERE id = ? AND state = 'running' AND lease_owner = ?`,
+        `UPDATE profile_repository_analysis_jobs
+         SET state = 'succeeded', completed_at = $now, lease_owner = NULL, lease_expires_at = NULL
+         WHERE ${ACTIVE_LEASE}`,
       )
-      .get(input.job.id, input.leaseOwner);
-    if (!active) throw new Error("Repository analysis job lease is no longer active");
+      .run({
+        $id: input.job.id,
+        $owner: input.leaseOwner,
+        $attempt: input.job.attempt,
+        $now: capturedAt,
+      });
+    if (settled.changes !== 1) throw new Error("Repository analysis job lease is no longer active");
     database
       .prepare(
         `INSERT INTO profile_repository_analysis_results
@@ -254,13 +266,6 @@ export function completeRepositoryAnalysisJob(input: {
         pointer.representativePath,
       );
     }
-    database
-      .prepare(
-        `UPDATE profile_repository_analysis_jobs
-         SET state = 'succeeded', completed_at = ?, lease_owner = NULL, lease_expires_at = NULL
-         WHERE id = ?`,
-      )
-      .run(capturedAt, input.job.id);
     finalizeIfTerminal(input.job.analysisRunId, capturedAt);
   })();
 }
@@ -277,15 +282,16 @@ export function failRepositoryAnalysisJob(input: {
     const result = database
       .prepare(
         `UPDATE profile_repository_analysis_jobs
-         SET state = 'failed', completed_at = $completed_at, failure_reason = $reason,
+         SET state = 'failed', completed_at = $now, failure_reason = $reason,
              lease_owner = NULL, lease_expires_at = NULL
-         WHERE id = $id AND state = 'running' AND lease_owner = $owner`,
+         WHERE ${ACTIVE_LEASE}`,
       )
       .run({
         $id: input.job.id,
         $owner: input.leaseOwner,
+        $attempt: input.job.attempt,
         $reason: input.reason.slice(0, 2_000),
-        $completed_at: completedAt,
+        $now: completedAt,
       });
     if (result.changes === 0) throw new Error("Repository analysis job lease is no longer active");
     finalizeIfTerminal(input.job.analysisRunId, completedAt);

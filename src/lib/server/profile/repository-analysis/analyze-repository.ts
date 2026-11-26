@@ -11,6 +11,9 @@ const GIB = 1024 ** 3;
 const MAX_OUTPUT_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 6 * 60 * 60_000;
 
+/** A locally constructed diagnostic safe to persist in a job and show on its profile. */
+export class RepositoryAnalysisError extends Error {}
+
 interface CommandResult {
   exitCode: number;
   stdout: string;
@@ -25,7 +28,7 @@ export interface RepositoryAnalyzerDependencies {
   mkdir(path: string): Promise<void>;
   remove(path: string): Promise<void>;
   workspaceCapacity(path: string): Promise<{ capacityBytes: number; freeBytes: number }>;
-  getSourceToken(sourceApiUrl: string): Promise<string>;
+  getSourceToken(sourceApiUrl: string, nameWithOwner: string): Promise<string>;
 }
 
 export interface RepositoryAnalyzerOptions {
@@ -46,7 +49,8 @@ async function bounded(stream: ReadableStream<Uint8Array> | null): Promise<strin
     bytes += value.byteLength;
     if (bytes <= MAX_OUTPUT_BYTES) output += decoder.decode(value, { stream: true });
   }
-  if (bytes > MAX_OUTPUT_BYTES) throw new Error("Analyzer command output exceeded 512 KiB");
+  if (bytes > MAX_OUTPUT_BYTES)
+    throw new RepositoryAnalysisError("Analyzer command output exceeded 512 KiB");
   return output + decoder.decode();
 }
 
@@ -87,11 +91,6 @@ const DEFAULT_DEPS: Omit<RepositoryAnalyzerDependencies, "getSourceToken"> = {
   },
 };
 
-function commandFailure(label: string, result: CommandResult): Error {
-  const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
-  return new Error(`${label} failed: ${detail}`);
-}
-
 async function successful(
   dependencies: RepositoryAnalyzerDependencies,
   label: string,
@@ -99,31 +98,34 @@ async function successful(
   options: { cwd?: string; environment?: Record<string, string>; timeoutMs: number },
 ): Promise<string> {
   const result = await dependencies.run(command, options);
-  if (result.exitCode !== 0) throw commandFailure(label, result);
+  if (result.exitCode !== 0)
+    throw new RepositoryAnalysisError(`${label} failed (exit code ${result.exitCode})`);
   return result.stdout.trim();
 }
 
 function normalizeLfsPointers(raw: string): RepositoryAnalysisResultInput["lfsPointers"] {
-  const parsed = JSON.parse(raw || "[]") as unknown;
+  const invalid = () =>
+    new RepositoryAnalysisError("Git LFS returned an invalid pointer inventory");
+  const parsed: unknown = JSON.parse(raw || "[]");
   if (!parsed || typeof parsed !== "object" || !("files" in parsed)) {
-    throw new Error("Git LFS returned an invalid pointer inventory");
+    throw invalid();
   }
-  const files = (parsed as { files: unknown }).files;
+  const files = parsed.files;
   if (files === null) return [];
-  if (!Array.isArray(files)) throw new Error("Git LFS returned an invalid pointer inventory");
+  if (!Array.isArray(files)) throw invalid();
   const pointers = new Map<
     string,
     { oid: string; declaredSizeBytes: number; representativePath: string }
   >();
   for (const item of files) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object") throw invalid();
     const candidate = item as Record<string, unknown>;
     const hash = typeof candidate.oid === "string" ? candidate.oid : null;
     const oidType = typeof candidate.oid_type === "string" ? candidate.oid_type : null;
     const oid = hash && oidType ? `${oidType}:${hash}` : null;
     const path = typeof candidate.name === "string" ? candidate.name : null;
     const size = typeof candidate.size === "number" ? candidate.size : null;
-    if (!oid || !path || size === null || !Number.isSafeInteger(size) || size < 0) continue;
+    if (!oid || !path || size === null || !Number.isSafeInteger(size) || size < 0) throw invalid();
     if (!pointers.has(oid))
       pointers.set(oid, { oid, declaredSizeBytes: size, representativePath: path });
   }
@@ -156,7 +158,7 @@ export async function analyzeRepository(
     ),
   );
   if (job.estimatedWorkspaceBytes !== null && job.estimatedWorkspaceBytes > usableBytes) {
-    throw new Error(
+    throw new RepositoryAnalysisError(
       `insufficient_workspace: requires ${job.estimatedWorkspaceBytes} bytes; ${usableBytes} bytes available above reserve`,
     );
   }
@@ -164,13 +166,13 @@ export async function analyzeRepository(
   await dependencies.remove(workspace);
   await dependencies.mkdir(workspace);
   try {
-    const token = await dependencies.getSourceToken(job.sourceApiUrl);
+    const token = await dependencies.getSourceToken(job.sourceApiUrl, job.nameWithOwner);
     const cloneUrl = `${sourceBaseUrl(job.sourceApiUrl)}/${job.nameWithOwner}.git`;
     const authorization = Buffer.from(`x-access-token:${token}`).toString("base64");
     const gitEnvironment = {
       GIT_TERMINAL_PROMPT: "0",
       GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: "http.extraHeader",
+      GIT_CONFIG_KEY_0: `http.${cloneUrl}.extraHeader`,
       GIT_CONFIG_VALUE_0: `Authorization: Basic ${authorization}`,
     };
     await successful(
@@ -211,7 +213,7 @@ export async function analyzeRepository(
       ]);
     const mirrorKilobytes = Number.parseInt(du.split(/\s+/)[0] ?? "", 10);
     if (!Number.isSafeInteger(mirrorKilobytes) || mirrorKilobytes < 0) {
-      throw new Error("Unable to determine mirror workspace size");
+      throw new RepositoryAnalysisError("Unable to determine mirror workspace size");
     }
     return {
       sourceRefFingerprint: `sha256:${createHash("sha256").update(refs).digest("hex")}`,

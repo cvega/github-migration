@@ -118,7 +118,11 @@ export async function startRepositoryMigration(
     targetRepoVisibility: options.targetRepoVisibility || null,
     lockSource: options.lockSource ?? false,
   });
-  return result.startRepositoryMigration.repositoryMigration.id;
+  const id = result.startRepositoryMigration?.repositoryMigration?.id;
+  if (typeof id !== "string" || !id.trim() || id !== id.trim()) {
+    throw new Error("GHEC did not return a valid migration ID");
+  }
+  return id;
 }
 
 export interface GitHubMigrationStatus {
@@ -157,7 +161,7 @@ export async function abortRepositoryMigration(
 		}`,
     { migrationId },
   );
-  return result.abortRepositoryMigration.success;
+  return result.abortRepositoryMigration?.success === true;
 }
 
 export async function getRepositoryNodeId(
@@ -186,5 +190,5 @@ export async function archiveRepository(
 		}`,
     { repositoryId },
   );
-  return result.archiveRepository.repository.isArchived;
+  return result.archiveRepository?.repository?.isArchived === true;
 }

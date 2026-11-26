@@ -4,7 +4,7 @@ import {
   failRepositoryAnalysisJob,
   renewRepositoryAnalysisJobLease,
 } from "../database/repository-analysis-jobs";
-import { analyzeRepository } from "./analyze-repository";
+import { analyzeRepository, RepositoryAnalysisError } from "./analyze-repository";
 import { getRepositoryAnalysisSourceToken } from "./source-auth";
 
 const LEASE_MS = 60_000;
@@ -39,6 +39,7 @@ export async function processNextRepositoryAnalysisJob(
   const heartbeat = setInterval(() => {
     renewRepositoryAnalysisJobLease({
       jobId: job.id,
+      attempt: job.attempt,
       leaseOwner: options.leaseOwner,
       leaseMs: LEASE_MS,
     });
@@ -60,7 +61,10 @@ export async function processNextRepositoryAnalysisJob(
     });
     console.log(`[profile-analyzer] Completed ${job.nameWithOwner}`);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "Repository analysis failed";
+    const reason =
+      error instanceof RepositoryAnalysisError
+        ? error.message
+        : "Repository analysis failed; check source access and analyzer configuration";
     try {
       failRepositoryAnalysisJob({ job, leaseOwner: options.leaseOwner, reason });
     } catch (leaseError) {

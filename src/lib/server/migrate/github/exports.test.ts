@@ -19,6 +19,26 @@ function client(
 }
 
 describe("GitHub archive exports", () => {
+  test.each([false, true])(
+    "does not resubmit a GHES export after a lost response (metadata: %p)",
+    async (metadata) => {
+      const github = createSingleClient({ token: "fixture" }, "https://fixture.invalid/api/v3");
+      let submissions = 0;
+      github.request = github.request.defaults({
+        request: {
+          fetch: async () =>
+            ++submissions === 1
+              ? Response.json({ message: "Upstream disconnected" }, { status: 502 })
+              : Response.json({ id: 2 }, { status: 201 }),
+        },
+      });
+      const start = metadata
+        ? startMetadataArchiveExport(github, "org", "repo", false, true)
+        : startGitArchiveExport(github, "org", "repo");
+      await expect(start).rejects.toThrow();
+      expect(submissions).toBe(1);
+    },
+  );
   test("uses exactly one API prefix on every GHES export request", async () => {
     const github = createSingleClient({ token: "fixture" }, "https://fixture.invalid/api/v3");
     const urls: string[] = [];

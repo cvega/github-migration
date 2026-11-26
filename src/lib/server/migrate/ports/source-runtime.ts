@@ -109,3 +109,8 @@ export function isDefinitiveGitLabApiError(error: unknown): boolean {
 export function isDefinitiveBitbucketApiError(error: unknown): boolean {
   return getRuntime().isDefinitiveBitbucketApiError(error);
 }
+
+/** Only explicit request rejections establish that an export was not accepted. */
+export function isDefinitiveExportRejection(status: unknown): boolean {
+  return typeof status === "number" && [400, 401, 403, 404, 405, 415, 422, 429].includes(status);
+}

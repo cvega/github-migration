@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Counts, Migration } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import {
@@ -140,16 +140,18 @@ describe("completed migration resource counts", () => {
   );
 
   test("reports count failures without replacing unknown totals or changing the import outcome", async () => {
+    using warning = spyOn(console, "warn").mockImplementation(() => {});
     const record = migration();
     persistMigration(record);
     targetCountDependencies.getRepoCounts = async () => {
-      throw new Error("Target API unavailable");
+      throw new Error("private upstream diagnostic");
     };
 
     expect(await refresh()).toMatchObject({
       status: 502,
       data: { countsError: "Could not fetch target resource counts: Target API unavailable" },
     });
+    expect(JSON.stringify(warning.mock.calls)).not.toContain("private upstream diagnostic");
     expect(getMigration(record.id)).toMatchObject(record);
   });
 

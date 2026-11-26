@@ -276,18 +276,20 @@ describe("migration startup recovery", () => {
         sourceExportId?: string;
         pipelineStep?: string;
         sourceProvider?: string;
+        sourceApiUrl?: string;
       },
     ) => {
       db.prepare(
         `INSERT INTO migrations
            (id, github_migration_id, source_export_id, source_provider, source_api_url, source_org, source_repo,
             target_org, target_repo, state, started_at, pipeline_step, auth_mode, request_options)
-          VALUES (?, ?, ?, ?, 'https://api.github.com', 'acme', ?, 'acme-cloud', ?, ?, ?, ?, ?, '{}')`,
+          VALUES (?, ?, ?, ?, ?, 'acme', ?, 'acme-cloud', ?, ?, ?, ?, ?, '{}')`,
       ).run(
         id,
         input.githubMigrationId ?? null,
         input.sourceExportId ?? null,
         input.sourceProvider ?? "github",
+        input.sourceApiUrl ?? "https://api.github.com",
         id,
         id,
         input.state,
@@ -306,6 +308,23 @@ describe("migration startup recovery", () => {
         state: "running",
         authMode: "env-pat",
         pipelineStep: "ghec_starting",
+      });
+      insert(db, "github-source-write", {
+        state: "running",
+        authMode: "env-pat",
+        pipelineStep: "source_export",
+      });
+      insert(db, "legacy-ghes-export", {
+        state: "running",
+        authMode: "env-pat",
+        pipelineStep: "archiving",
+        sourceApiUrl: "https://ghes.example/api/v3/",
+      });
+      insert(db, "cloud-no-export", {
+        state: "running",
+        authMode: "env-pat",
+        pipelineStep: "archiving",
+        sourceApiUrl: "https://api.tenant.ghe.com/api/v3",
       });
       insert(db, "request-auth", { state: "pending", authMode: "request-pat" });
       insert(db, "request-remote", {
@@ -370,6 +389,9 @@ describe("migration startup recovery", () => {
       expect(rows.interrupted?.state).toBe("failed");
       expect(rows.cancelling?.state).toBe("reconciliation_required");
       expect(rows["ambiguous-start"]?.state).toBe("reconciliation_required");
+      expect(rows["github-source-write"]?.state).toBe("reconciliation_required");
+      expect(rows["legacy-ghes-export"]?.state).toBe("reconciliation_required");
+      expect(rows["cloud-no-export"]?.state).toBe("failed");
       expect(rows["request-auth"]?.state).toBe("failed");
       expect(rows["request-remote"]?.state).toBe("reconciliation_required");
       expect(rows["env-remote"]?.state).toBe("running");

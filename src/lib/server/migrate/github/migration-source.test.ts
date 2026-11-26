@@ -22,6 +22,25 @@ function gqlMock(
 }
 
 describe("GitHub migration GraphQL operations", () => {
+  test("requires a real migration ID and affirmative cancellation acknowledgement", async () => {
+    const gql = gqlMock(() => ({
+      startRepositoryMigration: { repositoryMigration: { id: " " } },
+      abortRepositoryMigration: { success: "false" },
+    }));
+    await expect(
+      startRepositoryMigration(gql, {
+        migrationSourceId: "source",
+        sourceRepoUrl: "https://source.invalid/org/repo",
+        orgId: "org",
+        repoName: "repo",
+        sourceToken: "fixture",
+        targetToken: "fixture",
+        gitArchiveUrl: "",
+        metadataArchiveUrl: "",
+      }),
+    ).rejects.toThrow("migration ID");
+    expect(await abortRepositoryMigration(gql, "migration")).toBe(false);
+  });
   test("does not retry a target start on a lost upstream response", async () => {
     let submissions = 0;
     const gql = createTargetClients(

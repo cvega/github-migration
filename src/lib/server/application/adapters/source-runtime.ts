@@ -1,7 +1,10 @@
 import { getFormDefaults } from "$lib/server/core/auth";
 import { getInputSourceProvider } from "$lib/server/core/credential-scope";
 import { normalizeGitHubApiUrl } from "$lib/server/core/github";
-import type { MigrationSourceRuntime } from "$lib/server/migrate/ports/source-runtime";
+import {
+  isDefinitiveExportRejection,
+  type MigrationSourceRuntime,
+} from "$lib/server/migrate/ports/source-runtime";
 import { downloadBitbucketArchive } from "$lib/server/source/bitbucket/archive";
 import {
   BitbucketServerApiError,
@@ -39,8 +42,9 @@ export function createMigrationSourceRuntime(): MigrationSourceRuntime {
     getBitbucketMigrationSourceConfig: getBitbucketServerSourceConfig,
     downloadGitLabMigrationArchive: downloadGitLabArchive,
     downloadBitbucketMigrationArchive: downloadBitbucketArchive,
-    isDefinitiveGitLabApiError: (error) => error instanceof GitLabApiError && error.status > 0,
+    isDefinitiveGitLabApiError: (error) =>
+      error instanceof GitLabApiError && isDefinitiveExportRejection(error.status),
     isDefinitiveBitbucketApiError: (error) =>
-      error instanceof BitbucketServerApiError && error.status > 0,
+      error instanceof BitbucketServerApiError && isDefinitiveExportRejection(error.status),
   };
 }

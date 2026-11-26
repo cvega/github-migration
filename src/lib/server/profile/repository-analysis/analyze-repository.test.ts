@@ -121,15 +121,27 @@ describe("repository analyzer", () => {
   test("reports command failures and removes the attempted workspace", async () => {
     const removed: string[] = [];
     const deps = dependencies([]);
-    deps.run = async () => ({ exitCode: 128, stdout: "", stderr: "permission denied" });
+    deps.run = async () => ({ exitCode: 128, stdout: "", stderr: "private provider diagnostic" });
     deps.remove = async (path) => {
       removed.push(path);
     };
 
     await expect(analyzeRepository(job, { workspaceRoot: "/analysis" }, deps)).rejects.toThrow(
-      "Git mirror clone failed: permission denied",
+      /^Git mirror clone failed \(exit code 128\)$/,
     );
     expect(removed).toEqual(["/analysis/analysis/7/1", "/analysis/analysis/7/1"]);
+  });
+
+  test("does not publish an incomplete LFS inventory as zero pointers", async () => {
+    const deps = dependencies([]);
+    const baseRun = deps.run;
+    deps.run = async (command, options) =>
+      command.includes("ls-files")
+        ? { exitCode: 0, stdout: '{"files":[{"size":10}]}', stderr: "" }
+        : baseRun(command, options);
+    await expect(analyzeRepository(job, { workspaceRoot: "/analysis" }, deps)).rejects.toThrow(
+      "invalid pointer inventory",
+    );
   });
 
   test("rejects malformed command output and removes the workspace", async () => {

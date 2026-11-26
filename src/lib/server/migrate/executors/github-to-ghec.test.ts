@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { Migration, MigrationEvent } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
+import { __setArchiveTransportDependenciesForTests } from "../github/exports";
 import {
   __setGitHubToGhecDependenciesForTests,
   resumeGitHubToGhecMigration,
@@ -53,7 +54,7 @@ function interruptedMigration(): Migration {
 }
 
 describe("GitHub-to-GHEC executor", () => {
-  test("composes preflight, archive resolution, GHEC import, and source archival", async () => {
+  test.each([true, false])("reports source archival only when confirmed (%p)", async (archived) => {
     const operations: string[] = [];
     restore = __setGitHubToGhecDependenciesForTests({
       requireTargetProfile: () => ({
@@ -94,7 +95,7 @@ describe("GitHub-to-GHEC executor", () => {
       getRepositoryNodeId: async () => "REPO",
       archiveRepository: async () => {
         operations.push("source-archived");
-        return true;
+        return archived;
       },
     });
 
@@ -118,7 +119,7 @@ describe("GitHub-to-GHEC executor", () => {
       "post_migration",
       "source-archived",
     ]);
-    expect(events.at(-1)).toContain("archived");
+    expect(events.at(-1)).toContain(archived ? "archived" : "could not be confirmed");
   });
 
   test("requires reconciliation when the remote start outcome is unknown", async () => {
@@ -144,7 +145,7 @@ describe("GitHub-to-GHEC executor", () => {
       resolveArchives: async () => ({ gitArchiveUrl: "", metadataArchiveUrl: "" }),
       executeArchiveToGhec: async ({ markRemoteStartMayHaveSucceeded }) => {
         markRemoteStartMayHaveSucceeded?.(true);
-        throw new Error("connection lost after mutation");
+        throw new Error("private upstream diagnostic");
       },
     });
     const result = await runGitHubToGhecMigration({
@@ -155,9 +156,78 @@ describe("GitHub-to-GHEC executor", () => {
     });
     expect(result).toMatchObject({
       state: "reconciliation_required",
-      failureReason: "connection lost after mutation",
+      failureReason: "GHEC import outcome is unknown; check the target before restarting",
     });
   });
+
+  test.each([
+    { outcome: "git rejected", state: "failed", metadata: false },
+    { outcome: "git unconfirmed", state: "reconciliation_required", metadata: false },
+    { outcome: "metadata rejected", state: "reconciliation_required", metadata: true },
+    { outcome: "metadata unconfirmed", state: "reconciliation_required", metadata: true },
+    { outcome: "cancel after git", state: "reconciliation_required", metadata: false },
+  ])(
+    "classifies a GHES export pair by the writes that could have occurred: $outcome",
+    async ({ outcome, state, metadata }) => {
+      const controller = new AbortController();
+      const operations: string[] = [];
+      const rejection = Object.assign(new Error("private upstream diagnostic"), { status: 422 });
+      const restoreExports = __setArchiveTransportDependenciesForTests({
+        startGitArchiveExport: async () => {
+          operations.push("git");
+          if (outcome === "git rejected") throw rejection;
+          if (outcome === "git unconfirmed") throw new Error("private upstream diagnostic");
+          if (outcome === "cancel after git") controller.abort();
+          return 1;
+        },
+        startMetadataArchiveExport: async () => {
+          operations.push("metadata");
+          if (outcome === "metadata rejected") throw rejection;
+          throw new Error("private upstream diagnostic");
+        },
+      });
+      restore = __setGitHubToGhecDependenciesForTests({
+        createClients: () => clients,
+        resolveSourceAuth: () => ({ token: "fixture" }),
+        resolveTargetAuth: () => ({ token: "fixture" }),
+        checkGhesVersion: async () => "3.15.0",
+        doesOrgExist: async () => true,
+        doesRepoExist: async () => false,
+        getRepoCounts: async () => {
+          throw new Error("unavailable");
+        },
+        getRepoSize: async () => null,
+        updateCheckpoint: (_id, step) => operations.push(step),
+      });
+      try {
+        const result = await runGitHubToGhecMigration({
+          sourceApiUrl: "https://ghes.example/api/v3",
+          sourceRepo: "acme/widget",
+          targetOrg: "cloud",
+          signal: controller.signal,
+          emit: () => {},
+        });
+        expect(result).toMatchObject({
+          state,
+          githubMigrationId: null,
+          failureReason:
+            state === "failed"
+              ? "Could not prepare source archives; check the source export and archive configuration"
+              : outcome === "git unconfirmed"
+                ? "Source export outcome is unknown; check the source before restarting"
+                : "Git archive export 1 was accepted; check the source exports before restarting",
+        });
+        expect(operations).toEqual([
+          "preflight",
+          "source_export",
+          "git",
+          ...(metadata ? ["metadata"] : []),
+        ]);
+      } finally {
+        restoreExports();
+      }
+    },
+  );
 
   test("recovers an acknowledged import without repeating import or source archival", async () => {
     const migration = interruptedMigration();
@@ -220,7 +290,7 @@ describe("GitHub-to-GHEC executor", () => {
 
     expect(result).toMatchObject({
       state: "reconciliation_required",
-      failureReason: "GitHub status unavailable",
+      failureReason: "GHEC import outcome is unknown; check the target before restarting",
       githubMigrationId: "MIGRATION",
     });
     expect(result.completedAt).not.toBeNull();
@@ -231,7 +301,7 @@ describe("GitHub-to-GHEC executor", () => {
     {
       outcome: "confirmed",
       state: "cancelled",
-      reason: "Operator cancelled",
+      reason: "Migration cancelled",
     },
     {
       outcome: "unconfirmed",
@@ -241,7 +311,7 @@ describe("GitHub-to-GHEC executor", () => {
     {
       outcome: "unavailable",
       state: "reconciliation_required",
-      reason: "GitHub cancellation unavailable",
+      reason: "Remote migration could not be confirmed cancelled",
     },
   ])("handles $outcome cancellation of a recovered import", async ({ outcome, state, reason }) => {
     const controller = new AbortController();

@@ -51,6 +51,10 @@ After a GitHub profile completes, the operator can start a separate repository
 analysis run. Durable jobs clone each non-empty repository into the analyzer
 workspace, collect normalized Git and LFS evidence, and persist immutable
 results. The profile page can cancel a run or retry an individual failed job.
+Before obtaining credentials, the worker checks the recorded GitHub instance and
+repository against the current profile scope. Only the current, unexpired claim
+attempt may renew its lease or publish a result or failure. A malformed LFS
+inventory fails the analysis rather than recording zero pointers.
 
 The analyzer runs as a separate process with the same `DATA_DIR` and its own
 temporary `ANALYSIS_DIR`. GitHub batch creation requires successful analysis
@@ -114,6 +118,12 @@ GHES targets use a containerized Bitbucket Server exporter plus
 
 For GHEC targets, execution progresses through provider-specific preflight,
 archive/export, upload, import start, monitoring, and completion operations.
+GHES source export POSTs are not retried after an ambiguous response. A lost
+source export acknowledgement, or a target start without a valid migration ID,
+requires reconciliation before restart. An explicit rejection of the first
+export differs from a gateway timeout or an unreadable success response. Once
+GHES acknowledges the Git archive, even a rejection of the metadata export
+leaves a partial pair to reconcile.
 The final successful observation supplies persisted resource counts so
 post-migration indexing lag cannot overwrite them with transient zeroes.
 
@@ -141,6 +151,8 @@ state. The detail page distinguishes unavailable counts from zero and lets
 operators inspect current totals when no completion snapshot exists. The
 read validates the stored target against its current profile and timestamps
 the observation. It never substitutes it for historical counts.
+Count failures report local configuration guidance or target API unavailability;
+upstream diagnostics are not copied into the page, logs, or migration events.
 
 <!-- BEGIN GENERATED: ghes-import-phases -->
 **GHES import phases:** `pending`, `exporting`, `archive_ready`, `transferring`, `preparing`, `mapping`, `importing`, `auditing`, `unlocking`, `succeeded`, `failed`, `cancelled`, `reconciliation_required`.
