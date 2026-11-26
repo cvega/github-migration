@@ -180,21 +180,70 @@ exporter containers.
 Exporter processes run without target credentials. Their network, memory, CPU,
 PID, and temporary-storage limits should remain bounded in production.
 
-For Bitbucket-to-GHES, the default `BBS_EXPORTER_IMAGE` is the **local** tag
-`gh-migrate/bbs-exporter:1.13.0-validation`. The dashboard does not distribute
-the exporter. [Use the supplied folder directly](bitbucket-datacenter-to-ghes.md#use-an-existing-exporter-folder)
-or [unpack the release tarball](bitbucket-datacenter-to-ghes.md#build-the-exporter-from-the-release-tarball);
-neither requires exporter repository access. In both cases, `BBS_EXPORTER_BUILD_CONTEXT`
-points to the **directory containing the exporter's Dockerfile** (Compose
-default: `../bbs-exporter-1.13.0`), not the tarball itself. For a deployment host
-using a private registry, [pull an approved image by digest](bitbucket-datacenter-to-ghes.md#use-an-approved-prebuilt-image).
-[Verify the CLI version](bitbucket-datacenter-to-ghes.md#verify-the-exporter-image)
-on the dashboard's Docker daemon before the pilot. No exporter daemon is needed;
-the dashboard starts one container per repository.
+### Build from a private release path
 
-Only include `compose.exporter.yml` where the dashboard must launch exporter
-containers. For a local Bitbucket on the external `bitbucket-local_default`
-network, also append `:compose.bitbucket-local.yml` to `COMPOSE_FILE` and set
-`EXPORTER_NETWORK=bitbucket-local_default`. Start that Bitbucket project first.
-An externally reachable Bitbucket does not need the local network override.
-Keep the chosen `COMPOSE_FILE` in the deployment environment for future upgrades.
+The dashboard supplies the recipes, not the exporter source or images. From the
+dashboard root, pass the [build helper](../scripts/packaging/build-exporter.py)
+a provider and **one local path**. Either provider accepts a release directory
+or a `.tar.gz` directly; no manual extraction or exporter repository access is needed.
+
+```sh
+python3 scripts/packaging/build-exporter.py bitbucket /private/bbs-exporter-1.13.0
+python3 scripts/packaging/build-exporter.py gitlab /private/gl-exporter-1.7.17.tar.gz
+```
+
+| Provider | Build recipe | Compose override / build service | Default local image |
+|---|---|---|---|
+| Bitbucket Server/DC | [Dockerfile.bitbucket-exporter](../deploy/bitbucket/Dockerfile.bitbucket-exporter) | [compose.bitbucket-exporter.yml](../deploy/bitbucket/compose.bitbucket-exporter.yml) / `bitbucket-exporter` | `gh-migrate/bitbucket-exporter:1.13.0` |
+| GitLab Self-Managed | [Dockerfile.gitlab-exporter](../deploy/gitlab/Dockerfile.gitlab-exporter) | [compose.gitlab-exporter.yml](../deploy/gitlab/compose.gitlab-exporter.yml) / `gitlab-exporter` | `gh-migrate/gitlab-exporter:1.7.17` |
+
+Use Python 3.9+ and Compose v2 on the trusted Docker host that runs the dashboard.
+The helper invokes `docker compose` by default; set `EXPORTER_RUNTIME=podman`
+in the build shell to use `podman compose` against the same engine.
+Use the actual release directory containing `Gemfile.lock` and the provider's
+`.gemspec`, not its parent. A tarball can be flat or have one enclosing release
+folder. The helper stages only the manifests, license, `lib/` and `exe/` in a
+private temporary build context and removes it afterward. It does not read the
+dashboard's `.env`, use migration credentials, push an image, start a daemon, or
+require the other provider's release. To use a custom local tag, export
+`BBS_EXPORTER_IMAGE` or `GL_EXPORTER_IMAGE` in the build shell and set the same
+value in the deployment `.env`.
+
+For deployment, append the chosen exporter override(s) to `docker-compose.yml`
+in `COMPOSE_FILE`, e.g. `docker-compose.yml:deploy/gitlab/compose.gitlab-exporter.yml`.
+Each grants the dashboard access to the runtime socket.
+Exporter build services have opt-in `bitbucket-tools` and `gitlab-tools`
+profiles; the dashboard starts short-lived containers only when needed.
+For existing deployments using root-level overrides, see the
+[path upgrade example](deployment.md#compose-file-layout).
+
+For a local source only, also append [deploy/bitbucket/compose.bitbucket-local.yml](../deploy/bitbucket/compose.bitbucket-local.yml)
+or [deploy/gitlab/compose.gitlab-local.yml](../deploy/gitlab/compose.gitlab-local.yml) to connect the dashboard
+to that source's existing network (`bitbucket-local_default` or
+`gh-migrate-gitlab-pilot_default`). Start the source first. These files do not change
+the workers' shared `EXPORTER_NETWORK` or configure TLS trust. Keep an active
+Bitbucket worker network unchanged when rehearsing GitLab separately.
+
+### Verify the GitLab exporter locally
+
+```sh
+docker run --rm --network none --read-only --tmpfs /tmp \
+  "${GL_EXPORTER_IMAGE:-gh-migrate/gitlab-exporter:1.7.17}" gl_exporter --version
+```
+
+The expected version is `Gitlab Exporter 1.7.17`. The image runs one export and
+exits; do not start an exporter service. For a source-only rehearsal, invoke
+`gl_exporter --namespace GROUP/SUBGROUP --project REPO --out-file /workspace/export.tar.gz --lock-projects=false`.
+Mount a private writable directory at `/workspace` and pass only
+`GITLAB_API_ENDPOINT` (ending in `/api/v4`), `GITLAB_USERNAME`, and
+`GITLAB_API_PRIVATE_TOKEN` from the environment. The container must reach the
+GitLab hostname and trust its TLS certificate for **both API reads and Git
+cloning**. For an internal CA, use an approved image trust store or mount a
+trusted CA bundle read-only at `/etc/ssl/certs/ca-certificates.crt` for the
+standalone run. Do not disable TLS verification.
+
+This prepares the **source archive only**. Building it or setting
+`GL_EXPORTER_IMAGE` does not enable the paused dashboard route or import into GHES.
+In the 1.7.17 pilot, the manifest declared `main` and the archive contained the
+correct `main` tip, but its bare Git `HEAD` pointed to a nonexistent `master`.
+The default branch after a GHES import has not yet been verified.

@@ -1,0 +1,16 @@
+# Compatibility entry point for deployments using the original service names and image tags.
+services:
+  gh-migrate:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+  bbs-exporter-image:
+    profiles: [tools]
+    image: ${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
+    build:
+      context: ${BBS_EXPORTER_BUILD_CONTEXT:-../bbs-exporter-1.13.0}
+  gl-exporter-image:
+    profiles: [gitlab-tools]
+    image: ${GL_EXPORTER_IMAGE:-gh-migrate/gl-exporter:1.7.17}
+    build:
+      context: ${GL_EXPORTER_BUILD_CONTEXT:-../gl-exporter-1.7.17}
+      dockerfile: ${PWD:-.}/deploy/gitlab/Dockerfile.gitlab-exporter

@@ -85,13 +85,14 @@ jobs:
           EXPORTER_ARCHIVE_VOLUME: clean-host-smoke-archives
         run: |
           work=$(mktemp -d)
-          cp docker-compose.yml compose.exporter.yml "$work"
+          cp docker-compose.yml "$work/"
+          cp -R deploy "$work/"
           cd "$work"
           echo 'GH_MIGRATE_ALLOW_UNAUTHENTICATED=true' > .env
           trap 'docker compose down --volumes' EXIT
           docker compose up --no-build -d --wait --wait-timeout 90
           docker compose exec -T gh-migrate sh -ec 'test ! -e /var/run/docker.sock'
-          docker compose -f docker-compose.yml -f compose.exporter.yml run --rm --no-deps \
+          docker compose -f docker-compose.yml -f deploy/compose.exporter.yml run --rm --no-deps \
             --entrypoint sh gh-migrate -ec 'test -S /var/run/docker.sock && test -d /archives'
 
       - name: Scan dashboard image

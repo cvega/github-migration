@@ -22,6 +22,8 @@ and verify one import before moving the rest.
 Use the base stack below for a local preview. Before running a migration,
 [configure your source and destination](docs/getting-started.md#configure-providers),
 including any archive storage or exporter your route requires.
+The base stack runs from the repository root; optional exporter and local-network
+files are [grouped by provider under `deploy/`](docs/deployment.md#compose-file-layout).
 
 ```bash
 cp .env.example .env

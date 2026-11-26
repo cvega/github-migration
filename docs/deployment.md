@@ -29,8 +29,8 @@ docker compose up -d --build --wait
 
 Compose publishes the dashboard on `127.0.0.1:3000` by default. The dashboard
 mounts the shared data volume and archive volume. The base stack needs neither
-a container runtime socket nor an external Bitbucket network. For deployments
-that launch exporters, use the [exporter overrides](configuration.md) instead.
+a container runtime socket nor an external source network. For deployments
+that launch exporters, add the [provider override](#compose-file-layout).
 The profile analyzer
 mounts the same data volume plus its own analysis workspace. Both images run as
 a non-root application user after the entrypoint fixes mounted-directory
@@ -52,6 +52,38 @@ Use immutable release tags or digests through `GH_MIGRATE_IMAGE` and
 `GH_MIGRATE_ANALYZER_IMAGE` when deploying an audited build. Build both from the
 same source revision, and do not use `latest` or another floating tag in
 production. Keep the Bun image and lockfile versions synchronized.
+
+### Compose file layout
+
+Run Compose from the checkout root, with [docker-compose.yml](../docker-compose.yml)
+first. It builds the dashboard and profile analyzer from the root [Dockerfile](../Dockerfile).
+Choose additional files only for the source you use:
+
+| Directory | Exporter override | Local-network override |
+|---|---|---|
+| [deploy/bitbucket/](../deploy/bitbucket/) | [compose.bitbucket-exporter.yml](../deploy/bitbucket/compose.bitbucket-exporter.yml) | [compose.bitbucket-local.yml](../deploy/bitbucket/compose.bitbucket-local.yml) |
+| [deploy/gitlab/](../deploy/gitlab/) | [compose.gitlab-exporter.yml](../deploy/gitlab/compose.gitlab-exporter.yml) | [compose.gitlab-local.yml](../deploy/gitlab/compose.gitlab-local.yml) |
+
+Each directory also contains its exporter's Dockerfile. The exporter override
+lets the dashboard launch a container per repository; the `-local` override only
+connects the dashboard to a test server's existing Docker network. Omit `-local`
+for an externally reachable source. Keep the private source directory or tarball
+**outside** the checkout and pass its path to the [build helper](configuration.md#build-from-a-private-release-path).
+
+**Upgrading from root-level overrides:** update the paths in `.env`'s `COMPOSE_FILE`,
+shell scripts and `-f` arguments before your next Compose command. Prefix each
+provider override with `deploy/bitbucket/` or `deploy/gitlab/`. If you used the
+shared `compose.exporter.yml`, use [deploy/compose.exporter.yml](../deploy/compose.exporter.yml)
+to keep the original service names, profiles and image tags. For example, an
+existing local Bitbucket deployment using that shared override becomes:
+
+```dotenv
+COMPOSE_FILE=docker-compose.yml:deploy/compose.exporter.yml:deploy/bitbucket/compose.bitbucket-local.yml
+```
+
+Keep the same Compose project name and volumes. Run `docker compose config --quiet`
+to validate the new paths without starting anything. A path change alone does
+not require rebuilding images or restarting a running deployment.
 
 ## Authentication And Network
 

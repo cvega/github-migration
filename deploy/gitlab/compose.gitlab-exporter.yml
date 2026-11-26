@@ -1,0 +1,12 @@
+services:
+  gh-migrate:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      GL_EXPORTER_IMAGE: &image ${GL_EXPORTER_IMAGE:-gh-migrate/gitlab-exporter:1.7.17}
+  gitlab-exporter:
+    profiles: [gitlab-tools]
+    image: *image
+    build:
+      context: ${GL_EXPORTER_BUILD_CONTEXT:-../gl-exporter-1.7.17}
+      dockerfile: ${PWD:-.}/deploy/gitlab/Dockerfile.gitlab-exporter

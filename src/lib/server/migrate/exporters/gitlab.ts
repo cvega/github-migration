@@ -1,8 +1,16 @@
 import type { GhesTargetExecutionConfig } from "$lib/server/core/ghes-target";
-import { type DockerExporterDependencies, DockerExporterWorker } from "./docker";
+import {
+  type DockerExporterConfig,
+  type DockerExporterDependencies,
+  DockerExporterWorker,
+} from "./docker";
 
 export class GitLabExporterWorker extends DockerExporterWorker {
-  constructor(config: GhesTargetExecutionConfig, dependencies?: DockerExporterDependencies) {
+  constructor(
+    config: DockerExporterConfig &
+      Pick<GhesTargetExecutionConfig, "gitlabUsername" | "gitlabToken">,
+    dependencies?: DockerExporterDependencies,
+  ) {
     super(
       config,
       {
@@ -16,6 +24,7 @@ export class GitLabExporterWorker extends DockerExporterWorker {
             `GITLAB_API_PRIVATE_TOKEN=${config.gitlabToken}`,
           ],
           arguments: [
+            "gl_exporter",
             "--namespace",
             request.sourceOrg,
             "--project",

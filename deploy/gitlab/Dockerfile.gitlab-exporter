@@ -1,0 +1,21 @@
+# Local build for an independently supplied gl-exporter 1.7.17 release (Ruby ~> 3.2.1).
+FROM ruby:3.2.11-bookworm@sha256:bf13a46a498fb4055d0e52495c351a2648c8bc8d41b473ee3f734041a74c7f56
+RUN apt-get -o APT::Update::Error-Mode=any update \
+ && apt-get install -y --no-install-recommends cmake \
+ && apt-get clean
+
+WORKDIR /opt/gl-exporter
+COPY Gemfile Gemfile.lock gl_exporter.gemspec LICENSE ./
+COPY lib/ lib/
+COPY exe/ exe/
+ENV BUNDLE_GEMFILE=/opt/gl-exporter/Gemfile BUNDLE_FROZEN=true BUNDLE_FORCE_RUBY_PLATFORM=true
+RUN gem install --no-document bundler -v 2.4.6 \
+ && bundle _2.4.6_ install --jobs 2 \
+ && chmod -R a+rX /opt/gl-exporter
+
+WORKDIR /workspace
+ENV HOME=/tmp
+USER 65534:65534
+RUN version="$(bundle exec gl_exporter --version)" && printf '%s\n' "$version" | grep -Fx 'Gitlab Exporter 1.7.17'
+ENTRYPOINT ["bundle", "exec"]
+CMD ["gl_exporter"]

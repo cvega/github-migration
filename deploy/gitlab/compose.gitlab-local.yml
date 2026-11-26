@@ -1,0 +1,7 @@
+services:
+  gh-migrate:
+    networks: [default, gitlab-local]
+networks:
+  gitlab-local:
+    external: true
+    name: gh-migrate-gitlab-pilot_default
