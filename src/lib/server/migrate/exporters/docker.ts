@@ -29,7 +29,7 @@ export interface DockerExporterDependencies {
     signal?: AbortSignal,
     environment?: Record<string, string>,
   ): Promise<CommandResult>;
-  hash(path: string): Promise<string>;
+  hash(path: string, signal?: AbortSignal): Promise<string>;
   stat(path: string): Promise<{ isFile(): boolean; isSymbolicLink(): boolean }>;
   statDirectory(path: string): Promise<{ isDirectory(): boolean; uid: number; gid: number }>;
   remove(path: string): Promise<void>;
@@ -85,9 +85,9 @@ async function run(
     signal?.removeEventListener("abort", abort);
   }
 }
-async function hash(path: string): Promise<string> {
+async function hash(path: string, signal?: AbortSignal): Promise<string> {
   const digest = createHash("sha256");
-  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  for await (const chunk of createReadStream(path, { signal })) digest.update(chunk);
   return digest.digest("hex");
 }
 function defaults(): DockerExporterDependencies {
@@ -198,8 +198,9 @@ export class DockerExporterWorker implements ExporterWorker {
     } catch (cause) {
       throw new Error(`${this.definition.displayName} returned invalid container state`, { cause });
     }
-    if (state.Running === true || state.Status === "created")
-      return { jobId, state: state.Status === "created" ? "queued" : "running" };
+    if (state.Status === "created")
+      return { jobId, state: "failed", failureReason: exporterFailures.unstarted };
+    if (state.Running === true) return { jobId, state: "running" };
     if (state.Status !== "exited" || !Number.isInteger(state.ExitCode))
       return { jobId, state: "failed", failureReason: exporterFailures.stopped };
     if (state.ExitCode !== 0) {
@@ -212,7 +213,7 @@ export class DockerExporterWorker implements ExporterWorker {
     return {
       jobId,
       state: "succeeded",
-      archive: { path, sha256: await this.dependencies.hash(path) },
+      archive: { path, sha256: await this.dependencies.hash(path, signal) },
     };
   }
   async cancel(jobId: string, signal?: AbortSignal): Promise<void> {
@@ -223,12 +224,10 @@ export class DockerExporterWorker implements ExporterWorker {
     if (result.exitCode !== 0) throw failure(this.definition.displayName, "stop", result);
   }
   async cleanup(jobId: string): Promise<void> {
-    const result = await this.dependencies.run([
-      this.config.exporterRuntime,
-      "rm",
-      "--force",
-      jobId,
-    ]);
+    const result = await this.dependencies.run(
+      [this.config.exporterRuntime, "rm", "--force", jobId],
+      AbortSignal.timeout(45_000),
+    );
     if (result.exitCode !== 0 && !result.stderr.includes("No such container"))
       throw failure(this.definition.displayName, "cleanup", result);
   }

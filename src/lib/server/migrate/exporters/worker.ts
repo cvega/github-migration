@@ -29,6 +29,7 @@ export type ExporterJobStatus =
   | { jobId: string; state: "failed" | "cancelled"; failureReason: string };
 
 export const exporterFailures = {
+  unstarted: "Exporter container was never started",
   stopped: "Exporter container stopped unexpectedly",
   exit: "Exporter container exited unsuccessfully",
   archive: "Exporter archive is not a regular file",

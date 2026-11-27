@@ -6,10 +6,12 @@ import { approveIdentityMapping, listIdentityMappings } from "../database/identi
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
 import { getMigration, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
-import type { ExporterWorker } from "../exporters/worker";
+import { type ExporterWorker, exporterFailures } from "../exporters/worker";
 import { activeMigrationRuns } from "../runs/active";
 import { createMigrationRunFinisher } from "../runs/finish";
+import { drainMigrationQueue } from "../runs/queue";
 import {
+  defaultGhesWait,
   type ExporterGhesSourceAdapter,
   resumeExporterGhesMigration,
   runExporterGhesMigration,
@@ -93,6 +95,96 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("GHES import execution", () => {
+  test.each(["running", "expired", "unstarted"] as const)(
+    "releases the GHES slot after a %s exporter fails",
+    async (scenario) => {
+      const record = migration("exporter");
+      insertMigration(record);
+      insertMigration({ ...record, id: "next", state: "queued" });
+      const calls: string[] = [];
+      const source = adapter({
+        submit: async () => {
+          calls.push("submit");
+          return { jobId: "export-job" };
+        },
+        inspect: async (jobId) => {
+          calls.push(`inspect ${jobId}`);
+          return scenario === "unstarted"
+            ? { jobId, state: "failed", failureReason: exporterFailures.unstarted }
+            : { jobId, state: "running" };
+        },
+        cancel: async (id) => {
+          calls.push(`stop ${id}`);
+        },
+        cleanup: async (id) => {
+          calls.push(`remove ${id}`);
+        },
+      });
+      source.wait = defaultGhesWait;
+      if (scenario !== "running") {
+        insertGhesImportJob({
+          id: "job",
+          migrationId: record.id,
+          phase: "exporting",
+          exporterJobId: "export-job",
+          archivePath: null,
+          archiveSha256: null,
+          ghesImportId: null,
+          sourceWasArchived: true,
+          failureReason: null,
+          updatedAt: record.startedAt,
+          createdAt: scenario === "expired" ? new Date(0).toISOString() : record.startedAt,
+        });
+      }
+      const previous = process.env.GHES_EXPORT_TIMEOUT_MS;
+      process.env.GHES_EXPORT_TIMEOUT_MS = scenario === "running" ? "100" : "60000";
+      const registration = activeMigrationRuns.claim(record.id)!;
+      activeMigrationRuns.enqueue("next", { sourceRepo: "group/next", targetOrg: "target" });
+      const launched: string[] = [];
+      const drain = () =>
+        drainMigrationQueue((id) => {
+          launched.push(id);
+          return true;
+        });
+      try {
+        drain();
+        expect(launched).toEqual([]);
+        const result =
+          scenario === "running"
+            ? await runExporterGhesMigration(
+                { id: record.id, sourceProvider: record.sourceProvider, emit: insertEvent },
+                source,
+              )
+            : await resumeExporterGhesMigration(record, insertEvent, undefined, source);
+        createMigrationRunFinisher(drain).settleResult(record.id, registration.token, result);
+        const failureReason =
+          scenario === "unstarted"
+            ? "GitLab export failed: Exporter container was never started"
+            : "GHES exporter timed out";
+        expect(getMigration(record.id)).toMatchObject({ state: "failed", failureReason });
+        expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+          phase: "failed",
+          failureReason,
+        });
+        expect(calls).toEqual(
+          scenario === "unstarted"
+            ? ["inspect export-job", "remove export-job"]
+            : [
+                ...(scenario === "running" ? ["submit", "inspect export-job"] : []),
+                "stop export-job",
+                "remove export-job",
+              ],
+        );
+        expect(launched).toEqual(["next"]);
+      } finally {
+        activeMigrationRuns.finish(record.id, registration.token);
+        activeMigrationRuns.dropQueued("next");
+        if (previous === undefined) delete process.env.GHES_EXPORT_TIMEOUT_MS;
+        else process.env.GHES_EXPORT_TIMEOUT_MS = previous;
+      }
+    },
+  );
+
   test.each([false, true])(
     "Bitbucket sends approved archive mappings upfront; remaining conflict: %s",
     async (blocked) => {

@@ -30,6 +30,15 @@ import {
 import { GhesMigratorBusyError, type GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_EXPORT_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
+
+function exportTimeoutMs(): number {
+  const configured = Number(process.env.GHES_EXPORT_TIMEOUT_MS);
+  return Number.isInteger(configured) && configured > 0 && configured <= 2_147_483_647
+    ? configured
+    : DEFAULT_EXPORT_TIMEOUT_MS;
+}
+
 const MAX_MAPPING_PASSES = 3;
 
 function emitImportStep(
@@ -114,17 +123,35 @@ async function waitForArchive(
   if (!job?.exporterJobId) {
     throw new ReconciliationRequiredError("Exporter container identifier is missing");
   }
-  while (job.phase === "exporting") {
-    signal?.throwIfAborted();
-    job = await refreshExporterArchive(job, worker, signal);
-    if (job.phase === "failed")
-      throw new ExportFailedError(
-        `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
-      );
-    if (job.phase === "cancelled") {
-      throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
+  const containerId = job.exporterJobId;
+  const remaining = Date.parse(job.createdAt) + exportTimeoutMs() - Date.now();
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), Math.max(0, remaining));
+  const pollSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+  try {
+    if (remaining <= 0) timeout.abort();
+    while (job.phase === "exporting") {
+      pollSignal.throwIfAborted();
+      job = await refreshExporterArchive(job, worker, pollSignal);
+      if (job.phase === "failed") {
+        await worker.cleanup?.(containerId).catch(() => {});
+        throw new ExportFailedError(
+          `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
+        );
+      }
+      if (job.phase === "cancelled") {
+        throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
+      }
+      if (job.phase === "exporting") await source.wait(EXPORT_POLL_INTERVAL_MS, pollSignal);
     }
-    if (job.phase === "exporting") await source.wait(EXPORT_POLL_INTERVAL_MS, signal);
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (!timeout.signal.aborted) throw error;
+    await worker.cancel(containerId, AbortSignal.timeout(45_000)).catch(() => {});
+    await worker.cleanup?.(containerId).catch(() => {});
+    throw new ExportFailedError("GHES exporter timed out");
+  } finally {
+    clearTimeout(timer);
   }
   if (job.phase !== "archive_ready" || !job.archivePath || !job.archiveSha256) {
     throw new Error(`Unexpected GHES import phase '${job.phase}' after export`);
