@@ -279,6 +279,84 @@ describe("GitLabClient", () => {
     await expect(incomplete.paginate("/projects")).rejects.toThrow("did not match X-Total");
   });
 
+  test("uses Link and remembered page-count evidence to continue short pages", async () => {
+    const { fetch, calls } = mockFetch([
+      jsonResponse([1], {
+        headers: {
+          Link: '<?page=2>; rel="next", <?page=3>; rel="last"',
+          "X-Total-Pages": "3",
+        },
+      }),
+      jsonResponse([2], { headers: { Link: '<?page=1>; rel="prev"' } }),
+      jsonResponse([3, 4]),
+    ]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+
+    expect(await client.paginate("/projects", { per_page: 2 })).toEqual([1, 2, 3, 4]);
+    expect(calls.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2", "3"]);
+  });
+
+  test("uses a next link without totals to continue a short page", async () => {
+    const { fetch, calls } = mockFetch([
+      jsonResponse([1], { headers: { Link: '<?page=2>; rel="next"' } }),
+      jsonResponse([2]),
+    ]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+
+    expect(await client.paginate("/projects")).toEqual([1, 2]);
+    expect(calls.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2"]);
+  });
+
+  test("rejects an empty page after explicit continuation", async () => {
+    const { fetch, calls } = mockFetch([
+      jsonResponse([1], { headers: { "X-Next-Page": "2" } }),
+      jsonResponse([]),
+    ]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+
+    await expect(client.paginate("/projects", { per_page: 1 })).rejects.toThrow(
+      "contradictory pagination",
+    );
+    expect(calls).toHaveLength(2);
+  });
+
+  test.each<Record<string, string>>([
+    { "X-Total-Pages": "3" },
+    { Link: '<?page=3>; rel="last"' },
+    { Link: '<?page=4>; rel="next"' },
+    { "X-Next-Page": "4" },
+    { "X-Next-Page": "3" },
+    { "X-Total-Pages": "invalid" },
+    { "X-Total": "5" },
+    { "X-Page": "1", "X-Per-Page": "2" },
+  ])("rejects inconsistent evidence on a later page (%j)", async (headers) => {
+    const { fetch, calls } = mockFetch([
+      jsonResponse([1, 2], { headers: { Link: '<?page=2>; rel="last"' } }),
+      jsonResponse([3], { headers }),
+    ]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+    const completed: number[] = [];
+    await expect(
+      client.paginate(
+        "/projects",
+        { per_page: 2 },
+        {
+          onPaginationComplete: (_total, itemsRead) => completed.push(itemsRead),
+        },
+      ),
+    ).rejects.toBeInstanceOf(GitLabApiError);
+    expect(calls).toHaveLength(2);
+    expect(completed).toEqual([]);
+  });
+
+  test("accepts a reconciled zero total and page count", async () => {
+    const { fetch } = mockFetch([
+      jsonResponse([], { headers: { "X-Total": "0", "X-Total-Pages": "0", "X-Next-Page": "" } }),
+    ]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+    expect(await client.paginate("/projects")).toEqual([]);
+  });
+
   test("enforces page shape, total headers, and exact collection limits", async () => {
     const invalidPage = new GitLabClient({
       baseUrl: "https://gitlab.com",

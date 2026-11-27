@@ -9,7 +9,12 @@ import type {
   SourceProjectInventory,
 } from "$lib/source/types";
 import { enrichmentWorkers } from "../enrichment-workers";
-import { GitLabApiError, type GitLabClient, type GitLabCountObservation } from "./client";
+import {
+  GitLabApiError,
+  type GitLabClient,
+  type GitLabCountObservation,
+  GitLabPaginationError,
+} from "./client";
 
 export const GITLAB_ISSUES_SCOPE =
   "project issues visible to the caller; all states and authors; excludes merge requests";
@@ -38,6 +43,9 @@ function scopedCountObservation(
 
 function unavailableObservation(error: unknown, scope: string): ProfileNumericObservation | null {
   if (!(error instanceof GitLabApiError)) return null;
+  if (error instanceof GitLabPaginationError) {
+    return { kind: "unavailable", reason: "malformed", scope };
+  }
   if (error.status === 403) return { kind: "unavailable", reason: "forbidden", scope };
   if (error.status === 404) {
     return { kind: "unavailable", reason: "not-found-or-hidden", scope };

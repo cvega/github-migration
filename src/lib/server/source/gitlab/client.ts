@@ -72,6 +72,13 @@ export class GitLabApiError extends Error {
   }
 }
 
+export class GitLabPaginationError extends GitLabApiError {
+  constructor(message: string) {
+    super(200, message);
+    this.name = "GitLabPaginationError";
+  }
+}
+
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_PER_PAGE = 100;
@@ -112,7 +119,10 @@ function parseHeaderInteger(value: string | null): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function readCountLinks(value: string): { hasNext: boolean; lastPage: number | null } | null {
+function readPaginationLinks(
+  value: string,
+  currentPage: number,
+): { hasNext: boolean; lastPage: number | null } | null {
   let hasNext = false;
   let lastPage: number | null = null;
   // Consume complete link values so quoted parameters and targets can contain commas.
@@ -130,14 +140,21 @@ function readCountLinks(value: string): { hasNext: boolean; lastPage: number | n
     )) {
       if (parameter[1]?.toLowerCase() !== "rel") continue;
       const relations = (parameter[2] ?? parameter[3] ?? "").toLowerCase().trim().split(/\s+/);
-      if (relations.includes("prev") || relations.includes("previous")) return null;
+      const previous = relations.includes("prev") || relations.includes("previous");
       const next = relations.includes("next");
       const last = relations.includes("last");
-      if (!next && !last) continue;
+      if (!previous && !next && !last) continue;
       const url = URL.parse(target, "https://gitlab.invalid");
       const pages = url?.searchParams.getAll("page");
       const page = pages?.length === 1 ? parseHeaderInteger(pages[0] ?? null) : null;
-      if (page === null || page === 0 || (next && page !== 2)) return null;
+      if (
+        page === null ||
+        page === 0 ||
+        (next && page !== currentPage + 1) ||
+        (previous && page !== currentPage - 1)
+      ) {
+        return null;
+      }
       if (last) {
         if (lastPage !== null && lastPage !== page) return null;
         lastPage = page;
@@ -168,7 +185,7 @@ function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCount
   const totalPagesHeader = headers.get("x-total-pages");
   const totalPages = parseHeaderInteger(totalPagesHeader);
   if (totalPagesHeader !== null && totalPages === null) return malformed;
-  const links = readCountLinks(headers.get("Link") ?? "");
+  const links = readPaginationLinks(headers.get("Link") ?? "", 1);
   if (!links) return malformed;
   const reportedSize = total ?? totalPages ?? links.lastPage;
   if (
@@ -194,6 +211,54 @@ function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCount
     return { kind: "exact", value: itemsRead, basis: "enumerated" };
   }
   return { kind: "at-least", value: itemsRead };
+}
+
+function readTraversalPage(
+  headers: Headers,
+  page: number,
+  perPage: number,
+  itemsOnPage: number,
+  knownLastPage: number | null,
+): { lastPage: number | null; continues: boolean | null } {
+  const reportedPage = headers.get("x-page");
+  const reportedPerPage = headers.get("x-per-page");
+  const previous = headers.get("x-prev-page");
+  const next = headers.get("x-next-page");
+  if (next && parseHeaderInteger(next) !== page + 1) {
+    throw new GitLabPaginationError("GitLab API returned an invalid X-Next-Page header");
+  }
+  const pagesHeader = headers.get("x-total-pages");
+  const totalPages = parseHeaderInteger(pagesHeader);
+  const links = readPaginationLinks(headers.get("Link") ?? "", page);
+  if (
+    (reportedPage !== null && parseHeaderInteger(reportedPage) !== page) ||
+    (reportedPerPage !== null && parseHeaderInteger(reportedPerPage) !== perPage) ||
+    (previous !== null &&
+      (page === 1 ? previous !== "" : parseHeaderInteger(previous) !== page - 1)) ||
+    (pagesHeader !== null && totalPages === null) ||
+    !links ||
+    itemsOnPage > perPage
+  ) {
+    throw new GitLabPaginationError("GitLab API returned malformed pagination evidence");
+  }
+
+  const lastPage = knownLastPage ?? totalPages ?? links.lastPage;
+  const explicitContinuation = Boolean(next) || links.hasNext;
+  const pagesRemain = lastPage !== null && lastPage > page;
+  if (
+    (totalPages !== null && totalPages !== lastPage) ||
+    (links.lastPage !== null && links.lastPage !== lastPage) ||
+    (lastPage === 0 ? page !== 1 || itemsOnPage !== 0 : lastPage !== null && lastPage < page) ||
+    (next === "" && (explicitContinuation || pagesRemain)) ||
+    (explicitContinuation && lastPage !== null && !pagesRemain) ||
+    (itemsOnPage === 0 && (explicitContinuation || (lastPage ?? 0) >= page))
+  ) {
+    throw new GitLabPaginationError("GitLab API returned contradictory pagination evidence");
+  }
+
+  if (explicitContinuation || pagesRemain) return { lastPage, continues: true };
+  if (next === "" || lastPage !== null) return { lastPage, continues: false };
+  return { lastPage, continues: null };
 }
 
 function retryAfterDelayMs(value: string | null, nowMs: number): number | null {
@@ -617,6 +682,8 @@ export class GitLabClient {
     let page = initialPage;
     let itemsRead = 0;
     let total: number | null = null;
+    let lastPage: number | null = null;
+    let continuationExpected = false;
 
     for (let pagesRead = 0; pagesRead < this.#maxPages; pagesRead += 1) {
       const response: GitLabResponse<T[]> = await this.get<T[]>(
@@ -625,18 +692,21 @@ export class GitLabClient {
         options,
       );
       if (!Array.isArray(response.data)) {
-        throw new GitLabApiError(200, "GitLab API page was not an array");
+        throw new GitLabPaginationError("GitLab API page was not an array");
+      }
+      if (continuationExpected && response.data.length === 0) {
+        throw new GitLabPaginationError("GitLab API returned contradictory pagination evidence");
       }
       const pageTotalHeader = response.headers.get("x-total");
       if (pageTotalHeader !== null) {
         const pageTotal = parseHeaderInteger(pageTotalHeader);
         if (pageTotal === null) {
-          throw new GitLabApiError(200, "GitLab API returned an invalid X-Total header");
+          throw new GitLabPaginationError("GitLab API returned an invalid X-Total header");
         }
         if (total !== null && pageTotal !== total) {
           // A changing total proves the offset traversal observed different
           // collection versions, so returning a reconciled inventory is unsafe.
-          throw new GitLabApiError(200, "GitLab inventory changed during pagination");
+          throw new GitLabPaginationError("GitLab inventory changed during pagination");
         }
         total = pageTotal;
       }
@@ -651,38 +721,37 @@ export class GitLabClient {
         );
       }
       itemsRead += response.data.length;
+      const traversal = readTraversalPage(
+        response.headers,
+        page,
+        perPage,
+        response.data.length,
+        lastPage,
+      );
+      lastPage = traversal.lastPage;
+      if (total !== null && lastPage !== null && Math.ceil(total / perPage) !== lastPage) {
+        throw new GitLabPaginationError("GitLab API returned contradictory pagination totals");
+      }
+      const continues = traversal.continues ?? response.data.length === perPage;
+      if (
+        total !== null &&
+        (itemsRead > total ||
+          (traversal.continues === true && itemsRead === total) ||
+          (!continues && itemsRead !== total))
+      ) {
+        throw new GitLabPaginationError("GitLab pagination did not match X-Total");
+      }
       yield response.data;
 
-      const nextPageHeader = response.headers.get("x-next-page");
-      if (nextPageHeader === "") {
-        this.#assertCompletePagination(total, itemsRead);
+      if (!continues) {
         options.onPaginationComplete?.(total, itemsRead);
         return;
       }
-      if (nextPageHeader !== null) {
-        const nextPage = parseHeaderInteger(nextPageHeader);
-        if (nextPage === null || nextPage <= page) {
-          throw new GitLabApiError(200, "GitLab API returned an invalid X-Next-Page header");
-        }
-        page = nextPage;
-        continue;
-      }
-      if (response.data.length === perPage) {
-        page += 1;
-        continue;
-      }
-      this.#assertCompletePagination(total, itemsRead);
-      options.onPaginationComplete?.(total, itemsRead);
-      return;
+      continuationExpected = traversal.continues === true;
+      page += 1;
     }
 
     throw new GitLabApiError(0, `GitLab pagination exceeded ${this.#maxPages} pages`);
-  }
-
-  #assertCompletePagination(total: number | null, itemsRead: number): void {
-    if (total !== null && total !== itemsRead) {
-      throw new GitLabApiError(200, "GitLab pagination did not match X-Total");
-    }
   }
 
   async paginate<T>(

@@ -193,6 +193,17 @@ describe("discoverGitLabInventory", () => {
     });
   });
 
+  test("rejects terminal pagination that contradicts the advertised page count", async () => {
+    const response = jsonResponse([project()]);
+    response.headers.set("X-Total-Pages", "2");
+    const { client, calls } = clientWithResponses([response]);
+
+    await expect(discoverGitLabInventory(client, "platform/products")).rejects.toThrow(
+      "contradictory pagination",
+    );
+    expect(calls).toHaveLength(1);
+  });
+
   test("keeps reported zero distinct from unavailable statistics", async () => {
     const { client } = clientWithResponses([
       jsonResponse([
