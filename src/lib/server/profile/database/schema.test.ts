@@ -37,6 +37,61 @@ describe("profile database schema", () => {
     database.close();
   });
 
+  test("widens the legacy provider CHECK and preserves dependent inventory across restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "profile-provider-upgrade-"));
+    const path = join(directory, "profile.db");
+    try {
+      {
+        using db = new Database(path, { create: true });
+        db.run(`PRAGMA foreign_keys = ON;
+          CREATE TABLE profile_runs (
+            id TEXT PRIMARY KEY,
+            source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab')),
+            source_api_url TEXT NOT NULL, org TEXT NOT NULL, state TEXT NOT NULL,
+            total_repos INTEGER NOT NULL DEFAULT 0, profiled_repos INTEGER NOT NULL DEFAULT 0,
+            blockers INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0,
+            started_at TEXT NOT NULL, completed_at TEXT, failure_reason TEXT
+          );
+          CREATE TABLE profile_source_inventories (
+            run_id TEXT PRIMARY KEY REFERENCES profile_runs(id) ON DELETE CASCADE,
+            payload TEXT NOT NULL, fetched_at TEXT NOT NULL
+          )`);
+        insertRun(db, "legacy", "completed", "2026-08-01");
+        db.run("INSERT INTO profile_source_inventories VALUES ('legacy', '{}', '2026-08-02')");
+        expect(() =>
+          db.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'"),
+        ).toThrow(/CHECK/);
+        profileStore.applySchema(db);
+        expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+        expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+      }
+      using reopened = new Database(path);
+      reopened.run("PRAGMA foreign_keys = ON");
+      profileStore.applySchema(reopened);
+      expect(
+        reopened
+          .query(`SELECT r.id, r.source_provider, r.state, r.completed_at, i.fetched_at
+        FROM profile_runs r JOIN profile_source_inventories i ON i.run_id = r.id`)
+          .all(),
+      ).toEqual([
+        {
+          id: "legacy",
+          source_provider: "github",
+          state: "completed",
+          completed_at: "2026-08-01",
+          fetched_at: "2026-08-02",
+        },
+      ]);
+      expect(
+        reopened.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'").changes,
+      ).toBe(1);
+      expect(reopened.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+      expect(reopened.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("serializes competing legacy upgrades and retries an interrupted upgrade", async () => {
     const directory = mkdtempSync(join(tmpdir(), "profile-upgrade-"));
     const path = join(directory, "profile.db");
