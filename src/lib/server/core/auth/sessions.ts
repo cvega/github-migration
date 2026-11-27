@@ -62,15 +62,8 @@ export function createSession(
   return token;
 }
 
-export function resolveSession(
-  token: string,
-  now: Date = new Date(),
-  database: Database = getDb(),
-): AuthPrincipal | null {
-  if (!token) return null;
-  const tokenHash = hashSessionToken(token);
-  const nowIso = now.toISOString();
-  const row = database
+function activeSession(tokenHash: string, nowIso: string, database: Database): SessionRow | null {
+  return database
     .prepare(
       `SELECT s.token_hash, s.user_id, s.last_seen_at, u.username, u.display_name,
               u.role, u.is_active, u.must_change_password
@@ -79,6 +72,22 @@ export function resolveSession(
        WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at >= ? AND u.is_active = 1`,
     )
     .get(tokenHash, nowIso) as SessionRow | null;
+}
+
+export function hasActiveAdminSession(tokenHash: string): boolean {
+  const row = activeSession(tokenHash, new Date().toISOString(), getDb());
+  return row?.role === "admin" && row.must_change_password === 0;
+}
+
+export function resolveSession(
+  token: string,
+  now: Date = new Date(),
+  database: Database = getDb(),
+): AuthPrincipal | null {
+  if (!token) return null;
+  const tokenHash = hashSessionToken(token);
+  const nowIso = now.toISOString();
+  const row = activeSession(tokenHash, nowIso, database);
   if (!row) return null;
 
   if (now.getTime() - Date.parse(row.last_seen_at) >= LAST_SEEN_WRITE_INTERVAL_MS) {

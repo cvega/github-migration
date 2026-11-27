@@ -156,6 +156,20 @@ describe("createReconnectingEventSource", () => {
     expect(received).toEqual([{ highWater: 42 }]);
   });
 
+  test("session-ended closes the stream and prevents automatic and explicit cursor replay", () => {
+    const connection = createReconnectingEventSource(
+      options({ url: () => "/api/events?after=42" }),
+    );
+    const source = latest();
+    source.emitNamed("session-ended", {});
+    expect(source.closed).toBe(true);
+
+    source.emitError();
+    connection.reconnect();
+    expect(scheduled).toHaveLength(0);
+    expect(FakeEventSource.instances).toHaveLength(1);
+  });
+
   test("closes and schedules a reconnect on error", () => {
     createReconnectingEventSource(options());
     const first = latest();

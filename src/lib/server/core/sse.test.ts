@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { authStore } from "./auth/schema";
+import { createSession, hashSessionToken, revokeSession } from "./auth/sessions";
+import { resetUserPassword, setUserActive, setUserRole } from "./auth/users";
+import { closeStore, getDb, initStore } from "./db";
 import { createBufferedSseController, parseSseLastEventId, sseResponse } from "./sse";
 
 const realSetInterval = globalThis.setInterval;
@@ -11,7 +15,7 @@ afterEach(() => {
 
 describe("sseResponse", () => {
   test("encodes terminal frames as bytes for the HTTP adapter", async () => {
-    const response = sseResponse((controller) => {
+    const response = sseResponse(undefined, (controller) => {
       controller.enqueue('data: {"type":"done"}\n\n');
       controller.close();
       return null;
@@ -24,7 +28,7 @@ describe("sseResponse", () => {
   });
 
   test("propagates source errors through the byte stream", async () => {
-    const response = sseResponse((controller) => {
+    const response = sseResponse(undefined, (controller) => {
       controller.error(new Error("event source failed"));
       return null;
     });
@@ -38,7 +42,7 @@ describe("sseResponse", () => {
       return 1 as unknown as ReturnType<typeof setInterval>;
     }) as unknown as typeof setInterval;
 
-    const response = sseResponse((controller) => {
+    const response = sseResponse(undefined, (controller) => {
       controller.enqueue("data: done\n\n");
       controller.close();
       return null;
@@ -56,7 +60,7 @@ describe("sseResponse", () => {
       cleared = true;
     }) as typeof clearInterval;
 
-    const response = sseResponse(() => () => {
+    const response = sseResponse(undefined, () => () => {
       cleanedUp = true;
     });
     await response.body?.cancel();
@@ -64,6 +68,57 @@ describe("sseResponse", () => {
     expect(cleanedUp).toBe(true);
     expect(cleared).toBe(true);
   });
+});
+
+describe("authenticated stream keepalives", () => {
+  beforeEach(() => {
+    initStore(":memory:", [authStore]);
+    for (const id of ["viewer", "other-admin"]) {
+      getDb().run(
+        `INSERT INTO app_users (id, username, password_hash, role, created_at, updated_at)
+         VALUES (?, ?, 'fixture', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [id, id],
+      );
+    }
+  });
+  afterEach(closeStore);
+
+  const endSession = {
+    logout: (token: string) => revokeSession(token),
+    disable: () => setUserActive("other-admin", "viewer", false),
+    "password reset": () => resetUserPassword("viewer"),
+    "role change": () => setUserRole("other-admin", "viewer", "operator"),
+    expiry: () => getDb().run("UPDATE app_sessions SET expires_at = '2000-01-01'"),
+  };
+  for (const [reason, invalidate] of Object.entries(endSession)) {
+    test(`closes and unsubscribes on the first keepalive after ${reason}`, async () => {
+      const token = createSession("viewer");
+      let tick!: () => void;
+      globalThis.setInterval = ((callback: () => void, ms: number) => {
+        expect(ms).toBe(30_000);
+        tick = callback;
+        return 1;
+      }) as unknown as typeof setInterval;
+      const clear = mock(() => {});
+      globalThis.clearInterval = clear;
+      const unsubscribe = mock(() => {});
+      const reader = sseResponse(
+        { authEnabled: true, sessionTokenHash: hashSessionToken(token) },
+        () => unsubscribe,
+      ).body!.getReader();
+      const decoder = new TextDecoder();
+      tick();
+      expect(decoder.decode((await reader.read()).value)).toBe(": keepalive\n\n");
+      await invalidate(token);
+      tick();
+      expect(decoder.decode((await reader.read()).value)).toBe(
+        "event: session-ended\ndata: {}\n\n",
+      );
+      expect((await reader.read()).done).toBe(true);
+      expect(clear).toHaveBeenCalledTimes(1);
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
 describe("parseSseLastEventId", () => {

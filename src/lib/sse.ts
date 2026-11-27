@@ -78,6 +78,7 @@ export function createReconnectingEventSource(
       retryCount = 0;
       opts.onMessage(event, { destroy });
     };
+    source.addEventListener("session-ended", destroy);
     source.addEventListener("cursor-stale", (event) =>
       opts.onCursorStale?.(event as MessageEvent, { destroy }),
     );
