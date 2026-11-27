@@ -120,53 +120,62 @@ export async function collectBitbucketCommitMetric(
       { until: project.defaultBranch, withCounts: true, limit: 100 },
       { signal: options.signal },
     );
+    const malformed = () =>
+      metric(
+        "repository-commits",
+        { kind: "unavailable", reason: "malformed", scope: BITBUCKET_COMMITS_SCOPE },
+        nowMs,
+      );
     if (
-      response &&
-      typeof response === "object" &&
-      "values" in response &&
-      Array.isArray(response.values)
+      !response ||
+      typeof response !== "object" ||
+      !("isLastPage" in response) ||
+      typeof response.isLastPage !== "boolean" ||
+      !("values" in response) ||
+      !Array.isArray(response.values) ||
+      !response.values.every(
+        (commit) => commit && typeof commit === "object" && !Array.isArray(commit),
+      )
     ) {
-      observeTip?.(timestamp(response.values[0]?.committerTimestamp));
+      return malformed();
     }
-    const totalCount =
-      typeof response === "object" &&
-      response !== null &&
-      "totalCount" in response &&
-      typeof response.totalCount === "number" &&
-      Number.isSafeInteger(response.totalCount) &&
-      response.totalCount >= 0
-        ? response.totalCount
-        : null;
-    // Bitbucket may count only through the next item when more pages exist.
-    if (
-      response &&
-      typeof response === "object" &&
-      "isLastPage" in response &&
-      response.isLastPage === false &&
-      "values" in response &&
-      Array.isArray(response.values)
-    ) {
+
+    const { isLastPage, values } = response;
+    observeTip?.(timestamp(values[0]?.committerTimestamp));
+
+    const totalCount = "totalCount" in response ? response.totalCount : undefined;
+    if (!isLastPage) {
+      const nextPageStart = "nextPageStart" in response ? response.nextPageStart : undefined;
+      if (
+        typeof nextPageStart !== "number" ||
+        !Number.isSafeInteger(nextPageStart) ||
+        nextPageStart <= 0 ||
+        (totalCount !== undefined &&
+          (typeof totalCount !== "number" ||
+            !Number.isSafeInteger(totalCount) ||
+            totalCount <= values.length))
+      ) {
+        return malformed();
+      }
+
+      // Bitbucket may count only through the next item when more pages exist.
       return metric(
         "repository-commits",
         {
           kind: "at-least",
-          value: response.values.length,
+          value: values.length,
           reason: "page-cap",
           scope: BITBUCKET_COMMITS_SCOPE,
         },
         nowMs,
       );
     }
+
+    // A terminal first page contains all commits in scope.
+    if (totalCount !== values.length) return malformed();
     return metric(
       "repository-commits",
-      totalCount === null
-        ? { kind: "unavailable", reason: "malformed", scope: BITBUCKET_COMMITS_SCOPE }
-        : {
-            kind: "exact",
-            value: totalCount,
-            basis: "reported",
-            scope: BITBUCKET_COMMITS_SCOPE,
-          },
+      { kind: "exact", value: totalCount, basis: "reported", scope: BITBUCKET_COMMITS_SCOPE },
       nowMs,
     );
   } catch (error) {
