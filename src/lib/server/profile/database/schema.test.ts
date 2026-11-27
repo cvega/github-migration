@@ -223,6 +223,56 @@ describe("profile database schema", () => {
     database.close();
   });
 
+  test.each([
+    { maxAgeDays: 1, maxRuns: 0 },
+    { maxAgeDays: 0, maxRuns: 1 },
+  ])("protects analysis and its evidence with retention %o", (limits) => {
+    using db = new Database(":memory:");
+    profileStore.applySchema(db);
+    const options = { ...limits, nowMs: Date.parse("2026-08-10T12:00:00Z") };
+    insertRun(db, "protected", "completed", "2026-08-02");
+    db.run(`INSERT INTO profile_repos (id, run_id, name_with_owner, created_at)
+        VALUES (1, 'protected', 'acme/api', '2026-08-02');
+      INSERT INTO profile_repository_analysis_runs
+        (id, profile_run_id, state, selected_repo_count, started_at)
+        VALUES ('prior', 'protected', 'completed', 1, '2026-08-03'),
+               ('active', 'protected', 'queued', 1, '2026-08-04');
+      INSERT INTO profile_repository_analysis_jobs
+        (id, analysis_run_id, profile_repo_id, name_with_owner, state)
+        VALUES ('done', 'prior', 1, 'acme/api', 'succeeded'),
+               ('work', 'active', 1, 'acme/api', 'queued');
+      INSERT INTO profile_repository_analysis_results
+        (id, analysis_job_id, attempt, captured_at, git_version, git_lfs_version, git_sizer_version)
+        VALUES ('result', 'done', 1, '2026-08-03', 'git', 'lfs', 'sizer');
+      INSERT INTO profile_repository_analysis_lfs_pointers
+        VALUES ('result', 'oid', 123, 'file.bin')`);
+
+    if (limits.maxRuns) {
+      insertRun(db, "older", "failed", "2026-08-01");
+      // A protected profile does not consume the one eligible history slot.
+      expect(pruneProfileHistory(db, options)).toBe(0);
+    }
+    insertRun(db, "newest", "completed", "2026-08-10");
+    expect(pruneProfileHistory(db, options)).toBe(limits.maxRuns);
+    db.run(`UPDATE profile_repository_analysis_runs SET state = 'running' WHERE id = 'active';
+      UPDATE profile_repository_analysis_jobs SET state = 'running', lease_owner = 'worker',
+        lease_expires_at = '2026-08-11' WHERE id = 'work'`);
+    expect(pruneProfileHistory(db, options)).toBe(0);
+    expect(
+      db.query("SELECT lease_owner FROM profile_repository_analysis_jobs WHERE id = 'work'").get(),
+    ).toEqual({ lease_owner: "worker" });
+    db.run(`UPDATE profile_repository_analysis_jobs SET state = 'succeeded' WHERE id = 'work';
+      UPDATE profile_repository_analysis_runs SET state = 'finalizing' WHERE id = 'active'`);
+    expect(pruneProfileHistory(db, options)).toBe(0);
+    const pointers = db.query("SELECT oid FROM profile_repository_analysis_lfs_pointers");
+    expect(pointers.all()).toEqual([{ oid: "oid" }]);
+
+    db.run("UPDATE profile_repository_analysis_runs SET state = 'completed' WHERE id = 'active'");
+    expect(pruneProfileHistory(db, options)).toBe(1);
+    expect(db.query("SELECT id FROM profile_runs").all()).toEqual([{ id: "newest" }]);
+    expect(pointers.all()).toEqual([]);
+  });
+
   test("prunes only terminal history outside retention", () => {
     const database = new Database(":memory:");
     profileStore.applySchema(database);

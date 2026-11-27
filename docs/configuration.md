@@ -35,7 +35,9 @@ limited to a trusted network. It cannot be enabled after users have been created
 
 Migration, profile, failed-login, and expired-session retention is enforced at
 process startup. A continuously running process can temporarily retain rows
-beyond an age limit until its next restart.
+beyond an age limit until its next restart. Profiles with queued, running, or
+finalizing repository analysis are exempt from age pruning and the retained-run
+count. Once analysis is terminal, retention uses the original profile timestamps.
 
 The metrics endpoint is disabled when `GH_MIGRATE_METRICS_TOKEN` is unset or
 empty, including in unauthenticated dashboard mode. Use a separate,
