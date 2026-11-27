@@ -1,24 +1,35 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { authStore } from "$lib/server/core/auth/schema";
+import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
 import { verifyLoginAttempt } from "$lib/server/core/auth/throttle";
+import { createUser } from "$lib/server/core/auth/users";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { actions } from "./+page.server";
 
 beforeEach(() => initStore(":memory:", [authStore]));
 afterEach(() => closeStore());
 
-async function signIn(username = "admin") {
+function loginEvent(username = "admin", password = "") {
   const setHeaders = mock();
-  const action = actions.default;
-  const response = await action({
-    request: new Request("http://localhost/login", {
+  const setCookie = mock((_name: string, _value: string) => {});
+  const url = new URL("https://dashboard.invalid/login");
+  const event = {
+    url,
+    cookies: { set: setCookie },
+    request: new Request(url, {
       method: "POST",
-      body: new URLSearchParams({ username }),
+      body: new URLSearchParams({ username, password }),
     }),
     locals: { authEnabled: true },
     getClientAddress: () => "192.0.2.1",
     setHeaders,
-  } as unknown as Parameters<typeof action>[0]);
+  } as unknown as Parameters<typeof actions.default>[0];
+  return { event, setHeaders, setCookie };
+}
+
+async function signIn(username = "admin") {
+  const { event, setHeaders } = loginEvent(username);
+  const response = await actions.default(event);
   return { response, setHeaders };
 }
 
@@ -78,4 +89,29 @@ test("busy verification slots return 503 with a short Retry-After", async () => 
     pending.resolve(null);
     await Promise.all(attempts);
   }
+});
+
+test("successful sign-in issues an audited session and releases its throttle reservation", async () => {
+  const password = "fixture current password";
+  const { user } = await createUser({
+    username: "fixture-operator",
+    password,
+    role: "operator",
+    mustChangePassword: true,
+  });
+  await verifyLoginAttempt(user.username, "192.0.2.1", async () => null);
+  const previousAttempts = getDb().query("SELECT id FROM auth_login_attempts").all();
+  const { event, setCookie } = loginEvent(user.username, password);
+
+  await expect(actions.default(event)).rejects.toMatchObject({
+    status: 302,
+    location: "/account/password",
+  });
+  const [name, token] = setCookie.mock.calls[0] ?? [];
+  expect(name).toBe(SESSION_COOKIE);
+  expect(resolveSession(token ?? "")?.user).toEqual(user);
+  expect(getDb().query("SELECT id FROM auth_login_attempts").all()).toEqual(previousAttempts);
+  expect(getDb().query("SELECT actor_user_id, action FROM audit_events").all()).toEqual([
+    { actor_user_id: user.id, action: "auth.login.succeeded" },
+  ]);
 });

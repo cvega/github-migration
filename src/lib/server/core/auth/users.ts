@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getDb } from "$lib/server/core/db";
+import { recordAuditEvent } from "./audit";
 import type { AuthUser, StoredUser, UserRole } from "./model";
 import {
   generateTemporaryPassword,
@@ -8,7 +9,7 @@ import {
   passwordPolicyError,
   verifyPasswordOrDummy,
 } from "./passwords";
-import { revokeUserSessions } from "./sessions";
+import { createSession, revokeUserSessions } from "./sessions";
 
 const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 export const USERNAME_MAX_LENGTH = 32;
@@ -87,27 +88,40 @@ export function listUsers(database: Database = getDb()): AuthUser[] {
   ).map(mapUser);
 }
 
-export async function verifyCredentials(
+export async function signInWithPassword(
   username: string,
   password: string,
+  ipAddress: string,
   database: Database = getDb(),
-): Promise<StoredUser | null> {
+): Promise<{ token: string; mustChangePassword: boolean } | null> {
   const user = findUserByUsername(username, database);
   const valid = await verifyPasswordOrDummy(password, user?.passwordHash ?? null);
   if (!valid || !user?.isActive) return null;
 
-  const now = new Date().toISOString();
-  if (passwordHashNeedsUpgrade(user.passwordHash)) {
-    user.passwordHash = await hashPassword(password);
-    database
-      .prepare(
-        "UPDATE app_users SET password_hash = ?, updated_at = ?, last_login_at = ? WHERE id = ?",
+  const upgradedHash = passwordHashNeedsUpgrade(user.passwordHash)
+    ? await hashPassword(password)
+    : null;
+  return database.transaction(() => {
+    const now = new Date();
+    const timestamp = now.toISOString();
+    const current = database
+      .query<{ must_change_password: number }, [string | null, string, string, string]>(
+        `UPDATE app_users
+         SET updated_at = CASE WHEN ?1 IS NULL THEN updated_at ELSE ?2 END,
+             password_hash = COALESCE(?1, password_hash), last_login_at = ?2
+         WHERE id = ?3 AND password_hash = ?4 AND is_active = 1
+         RETURNING must_change_password`,
       )
-      .run(user.passwordHash, now, now, user.id);
-  } else {
-    database.prepare("UPDATE app_users SET last_login_at = ? WHERE id = ?").run(now, user.id);
-  }
-  return user;
+      .get(upgradedHash, timestamp, user.id, user.passwordHash);
+    if (!current) return null;
+
+    const token = createSession(user.id, now, database);
+    recordAuditEvent(
+      { actorUserId: user.id, action: "auth.login.succeeded", ipAddress, createdAt: now },
+      database,
+    );
+    return { token, mustChangePassword: current.must_change_password === 1 };
+  })();
 }
 
 export interface CreateUserInput {
@@ -156,26 +170,28 @@ export async function changeOwnPassword(
   currentPassword: string,
   newPassword: string,
   database: Database = getDb(),
-): Promise<boolean> {
+): Promise<string | null> {
   const user = findStoredUserById(userId, database);
-  if (!user || !(await verifyPasswordOrDummy(currentPassword, user?.passwordHash ?? null))) {
-    return false;
+  if (!user?.isActive || !(await verifyPasswordOrDummy(currentPassword, user.passwordHash))) {
+    return null;
   }
   const passwordError = passwordPolicyError(newPassword);
   if (passwordError) throw new Error(passwordError);
   const passwordHash = await hashPassword(newPassword);
   const now = new Date();
-  database.transaction(() => {
-    database
+  return database.transaction(() => {
+    const result = database
       .prepare(
         `UPDATE app_users
          SET password_hash = ?, must_change_password = 0, updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND password_hash = ? AND is_active = 1`,
       )
-      .run(passwordHash, now.toISOString(), userId);
+      .run(passwordHash, now.toISOString(), userId, user.passwordHash);
+    if (!result.changes) return null;
+
     revokeUserSessions(userId, now, database);
+    return createSession(userId, now, database);
   })();
-  return true;
 }
 
 export async function resetUserPassword(

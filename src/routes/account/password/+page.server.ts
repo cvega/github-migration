@@ -1,7 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { requireUser } from "$lib/server/core/auth/authorization";
-import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
+import { SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
 import { changeOwnPassword } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -18,8 +18,10 @@ export const actions: Actions = {
       return fail(400, { error: "New passwords do not match." });
     }
 
+    let token: string | null;
     try {
-      if (!(await changeOwnPassword(user.id, currentPassword, newPassword))) {
+      token = await changeOwnPassword(user.id, currentPassword, newPassword);
+      if (!token) {
         return fail(400, { error: "Current password is incorrect." });
       }
     } catch (error) {
@@ -28,7 +30,6 @@ export const actions: Actions = {
       });
     }
 
-    const token = createSession(user.id);
     cookies.set(SESSION_COOKIE, token, {
       path: "/",
       httpOnly: true,

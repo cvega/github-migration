@@ -3,9 +3,10 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { verifyPassword } from "../../src/lib/server/core/auth/passwords";
 import { authStore } from "../../src/lib/server/core/auth/schema";
 import { createSession, resolveSession } from "../../src/lib/server/core/auth/sessions";
-import { createUser, verifyCredentials } from "../../src/lib/server/core/auth/users";
+import { createUser, findStoredUserById } from "../../src/lib/server/core/auth/users";
 
 test("the password reset CLI records only the target and CLI source", async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), "admin-reset-"));
@@ -24,10 +25,9 @@ test("the password reset CLI records only the target and CLI source", async () =
       .toString()
       .match(/^Temporary password for fixture-admin: (.+)$/m)?.[1];
     expect(Boolean(temporaryPassword)).toBe(true);
-    expect(
-      (await verifyCredentials(user.username, temporaryPassword ?? "", database))
-        ?.mustChangePassword,
-    ).toBe(true);
+    const current = findStoredUserById(user.id, database);
+    expect(current?.mustChangePassword).toBe(true);
+    expect(await verifyPassword(temporaryPassword ?? "", current?.passwordHash ?? "")).toBe(true);
     expect(resolveSession(token, new Date(), database)).toBeNull();
     expect(
       database

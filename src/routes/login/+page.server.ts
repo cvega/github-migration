@@ -1,11 +1,11 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
-import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
+import { SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
 import { LOGIN_WINDOW_SECONDS, verifyLoginAttempt } from "$lib/server/core/auth/throttle";
 import {
   matchesUsernamePolicy,
+  signInWithPassword,
   USERNAME_MAX_LENGTH,
-  verifyCredentials,
 } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -30,7 +30,7 @@ export const actions = {
     const displayUsername = matchesUsernamePolicy(username) ? username : "";
     const password = data.get("password")?.toString() ?? "";
     const result = await verifyLoginAttempt(username, ip, () =>
-      verifyCredentials(username, password),
+      signInWithPassword(username, password, ip),
     );
     if (result.throttled) {
       if (result.reason === "capacity") {
@@ -47,21 +47,19 @@ export const actions = {
       });
     }
 
-    const { user } = result;
-    if (!user) {
+    const { user: signIn } = result;
+    if (!signIn) {
       recordAuditEvent({ action: "auth.login.failed", ipAddress: ip });
       return fail(401, { username: displayUsername, error: "Invalid username or password." });
     }
 
-    const token = createSession(user.id);
-    recordAuditEvent({ actorUserId: user.id, action: "auth.login.succeeded", ipAddress: ip });
-    cookies.set(SESSION_COOKIE, token, {
+    cookies.set(SESSION_COOKIE, signIn.token, {
       path: "/",
       httpOnly: true,
       secure: url.protocol === "https:",
       sameSite: "lax",
       maxAge: SESSION_MAX_AGE,
     });
-    redirect(302, user.mustChangePassword ? "/account/password" : "/");
+    redirect(302, signIn.mustChangePassword ? "/account/password" : "/");
   },
 } satisfies Actions;
