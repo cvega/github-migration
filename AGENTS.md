@@ -111,3 +111,13 @@ including long repository names, keyboard use, and relevant error/empty states.
 Report the behavior changed, meaningful verification actually run, and any
 remaining limitation. Development authorization does not itself authorize a live
 migration, identity invitation, deployment, or production data reset.
+
+## Branch rules for Orca workers
+- Every Beads issue gets its own worker started with `--worktree new-child`.
+  Never use `--worktree current` for task work.
+- Name the worktree after the issue: `--name <issue-id>` (e.g. github-migration-a1b).
+- One issue per worker. Never put two issues in one worktree.
+- Workers commit only on their own branch. Never commit to main, never merge.
+- When done, the worker pushes its branch and opens a draft PR titled
+  "<issue-id>: <issue title>".
+- The coordinator (not the worker) closes the Beads issue after the PR exists.
