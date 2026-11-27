@@ -246,7 +246,17 @@ const readinessFixtureRepos = [
     signals: partialEvidence,
     blockers: 0,
   },
-  { name: "blocked-repository", signals: { releaseAssetScanComplete: false }, blockers: 1 },
+  {
+    name: "blocked-repository",
+    signals: {
+      isEmpty: true,
+      defaultBranch: null,
+      commitsCount: 0,
+      branchesCount: 0,
+      releaseAssetScanComplete: false,
+    },
+    blockers: 1,
+  },
 ];
 for (const { name, signals, blockers } of readinessFixtureRepos) {
   const path = `${readinessFixtureOrg}/${name}`;

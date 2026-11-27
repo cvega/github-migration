@@ -6,10 +6,11 @@
 	import type { UsedIconName } from "$lib/icons.generated";
 	import { MIGRATION_CATALOG } from "$lib/profile/migration-catalog";
 	import { releaseScanComplete, ruleScanComplete } from "$lib/profile/readiness";
-	import type {
-		RepositoryAnalysisDetail,
-		RepositoryAnalysisJob,
-		RepositoryAnalysisJobState,
+	import {
+		type RepositoryAnalysisDetail,
+		type RepositoryAnalysisJob,
+		type RepositoryAnalysisJobState,
+		requiresRepositoryAnalysis,
 	} from "$lib/profile/repository-analysis";
 	import type { PageData } from "./$types";
 	import type { ProfileMigrationPlannerController } from "./planner.svelte";
@@ -224,7 +225,11 @@
 								<p class="mt-0.5 whitespace-nowrap text-xs text-gray-500">{formatBytes(analysisJob.result.mirrorSizeBytes)} mirror</p>
 							{/if}
 						{:else if repo.signals.isEmpty}
-							<span class="whitespace-nowrap text-sm text-gray-500">Not required</span>
+							{#if requiresRepositoryAnalysis({ ...repo, isEmpty: true })}
+								<span class="whitespace-nowrap text-sm font-medium text-yellow-400">Required</span>
+							{:else}
+								<span class="whitespace-nowrap text-sm text-gray-500">Not required</span>
+							{/if}
 						{:else}
 							<span class="whitespace-nowrap text-sm text-gray-500">Not analyzed</span>
 						{/if}

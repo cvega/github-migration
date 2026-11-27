@@ -193,31 +193,35 @@ export async function analyzeRepository(
 
     const commandOptions = { cwd: mirror, timeoutMs };
     options.onProgress?.("inspecting repository", timeoutMs + COMMAND_PROGRESS_GRACE_MS);
-    const [rawSizer, rawLfs, refs, du, gitVersion, gitLfsVersion, gitSizerVersion] =
-      await Promise.all([
-        successful(
-          dependencies,
-          "git-sizer",
-          ["git-sizer", "--json", "--json-version=2"],
-          commandOptions,
-        ),
-        successful(
-          dependencies,
-          "Git LFS inventory",
-          ["git", "lfs", "ls-files", "--all", "--json"],
-          commandOptions,
-        ),
-        successful(
-          dependencies,
-          "Git ref fingerprint",
-          ["git", "for-each-ref", "--format=%(refname) %(objectname)"],
-          commandOptions,
-        ),
-        successful(dependencies, "Mirror size", ["du", "-sk", "."], commandOptions),
-        successful(dependencies, "Git version", ["git", "--version"], commandOptions),
-        successful(dependencies, "Git LFS version", ["git", "lfs", "version"], commandOptions),
-        successful(dependencies, "git-sizer version", ["git-sizer", "--version"], commandOptions),
-      ]);
+    const refs = await successful(
+      dependencies,
+      "Git ref fingerprint",
+      ["git", "for-each-ref", "--format=%(refname) %(objectname)"],
+      commandOptions,
+    );
+    // Use the cloned mirror's refs because the profile may predate new commits.
+    const [rawSizer, rawLfs, du, gitVersion, gitLfsVersion, gitSizerVersion] = await Promise.all([
+      refs
+        ? successful(
+            dependencies,
+            "git-sizer",
+            ["git-sizer", "--json", "--json-version=2"],
+            commandOptions,
+          )
+        : null,
+      refs
+        ? successful(
+            dependencies,
+            "Git LFS inventory",
+            ["git", "lfs", "ls-files", "--all", "--json"],
+            commandOptions,
+          )
+        : null,
+      successful(dependencies, "Mirror size", ["du", "-sk", "."], commandOptions),
+      successful(dependencies, "Git version", ["git", "--version"], commandOptions),
+      successful(dependencies, "Git LFS version", ["git", "lfs", "version"], commandOptions),
+      successful(dependencies, "git-sizer version", ["git-sizer", "--version"], commandOptions),
+    ]);
     const mirrorKilobytes = Number.parseInt(du.split(/\s+/)[0] ?? "", 10);
     if (!Number.isSafeInteger(mirrorKilobytes) || mirrorKilobytes < 0) {
       throw new RepositoryAnalysisError("Unable to determine mirror workspace size");
@@ -228,9 +232,9 @@ export async function analyzeRepository(
       gitVersion,
       gitLfsVersion,
       gitSizerVersion,
-      metrics: JSON.parse(rawSizer) as unknown,
-      rawArtifact: rawSizer,
-      lfsPointers: normalizeLfsPointers(rawLfs),
+      metrics: rawSizer === null ? {} : (JSON.parse(rawSizer) as unknown),
+      rawArtifact: rawSizer ?? undefined,
+      lfsPointers: rawLfs === null ? [] : normalizeLfsPointers(rawLfs),
     };
   } finally {
     options.onProgress?.("cleaning workspace", WORKSPACE_PROGRESS_LIMIT_MS);

@@ -110,6 +110,8 @@ for (const width of [1280, 390]) {
 
 		const blocked = table.getByRole("row").filter({ hasText: "blocked-repository" });
 		await expect(blocked.getByText("1 blocker", { exact: true })).toBeVisible();
+		await expect(blocked.getByText("Required", { exact: true })).toBeVisible();
+		await expect(blocked.getByRole("checkbox")).toBeDisabled();
 		await expect(blocked.getByText("Release asset scan incomplete")).toBeVisible();
 
 		const empty = table.getByRole("row").filter({ hasText: "empty-repository" });
