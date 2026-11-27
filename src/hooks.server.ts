@@ -11,6 +11,7 @@ import { pruneAuthRecords } from "$lib/server/core/auth/throttle";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { acquireInstanceLock } from "$lib/server/core/instance-lock";
 import { createRequestHandler } from "$lib/server/core/request-handler";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { recoverInterruptedMigrations } from "$lib/server/migrate/database/schema";
 import { recoverOrphans } from "$lib/server/migrate/manager";
 import { configureMigrationSourceRuntime } from "$lib/server/migrate/ports/source-runtime";
@@ -52,10 +53,7 @@ try {
       try {
         dispatchProfiles((provider, namespace) => profileStarters[provider](namespace));
       } catch (error) {
-        console.error(
-          "[profile queue] Dispatch failed",
-          error instanceof Error ? error.name : "unknown error",
-        );
+        console.error("[profile queue] Dispatch failed", safeErrorReason(error));
       }
     }, 3000).unref();
 } catch (error) {
@@ -92,6 +90,9 @@ export const handle = createRequestHandler({
 export const handleError: HandleServerError = async ({ error, event, kind }) => {
   if (kind !== "unknown") return;
   const id = Bun.randomUUIDv7().slice(0, 8);
-  console.error(`[error ${id}] ${event.request.method} ${event.url.pathname}`, error);
+  console.error(
+    `[error ${id}] ${event.request.method} ${event.url.pathname}`,
+    safeErrorReason(error),
+  );
   return { message: `Internal error (ref: ${id})`, code: id };
 };

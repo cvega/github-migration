@@ -3,6 +3,7 @@ import { parsePaginationParams } from "$lib/migrate/types";
 import { validateAuthAvailable } from "$lib/server/application/migration-policy";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { findMissingProfileProjectPaths } from "$lib/server/profile/database/repos";
@@ -59,7 +60,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     });
     return json(batch, { status: 201 });
   } catch (error) {
-    console.error("[api] POST /api/migrate/batches failed:", error);
+    console.error("[api] POST /api/migrate/batches failed:", safeErrorReason(error));
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

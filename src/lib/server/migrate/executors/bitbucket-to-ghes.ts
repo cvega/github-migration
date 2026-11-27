@@ -11,6 +11,7 @@ import {
   defaultGhesWait,
   type ExporterGhesSourceAdapter,
   type GhesImportClient,
+  GhesImportDiagnostic,
   type GhesMigrationOptions,
   resumeExporterGhesMigration,
   runExporterGhesMigration,
@@ -48,7 +49,7 @@ function adapter(): ExporterGhesSourceAdapter {
     getConfig: dependencies.getConfig,
     assertSource(migration) {
       if (!source.authAvailable || source.apiUrl !== migration.sourceApiUrl) {
-        throw new Error("Configured Bitbucket source changed after submission");
+        throw new GhesImportDiagnostic("Configured Bitbucket source changed after submission");
       }
     },
     createWorker: (config) =>

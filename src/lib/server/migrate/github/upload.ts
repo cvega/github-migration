@@ -1,3 +1,5 @@
+import { safeErrorReason } from "$lib/server/core/safe-error";
+
 const MULTIPART_CUTOFF = 100 * 1024 * 1024;
 const UPLOAD_MAX_RETRIES = 3;
 const UPLOAD_RETRY_DELAY_MS = 5_000;
@@ -21,20 +23,20 @@ async function withRetry<T>(
   delayMs = UPLOAD_RETRY_DELAY_MS,
   signal?: AbortSignal,
 ): Promise<T> {
-  let lastError: unknown;
+  let lastReason = "Upload failed";
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     if (signal?.aborted) throw new Error("Aborted");
     try {
       return await operation();
     } catch (error) {
-      lastError = error;
+      lastReason = safeErrorReason(error, "Upload failed");
       if (signal?.aborted) throw new Error("Aborted");
       if (error instanceof NonRetryableUploadError) throw error;
       if (attempt < maxRetries) {
         const wait = delayMs * (attempt + 1);
         console.warn(
           `[upload] ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${wait}ms:`,
-          error instanceof Error ? error.message : error,
+          lastReason,
         );
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => {
@@ -50,7 +52,7 @@ async function withRetry<T>(
       }
     }
   }
-  throw lastError;
+  throw new Error(lastReason);
 }
 
 export async function uploadArchive(
@@ -69,7 +71,7 @@ export async function uploadArchive(
       }
       return uploadSingle(archive, size, name, orgDatabaseId, targetToken, uploadsUrl, signal);
     },
-    `upload ${name}`,
+    "archive upload",
     UPLOAD_MAX_RETRIES,
     UPLOAD_RETRY_DELAY_MS,
     signal,
@@ -93,7 +95,8 @@ async function uploadSingle(
     body: toBlob(archive),
     signal: requestSignal(signal),
   });
-  if (!response.ok) throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
+  if (!response.ok)
+    throw Object.assign(new Error("Upload request failed"), { status: response.status });
   const data = (await response.json()) as { uri: string };
   return data.uri;
 }
@@ -116,7 +119,8 @@ async function uploadMultipart(
     body: JSON.stringify({ content_type: "application/octet-stream", name, size: totalSize }),
     signal: requestSignal(signal),
   });
-  if (!startResponse.ok) throw new Error(`Multipart start failed: ${startResponse.status}`);
+  if (!startResponse.ok)
+    throw Object.assign(new Error("Upload request failed"), { status: startResponse.status });
   let nextUrl = resolveUrl(uploadsUrl, startResponse.headers.get("location") || "");
 
   for (let part = 0; part < totalParts; part += 1) {
@@ -128,7 +132,8 @@ async function uploadMultipart(
       body: toBlob(archive.slice(start, end)),
       signal: requestSignal(signal),
     });
-    if (!response.ok) throw new Error(`Part ${part + 1} upload failed: ${response.status}`);
+    if (!response.ok)
+      throw Object.assign(new Error("Upload request failed"), { status: response.status });
     nextUrl = resolveUrl(uploadsUrl, response.headers.get("location") || "");
   }
 
@@ -138,7 +143,7 @@ async function uploadMultipart(
     signal: requestSignal(signal),
   });
   if (!completeResponse.ok) {
-    throw new Error(`Multipart complete failed: ${completeResponse.status}`);
+    throw Object.assign(new Error("Upload request failed"), { status: completeResponse.status });
   }
   const data = (await completeResponse.json()) as { uri: string };
   return data.uri;

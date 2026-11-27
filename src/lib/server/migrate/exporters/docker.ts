@@ -202,16 +202,7 @@ export class DockerExporterWorker implements ExporterWorker {
     if (state.Status !== "exited" || !Number.isInteger(state.ExitCode))
       return { jobId, state: "failed", failureReason: "Exporter container stopped unexpectedly" };
     if (state.ExitCode !== 0) {
-      const logs = await this.dependencies.run(
-        [this.config.exporterRuntime, "logs", "--tail", "200", jobId],
-        signal,
-      );
-      return {
-        jobId,
-        state: "failed",
-        failureReason:
-          logs.stderr.trim() || logs.stdout.trim() || String(state.Error || "Exporter failed"),
-      };
+      return { jobId, state: "failed", failureReason: "Exporter container exited unsuccessfully" };
     }
     const path = resolve(this.config.archiveDirectory, `${jobId}.tar.gz`);
     const archive = await this.dependencies.stat(path);

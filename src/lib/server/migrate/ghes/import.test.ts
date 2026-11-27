@@ -4,9 +4,11 @@ import { closeStore, initStore } from "$lib/server/core/db";
 import { getEvents, insertEvent } from "../database/events";
 import { approveIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
-import { insertMigration } from "../database/migrations";
+import { getMigration, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import type { ExporterWorker } from "../exporters/worker";
+import { activeMigrationRuns } from "../runs/active";
+import { createMigrationRunFinisher } from "../runs/finish";
 import {
   type ExporterGhesSourceAdapter,
   resumeExporterGhesMigration,
@@ -552,7 +554,7 @@ describe("GHES import execution", () => {
         expect(result.state).toBe("reconciliation_required");
         expect(calls).toEqual(["map-org"]);
       } else {
-        expect(result.failureReason).toContain("Target user not found");
+        expect(result.failureReason).toContain("migration-guid-123 reached");
         expect(calls).toEqual(scenario === "initial" ? ["verify"] : ["map-org", "verify"]);
       }
     },
@@ -574,15 +576,30 @@ describe("GHES import execution", () => {
       });
       const ssh = source.createSshClient({} as never);
       ssh.prepare = async () => {
-        throw busy ? new GhesMigratorBusyError() : new Error("Connection closed");
+        if (busy) throw new GhesMigratorBusyError();
+        throw Object.assign(
+          new Error("Authorization: Bearer inert-test-token", {
+            cause: new Error("https://fixture.invalid/archive?signature=inert"),
+          }),
+          { status: 503 },
+        );
       };
       source.createSshClient = () => ssh;
       const result = await runExporterGhesMigration(
         { id: record.id, sourceProvider: record.sourceProvider, emit: insertEvent },
         source,
       );
+      if (!busy)
+        expect(result.failureReason).toBe(
+          "GHES import reached preparing. Operation failed (HTTP 503)",
+        );
+      const registration = activeMigrationRuns.claim(record.id)!;
+      createMigrationRunFinisher(() => {}).settleResult(record.id, registration.token, result);
+      expect(getMigration(record.id)?.failureReason).toBe(result.failureReason);
+      expect(JSON.stringify(getEvents(record.id))).not.toMatch(/Authorization|inert|signature/);
       expect(result.state).toBe(busy ? "failed" : "reconciliation_required");
       expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+        failureReason: result.failureReason,
         phase: busy ? "failed" : "preparing",
         ghesImportId: null,
       });

@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import type { Migration } from "$lib/migrate/types";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import {
   getGhesImportJob,
   insertGhesImportJob,
@@ -127,7 +128,7 @@ export async function refreshExporterArchive(
     });
   } else if (status.state === "failed" || status.state === "cancelled") {
     updateGhesImportJobCheckpoint(job.id, status.state, {
-      failureReason: status.failureReason,
+      failureReason: safeErrorReason(status, `Exporter job ${status.state}`),
     });
   } else {
     updateGhesImportJobCheckpoint(job.id, "exporting");

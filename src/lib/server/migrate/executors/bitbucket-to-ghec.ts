@@ -1,6 +1,7 @@
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
 import type { GitHubTargetClients } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
 import {
   type BitbucketMigrationSourceClient,
@@ -95,24 +96,20 @@ async function waitForExport(
   emit: MigrationEventEmitter,
 ): Promise<void> {
   const deadline = Date.now() + EXPORT_TIMEOUT_MS;
-  let previousProgress = "";
+  let previousProgress: number | undefined;
   while (true) {
     signal?.throwIfAborted();
     const status = await client.getRepositoryExport(exportId, signal);
     if (status.state === "COMPLETED") return;
     if (status.state === "FAILED" || status.state === "ABORTED") {
       throw new Error(
-        `Bitbucket export ${exportId} ${status.state.toLowerCase()}${status.message ? `: ${status.message}` : ""}`,
+        safeErrorReason(status, `Bitbucket export ${exportId} ${status.state.toLowerCase()}`),
       );
     }
     if (Date.now() >= deadline) throw new Error(`Bitbucket export ${exportId} timed out`);
-    const progress = `${status.percentage}:${status.message}`;
+    const progress = status.percentage;
     if (progress !== previousProgress) {
-      emitNativeStep(
-        emit,
-        migration.id,
-        `Bitbucket export ${status.percentage}%${status.message ? `: ${status.message}` : ""}`,
-      );
+      emitNativeStep(emit, migration.id, `Bitbucket export ${status.percentage}%`);
       previousProgress = progress;
     }
     await dependencies.wait(EXPORT_POLL_INTERVAL_MS, signal);

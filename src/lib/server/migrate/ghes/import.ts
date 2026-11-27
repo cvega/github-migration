@@ -3,6 +3,7 @@ import type { Migration, Phase } from "$lib/migrate/types";
 import type { GhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
 import { createSingleClient } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { discoverIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import {
   deleteGhesImportJob,
@@ -45,7 +46,8 @@ function emitImportStep(
     createdAt: new Date().toISOString(),
   });
 }
-class ReconciliationRequiredError extends Error {}
+export class GhesImportDiagnostic extends Error {}
+class ReconciliationRequiredError extends GhesImportDiagnostic {}
 
 export type GhesImportClient = Pick<
   GhesSshClient,
@@ -275,7 +277,7 @@ async function execute(
             options.emit,
             migration.id,
             "mapping",
-            `Using GHES mapping audit: ${error instanceof Error ? error.message : "archive metadata unavailable"}`,
+            safeErrorReason(error, "Using GHES mapping audit: archive metadata unavailable"),
           );
           records = (await ssh.mappingRecords(guid, true)).stdout;
         }
@@ -333,7 +335,7 @@ async function execute(
         );
         if (!mapping) break;
         if (appliedMappings.size >= MAX_MAPPING_PASSES || appliedMappings.has(mapping)) {
-          throw new Error(
+          throw new GhesImportDiagnostic(
             "GHES conflicts remain after applying target mappings; resolve them before importing",
           );
         }
@@ -384,7 +386,8 @@ async function execute(
     if (job.phase === "auditing") {
       emitImportStep(options.emit, migration.id, "auditing", "Checking for GHES import errors");
       const failures = countGhesAuditFailures((await ssh.auditFailures(guid)).stdout);
-      if (failures > 0) throw new Error(`GHES import audit found ${failures} failed record(s)`);
+      if (failures > 0)
+        throw new GhesImportDiagnostic(`GHES import audit found ${failures} failed record(s)`);
       updateGhesImportJobCheckpoint(job.id, "unlocking");
       job = getGhesImportJobByMigrationId(migration.id) as typeof job;
     }
@@ -424,10 +427,14 @@ async function execute(
       : options.signal?.aborted
         ? "cancelled"
         : "failed";
-    const detail = error instanceof Error ? error.message : String(error);
-    const reason = afterImport
-      ? `GHES import ${current.ghesImportId} reached ${current.phase}; check audit and unlock for that GUID before continuing.`
-      : detail;
+    const phase = current?.phase ?? "initialization";
+    const checkpoint = `GHES import${current?.ghesImportId ? ` ${current.ghesImportId}` : ""} reached ${phase}`;
+    const detail = afterImport
+      ? `${checkpoint}; check audit and unlock for that GUID before continuing.`
+      : error instanceof GhesImportDiagnostic || error instanceof GhesMigratorBusyError
+        ? `${checkpoint}. ${error.message}`
+        : `${checkpoint}. ${options.signal?.aborted ? "Operation aborted" : "Operation failed"}`;
+    const reason = safeErrorReason(error, detail);
     if (current)
       updateGhesImportJobCheckpoint(
         current.id,
@@ -447,8 +454,11 @@ async function execute(
       try {
         await source.unlockSource(migration);
       } catch (error) {
-        const reason = `${source.displayName} source unlock requires reconciliation: ${error instanceof Error ? error.message : String(error)}`;
         const current = getGhesImportJobByMigrationId(migration.id);
+        const reason = safeErrorReason(
+          error,
+          `${source.displayName} source unlock requires reconciliation${current?.ghesImportId ? ` for GHES import ${current.ghesImportId} (${current.phase})` : ""}`,
+        );
         if (current) {
           updateGhesImportJobCheckpoint(
             current.id,

@@ -3,6 +3,7 @@ import { profileStarters } from "$lib/server/application/adapters/profile-starte
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import {
   countProfileRuns,
   listProfileRunsWithInventoryCounts,
@@ -70,7 +71,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     ) {
       return json({ error: "No source credentials configured on the server" }, { status: 400 });
     }
-    console.error("[api] POST /api/profile failed", error);
+    console.error("[api] POST /api/profile failed", safeErrorReason(error));
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

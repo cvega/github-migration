@@ -281,6 +281,8 @@ export function cancel(migrationId: string): boolean {
   return true;
 }
 
+export class MigrationRestartConflict extends Error {}
+
 function restartRequest(
   existing: Migration,
   credentials: RestartMigrationRequest,
@@ -289,7 +291,7 @@ function restartRequest(
     ? safeParsePersistedRequestOptions(existing.requestOptions)
     : null;
   if (!stored && existing.targetPlatform === "ghec" && !credentials.targetRepoVisibility) {
-    throw new Error(
+    throw new MigrationRestartConflict(
       "Cannot restart with saved settings: the original options are unavailable. Review the options and select a target visibility.",
     );
   }
@@ -301,10 +303,12 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
   if (!existing) throw new Error("Migration not found");
   getExecutorForMigration(existing);
   if (activeMigrationRuns.isActive(migrationId)) {
-    throw new Error("Cannot restart migration while its previous run is still stopping");
+    throw new MigrationRestartConflict(
+      "Cannot restart migration while its previous run is still stopping",
+    );
   }
   if (existing.state !== "failed" && existing.state !== "cancelled") {
-    throw new Error(`Cannot restart migration in state "${existing.state}"`);
+    throw new MigrationRestartConflict(`Cannot restart migration in state "${existing.state}"`);
   }
   const request =
     existing.ownerUserId !== undefined
