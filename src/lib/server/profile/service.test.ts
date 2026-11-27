@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { createProfileClient } from "$lib/server/core/github";
+import { sleep } from "$lib/server/core/polling";
 import { profileStore } from "./database/schema";
-import { getProfileDetail, startOrgProfile } from "./service";
+import { runProfile } from "./runner";
+import { getProfileDetail, startOrgProfile, stopActiveProfileRuns } from "./service";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -47,4 +50,52 @@ test("persists a generic failure when a background runner crashes", async () => 
     state: "failed",
     failureReason: "Organization profiling failed",
   });
+});
+
+test("shutdown cancels discovery retry and releases the GitHub lane", async () => {
+  const queued = Promise.withResolvers<void>();
+  const settled = Promise.withResolvers<void>();
+  let attempts = 0;
+  let id = 0;
+  const deps = {
+    newId: () => String(++id),
+    buildSourceClients(signal?: AbortSignal) {
+      if (!signal) throw new Error("missing run signal");
+      const rest = createProfileClient({ token: "fixture" }, "https://github.example", signal, {
+        fetch: async () => {
+          attempts++;
+          return attempts === 1
+            ? Response.json({}, { status: 429, headers: { "retry-after": "20" } })
+            : Response.json([]);
+        },
+        wait: (delay, signal) => {
+          queued.resolve();
+          return sleep(delay, signal);
+        },
+      });
+      return {
+        rest,
+        gql: rest.graphql,
+        sourceApiUrl: "https://github.example",
+        getApiCalls: () => attempts,
+      };
+    },
+    run: async (...args: Parameters<typeof runProfile>) => {
+      const run = await runProfile(...args);
+      settled.resolve();
+      return run;
+    },
+  };
+  startOrgProfile("acme", deps);
+  await queued.promise;
+  stopActiveProfileRuns();
+  await settled.promise;
+  expect(attempts).toBe(1);
+  expect(getProfileDetail("1")?.run).toMatchObject({
+    state: "failed",
+    failureReason: "Profile worker cancelled",
+  });
+  expect(startOrgProfile("acme", { ...deps, run: runProfile }).state).toBe("running");
+  stopActiveProfileRuns();
+  await Bun.sleep(0);
 });

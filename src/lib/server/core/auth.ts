@@ -24,6 +24,7 @@ import { env } from "node:process";
 import type { graphql } from "@octokit/graphql";
 import type { AppAuth, AuthInput } from "$lib/migrate/types";
 import {
+  createProfileClient,
   createSingleClient,
   type GitHubClient,
   getRateLimit,
@@ -233,7 +234,7 @@ export function resolveSourceAuth(requestToken?: string, requestApp?: AppAuth): 
  * endpoints GraphQL doesn't expose (e.g. rulesets). Throws when no source auth
  * is configured (callers map that to a 400).
  */
-export function getSourceClients(): {
+export function getSourceClients(signal?: AbortSignal): {
   gql: typeof graphql;
   rest: GitHubClient;
   sourceApiUrl: string;
@@ -241,7 +242,9 @@ export function getSourceClients(): {
 } {
   const sourceAuth = resolveSourceAuth();
   const sourceApiUrl = normalizeGitHubApiUrl(configuredSourceApiUrl());
-  const client = rateLimitDependencies.createSingleClient(sourceAuth, sourceApiUrl);
+  const client = signal
+    ? createProfileClient(sourceAuth, sourceApiUrl, signal)
+    : rateLimitDependencies.createSingleClient(sourceAuth, sourceApiUrl);
   // Count every HTTP request the crawl makes. The `before` hook fires once per
   // actual request — REST and GraphQL (both go through Octokit's request
   // pipeline), each pagination page, and each retry — so the tally reflects the

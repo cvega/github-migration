@@ -3,6 +3,7 @@
  * Replaces pkg/ghes/, pkg/ghec/, pkg/http/.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Agent } from "node:https";
 import { createAppAuth } from "@octokit/auth-app";
 import type { graphql } from "@octokit/graphql";
@@ -11,6 +12,7 @@ import { throttling } from "@octokit/plugin-throttling";
 import { Octokit } from "@octokit/rest";
 import type { AuthInput, Counts } from "$lib/migrate/types";
 import { getGitHubSourcePlatform } from "$lib/source-provider";
+import { sleep } from "./polling";
 import { parseSourceApiUrl } from "./source-url";
 
 export { sourceBaseUrl } from "$lib/source-provider";
@@ -88,7 +90,11 @@ function buildSide(
   auth: AuthInput,
   baseUrl: string,
   throttleOpts: ThrottleOptions,
-  requestOpts?: { agent: InstanceType<typeof Agent> },
+  requestOpts?: {
+    agent?: InstanceType<typeof Agent>;
+    fetch?: (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  },
+  retryEnabled = true,
 ): {
   client: InstanceType<typeof RetryOctokit>;
   getToken: () => Promise<string>;
@@ -105,6 +111,7 @@ function buildSide(
       auth: appCredentials,
       baseUrl,
       throttle: throttleOpts,
+      retry: { enabled: retryEnabled },
       request: requestOpts,
     });
     return {
@@ -129,6 +136,7 @@ function buildSide(
       auth: token,
       baseUrl,
       throttle: throttleOpts,
+      retry: { enabled: retryEnabled },
       request: requestOpts,
     }),
     getToken: async () => token,
@@ -180,6 +188,87 @@ export function createSingleClient(
   baseUrl: string,
 ): InstanceType<typeof RetryOctokit> {
   return buildSide(auth, normalizeGitHubApiUrl(baseUrl), makeThrottleOptions()).client;
+}
+
+/** Bind the deadline to the whole Octokit operation, including auth, throttling and body reads. */
+export function createProfileClient(
+  auth: AuthInput,
+  baseUrl: string,
+  runSignal: AbortSignal,
+  options: {
+    deadline?: () => AbortSignal;
+    fetch?: (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    wait?: typeof sleep;
+  } = {},
+): GitHubClient {
+  const active = new AsyncLocalStorage<AbortSignal>();
+  const transport = options.fetch ?? globalThis.fetch;
+  const client = buildSide(
+    auth,
+    normalizeGitHubApiUrl(baseUrl),
+    {
+      // Keep the plugin's concurrency limits, but own retry timers so shutdown can cancel them.
+      onRateLimit: () => false,
+      onSecondaryRateLimit: () => false,
+    },
+    {
+      fetch: async (url, init) => {
+        const signal = init?.signal ?? active.getStore() ?? runSignal;
+        signal.throwIfAborted();
+        return transport(url, { ...init, signal });
+      },
+    },
+    false,
+  ).client;
+
+  client.hook.wrap("request", async (request, params) => {
+    const signal = AbortSignal.any([
+      runSignal,
+      options.deadline?.() ?? AbortSignal.timeout(30_000),
+    ]);
+    signal.throwIfAborted();
+    let onAbort!: () => void;
+    const interrupted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const perform = async () => {
+      for (let attempt = 1; ; attempt++) {
+        signal.throwIfAborted();
+        try {
+          const response = await request({ ...params, request: { ...params.request, signal } });
+          signal.throwIfAborted();
+          return response;
+        } catch (error) {
+          signal.throwIfAborted();
+          const delay = profileRetryDelay(error, attempt);
+          if (delay === null) throw error;
+          await (options.wait ?? sleep)(Math.min(delay, 2_147_483_647), signal);
+        }
+      }
+    };
+    try {
+      return await Promise.race([interrupted, active.run(signal, perform)]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  });
+  return client;
+}
+
+function profileRetryDelay(error: unknown, attempt: number): number | null {
+  if (!(error instanceof Error) || attempt > 3) return null;
+  const { status, response } = error as Error & {
+    status?: number;
+    response?: { headers?: Record<string, string> };
+  };
+  const headers = response?.headers;
+  const reset = Number(headers?.["x-ratelimit-reset"]);
+  if (headers?.["x-ratelimit-remaining"] === "0" || error.message === "GraphQL Rate Limit Exceeded")
+    return reset > 0 ? Math.max(0, reset * 1000 - Date.now() + 1000) : 60_000;
+  if (status === 429 || (status === 403 && /secondary rate/i.test(error.message)))
+    return (Number(headers?.["retry-after"]) || 60) * 1000;
+  return status !== undefined && status >= 500 ? attempt ** 2 * 1000 : null;
 }
 
 // ── GHES operations ────────────────────────────────────────────────────────

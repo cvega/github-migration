@@ -70,8 +70,10 @@ export class BitbucketProfileCapacityError extends Error {
     this.name = "BitbucketProfileCapacityError";
   }
 }
-function execution(id: string): { signal: AbortSignal; stop: () => void } {
-  const controller = new AbortController();
+function execution(
+  id: string,
+  controller = new AbortController(),
+): { signal: AbortSignal; stop: () => void } {
   controllers.set(id, controller);
   return { signal: controller.signal, stop: () => controllers.delete(id) };
 }
@@ -91,7 +93,8 @@ function crash(id: string, message: string, inventoryCalls?: () => number): void
 }
 
 export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_DEPS): ProfileRun {
-  const clients = deps.buildSourceClients();
+  const controller = new AbortController();
+  const clients = deps.buildSourceClients(controller.signal);
   const id = deps.newId();
   const run = createProfileRun({
     id,
@@ -99,7 +102,7 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
     org,
     enforceCapacity: true,
   });
-  const active = execution(id);
+  const active = execution(id, controller);
   deps
     .run(
       clients,
