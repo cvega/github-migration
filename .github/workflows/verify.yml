@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   gates:
-    name: Repository checks
+    name: Static checks, tests & build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -42,7 +42,7 @@ jobs:
         run: bun scripts/gates.ts --except e2e
 
   e2e:
-    name: Browser regression
+    name: E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -83,7 +83,7 @@ jobs:
           retention-days: 7
 
   quality:
-    name: Quality gates
+    name: Required checks
     needs: [gates, e2e]
     if: always()
     runs-on: ubuntu-latest
@@ -95,7 +95,7 @@ jobs:
         run: '[[ "$GATES" == success && "$E2E" == success ]]'
 
   containers:
-    name: Production images
+    name: Container images
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

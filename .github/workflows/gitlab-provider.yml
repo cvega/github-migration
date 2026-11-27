@@ -1,6 +1,6 @@
 # Slow, destructive provider contract. This runs only on a dedicated runner
 # because GitLab requires substantially more CPU and memory than normal CI jobs.
-name: GitLab provider contract
+name: "Self-hosted: GitLab provider contract"
 
 on:
   workflow_dispatch:

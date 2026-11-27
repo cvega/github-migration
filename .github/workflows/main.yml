@@ -1,6 +1,6 @@
 # Push-to-main pipeline: re-run the gate suite on the integrated result, then
 # build and publish the rolling dev image (:dev + :sha-<short>) to GHCR.
-name: Main
+name: "CI: main + dev image"
 
 on:
   push:
