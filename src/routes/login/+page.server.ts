@@ -1,11 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
-import {
-  LOGIN_WINDOW_SECONDS,
-  loginUsernameKey,
-  verifyLoginAttempt,
-} from "$lib/server/core/auth/throttle";
+import { LOGIN_WINDOW_SECONDS, verifyLoginAttempt } from "$lib/server/core/auth/throttle";
 import {
   matchesUsernamePolicy,
   USERNAME_MAX_LENGTH,
@@ -53,11 +49,7 @@ export const actions = {
 
     const { user } = result;
     if (!user) {
-      recordAuditEvent({
-        action: "auth.login.failed",
-        ipAddress: ip,
-        metadata: { username: loginUsernameKey(username) },
-      });
+      recordAuditEvent({ action: "auth.login.failed", ipAddress: ip });
       return fail(401, { username: displayUsername, error: "Invalid username or password." });
     }
 

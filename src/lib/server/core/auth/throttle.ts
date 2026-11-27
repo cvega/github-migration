@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { getDb } from "$lib/server/core/db";
-import { matchesUsernamePolicy, USERNAME_MAX_LENGTH } from "./users";
+import { USERNAME_MAX_LENGTH } from "./users";
 
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 const USER_IP_LIMIT = 5;
@@ -10,15 +10,6 @@ const IP_LIMIT = 20;
 // Each sign-in verification can allocate 64 MiB. Reject excess work before hashing.
 const MAX_ACTIVE_VERIFICATIONS = 5;
 let activeVerifications = 0;
-
-export function loginUsernameKey(username: string): string {
-  const trimmed = username.trim();
-  if (matchesUsernamePolicy(trimmed)) return trimmed.toLowerCase();
-
-  const digest = createHash("sha256").update(trimmed.toLowerCase()).digest("hex");
-  // Keep the key within the username limit and outside the account username space.
-  return `!${digest.slice(0, USERNAME_MAX_LENGTH - 1)}`;
-}
 
 export async function verifyLoginAttempt<T>(
   username: string,
@@ -33,12 +24,15 @@ export async function verifyLoginAttempt<T>(
     return { throttled: true, reason: "capacity" };
 
   const cutoff = new Date(now.getTime() - LOGIN_WINDOW_SECONDS * 1000).toISOString();
-  const usernameKey = loginUsernameKey(username);
+  const normalizedUsername = username.trim().toLowerCase();
+  const digest = createHash("sha256").update(normalizedUsername).digest("hex");
+  const usernameKey = `!${digest.slice(0, USERNAME_MAX_LENGTH - 1)}`;
+  // Count legacy plaintext entries until their windows expire.
   const reservation = database
     .prepare(
       `INSERT INTO auth_login_attempts (username, ip_address, attempted_at)
      SELECT ?, ?, ?
-     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username = ?) AS pair_count
+     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username IN (?, ?)) AS pair_count
            FROM auth_login_attempts WHERE ip_address = ? AND attempted_at >= ?)
      WHERE address_count < ? AND pair_count < ?`,
     )
@@ -47,6 +41,7 @@ export async function verifyLoginAttempt<T>(
       ipAddress,
       now.toISOString(),
       usernameKey,
+      normalizedUsername,
       ipAddress,
       cutoff,
       IP_LIMIT,

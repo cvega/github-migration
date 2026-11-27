@@ -30,31 +30,36 @@ test("oversized usernames are rejected before writing sign-in records", async ()
   expect(getDb().query("SELECT metadata FROM audit_events").all()).toEqual([]);
 });
 
-test("password-like usernames are stored and audited as a bounded digest", async () => {
-  const fixture = "Fixture!For Testing";
-  const { response } = await signIn(fixture);
-  await signIn(`  ${fixture.toUpperCase()}  `);
+test.each(["Fixture!For Testing", "FixtureForTesting"])(
+  "stores a bounded throttle key and omits submitted usernames from failed audits (%s)",
+  async (fixture) => {
+    const { response } = await signIn(fixture);
+    await signIn(`  ${fixture.toUpperCase()}  `);
 
-  expect(response).toMatchObject({ status: 401, data: { username: "" } });
-  const attempts = getDb()
-    .query<{ username: string }, []>("SELECT username FROM auth_login_attempts")
-    .all();
-  const key = attempts[0]?.username ?? "";
-  expect(key).toMatch(/^![a-f0-9]{31}$/);
-  expect(attempts).toEqual([{ username: key }, { username: key }]);
-  expect(getDb().query("SELECT action, metadata FROM audit_events").all()).toEqual(
-    Array.from({ length: 2 }, () => ({
-      action: "auth.login.failed",
-      metadata: JSON.stringify({ username: key }),
-    })),
-  );
-});
+    expect(response).toMatchObject({ status: 401 });
+    const attempts = getDb()
+      .query<{ username: string }, []>("SELECT username FROM auth_login_attempts")
+      .all();
+    const key = attempts[0]?.username ?? "";
+    expect(key).toMatch(/^![a-f0-9]{31}$/);
+    expect(attempts).toEqual([{ username: key }, { username: key }]);
+    expect(getDb().query("SELECT action, metadata FROM audit_events").all()).toEqual(
+      Array.from({ length: 2 }, () => ({
+        action: "auth.login.failed",
+        metadata: "{}",
+      })),
+    );
+  },
+);
 
 test("a full sign-in window returns 429 with Retry-After", async () => {
-  for (let i = 0; i < 5; i++) await verifyLoginAttempt(" AdMiN ", "192.0.2.1", async () => null);
-  expect(getDb().query("SELECT DISTINCT username FROM auth_login_attempts").all()).toEqual([
-    { username: "admin" },
-  ]);
+  // Existing entries still count while their throttle window is active.
+  getDb()
+    .prepare(
+      "INSERT INTO auth_login_attempts (username, ip_address, attempted_at) VALUES (?, ?, ?)",
+    )
+    .run("ADMIN", "192.0.2.1", new Date().toISOString());
+  for (let i = 0; i < 4; i++) await verifyLoginAttempt(" AdMiN ", "192.0.2.1", async () => null);
   const { response, setHeaders } = await signIn();
   expect(response).toMatchObject({ status: 429, data: { username: "admin" } });
   expect(setHeaders).toHaveBeenCalledWith({ "Retry-After": "900" });
