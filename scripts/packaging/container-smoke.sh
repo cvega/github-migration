@@ -4,8 +4,12 @@ set -eu
 image="${1:?usage: container-smoke.sh IMAGE [ANALYZER_IMAGE]}"
 analyzer_image="${2:-}"
 container=""
+analyzer_container=""
 
 cleanup() {
+	if [ -n "$analyzer_container" ]; then
+		docker rm --force "$analyzer_container" >/dev/null 2>&1 || true
+	fi
 	if [ -n "$container" ]; then
 		docker rm --force "$container" >/dev/null 2>&1 || true
 	fi
@@ -124,7 +128,7 @@ RESTORE_SMOKE
 
 # Exercise the image health check itself on a nondefault listening port.
 docker rm --force "$container" >/dev/null
-container="$(docker run --detach --rm --network none --env PORT=3100 \
+container="$(docker run --detach --rm --network none --volume /data --env PORT=3100 \
 	--env GH_MIGRATE_ALLOW_UNAUTHENTICATED=false \
 	--env GH_MIGRATE_USER=smoke-admin \
 	--env GH_MIGRATE_PASS=smoke-test-password-not-for-deployment \
@@ -158,7 +162,34 @@ if [ -n "$analyzer_image" ]; then
 		sqlite3 --version
 		ANALYSIS_RUN_ONCE=true bun build/profile-analyzer.js
 	'
-	echo "Analyzer toolchain and database startup smoke tests passed"
+
+	# Keep the image probe command and shorten its schedule for this fixture.
+	analyzer_container="$(docker run --detach --rm --network none --volumes-from "$container" \
+		--health-interval=1s --health-timeout=2s --health-start-period=2s \
+		"$analyzer_image")"
+	wait_for_analyzer_health() {
+		expected="$1"
+		attempt=0
+		while [ "$attempt" -lt 30 ]; do
+			if [ "$(docker inspect --format '{{.State.Health.Status}}' "$analyzer_container")" = "$expected" ]; then
+				return 0
+			fi
+			attempt=$((attempt + 1))
+			sleep 1
+		done
+		docker logs "$analyzer_container"
+		docker inspect --format '{{json .State.Health}}' "$analyzer_container"
+		echo "Analyzer health did not reach $expected" >&2
+		return 1
+	}
+
+	wait_for_analyzer_health healthy
+	docker kill --signal=STOP "$analyzer_container" >/dev/null
+	wait_for_analyzer_health unhealthy
+	docker exec "$container" wget -qO- http://127.0.0.1:3100/api/ready >/dev/null
+	docker kill --signal=CONT "$analyzer_container" >/dev/null
+	wait_for_analyzer_health healthy
+	echo "Analyzer toolchain, startup, independent liveness and recovery checks passed"
 fi
 
 echo "Container health and SQLite backup smoke tests passed"

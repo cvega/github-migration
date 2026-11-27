@@ -209,9 +209,28 @@ If any check fails, leave workers stopped; do not clear or reuse either set.
 
 ## Probes And Shutdown
 
-Use `/api/health` for liveness and `/api/ready` for startup/readiness. Readiness
-checks SQLite write access and does not pass before schema application and
-recovery complete.
+Use the dashboard's `/api/health` for dashboard liveness and `/api/ready` for
+dashboard startup/readiness. Dashboard readiness checks SQLite write access
+after schema application and recovery complete. Monitor the analyzer service
+separately with `docker compose ps profile-analyzer`. Compose inherits its
+image health check, which uses the analyzer's private loopback listener on
+`ANALYSIS_HEALTH_PORT` (default `3001`) without publishing a port.
+
+The analyzer reports healthy after a successful empty queue poll or after
+starting an analysis phase. Idle polls refresh the signal every second, with
+a 30-second deadline. Workspace preparation (including source authentication)
+and cleanup each have 15 minutes. The clone and inspection phases each have
+the six-hour command timeout plus one minute for the command to unwind.
+Lease renewals alone do not refresh the signal. These deadlines measure
+phase progress and can flag a stalled phase even while the process responds.
+Individual repository failures appear in their analysis jobs.
+
+Docker probes every 15 seconds with a five-second timeout, a 30-second startup
+grace period, and three consecutive failures before marking the container
+unhealthy. A subsequent successful probe restores healthy status. One-shot
+runs exit after processing at most one job and do not start the listener.
+See [Repository Analysis Does Not Advance](troubleshooting.md#repository-analysis-does-not-advance)
+for inspection and recovery.
 
 Send `SIGTERM` to both services for shutdown. The dashboard stops accepting
 work, classifies active migration and profile state, closes SQLite, and releases

@@ -49,6 +49,7 @@ services:
       - ANALYSIS_DIR=/analysis
       - ANALYSIS_WORKSPACE_LIMIT_BYTES=${ANALYSIS_WORKSPACE_LIMIT_BYTES:-}
       - ANALYSIS_RUN_ONCE=${ANALYSIS_RUN_ONCE:-false}
+    # Inherits the image's loopback progress health check. No published port.
     logging:
       driver: json-file
       options:

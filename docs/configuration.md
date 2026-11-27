@@ -101,6 +101,7 @@ installation tokens can refresh without persisting a request secret.
 | `ANALYSIS_DIR` | Analyzer-only workspace for temporary repository mirrors; default `/analysis` |
 | `ANALYSIS_WORKSPACE_LIMIT_BYTES` | Optional maximum analyzer workspace usage in bytes |
 | `ANALYSIS_RUN_ONCE` | Process at most one queued repository when set to `true` |
+| `ANALYSIS_HEALTH_PORT` | Loopback-only health listener for continuous analysis. Defaults to `3001` in the analyzer image. Set a port to enable it when running the worker directly. |
 
 The analyzer shares `DATA_DIR` with the dashboard to claim durable jobs and
 stores temporary mirrors only in `ANALYSIS_DIR`. It removes each mirror after

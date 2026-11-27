@@ -8,6 +8,7 @@ import {
   type RepositoryAnalyzerDependencies,
   runAnalyzerCommand,
 } from "./analyze-repository";
+import { createAnalyzerHealth } from "./health";
 
 const job: ClaimedRepositoryAnalysisJob = {
   id: "job",
@@ -100,6 +101,48 @@ describe("repository analyzer", () => {
     await expect(analyzeRepository(job, { workspaceRoot: "/analysis" }, deps)).rejects.toThrow(
       "insufficient_workspace",
     );
+  });
+
+  test("detects a stalled clone and recovers when inspection begins", async () => {
+    let now = 0;
+    const health = createAnalyzerHealth(() => now);
+    const cloneStarted = Promise.withResolvers<void>();
+    const finishClone = Promise.withResolvers<void>();
+    const inspectionStarted = Promise.withResolvers<void>();
+    const finishInspection = Promise.withResolvers<void>();
+    const deps = dependencies([]);
+    const run = deps.run;
+    deps.run = async (command, options) => {
+      if (command.includes("clone")) {
+        cloneStarted.resolve();
+        await finishClone.promise;
+      }
+      if (command.includes("--json")) {
+        inspectionStarted.resolve();
+        await finishInspection.promise;
+      }
+      return run(command, options);
+    };
+    const analysis = analyzeRepository(
+      job,
+      { workspaceRoot: "/analysis", onProgress: health.reportProgress },
+      deps,
+    );
+    try {
+      await cloneStarted.promise;
+      now = 6 * 60 * 60_000;
+      expect(health.response().status).toBe(200);
+      now += 60_000;
+      expect(health.response().status).toBe(503);
+      expect(await health.response().text()).toContain("cloning repository");
+      finishClone.resolve();
+      await inspectionStarted.promise;
+      expect(health.response().status).toBe(200);
+    } finally {
+      finishClone.resolve();
+      finishInspection.resolve();
+      await analysis;
+    }
   });
 
   test("uses the default workspace lifecycle and removes repository data", async () => {

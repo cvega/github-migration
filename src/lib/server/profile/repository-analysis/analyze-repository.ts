@@ -6,10 +6,13 @@ import type {
   ClaimedRepositoryAnalysisJob,
   RepositoryAnalysisResultInput,
 } from "../database/repository-analysis-jobs";
+import type { ReportAnalyzerProgress } from "./health";
 
 const GIB = 1024 ** 3;
 const MAX_OUTPUT_BYTES = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 6 * 60 * 60_000;
+const WORKSPACE_PROGRESS_LIMIT_MS = 15 * 60_000;
+const COMMAND_PROGRESS_GRACE_MS = 60_000;
 
 /** A locally constructed diagnostic safe to persist in a job and show on its profile. */
 export class RepositoryAnalysisError extends Error {}
@@ -35,6 +38,7 @@ export interface RepositoryAnalyzerOptions {
   workspaceRoot: string;
   timeoutMs?: number;
   operationalCeilingBytes?: number;
+  onProgress?: ReportAnalyzerProgress;
 }
 
 async function bounded(stream: ReadableStream<Uint8Array> | null): Promise<string> {
@@ -140,6 +144,7 @@ export async function analyzeRepository(
 ): Promise<RepositoryAnalysisResultInput> {
   const dependencies: RepositoryAnalyzerDependencies = { ...DEFAULT_DEPS, ...overrides };
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  options.onProgress?.("preparing workspace and source access", WORKSPACE_PROGRESS_LIMIT_MS);
   await dependencies.mkdir(options.workspaceRoot);
   const workspace = join(
     options.workspaceRoot,
@@ -175,6 +180,7 @@ export async function analyzeRepository(
       GIT_CONFIG_KEY_0: `http.${cloneUrl}.extraHeader`,
       GIT_CONFIG_VALUE_0: `Authorization: Basic ${authorization}`,
     };
+    options.onProgress?.("cloning repository", timeoutMs + COMMAND_PROGRESS_GRACE_MS);
     await successful(
       dependencies,
       "Git mirror clone",
@@ -186,6 +192,7 @@ export async function analyzeRepository(
     );
 
     const commandOptions = { cwd: mirror, timeoutMs };
+    options.onProgress?.("inspecting repository", timeoutMs + COMMAND_PROGRESS_GRACE_MS);
     const [rawSizer, rawLfs, refs, du, gitVersion, gitLfsVersion, gitSizerVersion] =
       await Promise.all([
         successful(
@@ -226,6 +233,7 @@ export async function analyzeRepository(
       lfsPointers: normalizeLfsPointers(rawLfs),
     };
   } finally {
+    options.onProgress?.("cleaning workspace", WORKSPACE_PROGRESS_LIMIT_MS);
     await dependencies.remove(workspace);
   }
 }
