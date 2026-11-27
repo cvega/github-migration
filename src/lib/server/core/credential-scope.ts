@@ -30,29 +30,20 @@ export function getInputSourceProvider(input: SourceUrlInput): SourceProvider {
   return isSourceProvider(input.sourceProvider) ? input.sourceProvider : "github";
 }
 
-function sourceOrganizations(input: CredentialScopeInput): string[] {
-  const repositories: string[] = [];
-  if (typeof input.sourceRepo === "string") repositories.push(input.sourceRepo);
+function sourceRepositories(input: CredentialScopeInput): unknown[] {
+  const repositories: unknown[] = [];
+  if (input.sourceRepo !== undefined) repositories.push(input.sourceRepo);
   if (Array.isArray(input.repos)) {
-    repositories.push(...input.repos.filter((repo): repo is string => typeof repo === "string"));
+    repositories.push(...input.repos);
   }
   if (Array.isArray(input.items)) {
     for (const item of input.items) {
-      if (item && typeof item === "object" && typeof item.sourceRepo === "string") {
+      if (item && typeof item === "object" && "sourceRepo" in item) {
         repositories.push(item.sourceRepo);
       }
     }
   }
-  const provider = getInputSourceProvider(input);
-  return repositories
-    .map((repo) => {
-      try {
-        return getSourceProjectIdentity(provider, repo).namespace;
-      } catch {
-        return "";
-      }
-    })
-    .filter(Boolean);
+  return repositories;
 }
 
 function parseConfiguredScopes(raw: string | undefined): string[] {
@@ -73,18 +64,27 @@ export function validateCredentialScope(input: CredentialScopeInput): string | n
       : provider === "gitlab"
         ? parseConfiguredScopes(process.env.GITLAB_SOURCE_NAMESPACE)
         : defaults.sourceOrgs;
-  if (!input.sourceToken && !input.sourceApp && configuredSourceNamespaces.length > 0) {
+  if (!input.sourceToken && !input.sourceApp) {
     const allowed = configuredSourceNamespaces.map((org) => org.toLowerCase());
-    const denied = sourceOrganizations(input).find((org) => {
-      const normalized = org.toLowerCase();
-      return !allowed.some((scope) =>
-        provider === "gitlab"
-          ? normalized === scope || normalized.startsWith(`${scope}/`)
-          : normalized === scope,
-      );
-    });
-    if (denied) {
-      return `${provider === "bitbucket-server" ? "Bitbucket project key" : provider === "gitlab" ? "GitLab namespace" : "Source organization"} '${denied}' is not configured for server credentials`;
+    for (const repository of sourceRepositories(input)) {
+      let namespace: string;
+      try {
+        if (typeof repository !== "string") throw new TypeError();
+        namespace = getSourceProjectIdentity(provider, repository).namespace;
+      } catch {
+        return "Invalid source repository path for server credentials";
+      }
+      const normalized = namespace.toLowerCase();
+      if (
+        allowed.length &&
+        !allowed.some((scope) =>
+          provider === "gitlab"
+            ? normalized === scope || normalized.startsWith(`${scope}/`)
+            : normalized === scope,
+        )
+      ) {
+        return `${provider === "bitbucket-server" ? "Bitbucket project key" : provider === "gitlab" ? "GitLab namespace" : "Source organization"} '${namespace}' is not configured for server credentials`;
+      }
     }
   }
   if (
