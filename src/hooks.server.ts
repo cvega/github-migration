@@ -4,6 +4,7 @@ import { building, dev } from "$app/env";
 import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
 import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
+import { settleDashboardShutdown } from "$lib/server/application/dashboard-shutdown";
 import { configureOperatorJobPolicy } from "$lib/server/application/self-service/jobs";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
 import { initializeAuthentication } from "$lib/server/core/auth/startup";
@@ -74,17 +75,15 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   console.log(`[hooks] ${signal} received - shutting down`);
   clearInterval(profileDispatch);
+  let exitCode = 1;
   try {
-    const profilesDrained = await stopActiveProfileRuns();
-    if (!profilesDrained)
-      console.warn("[profile] Shutdown drain timed out; recovery will run at startup");
-    recoverInterruptedMigrations(getDb());
-  } catch (error) {
-    console.error("[hooks] Shutdown failed", safeErrorReason(error));
+    exitCode = await settleDashboardShutdown(stopActiveProfileRuns, () =>
+      recoverInterruptedMigrations(getDb()),
+    );
   } finally {
     closeStore();
     instanceLock.release();
-    process.exit(0);
+    process.exit(exitCode);
   }
 }
 
