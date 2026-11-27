@@ -28,6 +28,7 @@ const METRICS_PATH = "/api/metrics";
 const PASSWORD_CHANGE_PATH = "/account/password";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // Use resolved route IDs so SvelteKit page-data requests cannot bypass the policy.
+// The route access inventory in src/routes/route-access.test.ts checks this policy.
 const operatorReads = new Set([
   "/",
   "/profile",

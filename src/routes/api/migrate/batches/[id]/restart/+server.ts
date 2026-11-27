@@ -4,11 +4,13 @@ import {
   validateAuthAvailable,
 } from "$lib/server/application/migration-policy";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { getBatch, restartBatch } from "$lib/server/migrate/manager";
 import { restartMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
+  requireAdminIfAuthEnabled(locals);
   if (!getBatch(params.id)) return json({ error: "Batch not found" }, { status: 404 });
   const parsed = await parseValidatedBody(request, (data) =>
     validateBody(restartMigrationSchema, data),

@@ -1,3 +1,4 @@
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { sseResponse } from "$lib/server/core/sse";
 import { getProfileRun } from "$lib/server/profile/database/runs";
 import { sendProfileEvent, subscribeProfile } from "$lib/server/profile/events";
@@ -13,7 +14,8 @@ export function __setProfileEventDependenciesForTests(
     dependencies = { ...defaults };
   };
 }
-export const GET: RequestHandler = ({ params }) => {
+export const GET: RequestHandler = ({ params, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const run = dependencies.getProfileRun(params.id);
   if (!run) return new Response("Not found", { status: 404 });
   return sseResponse((controller) => {

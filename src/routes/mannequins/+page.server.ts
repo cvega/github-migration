@@ -9,6 +9,7 @@ import {
   mannequinTargetCredentialError,
 } from "$lib/server/application/mannequins";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { getGhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/server/core/targets";
@@ -50,7 +51,8 @@ function selectedOrganization(url: URL, organizations: string[]): string | null 
   return organizations[0] ?? null;
 }
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ url, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const targets = getMigrationTargetProfiles();
   const cloud = getMigrationTargetProfile("ghec");
   const defaultTarget =
@@ -100,6 +102,7 @@ export const load: PageServerLoad = async ({ url }) => {
 
 export const actions: Actions = {
   editMapping: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "");
     const target = targetId ? getMigrationTargetProfile(targetId) : null;
@@ -134,6 +137,7 @@ export const actions: Actions = {
     return { success: "Mapping updated. Existing GitHub invitations are unchanged." };
   },
   removeMapping: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "").trim();
     const target = targetId ? getMigrationTargetProfile(targetId) : null;
@@ -155,6 +159,7 @@ export const actions: Actions = {
     return { success: "Mapping removed. Existing GitHub invitations are unchanged." };
   },
   saveMappings: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "").trim();
     const target = targetId ? getMigrationTargetProfile(targetId) : null;
@@ -208,7 +213,8 @@ export const actions: Actions = {
       });
     }
   },
-  checkMappings: async ({ request }) => {
+  checkMappings: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "").trim();
     const target = targetId ? getMigrationTargetProfile(targetId) : null;
@@ -276,6 +282,7 @@ export const actions: Actions = {
     }
   },
   applyMappings: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const data = await request.formData();
     const targetId = String(data.get("target") ?? "").trim();
     const target = targetId ? getMigrationTargetProfile(targetId) : null;
@@ -354,7 +361,8 @@ export const actions: Actions = {
       return fail(502, { error: "Could not apply mappings. Check GitHub access and try again." });
     }
   },
-  discover: async ({ request }) => {
+  discover: async ({ request, locals }) => {
+    requireAdminIfAuthEnabled(locals);
     const formData = await request.formData();
     const targetId = String(formData.get("target") ?? "").trim();
     const organization = String(formData.get("organization") ?? "").trim();
@@ -402,6 +410,7 @@ export const actions: Actions = {
     }
   },
   invite: async ({ locals, request }) => {
+    requireAdminIfAuthEnabled(locals);
     const formData = await request.formData();
     const organization = String(formData.get("organization") ?? "").trim();
     const mannequinId = String(formData.get("mannequinId") ?? "").trim();
@@ -451,6 +460,7 @@ export const actions: Actions = {
     return { mannequinId, success: `Invitation sent to @${invitation.targetLogin}.` };
   },
   approve: async ({ locals, request }) => {
+    requireAdminIfAuthEnabled(locals);
     const formData = await request.formData();
     const targetId = String(formData.get("target") ?? "").trim();
     const organization = String(formData.get("organization") ?? "").trim();

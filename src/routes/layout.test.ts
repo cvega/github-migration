@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { AuthUser } from "$lib/auth-user";
 import type { Migration } from "$lib/migrate/types";
+import * as auth from "$lib/server/core/auth";
 import { initStore } from "$lib/server/core/db";
 import { insertEvent } from "$lib/server/migrate/database/events";
 import { insertMigration } from "$lib/server/migrate/database/migrations";
@@ -132,11 +133,17 @@ describe("root layout authentication boundary", () => {
   });
 
   test("operators receive scoped totals and no global data", async () => {
-    const data = await loadLayout(true, AUTHENTICATED_USER);
-    expect(data.currentUser).toEqual(AUTHENTICATED_USER);
-    expect(data.profileCount).toBe(0);
-    expect(data.migrationCount).toBe(0);
-    expectNoSentinels(data);
+    const config = spyOn(auth, "getAuthConfig");
+    try {
+      const data = await loadLayout(true, AUTHENTICATED_USER);
+      expect(data.currentUser).toEqual(AUTHENTICATED_USER);
+      expect(data.profileCount).toBe(0);
+      expect(data.migrationCount).toBe(0);
+      expectNoSentinels(data);
+      expect(config).not.toHaveBeenCalled();
+    } finally {
+      config.mockRestore();
+    }
   });
   test("retains operational data for an administrator", async () => {
     const admin = { ...AUTHENTICATED_USER, role: "admin" as const };

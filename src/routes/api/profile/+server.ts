@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import {
@@ -36,6 +37,7 @@ export function __setProfileRouteDependenciesForTests(
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
+  requireAdminIfAuthEnabled(locals);
   const body = await parseJsonBody(request);
   if ("error" in body) return json({ error: body.error }, { status: body.status });
   const parsed = validateStartProfileRequest(body.data);
@@ -76,7 +78,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 };
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = ({ url, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const limit = Math.min(
     100,
     Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50),

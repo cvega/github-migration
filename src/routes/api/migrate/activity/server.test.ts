@@ -8,9 +8,21 @@ import { GET } from "./+server";
 
 type GetArgs = Parameters<typeof GET>[0];
 
-function request(query = ""): GetArgs {
-  return { url: new URL(`http://localhost/api/migrate/activity${query}`) } as GetArgs;
+function request(query: string, locals: App.Locals): GetArgs {
+  return { url: new URL(`http://localhost/api/migrate/activity${query}`), locals } as GetArgs;
 }
+
+const adminLocals: App.Locals = {
+  authEnabled: true,
+  user: {
+    id: "fixture-admin",
+    username: "admin",
+    displayName: null,
+    role: "admin",
+    isActive: true,
+    mustChangePassword: false,
+  },
+};
 
 beforeEach(() => {
   initStore(":memory:", DOMAIN_STORES);
@@ -58,18 +70,27 @@ beforeEach(() => {
 });
 
 describe("GET migration activity", () => {
-  test("returns newest activity in the public response shape", async () => {
-    const response = await GET(request("?limit=1"));
+  test.each([adminLocals, { authEnabled: false }])(
+    "returns newest activity in the public response shape with locals %j",
+    async (locals) => {
+      const response = await GET(request("?limit=1", locals));
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      items: [
-        {
-          kind: "restarted",
-          repo: "acme/widgets",
-          summary: "Restart requested",
-        },
-      ],
-    });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        items: [
+          {
+            kind: "restarted",
+            repo: "acme/widgets",
+            summary: "Restart requested",
+          },
+        ],
+      });
+    },
+  );
+
+  test("requires a session when authentication is enabled", () => {
+    expect(() => GET(request("", { authEnabled: true }))).toThrow(
+      expect.objectContaining({ status: 401 }),
+    );
   });
 });
