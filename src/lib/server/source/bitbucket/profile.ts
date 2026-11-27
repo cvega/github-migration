@@ -116,9 +116,11 @@ export async function collectBitbucketCommitMetric(
     );
   }
   try {
+    const start = 0;
+    const limit = 100;
     const response = await client.get<unknown>(
       `${repositoryPath(project)}/commits`,
-      { until: project.defaultBranch, withCounts: true, limit: 100 },
+      { until: project.defaultBranch, withCounts: true, start, limit },
       { signal: options.signal },
     );
     const malformed = () =>
@@ -142,6 +144,20 @@ export async function collectBitbucketCommitMetric(
     }
 
     const { isLastPage, values } = response;
+    const reportedLimit = "limit" in response ? response.limit : limit;
+    if (
+      ("start" in response && response.start !== start) ||
+      ("size" in response && response.size !== values.length) ||
+      typeof reportedLimit !== "number" ||
+      !Number.isSafeInteger(reportedLimit) ||
+      reportedLimit < 1 ||
+      reportedLimit > limit ||
+      values.length > reportedLimit ||
+      (isLastPage && "nextPageStart" in response)
+    ) {
+      return malformed();
+    }
+
     observeTip?.(timestamp(values[0]?.committerTimestamp));
 
     const totalCount = "totalCount" in response ? response.totalCount : undefined;
@@ -150,7 +166,7 @@ export async function collectBitbucketCommitMetric(
       if (
         typeof nextPageStart !== "number" ||
         !Number.isSafeInteger(nextPageStart) ||
-        nextPageStart <= 0 ||
+        nextPageStart <= start ||
         (totalCount !== undefined &&
           (typeof totalCount !== "number" ||
             !Number.isSafeInteger(totalCount) ||
