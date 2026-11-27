@@ -3,7 +3,10 @@ import { isCancellableMigrationState } from "$lib/migration-state";
 import { validateAuthAvailable } from "$lib/server/application/migration-policy";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { getMigrationTargetProfile } from "$lib/server/core/targets";
-import { getOwnedMigration } from "$lib/server/migrate/database/migrations";
+import {
+  getOwnedMigration,
+  requiresManualImportReview,
+} from "$lib/server/migrate/database/migrations";
 import {
   cancel,
   enqueueOwnedBatch,
@@ -65,6 +68,7 @@ export function ownJobActions(userId: string, id: string) {
     canRestart:
       grant.canMigrate &&
       (job.state === "failed" || job.state === "cancelled") &&
+      !requiresManualImportReview(job.id) &&
       !validateAuthAvailable(requestFor(grant, job.sourceRepo)),
     canCancel: grant.canMigrate && isCancellableMigrationState(job.state),
   };

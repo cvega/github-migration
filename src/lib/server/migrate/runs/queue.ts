@@ -1,11 +1,11 @@
 import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
-import { hasStepSinceRestart, insertEvent } from "../database/events";
+import { hasStepSinceRestart, insertEvent, insertQueuedGhesWaitSteps } from "../database/events";
 import {
   getMigration,
   getNextQueuedMigration,
-  ghesQueueBlockers,
+  hasUnreconciledGhesImport,
   isBatchAdmissionBlocked,
   isGhesSlotHeld,
   updateMigrationState,
@@ -37,8 +37,12 @@ export function shouldQueueMigration(migration: Migration): boolean {
 const WAITING_FOR_REVIEW = "GHES migration queued pending administrator review.";
 
 export function recordGhesQueueHold(migration: Migration): void {
-  if (ghesQueueBlockers({ ...migration, state: "queued" }).length)
+  if (migration.targetPlatform === "ghes" && hasUnreconciledGhesImport())
     insertLifecycleStep(migration.id, WAITING_FOR_REVIEW);
+}
+
+export function recordExistingGhesQueueHold(blockerId?: string): void {
+  if (hasUnreconciledGhesImport(blockerId)) insertQueuedGhesWaitSteps(WAITING_FOR_REVIEW);
 }
 
 export function getCapacityUsage(): number {

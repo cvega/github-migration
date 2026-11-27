@@ -14,6 +14,7 @@ import {
   validatePersistedServerCredentialScope,
 } from "../validate";
 import { activeMigrationRuns } from "./active";
+import { recordExistingGhesQueueHold } from "./queue";
 import { auditSourceTlsOverride } from "./source-tls-audit";
 
 export interface MigrationRecoveryDependencies {
@@ -101,5 +102,6 @@ export function recoverMigrationRuns(
     activeMigrationRuns.enqueue(migration.id, request);
   }
 
+  recordExistingGhesQueueHold();
   dependencies.drainQueue();
 }

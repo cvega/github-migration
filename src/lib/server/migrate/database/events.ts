@@ -1,5 +1,6 @@
 import type { ActivityItem, ActivityKind, EventType, MigrationEvent } from "$lib/migrate/types";
 import { getDb } from "$lib/server/core/db";
+import { EVENTS_THIS_ATTEMPT_SQL } from "./columns";
 import { EXECUTABLE_PROVIDER_SQL, parsePersistedEventPayload } from "./migrations";
 
 const EVENT_COLS = "id, migration_id, event_type, phase, payload, created_at";
@@ -59,14 +60,21 @@ export function insertEvent(event: MigrationEvent): number {
   return Number(result.lastInsertRowid);
 }
 
+const HAS_STEP_SINCE_RESTART = `EXISTS (SELECT 1 FROM events e WHERE ${EVENTS_THIS_ATTEMPT_SQL}
+  AND CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.message') = $message END)`;
+
 export function hasStepSinceRestart(migrationId: string, message: string): boolean {
   return !!getDb()
-    .prepare(`SELECT 1 FROM events
-    WHERE migration_id = $id AND event_type = 'step'
-      AND id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE migration_id = $id AND event_type = 'restart')
-      AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.message') = $message END
-    LIMIT 1`)
+    .prepare(`SELECT 1 FROM migrations WHERE id = $id AND ${HAS_STEP_SINCE_RESTART}`)
     .get({ $id: migrationId, $message: message });
+}
+
+export function insertQueuedGhesWaitSteps(message: string): void {
+  getDb()
+    .prepare(`INSERT INTO events (migration_id, event_type, phase, payload, created_at)
+    SELECT id, 'step', NULL, json_object('message', $message), $now FROM migrations
+    WHERE target_platform = 'ghes' AND state = 'queued' AND NOT ${HAS_STEP_SINCE_RESTART}`)
+    .run({ $message: message, $now: new Date().toISOString() });
 }
 
 export function getEvents(migrationId: string, afterId?: number): MigrationEvent[] {

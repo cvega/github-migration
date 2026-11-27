@@ -128,6 +128,21 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
   };
 }
 
+test("owned actions exclude a manual-only GHES import from restart", async () => {
+  const { selection } = fixture("bitbucket-server", "enterprise");
+  const {
+    jobIds: [id],
+  } = submitOwnBatch("alice", selection);
+  await Bun.sleep(0);
+  expect(ownJobActions("alice", id!).canRestart).toBe(true);
+  getDb().run(
+    `INSERT INTO ghes_import_jobs (id, migration_id, phase, ghes_import_id, created_at, updated_at)
+    VALUES ('job', ?, 'importing', 'saved-guid', 'now', 'now')`,
+    [id!],
+  );
+  expect(ownJobActions("alice", id!).canRestart).toBe(false);
+});
+
 test("shows a held queue reason without disclosing another route to operators", async () => {
   const { selection, run } = fixture("bitbucket-server", "enterprise");
   const db = getDb();

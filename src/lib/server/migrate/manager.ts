@@ -46,12 +46,13 @@ import {
   hasUnreconciledGhesImport,
   insertMigration,
   listMigrationsPaginated,
+  requiresManualImportReview,
   resetMigration,
   searchMigrationsPaginated,
 } from "./database/migrations";
 import { getMigrationStats, getStateCounts } from "./database/stats";
 import { getExecutorForMigration, getRegisteredMigrationExecutor } from "./executors/registry";
-import { MANUAL_IMPORT_REVIEW, requiresManualImportReview } from "./ghes/job";
+import { MANUAL_IMPORT_REVIEW } from "./ghes/job";
 import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 import { activeMigrationRuns } from "./runs/active";
 import {
@@ -348,7 +349,7 @@ export function restart(
     throw new MigrationRestartConflict(`Cannot restart migration in state "${existing.state}"`);
   }
   if (existing.targetPlatform === "ghes") {
-    if (requiresManualImportReview(getGhesImportJobByMigrationId(migrationId)))
+    if (requiresManualImportReview(migrationId))
       throw new MigrationRestartConflict(MANUAL_IMPORT_REVIEW);
     const target = getMigrationTargetProfile(existing.targetProfileId);
     if (target?.platform !== "ghes" || target.apiUrl !== existing.targetApiUrl)
@@ -411,8 +412,9 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     eventType: "step",
     phase: null,
     payload: {
+      confirmedInactive: true,
       message:
-        executable && requiresManualImportReview(getGhesImportJobByMigrationId(migrationId))
+        executable && requiresManualImportReview(migrationId)
           ? `Manual review submitted: remote GHES operation reported inactive. ${MANUAL_IMPORT_REVIEW}`
           : paused
             ? "Manual review submitted: remote GHES operation reported inactive; GitLab-to-GHES execution remains paused."
@@ -502,8 +504,7 @@ export function restartBatch(
     }
   }
   const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
-  for (const migration of getBatchMigrations(batchId)) {
-    if (migration.state !== "failed" && migration.state !== "cancelled") continue;
+  for (const migration of getBatchMigrations(batchId, true)) {
     try {
       const authError = validate?.(restartRequest(migration, credentials));
       if (authError) {
