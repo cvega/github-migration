@@ -505,10 +505,12 @@ function sanitizeLegacyLogUrls(db: Database): void {
       "SELECT id, target_api_url, migration_log_url FROM migrations WHERE migration_log_url IS NOT NULL",
     );
     const update = db.prepare("UPDATE migrations SET migration_log_url = ? WHERE id = ?");
+    const migrationChanges: [string | null, string][] = [];
     for (const row of rows.iterate()) {
       const url = migrationLogUrl(row.migration_log_url, row.target_api_url);
-      if (url !== row.migration_log_url) update.run(url, row.id);
+      if (url !== row.migration_log_url) migrationChanges.push([url, row.id]);
     }
+    for (const change of migrationChanges) update.run(...change);
     const events = db.query<{ id: number; target_api_url: string; url: string }, [string, string]>(
       `SELECT e.id, m.target_api_url, json_extract(e.payload, ?) AS url
        FROM events e JOIN migrations m ON m.id = e.migration_id
@@ -520,10 +522,12 @@ function sanitizeLegacyLogUrls(db: Database): void {
       "$.progress.previous.migrationLogUrl",
       "$.detail.logUrl",
     ]) {
+      const eventChanges: [string, number][] = [];
       for (const row of events.iterate(path, path)) {
         const url = migrationLogUrl(row.url, row.target_api_url) ?? "";
-        if (row.url !== url) redact.run(path, url, row.id);
+        if (row.url !== url) eventChanges.push([url, row.id]);
       }
+      for (const change of eventChanges) redact.run(path, ...change);
     }
   })();
 }

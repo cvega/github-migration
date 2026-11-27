@@ -192,28 +192,33 @@ describe("migration provider schema upgrade", () => {
         payload TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL
       )`);
-      insertMigration(db, "checked");
-      db.run(
-        "INSERT INTO events (migration_id, event_type, created_at) VALUES ('checked', 'step', '2026-08-08T12:01:00Z')",
-      );
-      const link = "https://github.com/log?sample=1";
-      db.run("UPDATE migrations SET migration_log_url = ?", [link]);
-      db.run("UPDATE events SET payload = ?", [
+      const fixtures = [
+        ["checked", "https://github.com/log?sample=1", null],
+        ["retained", "https://github.com/log", "https://github.com/log"],
+        ["redacted", "https://github.com/log#sample", null],
+      ] as const;
+      const payload = (url: string) =>
         JSON.stringify({
-          progress: { current: { migrationLogUrl: link }, previous: { migrationLogUrl: link } },
-          detail: { logUrl: link },
-        }),
-      ]);
+          progress: { current: { migrationLogUrl: url }, previous: { migrationLogUrl: url } },
+          detail: { logUrl: url },
+        });
+      for (const [id, link] of fixtures) {
+        insertMigration(db, id);
+        db.run("UPDATE migrations SET migration_log_url = ? WHERE id = ?", [link, id]);
+        db.run(
+          "INSERT INTO events (migration_id, event_type, payload, created_at) VALUES (?, 'failure', ?, '2026-08-08T12:01:00Z')",
+          [id, payload(link)],
+        );
+      }
       migrateStore.applySchema(db);
-      expect(db.query("SELECT migration_log_url FROM migrations").get()).toEqual({
-        migration_log_url: null,
-      });
-      expect(db.query("SELECT payload FROM events").get()).toEqual({
-        payload: JSON.stringify({
-          progress: { current: { migrationLogUrl: "" }, previous: { migrationLogUrl: "" } },
-          detail: { logUrl: "" },
-        }),
-      });
+      for (const [id, , expected] of fixtures) {
+        expect(db.query("SELECT migration_log_url FROM migrations WHERE id = ?").get(id)).toEqual({
+          migration_log_url: expected,
+        });
+        expect(db.query("SELECT payload FROM events WHERE migration_id = ?").get(id)).toEqual({
+          payload: payload(expected ?? ""),
+        });
+      }
       expect(
         db.run("UPDATE migrations SET source_provider = 'bitbucket-server' WHERE id = 'checked'")
           .changes,
