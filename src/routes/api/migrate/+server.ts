@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   );
   if ("errorResponse" in parsed) return parsed.errorResponse;
   try {
-    const migration = start(parsed.body, undefined, locals?.user?.id);
+    const migration = start(parsed.body, undefined, locals?.user?.id ?? null);
     recordOperatorAuditEvent(locals, {
       action: "migration.started",
       resourceType: "migration",

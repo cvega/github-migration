@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Migration } from "$lib/migrate/types";
+import { authStore } from "$lib/server/core/auth/schema";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getEvents } from "../database/events";
 import { getGhesImportJob } from "../database/import-jobs";
@@ -50,7 +51,7 @@ function migration(id: string, state: Migration["state"]): Migration {
   };
 }
 
-beforeEach(() => initStore(":memory:", [migrateStore]));
+beforeEach(() => initStore(":memory:", [migrateStore, authStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
@@ -74,6 +75,13 @@ describe("migration recovery", () => {
         },
         drainQueue: () => {},
       });
+      expect(
+        getDb()
+          .query(
+            "SELECT resource_id FROM audit_events WHERE json_extract(metadata, '$.operation')='recovery' AND json_extract(metadata, '$.outcome')='denied' ORDER BY resource_id",
+          )
+          .all(),
+      ).toEqual([{ resource_id: "queued" }, { resource_id: "running" }]);
       expect(getMigration("running")).toMatchObject({
         state: "reconciliation_required",
         githubMigrationId: "remote-id",

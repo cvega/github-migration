@@ -15,6 +15,7 @@ import {
   MIGRATION_COLS,
   rowsToMigrations,
   SEARCH_MATCH_CLAUSE,
+  tryParsePersistedRequestOptions,
 } from "./migrations";
 
 export const BATCH_AGG_COLS = `
@@ -85,6 +86,18 @@ export function getRestartableBatchSourceProviderValues(batchId: string): string
     )
     .all(batchId) as Array<{ source_provider: string }>;
   return rows.map((row) => row.source_provider);
+}
+
+export function batchHasSavedTlsOverride(batchId: string): boolean {
+  const rows = getDb()
+    .query<{ request_options: string }, [string]>(`SELECT request_options FROM migrations
+    WHERE batch_id = ? AND source_provider = 'github' AND target_platform = 'ghec'
+    AND state IN ('failed', 'cancelled') AND request_options IS NOT NULL`)
+    .iterate(batchId);
+  for (const row of rows) {
+    if (tryParsePersistedRequestOptions(row.request_options)?.noSslVerify) return true;
+  }
+  return false;
 }
 
 export function getRestartableBatchCount(batchId: string): number {

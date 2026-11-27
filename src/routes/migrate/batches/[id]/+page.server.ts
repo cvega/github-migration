@@ -1,6 +1,7 @@
 import { error } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
 import { visibleBatch } from "$lib/server/application/self-service/visible-jobs";
+import { batchHasSavedTlsOverride } from "$lib/server/migrate/database/batches";
 import {
   getBatchPaginated,
   getBatchSourceProviders,
@@ -27,6 +28,7 @@ export const load: PageServerLoad = ({ params, url, locals }) => {
   const providers = getBatchSourceProviders(params.id);
   return {
     scoped: false,
+    savedInsecureSourceTls: batchHasSavedTlsOverride(params.id),
     batch: result.summary,
     migrations: result.migrations,
     restartableCount: providers.every(isSourceProvider) ? getRestartableBatchCount(params.id) : 0,

@@ -10,6 +10,7 @@ import {
   cancel,
   confirmRestart,
   MAX_CONCURRENT_MIGRATIONS,
+  recoverOrphans,
   restart,
   restartBatch,
   start,
@@ -49,6 +50,56 @@ beforeEach(() => initStore(":memory:", [authStore, migrateStore]));
 afterEach(closeStore);
 
 describe("migration manager", () => {
+  test("records system recovery of an approved checkpoint once and resumes its saved ID", async () => {
+    const prior = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+    const priorSource = process.env.GH_SOURCE_API_URL;
+    const host = "https://source.example/api/v3";
+    const record = {
+      ...migration("checkpoint", "running"),
+      sourceApiUrl: host,
+      authMode: "env-pat" as const,
+      githubMigrationId: "saved-id",
+      requestOptions: JSON.stringify({ noSslVerify: true }),
+    };
+    const executor = getRegisteredMigrationExecutor(record);
+    using resume = spyOn(executor, "resume").mockImplementation(async (m) => ({
+      ...m,
+      state: "succeeded",
+    }));
+    using run = spyOn(executor, "run").mockImplementation(async () => {
+      throw new Error("unexpected submission");
+    });
+    try {
+      process.env.GH_SOURCE_API_URL = host;
+      process.env.GH_ALLOW_INSECURE_SOURCE_TLS = host;
+      insertMigration(record);
+      recoverOrphans();
+      await Bun.sleep(0);
+      expect(resume.mock.calls[0]?.[0].githubMigrationId).toBe("saved-id");
+      expect(run).not.toHaveBeenCalled();
+      expect(
+        getDb()
+          .query("SELECT actor_user_id, metadata FROM audit_events WHERE resource_id = ?")
+          .all(record.id),
+      ).toEqual([
+        {
+          actor_user_id: null,
+          metadata: JSON.stringify({
+            operation: "recovery",
+            outcome: "allowed",
+            noSslVerify: true,
+            actor: "system",
+            sourceOrigin: new URL(host).origin,
+          }),
+        },
+      ]);
+    } finally {
+      if (priorSource === undefined) delete process.env.GH_SOURCE_API_URL;
+      else process.env.GH_SOURCE_API_URL = priorSource;
+      if (prior === undefined) delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      else process.env.GH_ALLOW_INSECURE_SOURCE_TLS = prior;
+    }
+  });
   test("audits approved TLS overrides and rechecks policy at dispatch and restart", async () => {
     const prior = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
     const sourceApiUrl = "https://source.example/api/v3";
@@ -73,7 +124,7 @@ describe("migration manager", () => {
       expect(run).not.toHaveBeenCalled();
       expect(() => restart(job.id, {})).toThrow("GH_ALLOW_INSECURE_SOURCE_TLS");
       process.env.GH_ALLOW_INSECURE_SOURCE_TLS = sourceApiUrl;
-      expect(restart(job.id, {}).noSslVerify).toBe(true);
+      expect(restart(job.id, {})).not.toHaveProperty("noSslVerify");
       await Bun.sleep(0);
       expect(run.mock.calls[0]?.[0].noSslVerify).toBe(true);
       expect(
@@ -83,8 +134,19 @@ describe("migration manager", () => {
           )
           .all(job.id),
       ).toEqual(
-        ["start", "restart"].map((operation) => ({
-          metadata: JSON.stringify({ operation, noSslVerify: true }),
+        [
+          ["start", "admitted", "system"],
+          ["dispatch", "denied", "system"],
+          ["restart", "admitted", "system"],
+          ["dispatch", "allowed", "system"],
+        ].map(([operation, outcome, actor]) => ({
+          metadata: JSON.stringify({
+            operation,
+            outcome,
+            noSslVerify: true,
+            actor,
+            sourceOrigin: new URL(sourceApiUrl).origin,
+          }),
         })),
       );
     } finally {

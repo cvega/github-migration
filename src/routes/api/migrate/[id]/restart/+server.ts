@@ -46,7 +46,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   const authError = validateAuthAvailable(restartValidationInput(existing, parsed.body));
   if (authError) return json({ error: authError }, { status: 400 });
   try {
-    const migration = restart(params.id, parsed.body, locals?.user?.id);
+    const migration = restart(params.id, parsed.body, locals?.user?.id ?? null);
     recordOperatorAuditEvent(locals, {
       action: "migration.restarted",
       resourceType: "migration",

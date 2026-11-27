@@ -56,6 +56,7 @@ function interruptedMigration(): Migration {
       sourceRepo: "acme/widget",
       targetOrg: "cloud",
       archiveSource: true,
+      noSslVerify: true,
     }),
   };
 }
@@ -299,6 +300,7 @@ describe("GitHub-to-GHEC executor", () => {
       resolveTargetAuth: () => ({ token: "target-token" }),
       createClients: (options) => {
         expect(options).toEqual({
+          noSslVerify: true,
           sourceApiUrl: migration.sourceApiUrl,
           sourceAuth: { token: "source-token" },
           targetApiUrl: migration.targetApiUrl,

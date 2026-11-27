@@ -13,6 +13,7 @@ import {
   validatePersistedServerCredentialScope,
 } from "../validate";
 import { activeMigrationRuns } from "./active";
+import { auditSourceTlsOverride } from "./source-tls-audit";
 
 export interface MigrationRecoveryDependencies {
   launchRecoveredPipeline(migration: Migration): boolean;
@@ -54,6 +55,7 @@ export function recoverMigrationRuns(
     );
     const scopeError = dependencies.validateScope(request);
     if (scopeError) {
+      if (request.noSslVerify) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
       updateMigrationState(migration.id, "reconciliation_required", {
         failureReason: scopeError,
         completedAt: new Date().toISOString(),
@@ -82,6 +84,7 @@ export function recoverMigrationRuns(
     const request = requestForMigration(migration, options);
     const scopeError = dependencies.validateScope(request);
     if (scopeError) {
+      if (request.noSslVerify) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
       updateMigrationState(migration.id, "failed", {
         failureReason: scopeError,
         completedAt: new Date().toISOString(),

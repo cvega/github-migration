@@ -334,6 +334,7 @@
 	{#snippet info()}
 		<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3 text-sm text-gray-300">
 			Restarting <strong class="text-gray-50">{restartableCount}</strong> failed or cancelled migration{restartableCount === 1 ? "" : "s"} in this batch.
+			{#if restart.state.useSavedOptions && data.savedInsecureSourceTls}<p class="mt-1 text-amber-300">Saved options disable source TLS certificate verification for one or more migrations.</p>{/if}
 		</div>
 		{#if restartResult}
 			<div class="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">

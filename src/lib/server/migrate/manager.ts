@@ -18,7 +18,6 @@ import {
   isPausedPersistedRoute,
   supportsMigrationTarget,
 } from "$lib/migration-target";
-import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
 import { safeErrorReason } from "$lib/server/core/safe-error";
@@ -65,6 +64,7 @@ import {
 import { createMigrationRunFinisher } from "./runs/finish";
 import { drainMigrationQueue, launchClaimedMigration, shouldQueueMigration } from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
+import { auditSourceTlsOverride } from "./runs/source-tls-audit";
 import {
   determineAuthModeFromRequest,
   migrationTlsPolicyError,
@@ -112,6 +112,8 @@ function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
           ? ownedRequest(migration)
           : requestForMigration(migration, request);
       const error = migrationTlsPolicyError(effective);
+      if (effective.noSslVerify)
+        auditSourceTlsOverride(migration, "dispatch", error ? "denied" : "allowed", undefined);
       if (error) throw new Error(error);
       return executor.run({
         ...effective,
@@ -146,6 +148,18 @@ function launchRecoveredPipeline(migration: Migration): boolean {
             completedAt: new Date().toISOString(),
           };
         }
+      }
+      const options = safeParsePersistedRequestOptions(resumable.requestOptions);
+      if (options?.noSslVerify) {
+        const error = migrationTlsPolicyError(requestForMigration(resumable, options));
+        auditSourceTlsOverride(resumable, "recovery", error ? "denied" : "allowed", undefined);
+        if (error)
+          return {
+            ...resumable,
+            state: "reconciliation_required" as const,
+            failureReason: error,
+            completedAt: new Date().toISOString(),
+          };
       }
       return executor.resume(
         resumable,
@@ -227,20 +241,10 @@ export function enqueueOwnedBatch(ownerUserId: string, requests: CreateMigration
   return { batchId, jobIds: queued.map(({ id }) => id) };
 }
 
-function auditSourceTlsOverride(id: string, operation: "start" | "restart", actorUserId?: string) {
-  recordAuditEvent({
-    actorUserId,
-    action: "migration.source_tls_override",
-    resourceType: "migration",
-    resourceId: id,
-    metadata: { operation, noSslVerify: true },
-  });
-}
-
 export function start(
   request: CreateMigrationRequest,
   batchId?: string,
-  actorUserId?: string,
+  actorUserId?: string | null,
 ): Migration {
   const migration = newMigration(request, batchId);
   migration.requestOptions = serializeRequestOptions(requestForMigration(migration, request));
@@ -266,7 +270,7 @@ export function start(
       if (!existing) throw error;
     }
     if (!existing && request.noSslVerify)
-      auditSourceTlsOverride(migration.id, "start", actorUserId);
+      auditSourceTlsOverride(migration, "start", "admitted", actorUserId);
   })();
   if (existing) return existing;
   if (queued) activeMigrationRuns.enqueue(migration.id, request);
@@ -322,8 +326,8 @@ function restartRequest(
 export function restart(
   migrationId: string,
   credentials: RestartMigrationRequest,
-  actorUserId?: string,
-): Migration & { noSslVerify?: true } {
+  actorUserId?: string | null,
+): Migration {
   const existing = getMigration(migrationId);
   if (!existing) throw new Error("Migration not found");
   getExecutorForMigration(existing);
@@ -364,7 +368,7 @@ export function restart(
     )
       throw new Error("Migration was already claimed for restart");
     event.id = insertEvent(event);
-    if (request.noSslVerify) auditSourceTlsOverride(migrationId, "restart", actorUserId);
+    if (request.noSslVerify) auditSourceTlsOverride(existing, "restart", "admitted", actorUserId);
   })();
   broadcastMigrationEvent(migrationId, event);
   if (queued) activeMigrationRuns.enqueue(migrationId, request);
@@ -372,7 +376,7 @@ export function restart(
     throw new Error("Migration restart could not be launched");
   const updated = getMigration(migrationId);
   if (!updated) throw new Error(`Migration ${migrationId} not found after restart`);
-  return request.noSslVerify ? { ...updated, noSslVerify: true } : updated;
+  return updated;
 }
 
 export function confirmRestart(migrationId: string, confirmation: string): Migration {
@@ -426,7 +430,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
 export function startBatch(
   request: BatchMigrationRequest,
   requestedBatchId?: string,
-  actorUserId?: string,
+  actorUserId?: string | null,
 ): BatchSummary {
   const sourceProvider = request.sourceProvider ?? "github";
   if (!request.targetProfileId?.trim()) throw new TypeError("Choose a destination for this batch.");
@@ -469,14 +473,13 @@ export function restartBatch(
   batchId: string,
   credentials: RestartMigrationRequest,
   validate?: (request: CreateMigrationRequest) => string | null,
-  actorUserId?: string,
+  actorUserId?: string | null,
 ) {
   for (const provider of getRestartableBatchSourceProviderValues(batchId)) {
     if (!getSourceProviderAdapter(provider as Migration["sourceProvider"])) {
       throw new TypeError(`Migration restart is unavailable for source provider '${provider}'`);
     }
   }
-  let insecureRestarts = 0;
   const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
   for (const migration of getBatchMigrations(batchId)) {
     if (migration.state !== "failed" && migration.state !== "cancelled") continue;
@@ -486,8 +489,7 @@ export function restartBatch(
         results.errors.push({ id: migration.id, error: authError });
         continue;
       }
-      const updated = restart(migration.id, credentials, actorUserId);
-      if (updated.noSslVerify) insecureRestarts++;
+      restart(migration.id, credentials, actorUserId);
       results.restarted += 1;
     } catch (error) {
       results.errors.push({
@@ -501,7 +503,7 @@ export function restartBatch(
       });
     }
   }
-  return insecureRestarts ? { ...results, insecureSourceTlsCount: insecureRestarts } : results;
+  return results;
 }
 
 export const get = getMigration;

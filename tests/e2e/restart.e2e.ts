@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("confirms ambiguous remote state before offering restart credentials", async ({ page }) => {
+test("confirms ambiguous remote state before offering restart credentials", async ({ page }, info) => {
 	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate/seed-e2e-reconciliation");
 	await hydrated;
@@ -57,6 +57,8 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	for (const width of [390, 1280, 1440]) {
 		await page.setViewportSize({width,height:800});
 		await expect(saved).toBeVisible();
+		await page.screenshot({ path: info.outputPath(`saved-tls-${width}.png`) });
+		await expect(restart.getByText("Saved options disable source TLS certificate verification.")).toBeVisible();
 		expect(await restart.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
 	}
 	await saved.focus();
@@ -75,6 +77,17 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	await restart.getByLabel("Skip SSL verification").check();
 	await restart.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(restart).not.toBeVisible();
+	const batchHydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
+	await page.goto("/migrate/batches/seed-restart-batch");
+	await batchHydrated;
+	await page.getByRole("button", {name: "Restart 1 Failed", exact:true}).click();
+	const batch = page.getByRole("dialog", {name: "Restart Failed Migrations"});
+	for (const width of [390,1280]) {
+		await page.setViewportSize({width,height:800});
+		await expect(batch.getByText("Saved options disable source TLS certificate verification for one or more migrations.")).toBeVisible();
+		expect(await batch.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+		await page.screenshot({path: info.outputPath(`batch-saved-tls-${width}.png`)});
+	}
 });
 test("an administrator can review an unsupported route without enabling restart", async ({ page }, info) => {
 	const endpoint = "**/api/migrate/seed-e2e-unsupported-review/confirm-restart";

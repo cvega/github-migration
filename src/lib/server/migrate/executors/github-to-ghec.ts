@@ -317,8 +317,12 @@ export async function resumeGitHubToGhecMigration(
     `Reconnecting to in-flight migration ${migration.githubMigrationId}`,
   );
   try {
+    const requestOptions = migration.requestOptions
+      ? tryParsePersistedRequestOptions(migration.requestOptions)
+      : null;
     const clients = dependencies.createClients({
       sourceApiUrl: migration.sourceApiUrl,
+      noSslVerify: requestOptions?.noSslVerify,
       sourceAuth: dependencies.resolveSourceAuth(),
       targetApiUrl: migration.targetApiUrl,
       targetAuth: dependencies.resolveTargetAuth(),
@@ -330,9 +334,6 @@ export async function resumeGitHubToGhecMigration(
       emit,
       signal,
     );
-    const requestOptions = migration.requestOptions
-      ? tryParsePersistedRequestOptions(migration.requestOptions)
-      : null;
     if (result.state === "succeeded" && requestOptions?.archiveSource) {
       emitStep(
         emit,

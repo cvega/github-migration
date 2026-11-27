@@ -346,7 +346,7 @@
 				restartError = body.error || `HTTP ${response.status}`;
 				return;
 			}
-			if (data.scoped) {
+			if (data.scoped || !restart.state.useSavedOptions) {
 				showRestartForm = false;
 				await invalidateAll();
 				return;
@@ -636,6 +636,7 @@
 	{#snippet info()}
 		<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3 text-sm text-gray-300">
 			{migration.sourceOrg}/{migration.sourceRepo} to {migration.targetOrg}/{migration.targetRepo}
+			{#if restart.state.useSavedOptions && data.savedInsecureSourceTls}<p class="mt-1 text-amber-300">Saved options disable source TLS certificate verification.</p>{/if}
 			{#if !isGitHubCloud(migration.sourceApiUrl)}<p class="mt-1 text-xs text-gray-500">{migration.sourceApiUrl}</p>{/if}
 		</div>
 	{/snippet}
