@@ -813,7 +813,9 @@ describe("GitLabClient", () => {
       }),
       jsonResponse([]),
       jsonResponse([], { headers: { "X-Total": "0", "X-Total-Pages": "0", "X-Next-Page": "" } }),
-      jsonResponse([{}], { headers: { "X-Next-Page": "" } }),
+      jsonResponse([{}], {
+        headers: { "X-Page": "1", "X-Per-Page": "1", "X-Prev-Page": "", "X-Next-Page": "" },
+      }),
       jsonResponse([{}], { headers: { Link: '</issues?page=2>; rel="next alternate"' } }),
       jsonResponse({ message: "forbidden" }, { status: 403 }),
     ]);
@@ -902,6 +904,13 @@ describe("GitLabClient", () => {
     { data: [{}], headers: { "X-Total": "1", "X-Next-Page": "2" } },
     { data: [{}], headers: { "X-Total": "3", "X-Next-Page": "" } },
     { data: [{}], headers: { "X-Next-Page": "1" } },
+    {
+      data: [{}],
+      headers: { "X-Page": "2", "X-Prev-Page": "1", "X-Next-Page": "" },
+    },
+    { data: [{}], headers: { "X-Page": "2", "X-Next-Page": "" } },
+    { data: [{}], headers: { "X-Prev-Page": "1", "X-Next-Page": "" } },
+    { data: [{}], headers: { "X-Per-Page": "2", "X-Next-Page": "" } },
     { data: [{}, {}], headers: {} },
     {
       data: [],

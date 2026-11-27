@@ -151,6 +151,16 @@ function readCountLinks(value: string): { hasNext: boolean; lastPage: number | n
 
 function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCountObservation {
   const malformed = { kind: "unavailable", reason: "malformed" } as const;
+  const page = headers.get("x-page");
+  const perPage = headers.get("x-per-page");
+  if (
+    (page !== null && parseHeaderInteger(page) !== 1) ||
+    (perPage !== null && parseHeaderInteger(perPage) !== 1) ||
+    headers.get("x-prev-page")
+  ) {
+    return malformed;
+  }
+
   const totalHeader = headers.get("x-total");
   const total = parseHeaderInteger(totalHeader);
   if (totalHeader !== null && total === null) return malformed;
