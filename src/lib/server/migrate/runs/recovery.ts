@@ -8,6 +8,7 @@ import {
 } from "../database/migrations";
 import { recoverInterruptedMigrations } from "../database/schema";
 import {
+  migrationTlsPolicyError,
   requestForMigration,
   safeParsePersistedRequestOptions,
   validatePersistedServerCredentialScope,
@@ -38,6 +39,14 @@ export function recoverMigrationRuns(
     Partial<Pick<MigrationRecoveryDependencies, "hasExecutor" | "validateScope">>,
 ): void {
   const dependencies = { ...defaults(overrides), ...overrides };
+  function recoveryError(migration: Migration, request: CreateMigrationRequest): string | null {
+    const scopeError = dependencies.validateScope(request);
+    if (scopeError) return scopeError;
+    const tlsError = migrationTlsPolicyError(request);
+    if (tlsError) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
+    return tlsError;
+  }
+
   recoverInterruptedMigrations(getDb());
 
   for (const migration of getRecoverableMigrations()) {
@@ -53,9 +62,8 @@ export function recoverMigrationRuns(
       migration,
       safeParsePersistedRequestOptions(migration.requestOptions) ?? {},
     );
-    const scopeError = dependencies.validateScope(request);
+    const scopeError = recoveryError(migration, request);
     if (scopeError) {
-      if (request.noSslVerify) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
       updateMigrationState(migration.id, "reconciliation_required", {
         failureReason: scopeError,
         completedAt: new Date().toISOString(),
@@ -82,9 +90,8 @@ export function recoverMigrationRuns(
       continue;
     }
     const request = requestForMigration(migration, options);
-    const scopeError = dependencies.validateScope(request);
+    const scopeError = recoveryError(migration, request);
     if (scopeError) {
-      if (request.noSslVerify) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
       updateMigrationState(migration.id, "failed", {
         failureReason: scopeError,
         completedAt: new Date().toISOString(),

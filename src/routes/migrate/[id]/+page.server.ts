@@ -4,10 +4,7 @@ import { isPausedPersistedRoute } from "$lib/migration-target";
 import { ownJobActions } from "$lib/server/application/self-service/jobs";
 import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
-import {
-  hasUnreconciledGhesImport,
-  tryParsePersistedRequestOptions,
-} from "$lib/server/migrate/database/migrations";
+import { hasUnreconciledGhesImport } from "$lib/server/migrate/database/migrations";
 import { events, get } from "$lib/server/migrate/manager";
 import {
   fetchMigrationTargetCounts,
@@ -28,8 +25,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   return {
     scoped: false,
-    savedInsecureSourceTls:
-      tryParsePersistedRequestOptions(migration.requestOptions)?.noSslVerify === true,
     canReviewRemote: !isPausedPersistedRoute(migration) || hasUnreconciledGhesImport(params.id),
     canCancel: true,
     canRestart: true,

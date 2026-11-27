@@ -69,6 +69,13 @@ describe("migration recovery", () => {
           requestOptions: JSON.stringify({ noSslVerify: true }),
         });
       }
+      for (const state of ["running", "queued"] as const) {
+        insertMigration({
+          ...migration(`wrong-source-${state}`, state),
+          sourceApiUrl: "https://other.example/api/v3",
+          requestOptions: JSON.stringify({ noSslVerify: true }),
+        });
+      }
       recoverMigrationRuns({
         launchRecoveredPipeline: () => {
           throw new Error("Unexpected recovery launch");
@@ -82,6 +89,11 @@ describe("migration recovery", () => {
           )
           .all(),
       ).toEqual([{ resource_id: "queued" }, { resource_id: "running" }]);
+      for (const state of ["running", "queued"]) {
+        expect(getMigration(`wrong-source-${state}`)?.failureReason).toContain(
+          "server-configured source",
+        );
+      }
       expect(getMigration("running")).toMatchObject({
         state: "reconciliation_required",
         githubMigrationId: "remote-id",

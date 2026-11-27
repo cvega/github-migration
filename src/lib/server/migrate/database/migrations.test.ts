@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  parsePersistedRequestOptions,
+  tryParsePersistedRequestOptions,
+} from "$lib/migrate/request-options";
 import type { Migration } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import {
@@ -13,10 +17,8 @@ import {
   listMigrationsPaginated,
   parsePersistedCounts,
   parsePersistedEventPayload,
-  parsePersistedRequestOptions,
   rowToMigration,
   searchMigrationsPaginated,
-  tryParsePersistedRequestOptions,
   updateMigrationState,
   updateSourceExportCheckpoint,
 } from "./migrations";

@@ -1,3 +1,4 @@
+import { tryParsePersistedRequestOptions } from "$lib/migrate/request-options";
 import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
 import { resolveSourceAuth, resolveTargetAuth } from "$lib/server/core/auth";
 import {
@@ -11,11 +12,7 @@ import {
   sourceBaseUrl,
 } from "$lib/server/core/github";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
-import {
-  tryParsePersistedRequestOptions,
-  updateCheckpoint,
-  updateMigrationSourceSize,
-} from "../database/migrations";
+import { updateCheckpoint, updateMigrationSourceSize } from "../database/migrations";
 import {
   checkGhesVersion,
   IncompleteArchivePairError,

@@ -39,7 +39,8 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 
 	const persisted = await page.request.get("/api/migrate/seed-e2e-reconciliation");
 	expect(persisted.ok()).toBe(true);
-	expect((await persisted.json()).state).toBe("failed");
+	const migration = await persisted.json();
+	expect(migration.state).toBe("failed");
 
 	const restartButton = page.getByRole("button", { name: "Restart", exact: true });
 	await expect(restartButton).toHaveAttribute("aria-expanded", "false");
@@ -74,7 +75,18 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	await restart.getByLabel("Repository Visibility").selectOption("private");
 	await restart.getByLabel("Skip releases").check();
 	await restart.getByLabel("Direct transfer").check();
-	await restart.getByLabel("Skip SSL verification").check();
+	await restart.getByLabel("Skip SSL verification").uncheck();
+	const editedMigration = { ...migration, requestOptions: JSON.stringify({ noSslVerify: false }) };
+	await page.route("**/api/migrate/seed-e2e-reconciliation/restart", async route => {
+		expect(route.request().postDataJSON()).toMatchObject({ noSslVerify: false });
+		await route.fulfill({ json: editedMigration });
+	});
+	await page.route("**/api/migrate/seed-e2e-reconciliation", route => route.fulfill({ json: editedMigration }));
+	await restart.getByRole("button", { name: "Restart Migration", exact: true }).click();
+	await expect(restart).not.toBeVisible();
+	await restartButton.click();
+	await expect(saved).toBeChecked();
+	await expect(restart.getByText("Saved options disable source TLS certificate verification.")).toHaveCount(0);
 	await restart.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(restart).not.toBeVisible();
 	const batchHydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));

@@ -1,3 +1,4 @@
+import { tryParsePersistedRequestOptions } from "$lib/migrate/request-options";
 import type {
   AuthMode,
   CreateMigrationRequest,
@@ -23,7 +24,6 @@ import {
   getSourceProviderAdapter,
   type SourceProvider,
 } from "$lib/source-provider";
-import { tryParsePersistedRequestOptions } from "./database/migrations";
 import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 
 export function validateMigrationTargetSelection(input: {
@@ -65,7 +65,7 @@ export function validatePersistedServerCredentialScope(input: CredentialScopeInp
     ) {
       return "Persisted source API URL no longer matches the server-configured source";
     }
-    return migrationTlsPolicyError(input);
+    return null;
   } catch {
     return "Persisted source API URL is invalid";
   }

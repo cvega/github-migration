@@ -1,3 +1,4 @@
+import { tryParsePersistedRequestOptions } from "$lib/migrate/request-options";
 import type {
   BatchListItem,
   BatchSummary,
@@ -15,7 +16,6 @@ import {
   MIGRATION_COLS,
   rowsToMigrations,
   SEARCH_MATCH_CLAUSE,
-  tryParsePersistedRequestOptions,
 } from "./migrations";
 
 export const BATCH_AGG_COLS = `
