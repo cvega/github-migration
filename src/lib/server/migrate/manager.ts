@@ -20,6 +20,7 @@ import {
 } from "$lib/migration-target";
 import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
 import { getSourceProjectIdentity, getSourceProviderAdapter } from "$lib/source-provider";
 import {
@@ -281,6 +282,8 @@ export function cancel(migrationId: string): boolean {
   return true;
 }
 
+export class MigrationRestartConflict extends Error {}
+
 function restartRequest(
   existing: Migration,
   credentials: RestartMigrationRequest,
@@ -289,7 +292,7 @@ function restartRequest(
     ? safeParsePersistedRequestOptions(existing.requestOptions)
     : null;
   if (!stored && existing.targetPlatform === "ghec" && !credentials.targetRepoVisibility) {
-    throw new Error(
+    throw new MigrationRestartConflict(
       "Cannot restart with saved settings: the original options are unavailable. Review the options and select a target visibility.",
     );
   }
@@ -301,10 +304,12 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
   if (!existing) throw new Error("Migration not found");
   getExecutorForMigration(existing);
   if (activeMigrationRuns.isActive(migrationId)) {
-    throw new Error("Cannot restart migration while its previous run is still stopping");
+    throw new MigrationRestartConflict(
+      "Cannot restart migration while its previous run is still stopping",
+    );
   }
   if (existing.state !== "failed" && existing.state !== "cancelled") {
-    throw new Error(`Cannot restart migration in state "${existing.state}"`);
+    throw new MigrationRestartConflict(`Cannot restart migration in state "${existing.state}"`);
   }
   const request =
     existing.ownerUserId !== undefined
@@ -352,7 +357,8 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
   const executable =
     !paused && supportsMigrationTarget(existing.sourceProvider, existing.targetPlatform);
   const expected = `${existing.targetOrg}/${existing.targetRepo}`;
-  if (confirmation !== expected) throw new Error(`Confirmation must exactly match "${expected}"`);
+  if (confirmation !== expected)
+    throw new MigrationRestartConflict(`Confirmation must exactly match "${expected}"`);
   const event: MigrationEvent = {
     migrationId,
     eventType: "step",
@@ -368,14 +374,14 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
   };
   getDb().transaction(() => {
     if (paused && !hasUnreconciledGhesImport(migrationId))
-      throw new Error(GITLAB_GHES_PAUSE_REASON);
+      throw new MigrationRestartConflict(GITLAB_GHES_PAUSE_REASON);
     const result = getDb()
       .prepare(
         "UPDATE migrations SET state = 'failed' WHERE id = ? AND state = 'reconciliation_required'",
       )
       .run(migrationId);
     if (result.changes !== 1) {
-      throw new Error(
+      throw new MigrationRestartConflict(
         `Cannot confirm restart for migration in state "${getMigration(migrationId)?.state ?? "missing"}"`,
       );
     }
@@ -448,13 +454,21 @@ export function restartBatch(
     if (migration.state !== "failed" && migration.state !== "cancelled") continue;
     try {
       const authError = validate?.(restartRequest(migration, credentials));
-      if (authError) throw new Error(authError);
+      if (authError) {
+        results.errors.push({ id: migration.id, error: authError });
+        continue;
+      }
       restart(migration.id, credentials);
       results.restarted += 1;
     } catch (error) {
       results.errors.push({
         id: migration.id,
-        error: error instanceof Error ? error.message : String(error),
+        error:
+          error instanceof MigrationRestartConflict
+            ? error.message
+            : error instanceof Error && error.message === GITLAB_GHES_PAUSE_REASON
+              ? GITLAB_GHES_PAUSE_REASON
+              : safeErrorReason(error, "Migration restart failed"),
       });
     }
   }

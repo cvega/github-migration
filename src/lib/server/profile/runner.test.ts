@@ -206,7 +206,10 @@ describe("profile runner", () => {
         },
       },
     );
-    expect(run).toMatchObject({ state: "failed", failureReason: "HTTP 504: upstream timeout" });
+    expect(run).toMatchObject({
+      state: "failed",
+      failureReason: "GitHub profile failed during discovering (HTTP 504)",
+    });
   });
 
   test.each(["augmentCounts", "augmentDetails", "countCommits", "gatherRestSignals"] as const)(
@@ -226,7 +229,7 @@ describe("profile runner", () => {
 
       expect(run).toMatchObject({
         state: "failed",
-        failureReason: expect.stringContaining("HTTP 403: access denied"),
+        failureReason: expect.stringContaining("(HTTP 403)"),
       });
       expect(getRunRepoProfiles(run.id)).toEqual([]);
       expect(getProfileRunRollup(run.id)).toBeNull();
@@ -242,12 +245,15 @@ describe("profile runner", () => {
 
   test.each([
     {
-      error: { status: 403, errors: [{ message: "Organization access denied" }] },
-      reason: "HTTP 403: Organization access denied",
+      error: { status: 403, errors: [{ message: "Authorization: Bearer inert-placeholder" }] },
+      reason: "GitHub profile failed during discovering (HTTP 403)",
     },
-    { error: { errors: [{ type: "RATE_LIMITED" }] }, reason: "RATE_LIMITED" },
-    { error: { status: 502 }, reason: "HTTP 502" },
-    { error: "Source connection closed", reason: "Source connection closed" },
+    {
+      error: { errors: [{ type: "RATE_LIMITED" }] },
+      reason: "GitHub profile failed during discovering",
+    },
+    { error: { status: 502 }, reason: "GitHub profile failed during discovering (HTTP 502)" },
+    { error: "Source connection closed", reason: "GitHub profile failed during discovering" },
   ])("persists an actionable provider failure: $reason", async ({ error, reason }) => {
     const run = await runProfile(
       clients,
@@ -281,7 +287,7 @@ describe("profile runner", () => {
     );
 
     expect(discover).not.toHaveBeenCalled();
-    expect(run).toMatchObject({ state: "failed", failureReason: "Cancelled by operator" });
+    expect(run).toMatchObject({ state: "failed", failureReason: "Profile worker cancelled" });
   });
 
   test.each(["counting", "details", "signals"] as const)(

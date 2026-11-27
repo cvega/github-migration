@@ -9,6 +9,7 @@ import type {
   ExporterSourceProvider,
   ExporterWorker,
 } from "./worker";
+import { exporterFailures } from "./worker";
 
 export interface DockerExporterConfig {
   exporterRuntime: string;
@@ -200,23 +201,14 @@ export class DockerExporterWorker implements ExporterWorker {
     if (state.Running === true || state.Status === "created")
       return { jobId, state: state.Status === "created" ? "queued" : "running" };
     if (state.Status !== "exited" || !Number.isInteger(state.ExitCode))
-      return { jobId, state: "failed", failureReason: "Exporter container stopped unexpectedly" };
+      return { jobId, state: "failed", failureReason: exporterFailures.stopped };
     if (state.ExitCode !== 0) {
-      const logs = await this.dependencies.run(
-        [this.config.exporterRuntime, "logs", "--tail", "200", jobId],
-        signal,
-      );
-      return {
-        jobId,
-        state: "failed",
-        failureReason:
-          logs.stderr.trim() || logs.stdout.trim() || String(state.Error || "Exporter failed"),
-      };
+      return { jobId, state: "failed", failureReason: exporterFailures.exit };
     }
     const path = resolve(this.config.archiveDirectory, `${jobId}.tar.gz`);
     const archive = await this.dependencies.stat(path);
     if (!archive.isFile() || archive.isSymbolicLink())
-      return { jobId, state: "failed", failureReason: "Exporter archive is not a regular file" };
+      return { jobId, state: "failed", failureReason: exporterFailures.archive };
     return {
       jobId,
       state: "succeeded",

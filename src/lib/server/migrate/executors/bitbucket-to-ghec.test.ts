@@ -16,6 +16,8 @@ afterEach(() => restore());
 
 test("persists the Bitbucket export ID before polling and importing", async () => {
   const operations: string[] = [];
+  const events: unknown[] = [];
+  let polls = 0;
   restore = __setBitbucketToGhecDependenciesForTests({
     requireTargetProfile: () => ({
       id: "ghec",
@@ -33,11 +35,12 @@ test("persists the Bitbucket export ID before polling and importing", async () =
       },
       getRepositoryExport: async () => ({
         id: "41",
-        state: "COMPLETED",
-        message: "",
+        state: polls++ ? "COMPLETED" : "RUNNING",
+        message: "Authorization: Bearer inert-test-token https://fixture.invalid/?signature=inert",
         percentage: 100,
       }),
     }),
+    wait: async () => {},
     resolveTargetAuth: () => ({ token: "target-token" }),
     createClients: () => clients,
     doesOrgExist: async () => true,
@@ -59,9 +62,11 @@ test("persists the Bitbucket export ID before polling and importing", async () =
     sourceProvider: "bitbucket-server",
     sourceRepo: "PROJ/repo",
     targetOrg: "cloud",
-    emit: () => {},
+    emit: (event) => events.push(event),
   });
   expect(result.state).toBe("succeeded");
+  expect(JSON.stringify(events)).toContain("Bitbucket export 100%");
+  expect(JSON.stringify(events)).not.toMatch(/Authorization|inert|signature/);
   expect(operations).toEqual([
     "preflight",
     "source_export",

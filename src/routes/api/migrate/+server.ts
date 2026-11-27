@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
 import { parseAuthenticatedBody } from "$lib/server/application/migration-policy";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { listPaginated, searchPaginated, start } from "$lib/server/migrate/manager";
 import { createMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import type { RequestHandler } from "./$types";
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     });
     return json(migration, { status: 201 });
   } catch (error) {
-    console.error("[api] POST /api/migrate failed:", error);
+    console.error("[api] POST /api/migrate failed:", safeErrorReason(error));
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

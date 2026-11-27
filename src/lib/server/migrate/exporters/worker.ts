@@ -28,6 +28,17 @@ export type ExporterJobStatus =
   | { jobId: string; state: "succeeded"; archive: ExporterArchive }
   | { jobId: string; state: "failed" | "cancelled"; failureReason: string };
 
+export const exporterFailures = {
+  stopped: "Exporter container stopped unexpectedly",
+  exit: "Exporter container exited unsuccessfully",
+  archive: "Exporter archive is not a regular file",
+} as const;
+
+// Both provider replies and older checkpoint rows can contain arbitrary diagnostics.
+export function exporterFailureReason(reason: string | null): string {
+  return Object.values(exporterFailures).find((known) => known === reason) ?? "Exporter job failed";
+}
+
 export interface ExporterWorker {
   identify?(request: ExporterArchiveRequest): string;
   submit(request: ExporterArchiveRequest, signal?: AbortSignal): Promise<{ jobId: string }>;
@@ -127,7 +138,10 @@ export async function refreshExporterArchive(
     });
   } else if (status.state === "failed" || status.state === "cancelled") {
     updateGhesImportJobCheckpoint(job.id, status.state, {
-      failureReason: status.failureReason,
+      failureReason:
+        status.state === "cancelled"
+          ? "Exporter job cancelled"
+          : exporterFailureReason(status.failureReason),
     });
   } else {
     updateGhesImportJobCheckpoint(job.id, "exporting");

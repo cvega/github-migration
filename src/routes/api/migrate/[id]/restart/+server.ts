@@ -7,7 +7,8 @@ import {
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { restartOwnJob } from "$lib/server/application/self-service/jobs";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
-import { get, restart } from "$lib/server/migrate/manager";
+import { safeErrorReason } from "$lib/server/core/safe-error";
+import { get, MigrationRestartConflict, restart } from "$lib/server/migrate/manager";
 import { restartMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
 import { restartValidationInput } from "$lib/server/migrate/validate";
 import type { RequestHandler } from "./$types";
@@ -51,12 +52,15 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     });
     return json(migration);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("not found")) return json({ error: message }, { status: 404 });
-    if (message.startsWith("Cannot restart") || message === GITLAB_GHES_PAUSE_REASON) {
-      return json({ error: message }, { status: 409 });
+    if (error instanceof MigrationRestartConflict)
+      return json({ error: error.message }, { status: 409 });
+    if (error instanceof Error && error.message === "Migration not found") {
+      return json({ error: "Migration not found" }, { status: 404 });
     }
-    console.error(`[api] Failed to restart migration ${params.id}:`, error);
+    if (error instanceof Error && error.message === GITLAB_GHES_PAUSE_REASON) {
+      return json({ error: GITLAB_GHES_PAUSE_REASON }, { status: 409 });
+    }
+    console.error(`[api] Failed to restart migration ${params.id}:`, safeErrorReason(error));
     return json({ error: "Internal server error" }, { status: 500 });
   }
 };

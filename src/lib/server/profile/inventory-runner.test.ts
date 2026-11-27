@@ -95,12 +95,17 @@ describe("inventory profile runners", () => {
       undefined,
       {
         discover: async () => {
-          throw new Error("GitLab returned 403");
+          throw Object.assign(new Error("Authorization: Bearer inert-placeholder"), {
+            status: 403,
+          });
         },
-        isApiError: (error) => error instanceof Error && error.message.includes("403"),
+        isApiError: () => true,
       },
     );
-    expect(apiFailure).toMatchObject({ state: "failed", failureReason: "GitLab returned 403" });
+    expect(apiFailure).toMatchObject({
+      state: "failed",
+      failureReason: "GitLab inventory request failed (HTTP 403)",
+    });
 
     const invalidClient = client("https://gitlab.example.com/api/v4");
     const invalid = await runGitLabInventoryProfile(

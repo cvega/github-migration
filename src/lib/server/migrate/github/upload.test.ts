@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { uploadArchive } from "./upload";
 
 interface FetchCall {
@@ -49,6 +49,23 @@ describe("archive upload", () => {
     expect(calls[0]?.url).toContain("my%20archive.tar.gz");
     expect(calls[0]?.headers.Authorization).toBe("Bearer token");
     expect(calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("logs only the status of a rejected upload", async () => {
+    const controller = new AbortController();
+    const warn = spyOn(console, "warn").mockImplementation(() => {
+      queueMicrotask(() => controller.abort());
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        "Authorization: Bearer inert-test-token https://fixture.invalid/archive?signature=inert",
+        { status: 503 },
+      )) as unknown as typeof fetch;
+    await expect(
+      uploadArchive(new Uint8Array(1), "archive", "org", "token", undefined, controller.signal),
+    ).rejects.toThrow("Aborted");
+    expect(warn.mock.calls[0]?.[1]).toBe("Upload failed (HTTP 503)");
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/Authorization|inert|signature/);
   });
 
   test("rejects an already-aborted upload before fetch", async () => {

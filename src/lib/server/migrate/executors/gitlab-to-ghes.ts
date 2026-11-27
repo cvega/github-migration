@@ -13,6 +13,7 @@ import {
   defaultGhesWait,
   type ExporterGhesSourceAdapter,
   type GhesImportClient,
+  GhesImportDiagnostic,
   type GhesMigrationOptions,
   resumeExporterGhesMigration,
   runExporterGhesMigration,
@@ -53,7 +54,7 @@ function adapter(): ExporterGhesSourceAdapter {
     getConfig: dependencies.getConfig,
     assertSource(migration) {
       if (client.apiUrl !== migration.sourceApiUrl)
-        throw new Error("Configured GitLab source URL changed after submission");
+        throw new GhesImportDiagnostic("Configured GitLab source URL changed after submission");
     },
     createWorker: (config) =>
       dependencies.createWorker(config as ReturnType<typeof getGhesTargetExecutionConfig>),
