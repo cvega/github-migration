@@ -746,9 +746,11 @@ describe("GitLabClient", () => {
 
   test("distinguishes exact, lower-bound, and unavailable counts", async () => {
     const { fetch } = mockFetch([
-      jsonResponse([{}], { headers: { "X-Total": "42" } }),
+      jsonResponse([{}], { headers: { "X-Total": "42", "X-Next-Page": "2" } }),
       jsonResponse([]),
-      jsonResponse([{}]),
+      jsonResponse([], { headers: { "X-Total": "0", "X-Next-Page": "" } }),
+      jsonResponse([{}], { headers: { "X-Next-Page": "" } }),
+      jsonResponse([{}], { headers: { "X-Next-Page": "2" } }),
       jsonResponse({ message: "forbidden" }, { status: 403 }),
     ]);
     const client = new GitLabClient({
@@ -758,8 +760,26 @@ describe("GitLabClient", () => {
       maxRetries: 0,
     });
 
-    expect(await client.count("/projects/1/issues")).toEqual({ kind: "exact", value: 42 });
-    expect(await client.count("/projects/1/releases")).toEqual({ kind: "exact", value: 0 });
+    expect(await client.count("/projects/1/issues")).toEqual({
+      kind: "exact",
+      value: 42,
+      basis: "reported",
+    });
+    expect(await client.count("/projects/1/releases")).toEqual({
+      kind: "exact",
+      value: 0,
+      basis: "enumerated",
+    });
+    expect(await client.count("/projects/1/issues")).toEqual({
+      kind: "exact",
+      value: 0,
+      basis: "reported",
+    });
+    expect(await client.count("/projects/1/issues")).toEqual({
+      kind: "exact",
+      value: 1,
+      basis: "enumerated",
+    });
     expect(await client.count("/projects/1/merge_requests")).toEqual({
       kind: "at-least",
       value: 1,
@@ -791,14 +811,39 @@ describe("GitLabClient", () => {
     await expect(client.count("/projects/1/releases")).rejects.toThrow("not an array");
   });
 
-  test("rejects totals that contradict the returned page", async () => {
+  test.each<{ data: unknown[]; headers: Record<string, string> }>([
+    { data: [{}], headers: { "X-Total": "0" } },
+    { data: [], headers: { "X-Total": "3" } },
+    { data: [], headers: { "X-Total": "" } },
+    { data: [{}], headers: { "X-Total": "unknown" } },
+    { data: [], headers: { "X-Total": "0", "X-Next-Page": "2" } },
+    { data: [], headers: { "X-Next-Page": "2" } },
+    { data: [{}], headers: { "X-Total": "1", "X-Next-Page": "2" } },
+    { data: [{}], headers: { "X-Total": "3", "X-Next-Page": "" } },
+    { data: [{}], headers: { "X-Next-Page": "1" } },
+    { data: [{}, {}], headers: {} },
+    {
+      data: [],
+      headers: { Link: '<https://gitlab.example/projects/1/issues?page=2>; rel="next"' },
+    },
+    {
+      data: [{}],
+      headers: {
+        "X-Next-Page": "",
+        Link: '<https://gitlab.example/projects/1/issues?page=2>; rel="next"',
+      },
+    },
+  ])("marks inconsistent first-page evidence as malformed (%j)", async ({ data, headers }) => {
     const client = new GitLabClient({
       baseUrl: "https://gitlab.com",
       token: "token",
-      fetch: mockFetch([jsonResponse([{}], { headers: { "X-Total": "0" } })]).fetch,
+      fetch: mockFetch([jsonResponse(data, { headers })]).fetch,
     });
 
-    await expect(client.count("/projects/1/issues")).rejects.toThrow("inconsistent X-Total");
+    expect(await client.count("/projects/1/issues")).toEqual({
+      kind: "unavailable",
+      reason: "malformed",
+    });
   });
 
   test("retains terminal throttling telemetry", async () => {

@@ -25,13 +25,10 @@ interface GitLabProjectProfile {
   metrics: GitLabProjectMetrics;
 }
 
-function reportedCountObservation(
+function scopedCountObservation(
   count: GitLabCountObservation,
   scope: string,
 ): ProfileNumericObservation {
-  if (count.kind === "exact") {
-    return { ...count, basis: "reported", scope };
-  }
   if (count.kind === "at-least") {
     return { ...count, reason: "request-budget", scope };
   }
@@ -60,7 +57,7 @@ function metric(
   });
 }
 
-async function collectReportedCountMetric(
+async function collectFirstPageCountMetric(
   client: GitLabClient,
   projectId: string,
   collection: string,
@@ -74,11 +71,7 @@ async function collectReportedCountMetric(
     query,
     { signal: options.signal },
   );
-  return metric(
-    endpointFamily,
-    reportedCountObservation(count, scope),
-    options.nowMs ?? Date.now(),
-  );
+  return metric(endpointFamily, scopedCountObservation(count, scope), options.nowMs ?? Date.now());
 }
 
 async function collectEnumeratedCountMetric(
@@ -115,7 +108,7 @@ export async function collectGitLabIssueMetric(
   project: Pick<SourceProjectInventory, "sourceId">,
   options: { signal?: AbortSignal; nowMs?: number } = {},
 ): Promise<ProfileNumericMetric> {
-  return collectReportedCountMetric(
+  return collectFirstPageCountMetric(
     client,
     project.sourceId,
     "issues",
@@ -131,7 +124,7 @@ export async function collectGitLabMergeRequestMetric(
   project: Pick<SourceProjectInventory, "sourceId">,
   options: { signal?: AbortSignal; nowMs?: number } = {},
 ): Promise<ProfileNumericMetric> {
-  return collectReportedCountMetric(
+  return collectFirstPageCountMetric(
     client,
     project.sourceId,
     "merge_requests",

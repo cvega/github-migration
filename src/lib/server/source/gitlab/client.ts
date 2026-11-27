@@ -10,9 +10,9 @@ export interface GitLabRateLimit {
 }
 
 export type GitLabCountObservation =
-  | { kind: "exact"; value: number }
+  | { kind: "exact"; value: number; basis: "reported" | "enumerated" }
   | { kind: "at-least"; value: number }
-  | { kind: "unavailable"; reason: "forbidden" | "not-found-or-hidden" };
+  | { kind: "unavailable"; reason: "forbidden" | "not-found-or-hidden" | "malformed" };
 
 interface GitLabResponse<T> {
   data: T;
@@ -110,6 +110,35 @@ function parseHeaderInteger(value: string | null): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCountObservation {
+  const malformed = { kind: "unavailable", reason: "malformed" } as const;
+  const totalHeader = headers.get("x-total");
+  const total = parseHeaderInteger(totalHeader);
+  if (totalHeader !== null && total === null) return malformed;
+
+  const nextPage = headers.get("x-next-page");
+  if (nextPage && parseHeaderInteger(nextPage) !== 2) return malformed;
+  const hasNextLink = headers.get("Link")?.includes('rel="next"') ?? false;
+  if (nextPage === "" && hasNextLink) return malformed;
+  const hasNextPage = Boolean(nextPage) || hasNextLink;
+  if (itemsRead > 1 || (itemsRead === 0 && hasNextPage)) return malformed;
+
+  if (total !== null) {
+    if (
+      itemsRead !== Math.min(total, 1) ||
+      (hasNextPage && total <= itemsRead) ||
+      (nextPage === "" && total > itemsRead)
+    ) {
+      return malformed;
+    }
+    return { kind: "exact", value: total, basis: "reported" };
+  }
+  if (itemsRead === 0 || nextPage === "") {
+    return { kind: "exact", value: itemsRead, basis: "enumerated" };
+  }
+  return { kind: "at-least", value: itemsRead };
 }
 
 function retryAfterDelayMs(value: string | null, nowMs: number): number | null {
@@ -618,15 +647,7 @@ export class GitLabClient {
       if (!Array.isArray(response.data)) {
         throw new GitLabApiError(200, "GitLab count response was not an array");
       }
-      const total = parseHeaderInteger(response.headers.get("x-total"));
-      if (total !== null) {
-        if (total < response.data.length) {
-          throw new GitLabApiError(200, "GitLab API returned an inconsistent X-Total header");
-        }
-        return { kind: "exact", value: total };
-      }
-      if (response.data.length === 0) return { kind: "exact", value: 0 };
-      return { kind: "at-least", value: response.data.length };
+      return observeFirstPageCount(response.data.length, response.headers);
     } catch (error) {
       if (!(error instanceof GitLabApiError)) throw error;
       if (error.status === 403) return { kind: "unavailable", reason: "forbidden" };
