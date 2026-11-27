@@ -242,9 +242,7 @@ describe("GitHub migration monitor", () => {
   }
 
   test("keeps valid log entries and reports omitted entries", async () => {
-    const events = await failureLogEvents(
-      Response.json([{ ...entry, extra: "sample" }, { ...entry, message: 1 }, entry]),
-    );
+    const events = await failureLogEvents(Response.json([{ ...entry, message: 1 }, entry]));
     expect(events).toContainEqual(
       expect.objectContaining({
         eventType: "step",
@@ -252,6 +250,12 @@ describe("GitHub migration monitor", () => {
       }),
     );
     expect(events.at(-1)).toMatchObject({ payload: { detail: { logEntries: [entry] } } });
+  });
+
+  test("keeps allowed log fields when the provider adds an unknown field", async () => {
+    const events = await failureLogEvents(Response.json([{ ...entry, extra: "sample" }]));
+    const failure = events.at(-1);
+    expect(failure?.eventType === "failure" && failure.payload.detail?.logEntries).toEqual([entry]);
   });
 
   test("redacts the mock target credential and URLs from diagnostic fields", async () => {

@@ -7,13 +7,11 @@ const MAX_SEVERITY_LENGTH = 32;
 const MAX_MESSAGE_LENGTH = 2048;
 const MAX_MODEL_NAME_LENGTH = 256;
 
-export const logEntrySchema = z
-  .object({
-    severity: z.string(),
-    message: z.string(),
-    modelName: z.string(),
-  })
-  .strict();
+export const logEntrySchema = z.object({
+  severity: z.string(),
+  message: z.string(),
+  modelName: z.string(),
+});
 
 async function readLogJson(response: Response): Promise<unknown> {
   if (!response.ok || Number(response.headers.get("content-length")) > MAX_BODY_BYTES) {
