@@ -24,10 +24,10 @@ export async function verifyLoginAttempt<T>(
     return { throttled: true, reason: "capacity" };
 
   const cutoff = new Date(now.getTime() - LOGIN_WINDOW_SECONDS * 1000).toISOString();
-  const normalizedUsername = username.trim().toLowerCase();
-  const digest = createHash("sha256").update(normalizedUsername).digest("hex");
+  const trimmedUsername = username.trim();
+  const digest = createHash("sha256").update(trimmedUsername.toLowerCase()).digest("hex");
   const usernameKey = `!${digest.slice(0, USERNAME_MAX_LENGTH - 1)}`;
-  // Count legacy plaintext entries until their windows expire.
+  // Let SQLite apply its original ASCII-only NOCASE comparison to legacy entries.
   const reservation = database
     .prepare(
       `INSERT INTO auth_login_attempts (username, ip_address, attempted_at)
@@ -41,7 +41,7 @@ export async function verifyLoginAttempt<T>(
       ipAddress,
       now.toISOString(),
       usernameKey,
-      normalizedUsername,
+      trimmedUsername,
       ipAddress,
       cutoff,
       IP_LIMIT,
