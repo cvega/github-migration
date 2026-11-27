@@ -8,7 +8,7 @@ import { getProfileRunRollup } from "./database/runs";
 import { profileStore } from "./database/schema";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileDetail } from "./service";
-import { ZERO_ORG_RESOURCES } from "./types";
+import { UNKNOWN_ORG_RESOURCES } from "./types";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -82,7 +82,7 @@ const dependencies: ProfileRunnerDeps = {
     tagProtectionCount: 0,
   }),
   getOrgRulesetCount: async () => 3,
-  getOrgResources: async () => ZERO_ORG_RESOURCES,
+  getOrgResources: async () => UNKNOWN_ORG_RESOURCES,
 };
 
 describe("profile runner", () => {

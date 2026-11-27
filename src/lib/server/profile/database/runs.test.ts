@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { buildProfileDetailRollup } from "../analysis/rollup";
 import {
   backfillProfileRunRollup,
@@ -13,6 +13,7 @@ import {
   ProfileRunCapacityError,
   saveProfileRunRollup,
   setProfileRunApiCalls,
+  setProfileRunOrgResources,
   setProfileRunRulesets,
   setProfileRunTotal,
 } from "./runs";
@@ -50,6 +51,19 @@ describe("profile runs", () => {
       profiledRepos: 0,
     });
 
+    expect(run.orgRulesetCount).toBeNull();
+    getDb().run("UPDATE profile_runs SET org_ruleset_count = 100 WHERE id = ?", [run.id]);
+    expect(getProfileRun(run.id)?.orgRulesetCount).toBeNull();
+    getDb().run("UPDATE profile_runs SET org_ruleset_count = 5 WHERE id = ?", [run.id]);
+    expect(getProfileRun(run.id)?.orgRulesetCount).toBe(5);
+    setProfileRunRulesets(run.id, null);
+    expect(getProfileRun(run.id)?.orgRulesetCount).toBeNull();
+    setProfileRunRulesets(run.id, 0);
+    setProfileRunOrgResources(run.id, { ...run.orgResources, teams: 0 });
+    expect(getProfileRun(run.id)).toMatchObject({
+      orgRulesetCount: 0,
+      orgResources: { teams: 0, actionsSecrets: null },
+    });
     setProfileRunTotal(run.id, 12);
     setProfileRunRulesets(run.id, 3);
     setProfileRunApiCalls(run.id, 41);

@@ -143,8 +143,8 @@ db.prepare(
 
 db.prepare(
   `INSERT INTO profile_runs
-     (id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, started_at, completed_at)
-  VALUES (?, ?, ?, 'completed', 2, 2, 1, 0, ?, ?)`,
+     (id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_resources, started_at, completed_at)
+  VALUES (?, ?, ?, 'completed', 2, 2, 1, 0, '{"counts":{"teams":0}}', ?, ?)`,
 ).run("seed-e2e-profile", "https://ghes.example.com/api/v3", "e2e-source", startedAt, completedAt);
 
 function profileSignals(name: string): RepoSignals {

@@ -4,21 +4,21 @@ import {
   type OrgResources,
   type RepoSignals,
   type StoredCatalogMatch,
-  ZERO_ORG_RESOURCES,
+  UNKNOWN_ORG_RESOURCES,
 } from "../types";
 
 const count = z.number().int().nonnegative();
 
 const orgResourcesSchema = z
   .object({
-    actionsSecrets: count.optional(),
-    actionsVariables: count.optional(),
-    dependabotSecrets: count.optional(),
-    codespacesSecrets: count.optional(),
-    selfHostedRunners: count.optional(),
-    customProperties: count.optional(),
-    teams: count.optional(),
-    appInstallations: count.optional(),
+    actionsSecrets: count.nullable().optional(),
+    actionsVariables: count.nullable().optional(),
+    dependabotSecrets: count.nullable().optional(),
+    codespacesSecrets: count.nullable().optional(),
+    selfHostedRunners: count.nullable().optional(),
+    customProperties: count.nullable().optional(),
+    teams: count.nullable().optional(),
+    appInstallations: count.nullable().optional(),
   })
   .strict();
 
@@ -166,10 +166,18 @@ function parseRequired<S extends z.ZodType>(
 }
 
 export function parsePersistedOrgResources(json: string): OrgResources {
-  return {
-    ...ZERO_ORG_RESOURCES,
-    ...parseRequired(orgResourcesSchema, json, "profile organization resources"),
-  };
+  const stored = parseRequired(
+    z.union([z.object({ counts: orgResourcesSchema }).strict(), orgResourcesSchema]),
+    json,
+    "profile organization resources",
+  );
+  if ("counts" in stored) return { ...UNKNOWN_ORG_RESOURCES, ...stored.counts };
+  // Older collectors also wrote zero when observation failed.
+  const resources = { ...UNKNOWN_ORG_RESOURCES };
+  for (const key of Object.keys(resources) as Array<keyof OrgResources>) {
+    resources[key] = stored[key] || null;
+  }
+  return resources;
 }
 
 export function parsePersistedRepoSignals(json: string): RepoSignals {

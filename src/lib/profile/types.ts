@@ -166,25 +166,25 @@ export type ProfileRunState = "running" | "completed" | "failed";
 /**
  * Organization-level resources gathered once per run (REST). These are scoped
  * to the org (not per-repo), are not migrated, and must be recreated on the
- * target. Each degrades to 0 when its endpoint is unavailable or unauthorized.
+ * target. Each is null when its endpoint is unavailable or unauthorized.
  */
 export interface OrgResources {
   /** Org Actions secrets (`/orgs/{org}/actions/secrets`). */
-  actionsSecrets: number;
+  actionsSecrets: number | null;
   /** Org Actions variables (`/orgs/{org}/actions/variables`). */
-  actionsVariables: number;
+  actionsVariables: number | null;
   /** Org Dependabot secrets (`/orgs/{org}/dependabot/secrets`). */
-  dependabotSecrets: number;
+  dependabotSecrets: number | null;
   /** Org Codespaces secrets (`/orgs/{org}/codespaces/secrets`). */
-  codespacesSecrets: number;
+  codespacesSecrets: number | null;
   /** Org self-hosted runners (`/orgs/{org}/actions/runners`). */
-  selfHostedRunners: number;
+  selfHostedRunners: number | null;
   /** Org custom-property definitions (`/orgs/{org}/properties/schema`). */
-  customProperties: number;
+  customProperties: number | null;
   /** Org teams (`/orgs/{org}/teams`) — neither teams nor membership migrate. */
-  teams: number;
+  teams: number | null;
   /** Installed GitHub Apps (`/orgs/{org}/installations`) — not migrated. */
-  appInstallations: number;
+  appInstallations: number | null;
 }
 
 /**
@@ -206,7 +206,7 @@ export interface ProfileRun {
   /** Total applying warn-severity gaps across the run's repos. */
   warnings: number;
   /** Organization rulesets (REST); not migrated, and can fail the migration. */
-  orgRulesetCount: number;
+  orgRulesetCount: number | null;
   /** Organization-level resources (secrets, runners, …) gathered once per run. */
   orgResources: OrgResources;
   /** Total GitHub API requests the crawl made (REST + GraphQL, incl. retries and

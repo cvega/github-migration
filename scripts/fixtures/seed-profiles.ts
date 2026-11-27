@@ -428,7 +428,7 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
   const insertRun = db.prepare(`
     INSERT INTO profile_runs (
       id, source_provider, source_api_url, org, state, total_repos, profiled_repos,
-      blockers, warnings, org_ruleset_count, org_resources, api_calls, detail_rollup,
+      blockers, warnings, observed_org_ruleset_count, org_resources, api_calls, detail_rollup,
       started_at, completed_at, failure_reason
     ) VALUES (?, 'github', ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, NULL, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
@@ -440,7 +440,7 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
       profiled_repos = excluded.profiled_repos,
       blockers = excluded.blockers,
       warnings = excluded.warnings,
-      org_ruleset_count = excluded.org_ruleset_count,
+      observed_org_ruleset_count = excluded.observed_org_ruleset_count,
       org_resources = excluded.org_resources,
       api_calls = excluded.api_calls,
       detail_rollup = excluded.detail_rollup,
@@ -472,7 +472,7 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
       spec.totalRepos ?? spec.repoCount,
       0,
       spec.orgRulesetCount,
-      JSON.stringify(spec.orgResources),
+      JSON.stringify({ counts: spec.orgResources }),
       spec.apiCalls,
       spec.startedAt,
       spec.completedAt,

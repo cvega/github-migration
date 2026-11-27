@@ -73,3 +73,14 @@ test("reviews and filters a completed source profile", async ({ page }) => {
 	await expect(page.getByText("Fixture clone failure")).toBeVisible();
 	await expect(page.getByRole("button", { name: "Retry repository" })).toBeVisible();
 });
+
+for (const width of [1280, 390]) {
+	test(`distinguishes unavailable organization resources from zero at ${width}px`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 844 });
+		await page.goto("/profile/seed-e2e-profile");
+		const readiness = page.getByRole("region", { name: "Migration readiness" });
+		await expect(readiness.getByText("Rulesets", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
+		await expect(readiness.getByText("Teams", { exact: true }).locator("..").getByText("0", { exact: true })).toBeVisible();
+		await readiness.screenshot({ path: testInfo.outputPath("readiness.png") });
+	});
+}

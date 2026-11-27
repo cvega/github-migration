@@ -23,7 +23,7 @@ import {
   type ProfileProgress,
   type ProfileRun,
   type RepoSignals,
-  ZERO_ORG_RESOURCES,
+  UNKNOWN_ORG_RESOURCES,
 } from "./types";
 
 export interface ProfileClients {
@@ -37,7 +37,7 @@ export interface ProfileRunnerDeps {
   augmentDetails: typeof augmentRepoDetails;
   countCommits: typeof countRepoCommits;
   gatherRestSignals: typeof gatherRepoRestSignals;
-  getOrgRulesetCount: (org: string) => Promise<number>;
+  getOrgRulesetCount: (org: string) => Promise<number | null>;
   getOrgResources: (org: string) => Promise<OrgResources>;
 }
 const DEFAULT_DEPS: ProfileRunnerDeps = {
@@ -46,8 +46,8 @@ const DEFAULT_DEPS: ProfileRunnerDeps = {
   augmentDetails: augmentRepoDetails,
   countCommits: countRepoCommits,
   gatherRestSignals: gatherRepoRestSignals,
-  getOrgRulesetCount: async () => 0,
-  getOrgResources: async () => ZERO_ORG_RESOURCES,
+  getOrgRulesetCount: async () => null,
+  getOrgResources: async () => UNKNOWN_ORG_RESOURCES,
 };
 const LIMITS = {
   counts: 15,

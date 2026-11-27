@@ -52,16 +52,16 @@ function signals(): RepoSignals {
 }
 
 describe("persisted profile results", () => {
-  test("fills missing legacy organization resources with zero", () => {
-    expect(parsePersistedOrgResources(JSON.stringify({ teams: 3 }))).toEqual({
-      actionsSecrets: 0,
-      actionsVariables: 0,
-      dependabotSecrets: 0,
-      codespacesSecrets: 0,
-      selfHostedRunners: 0,
-      customProperties: 0,
+  test("fills missing legacy organization resources with unavailable", () => {
+    expect(parsePersistedOrgResources(JSON.stringify({ teams: 3, actionsSecrets: 0 }))).toEqual({
+      actionsSecrets: null,
+      actionsVariables: null,
+      dependabotSecrets: null,
+      codespacesSecrets: null,
+      selfHostedRunners: null,
+      customProperties: null,
       teams: 3,
-      appInstallations: 0,
+      appInstallations: null,
     });
   });
 
