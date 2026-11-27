@@ -96,6 +96,7 @@ describe("Bitbucket repository profile metrics", () => {
       until: "main",
       withCounts: "true",
       limit: "100",
+      start: "0",
     });
   });
 
@@ -103,7 +104,14 @@ describe("Bitbucket repository profile metrics", () => {
     "keeps the observed lower bound with nonterminal total %s",
     async (totalCount) => {
       const { client } = clientWithResponses([
-        page([{}, {}], { totalCount, isLastPage: false, nextPageStart: 2 }),
+        page([{}, {}], {
+          start: 0,
+          size: 2,
+          limit: 2,
+          totalCount,
+          isLastPage: false,
+          nextPageStart: 42,
+        }),
       ]);
       expect(
         (
@@ -126,6 +134,38 @@ describe("Bitbucket repository profile metrics", () => {
     ["zero total with a commit", { values: [{}], isLastPage: true, totalCount: 0 }],
     ["terminal total exceeds page length", { values: [{}], isLastPage: true, totalCount: 2 }],
     [
+      "terminal page starting after zero",
+      { values: [{}], isLastPage: true, totalCount: 1, start: 4 },
+    ],
+    ["malformed page start", { values: [], isLastPage: true, totalCount: 0, start: "0" }],
+    [
+      "terminal page with a cursor",
+      { values: [{}], isLastPage: true, totalCount: 1, nextPageStart: 1 },
+    ],
+    [
+      "reported size inconsistent with values",
+      { values: [{}], isLastPage: true, totalCount: 1, size: 0 },
+    ],
+    [
+      "reported limit below page size",
+      { values: [{}, {}], isLastPage: true, totalCount: 2, limit: 1 },
+    ],
+    [
+      "reported limit above requested limit",
+      { values: [], isLastPage: true, totalCount: 0, limit: 101 },
+    ],
+    ["noninteger reported limit", { values: [], isLastPage: true, totalCount: 0, limit: 1.5 }],
+    ["nonpositive reported limit", { values: [], isLastPage: true, totalCount: 0, limit: 0 }],
+    ["malformed reported limit", { values: [], isLastPage: true, totalCount: 0, limit: "100" }],
+    [
+      "page above requested limit",
+      { values: Array.from({ length: 101 }, () => ({})), isLastPage: true, totalCount: 101 },
+    ],
+    [
+      "nonterminal page starting after zero",
+      { values: [{}], isLastPage: false, nextPageStart: 5, start: 4 },
+    ],
+    [
       "nonterminal total below page length",
       {
         values: [{}],
@@ -146,7 +186,9 @@ describe("Bitbucket repository profile metrics", () => {
   });
 
   test("reports exact zero for an authoritative empty terminal commit page", async () => {
-    const { client } = clientWithResponses([page([], { totalCount: 0 })]);
+    const { client } = clientWithResponses([
+      page([], { start: 0, size: 0, limit: 100, totalCount: 0 }),
+    ]);
 
     await expect(
       collectBitbucketCommitMetric(client, { path: "PC/service-api", defaultBranch: "main" }),
