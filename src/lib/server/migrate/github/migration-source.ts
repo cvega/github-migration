@@ -60,7 +60,14 @@ async function createTypedMigrationSource(
 				migrationSource { id }
 			}
 		}`,
-    { name: source.name, sourceUrl: source.sourceUrl, ownerId: orgId, type: source.type },
+    {
+      // A lost response can leave a created source without a usable ID.
+      request: { retries: 0 },
+      name: source.name,
+      sourceUrl: source.sourceUrl,
+      ownerId: orgId,
+      type: source.type,
+    },
   );
   return result.createMigrationSource.migrationSource.id;
 }

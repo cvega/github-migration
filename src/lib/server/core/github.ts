@@ -56,32 +56,39 @@ export function createTargetClients(targetAuth: AuthInput, apiUrl: string): GitH
  * request, eliminating the 60-minute expiry problem for long-running
  * migrations.
  */
+interface ThrottledRequestOptions {
+  url?: string;
+  request?: Record<string, unknown>;
+}
+
 /** Options forwarded to the @octokit/plugin-throttling constructor. */
 interface ThrottleOptions {
   onRateLimit: (
     retryAfter: number,
-    options: Record<string, unknown>,
+    options: ThrottledRequestOptions,
     octokit: unknown,
     retryCount: number,
   ) => boolean;
   onSecondaryRateLimit: (
     retryAfter: number,
-    options: Record<string, unknown>,
+    options: ThrottledRequestOptions,
     octokit: unknown,
     retryCount: number,
   ) => boolean;
 }
 
-/** Default throttling behaviour: log and retry up to 3 times on rate limits. */
+/** Retry rate limits up to three times unless the request opts out of retries. */
 export function makeThrottleOptions(): ThrottleOptions {
   return {
     onRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      if (options.request?.retries === 0) return false;
       console.warn(
         `Rate limit hit for ${options.url}, retrying after ${retryAfter}s (attempt ${retryCount + 1})`,
       );
       return retryCount < 3;
     },
     onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
+      if (options.request?.retries === 0) return false;
       console.warn(`Secondary rate limit for ${options.url}, retrying after ${retryAfter}s`);
       return retryCount < 3;
     },
