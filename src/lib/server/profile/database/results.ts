@@ -44,6 +44,8 @@ const repoSignalsSchema = z
     projectsV2Count: count,
     environmentsCount: count,
     releaseAssetBytes: count,
+    releaseAssetScanComplete: z.boolean().optional(),
+    branchRuleScanComplete: z.boolean().optional(),
     stargazerCount: count,
     watcherCount: count,
     forkCount: count,

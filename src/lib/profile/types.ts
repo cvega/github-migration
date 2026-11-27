@@ -83,10 +83,12 @@ export interface RepoSignals extends DiscoveredRepo {
   environmentsCount: number;
   /**
    * Summed byte size of release assets across the repo's releases (bounded scan:
-   * the first 100 releases × first 50 assets each). An estimate — the usual
+   * the first 50 releases × first 30 assets each). An estimate — the usual
    * driver of the per-repo release (10 GiB) and metadata-archive (40 GiB) limits.
    */
   releaseAssetBytes: number;
+  /** Absent on historical profiles. */
+  releaseAssetScanComplete?: boolean;
   /** Stars (`stargazerCount`); not migrated. */
   stargazerCount: number;
   /** Watchers (`watchers.totalCount`); not migrated. */
@@ -97,6 +99,8 @@ export interface RepoSignals extends DiscoveredRepo {
   rulesetCount: number;
   /** Branch protection rules (`branchProtectionRules.totalCount`). */
   branchProtectionRuleCount: number;
+  /** Absent on historical profiles. */
+  branchRuleScanComplete?: boolean;
   /**
    * How many branch protection rules use at least one feature the GitHub export
    * does not carry (force-push allowance, required deployments, lock branch, block
@@ -251,6 +255,7 @@ export interface ProfileInventorySummary {
 }
 
 export interface ProfilePlanRepo {
+  incompleteReadinessScan?: boolean;
   nameWithOwner: string;
   blockers: number;
   warnings: number;

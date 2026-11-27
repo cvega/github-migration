@@ -1,4 +1,4 @@
-import type { RepoSignals } from "../types";
+import { type RepoSignals, releaseScanComplete, ruleScanComplete } from "../types";
 
 // A null finding is clear; undefined means its evidence could not be read.
 type Detector = (signals: RepoSignals) => string | null | undefined;
@@ -10,10 +10,6 @@ function count(value: number, noun: string): string {
 const GIT_ARCHIVE_PROXY_KB = 2 * 1024 * 1024;
 const RELEASE_LIMIT_BYTES = 10 * 1024 ** 3;
 const METADATA_LIMIT_BYTES = 40 * 1024 ** 3;
-
-function toGiB(bytes: number): string {
-  return (bytes / 1024 ** 3).toFixed(1);
-}
 
 export const DETECTORS: Readonly<Record<string, Detector>> = {
   "git-lfs": (signals) =>
@@ -30,8 +26,10 @@ export const DETECTORS: Readonly<Record<string, Detector>> = {
     signals.environmentsCount > 0 ? count(signals.environmentsCount, "environment") : null,
   "branch-protection-partial": (signals) =>
     signals.branchProtectionRulesUsingUnmigratedFeatures > 0
-      ? `${count(signals.branchProtectionRulesUsingUnmigratedFeatures, "rule")} using unmigrated features`
-      : null,
+      ? `${ruleScanComplete(signals) ? "" : "At least "}${count(signals.branchProtectionRulesUsingUnmigratedFeatures, "rule")} using unmigrated features`
+      : ruleScanComplete(signals)
+        ? null
+        : undefined,
   rulesets: (signals) => (signals.rulesetCount > 0 ? count(signals.rulesetCount, "ruleset") : null),
   "tag-protection": (signals) =>
     signals.tagProtectionCount === null
@@ -75,14 +73,17 @@ export const DETECTORS: Readonly<Record<string, Detector>> = {
     const gib = (signals.diskUsageKb / (1024 * 1024)).toFixed(1);
     return `repository size ~${gib} GiB (estimate — confirm with git-sizer)`;
   },
-  "release-size-limit": (signals) =>
-    signals.releaseAssetBytes >= RELEASE_LIMIT_BYTES
-      ? `~${toGiB(signals.releaseAssetBytes)} GiB of release assets (limit 10 GiB — estimate)`
-      : null,
+  "release-size-limit": (signals) => releaseLimit(signals, RELEASE_LIMIT_BYTES, "limit 10 GiB"),
   "metadata-archive-limit": (signals) =>
-    signals.releaseAssetBytes >= METADATA_LIMIT_BYTES
-      ? `~${toGiB(signals.releaseAssetBytes)} GiB of release assets (metadata limit 40 GiB — estimate)`
-      : null,
+    releaseLimit(signals, METADATA_LIMIT_BYTES, "metadata limit 40 GiB"),
 };
+
+function releaseLimit(signals: RepoSignals, threshold: number, label: string) {
+  const complete = releaseScanComplete(signals);
+  if (signals.releaseAssetBytes < threshold) return complete ? null : undefined;
+  const gib = signals.releaseAssetBytes / 1024 ** 3;
+  const observed = complete ? `~${gib.toFixed(1)}` : `At least ${Math.floor(gib)}`;
+  return `${observed} GiB of release assets (${label} — estimate)`;
+}
 
 export const DETECTED_CATALOG_ENTRY_IDS: readonly string[] = Object.keys(DETECTORS);

@@ -67,7 +67,11 @@ describe("profile signals", () => {
   });
 
   test("distinguishes an absent Git object from missing detail fields", async () => {
-    const r0 = { gitattributes: null, workflows: null, branchProtectionRules: { nodes: [] } };
+    const r0 = {
+      gitattributes: null,
+      workflows: null,
+      branchProtectionRules: { pageInfo: { hasNextPage: false }, nodes: [] },
+    };
     const gql = (async () => ({ r0 })) as never;
     expect(await augmentRepoDetails(gql, [repo()], { scanReleases: false })).toMatchObject([
       { usesLfs: false, workflowFileCount: 0 },
@@ -90,8 +94,19 @@ describe("profile signals", () => {
         r0: {
           gitattributes: { text: "*.bin filter=lfs" },
           workflows: { entries: [{ name: "ci.yml" }, { name: "README" }] },
-          releases: { nodes: [{ releaseAssets: { nodes: [{ size: 7 }, { size: 5 }] } }] },
+          releases: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              {
+                releaseAssets: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: [{ size: 7 }, { size: 5 }],
+                },
+              },
+            ],
+          },
           branchProtectionRules: {
+            pageInfo: { hasNextPage: false },
             nodes: [
               {
                 allowsForcePushes: true,
@@ -117,6 +132,50 @@ describe("profile signals", () => {
     await augmentRepoDetails(gql as never, [repo()], { scanReleases: false });
     expect(query).not.toContain("releases(first:");
   });
+
+  test.each([
+    [51, 50, 30],
+    [50, 51, 30],
+    [50, 50, 31],
+    [50, 50, 30],
+  ])(
+    "records completeness for %i rules, %i releases and %i assets",
+    async (rules, releases, assets) => {
+      function page<T>(total: number, cap: number, node: T) {
+        return {
+          nodes: Array(Math.min(total, cap)).fill(node),
+          pageInfo: { hasNextPage: total > cap },
+        };
+      }
+      const rule = {
+        allowsForcePushes: false,
+        requiresDeployments: false,
+        lockBranch: false,
+        blocksCreations: false,
+        requireLastPushApproval: false,
+        bypassForcePushAllowances: { totalCount: 0 },
+        bypassPullRequestAllowances: { totalCount: 0 },
+      };
+      const gql = async (query: string) => {
+        expect(query.match(/pageInfo \{ hasNextPage \}/g)).toHaveLength(3);
+        return {
+          r0: {
+            workflows: null,
+            gitattributes: null,
+            branchProtectionRules: page(rules, 50, rule),
+            releases: page(releases, 50, { releaseAssets: page(assets, 30, { size: 0 }) }),
+          },
+        };
+      };
+      const [detail] = await augmentRepoDetails(gql as never, [repo()]);
+      expect(detail).toMatchObject({
+        branchRuleScanComplete: rules <= 50,
+        releaseAssetScanComplete: releases <= 50 && assets <= 30,
+        branchProtectionRulesUsingUnmigratedFeatures: 0,
+        releaseAssetBytes: 0,
+      });
+    },
+  );
 
   test("collects REST signals while isolating endpoint failures", async () => {
     const rest = {

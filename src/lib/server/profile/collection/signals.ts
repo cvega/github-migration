@@ -31,14 +31,16 @@ const ruleSchema = z.object({
   bypassForcePushAllowances: connection,
   bypassPullRequestAllowances: connection,
 });
+const pageInfo = z.object({ hasNextPage: z.boolean() });
 const detailsNode = z.object({
   gitattributes: z.object({ text: z.string() }).nullable(),
   workflows: z.object({ entries: z.array(z.object({ name: z.string() })) }).nullable(),
-  branchProtectionRules: z.object({ nodes: z.array(ruleSchema) }),
+  branchProtectionRules: z.object({ pageInfo, nodes: z.array(ruleSchema) }),
 });
 const releaseNode = z.object({
+  pageInfo,
   nodes: z.array(
-    z.object({ releaseAssets: z.object({ nodes: z.array(z.object({ size: count })) }) }),
+    z.object({ releaseAssets: z.object({ pageInfo, nodes: z.array(z.object({ size: count })) }) }),
   ),
 });
 export interface RepoDetails {
@@ -47,6 +49,8 @@ export interface RepoDetails {
   usesLfs: boolean;
   workflowFileCount: number;
   releaseAssetBytes: number;
+  releaseAssetScanComplete: boolean;
+  branchRuleScanComplete: boolean;
 }
 export type RepoRestSignals = Pick<
   RepoSignals,
@@ -64,13 +68,13 @@ const COUNTS = `fragment Counts on Repository {
 }`;
 function detailsFragment(scanReleases: boolean): string {
   const releases = scanReleases
-    ? "releases(first: 50) { nodes { releaseAssets(first: 30) { nodes { size } } } }"
+    ? "releases(first: 50) { pageInfo { hasNextPage } nodes { releaseAssets(first: 30) { pageInfo { hasNextPage } nodes { size } } } }"
     : "";
   return `fragment Details on Repository {
  gitattributes: object(expression: "HEAD:.gitattributes") { ... on Blob { text } }
  workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
  ${releases}
- branchProtectionRules(first: $rules) { nodes { allowsForcePushes requiresDeployments lockBranch blocksCreations requireLastPushApproval bypassForcePushAllowances { totalCount } bypassPullRequestAllowances { totalCount } } }
+ branchProtectionRules(first: $rules) { pageInfo { hasNextPage } nodes { allowsForcePushes requiresDeployments lockBranch blocksCreations requireLastPushApproval bypassForcePushAllowances { totalCount } bypassPullRequestAllowances { totalCount } } }
 }`;
 }
 function query(count: number, fragmentName: string, fragment: string, rules: boolean): string {
@@ -137,6 +141,11 @@ function details(
     workflowFileCount:
       node.workflows?.entries.filter((entry) => /\.ya?ml$/i.test(entry.name)).length ?? 0,
     releaseAssetBytes,
+    branchRuleScanComplete: !node.branchProtectionRules.pageInfo.hasNextPage,
+    releaseAssetScanComplete:
+      !!releases &&
+      !releases.pageInfo.hasNextPage &&
+      releases.nodes.every((release) => !release.releaseAssets.pageInfo.hasNextPage),
   };
 }
 function timeout(error: unknown): boolean {

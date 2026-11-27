@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { repositoryAnalysisAllowsPlanning } from "$lib/profile/repository-analysis";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { analyzeRepo } from "$lib/server/profile/analysis/repos";
 import type { RepoSignals } from "../types";
-import { recordRepoProfile } from "./repos";
+import { getRunRepoPlanProfiles, recordRepoProfile } from "./repos";
 import {
   claimRepositoryAnalysisJob,
   completeRepositoryAnalysisJob,
@@ -124,29 +125,51 @@ describe("repository analysis runs", () => {
     ]);
   });
 
-  test("allows a repository with findings after its analysis succeeds", () => {
+  test.each([
+    { branchRuleScanComplete: false },
+    { releaseAssetScanComplete: false },
+    { branchProtectionRuleCount: 51 },
+    { releasesCount: 1 },
+  ])("requires successful analysis for incomplete scans with zero findings", (partial) => {
     createProfileRun({ id: "profile", sourceApiUrl: "https://api.github.com", org: "acme" });
-    const warning = signals("acme/warn", { hasDiscussions: true, discussionsCount: 1 });
-    recordRepoProfile("profile", warning, analyzeRepo(warning));
+    const repo = signals("acme/partial", partial);
+    recordRepoProfile("profile", repo, analyzeRepo(repo));
     completeProfileRun("profile");
-    startRepositoryAnalysis("profile");
-    const job = claimRepositoryAnalysisJob({ leaseOwner: "worker" });
-    if (!job) throw new Error("Expected an analysis job");
-    completeRepositoryAnalysisJob({
-      job,
-      leaseOwner: "worker",
-      resultId: "result",
-      result: {
-        sourceRefFingerprint: "sha256:refs",
-        mirrorSizeBytes: 42,
-        gitVersion: "git 2.49.1",
-        gitLfsVersion: "git-lfs/3.6.0",
-        gitSizerVersion: "git-sizer 1.5.0",
-        metrics: {},
-        lfsPointers: [],
-      },
-    });
-
-    expect(findRepositoriesAwaitingAnalysis("profile", ["acme/warn"])).toEqual([]);
+    const [planned] = getRunRepoPlanProfiles("profile", 1);
+    if (!planned) throw new Error("missing repository");
+    expect(planned).toMatchObject({ warnings: 0, blockers: 0 });
+    expect(repositoryAnalysisAllowsPlanning(planned, null)).toBe(false);
+    expect(findRepositoriesAwaitingAnalysis("profile", [repo.nameWithOwner])).toEqual([
+      repo.nameWithOwner,
+    ]);
   });
+
+  test.each([{ discussionsCount: 1 }, { releaseAssetScanComplete: false }])(
+    "allows a repository after its required analysis succeeds",
+    (evidence) => {
+      createProfileRun({ id: "profile", sourceApiUrl: "https://api.github.com", org: "acme" });
+      const warning = signals("acme/warn", evidence);
+      recordRepoProfile("profile", warning, analyzeRepo(warning));
+      completeProfileRun("profile");
+      startRepositoryAnalysis("profile");
+      const job = claimRepositoryAnalysisJob({ leaseOwner: "worker" });
+      if (!job) throw new Error("Expected an analysis job");
+      completeRepositoryAnalysisJob({
+        job,
+        leaseOwner: "worker",
+        resultId: "result",
+        result: {
+          sourceRefFingerprint: "sha256:refs",
+          mirrorSizeBytes: 42,
+          gitVersion: "git 2.49.1",
+          gitLfsVersion: "git-lfs/3.6.0",
+          gitSizerVersion: "git-sizer 1.5.0",
+          metrics: {},
+          lfsPointers: [],
+        },
+      });
+
+      expect(findRepositoriesAwaitingAnalysis("profile", ["acme/warn"])).toEqual([]);
+    },
+  );
 });

@@ -206,7 +206,13 @@ export async function runProfile(
         ]);
         cancelled(input.signal);
         progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
-        return { ...repo, ...detail, commitsCount, ...rest };
+        return {
+          ...repo,
+          ...detail,
+          releaseAssetScanComplete: repo.releasesCount === 0 || detail.releaseAssetScanComplete,
+          commitsCount,
+          ...rest,
+        };
       } catch (error) {
         if (input.signal?.aborted) throw error;
         throw new Error(

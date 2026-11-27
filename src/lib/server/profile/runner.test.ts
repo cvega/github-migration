@@ -71,6 +71,8 @@ const dependencies: ProfileRunnerDeps = {
       usesLfs: true,
       workflowFileCount: 1,
       releaseAssetBytes: 0,
+      releaseAssetScanComplete: true,
+      branchRuleScanComplete: true,
     })),
   countCommits: async () => 12,
   gatherRestSignals: async () => ({
@@ -102,7 +104,11 @@ describe("profile runner", () => {
       rulesets: zero,
       branchProtectionRules: zero,
     };
-    const detail = { gitattributes: null, workflows: null, branchProtectionRules: { nodes: [] } };
+    const detail = {
+      gitattributes: null,
+      workflows: null,
+      branchProtectionRules: { pageInfo: { hasNextPage: false }, nodes: [] },
+    };
     const requested: string[] = [];
     const rest = {
       repos: {},
