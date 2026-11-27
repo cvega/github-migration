@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   PROFILE_DURABLE_TABLES,
   profileStore,
@@ -32,6 +35,180 @@ describe("profile database schema", () => {
     const names = new Set(tables.map(({ name }) => name));
     for (const contract of PROFILE_DURABLE_TABLES) expect(names.has(contract.name)).toBe(true);
     database.close();
+  });
+
+  test("widens the legacy provider CHECK and preserves dependent inventory across restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "profile-provider-upgrade-"));
+    const path = join(directory, "profile.db");
+    try {
+      {
+        using db = new Database(path, { create: true });
+        db.run(`PRAGMA foreign_keys = ON;
+          CREATE TABLE profile_runs (
+            id TEXT PRIMARY KEY,
+            source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab')),
+            source_api_url TEXT NOT NULL, org TEXT NOT NULL, state TEXT NOT NULL,
+            total_repos INTEGER NOT NULL DEFAULT 0, profiled_repos INTEGER NOT NULL DEFAULT 0,
+            blockers INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0,
+            started_at TEXT NOT NULL, completed_at TEXT, failure_reason TEXT
+          );
+          CREATE TABLE profile_source_inventories (
+            run_id TEXT PRIMARY KEY REFERENCES profile_runs(id) ON DELETE CASCADE,
+            payload TEXT NOT NULL, fetched_at TEXT NOT NULL
+          )`);
+        insertRun(db, "legacy", "completed", "2026-08-01");
+        db.run("INSERT INTO profile_source_inventories VALUES ('legacy', '{}', '2026-08-02')");
+        expect(() =>
+          db.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'"),
+        ).toThrow(/CHECK/);
+        profileStore.applySchema(db);
+        expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+        expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+      }
+      using reopened = new Database(path);
+      reopened.run("PRAGMA foreign_keys = ON");
+      profileStore.applySchema(reopened);
+      expect(
+        reopened
+          .query(`SELECT r.id, r.source_provider, r.state, r.completed_at, i.fetched_at
+        FROM profile_runs r JOIN profile_source_inventories i ON i.run_id = r.id`)
+          .all(),
+      ).toEqual([
+        {
+          id: "legacy",
+          source_provider: "github",
+          state: "completed",
+          completed_at: "2026-08-01",
+          fetched_at: "2026-08-02",
+        },
+      ]);
+      expect(
+        reopened.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'").changes,
+      ).toBe(1);
+      expect(reopened.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+      expect(reopened.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes competing legacy upgrades and retries an interrupted upgrade", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "profile-upgrade-"));
+    const path = join(directory, "profile.db");
+    const unavailable = { kind: "unavailable", reason: "not-reported" };
+    const project = {
+      provider: "gitlab",
+      sourceId: "1",
+      path: "acme/api",
+      name: "api",
+      visibility: "private",
+      archived: false,
+      defaultBranch: null,
+      lastActivityAt: null,
+      repositorySizeBytes: { kind: "exact", value: 0 },
+      storageSizeBytes: unavailable,
+      lfsObjectsSizeBytes: unavailable,
+      packagesSizeBytes: unavailable,
+      wikiSizeBytes: unavailable,
+      uploadsSizeBytes: unavailable,
+    };
+    const projectCount = { kind: "at-least", value: 1 };
+    const payload = JSON.stringify({
+      version: 1,
+      provider: "gitlab",
+      sourceApiUrl: "https://gitlab.example/api/v4",
+      namespace: "acme",
+      projectCount,
+      projects: [project],
+    });
+
+    try {
+      {
+        using db = new Database(path, { create: true });
+        db.run("PRAGMA journal_mode = WAL");
+        profileStore.applySchema(db);
+        db.run(`ALTER TABLE profile_runs ADD COLUMN lease_managed INTEGER;
+          CREATE VIEW legacy_leases AS SELECT lease_managed FROM profile_runs;
+          INSERT INTO profile_runs (id, source_provider, source_api_url, org, started_at)
+          VALUES ('legacy', 'gitlab', 'https://gitlab.example/api/v4', 'acme', '2026-08-01');
+          INSERT INTO profile_repos (run_id, name_with_owner, created_at)
+          VALUES ('legacy', 'acme/api', '2026-08-01')`);
+        db.prepare(
+          "INSERT INTO profile_source_inventories (run_id, payload, fetched_at) VALUES ('legacy', ?, '2026-08-01')",
+        ).run(payload);
+
+        // Failure at the last DDL statement must also roll back the earlier backfill.
+        expect(() => profileStore.applySchema(db)).toThrow(/legacy_leases/);
+        expect(db.query("SELECT payload FROM profile_source_inventories").get()).toEqual({
+          payload,
+        });
+        expect(db.query("SELECT * FROM profile_source_inventory_projects").all()).toEqual([]);
+        expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+        db.run("DROP VIEW legacy_leases");
+        db.run("BEGIN IMMEDIATE");
+
+        // Hold both startup connections at the writer lock before releasing them.
+        const startup = () =>
+          Bun.spawn(
+            [
+              process.execPath,
+              "-e",
+              `
+          import { Database } from "bun:sqlite";
+          import { profileStore } from "./src/lib/server/profile/database/schema";
+          using db = new Database(process.argv[1]);
+          db.run("PRAGMA busy_timeout = 5000");
+          console.log("ready");
+          profileStore.applySchema(db);
+        `,
+              path,
+            ],
+            { stdout: "pipe", stderr: "pipe" },
+          );
+        const processes = [startup(), startup()];
+        try {
+          await Promise.all(
+            processes.map(async (child) => {
+              const reader = child.stdout.getReader();
+              expect(new TextDecoder().decode((await reader.read()).value).trim()).toBe("ready");
+              reader.releaseLock();
+            }),
+          );
+          db.run("COMMIT");
+          await Promise.all(
+            processes.map(async (child) => {
+              expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
+            }),
+          );
+        } finally {
+          for (const child of processes) child.kill();
+        }
+      }
+      using reopened = new Database(path);
+      profileStore.applySchema(reopened);
+      expect(
+        reopened.query("SELECT payload, project_count FROM profile_source_inventories").get(),
+      ).toEqual({
+        payload: "{}",
+        project_count: JSON.stringify(projectCount),
+      });
+      expect(
+        reopened
+          .query("SELECT run_id, position, payload FROM profile_source_inventory_projects")
+          .all(),
+      ).toEqual([{ run_id: "legacy", position: 0, payload: JSON.stringify(project) }]);
+      expect(reopened.query("SELECT name_with_owner FROM profile_repos").all()).toEqual([
+        { name_with_owner: "acme/api" },
+      ]);
+      expect(
+        reopened
+          .query("SELECT name FROM pragma_table_info('profile_runs') WHERE name = 'lease_managed'")
+          .all(),
+      ).toEqual([]);
+      expect(reopened.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   test("fails interrupted runs at startup", () => {
