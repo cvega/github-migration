@@ -90,7 +90,7 @@
 		{@render body()}
 		<div>
 			<label for={inputId} class="mb-1 block text-sm font-medium text-gray-400">
-				Type <span class="font-mono text-gray-200">{confirmPhrase}</span> to confirm
+				Type <span class="break-all font-mono text-gray-200">{confirmPhrase}</span> to confirm
 			</label>
 			<input
 				id={inputId}

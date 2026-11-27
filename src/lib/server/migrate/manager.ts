@@ -349,7 +349,8 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
   const existing = getMigration(migrationId);
   if (!existing) throw new Error("Migration not found");
   const paused = isPausedPersistedRoute(existing);
-  if (!paused) getExecutorForMigration(existing);
+  const executable =
+    !paused && supportsMigrationTarget(existing.sourceProvider, existing.targetPlatform);
   const expected = `${existing.targetOrg}/${existing.targetRepo}`;
   if (confirmation !== expected) throw new Error(`Confirmation must exactly match "${expected}"`);
   const event: MigrationEvent = {
@@ -359,7 +360,9 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     payload: {
       message: paused
         ? "Manual review submitted: remote GHES operation reported inactive; GitLab-to-GHES execution remains paused."
-        : "Manual review submitted: remote migration reported inactive; migration is now eligible for restart.",
+        : executable
+          ? "Manual review submitted: remote migration reported inactive; migration is now eligible for restart."
+          : "Manual review submitted: remote migration reported inactive; execution remains unsupported for this route.",
     },
     createdAt: new Date().toISOString(),
   };
@@ -377,7 +380,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
       );
     }
     const job = getGhesImportJobByMigrationId(migrationId);
-    if (!paused && job?.phase === "preparing" && !job.ghesImportId) {
+    if (executable && job?.phase === "preparing" && !job.ghesImportId) {
       updateGhesImportJobCheckpoint(job.id, "failed", {
         failureReason: job.failureReason ?? undefined,
       });

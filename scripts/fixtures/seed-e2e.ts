@@ -119,6 +119,15 @@ db.prepare(
 
 db.prepare(
   `INSERT INTO migrations (
+     id, source_api_url, source_org, source_repo, target_org, target_repo, target_platform,
+     target_profile_id, target_api_url, github_migration_id, state, started_at, failure_reason
+   ) VALUES ('seed-e2e-unsupported-review', 'https://api.github.com', 'source-review', 'legacy',
+     'target-review', ?, 'ghes', 'enterprise', 'https://ghes.example/api/v3', 'saved-import',
+     'reconciliation_required', ?, 'No executor is available for this route.')`,
+).run("legacy-" + "repository".repeat(7), startedAt);
+
+db.prepare(
+  `INSERT INTO migrations (
      id, source_api_url, source_org, source_repo,
      target_org, target_repo, state, started_at
    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,

@@ -76,3 +76,42 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	await restart.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(restart).not.toBeVisible();
 });
+test("an administrator can review an unsupported route without enabling restart", async ({ page }, info) => {
+	const endpoint = "**/api/migrate/seed-e2e-unsupported-review/confirm-restart";
+	const phrase = "target-review/legacy-" + "repository".repeat(7);
+	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
+	await page.goto("/migrate/seed-e2e-unsupported-review");
+	await hydrated;
+
+	const reviewButton = page.getByRole("button", { name: "Review remote status" });
+	const restart = page.getByRole("button", { name: "Restart", exact: true });
+	await expect(restart).toHaveCount(0);
+	await reviewButton.press("Enter");
+	const dialog = page.getByRole("dialog", { name: "Review remote migration status" });
+	const input = dialog.getByRole("textbox");
+	const submit = dialog.getByRole("button", { name: "Confirm remote status" });
+	await expect(dialog).toContainText("Restart remains unavailable for this route.");
+	await expect(submit).toBeDisabled();
+	await input.fill(phrase.toUpperCase());
+	await expect(submit).toBeDisabled();
+	await input.fill(phrase);
+	await expect(submit).toBeEnabled();
+	for (const width of [1280, 390]) {
+		await page.setViewportSize({ width, height: 844 });
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+		await page.screenshot({ path: info.outputPath(`unsupported-review-${width}.png`) });
+	}
+	await page.route(endpoint, (route) => route.fulfill({
+		status: 409, json: { error: "Migration changed. Check the destination again." },
+	}), { times: 1 });
+	await submit.press("Enter");
+	await expect(dialog.getByRole("alert")).toHaveText("Migration changed. Check the destination again.");
+	await submit.press("Enter");
+	await expect(dialog).toHaveCount(0);
+	await expect(reviewButton).toHaveCount(0);
+	await page.reload();
+	await expect(page.getByText("Failed", { exact: true }).first()).toBeVisible();
+	await expect(reviewButton).toHaveCount(0);
+	await expect(restart).toHaveCount(0);
+});

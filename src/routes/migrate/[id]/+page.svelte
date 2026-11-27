@@ -462,7 +462,7 @@
 						aria-expanded={showCancelDialog}
 						onclick={() => (showCancelDialog = true)}
 						aria-label="Cancel migration">Cancel</CompactButton>
-				{:else if !data.scoped && migration.state === "reconciliation_required" && restartSupported}
+				{:else if !data.scoped && migration.state === "reconciliation_required" && data.canReviewRemote}
 					<CompactButton
 						aria-label="Review remote status"
 						aria-haspopup="dialog"
@@ -675,9 +675,9 @@
 	{#snippet body()}
 		<div class="space-y-3 text-sm text-gray-300">
 			<p class="rounded-md border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-orange-200">
-				Verify in GitHub that no migration is active for <span class="font-mono">{reconciliationPhrase}</span>.
+				Verify in GitHub that no migration is active for <span class="break-all font-mono">{reconciliationPhrase}</span>.
 			</p>
-			<p>This is a manual confirmation. The dashboard does not check the remote job. Confirm only after checking the destination; this enables Restart without starting a migration.</p>
+			<p>Confirm only after checking the destination. {restartSupported ? "Confirmation enables Restart." : "Restart remains unavailable for this route."}</p>
 		</div>
 	{/snippet}
 </ConfirmDialog>

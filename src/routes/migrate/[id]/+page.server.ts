@@ -1,7 +1,9 @@
 import { error, fail } from "@sveltejs/kit";
 import type { Counts } from "$lib/migrate/types";
+import { isPausedPersistedRoute } from "$lib/migration-target";
 import { ownJobActions } from "$lib/server/application/self-service/jobs";
 import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
+import { hasUnreconciledGhesImport } from "$lib/server/migrate/database/migrations";
 import { events, get } from "$lib/server/migrate/manager";
 import {
   fetchMigrationTargetCounts,
@@ -22,6 +24,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   return {
     scoped: false,
+    canReviewRemote: !isPausedPersistedRoute(migration) || hasUnreconciledGhesImport(params.id),
     canCancel: true,
     canRestart: true,
     migration,
