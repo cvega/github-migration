@@ -295,33 +295,28 @@ describe("validateAuthAvailable", () => {
     expect(validateProfileCredentialScope("bitbucket-server", "ANYWHERE")).toBeNull();
   });
 
-  test("ignores malformed repository identities but still checks valid identities", () => {
+  test("denies malformed paths in each server credential repository input", () => {
     process.env.GH_SOURCE_ORG = "acme";
+    for (const input of [
+      { sourceRepo: "acme/group/widget" },
+      { repos: ["acme/widget", "missing-owner"] },
+      { items: [{ sourceRepo: "acme/widget" }, { sourceRepo: "" }] },
+      { sourceRepo: 42 },
+      { repos: [null] },
+      { items: [{ sourceRepo: 9 }] },
+    ]) {
+      expect(validateCredentialScope(input)).toContain("Invalid source repository path");
+    }
+  });
 
-    expect(validateCredentialScope({ repos: ["not-a-repository", "acme/widget"] })).toBeNull();
-    expect(validateCredentialScope({ repos: ["not-a-repository", "other/widget"] })).toContain(
-      "'other'",
+  test("requires parseable paths with unscoped server source credentials", () => {
+    expect(validateCredentialScope({ sourceRepo: "missing-owner" })).toContain(
+      "Invalid source repository path",
     );
   });
 
-  test("ignores malformed optional scope inputs without widening configured scope", () => {
+  test("ignores malformed optional scope inputs without a supplied repository entry", () => {
     process.env.GH_SOURCE_ORG = "acme";
-    process.env.GH_TARGET_ORG = "acme-cloud";
-
-    expect(
-      validateCredentialScope({
-        sourceRepo: 42,
-        repos: [null, 7, "acme/widget"],
-        items: [null, "text", {}, { sourceRepo: 9 }, { sourceRepo: "acme/other" }],
-        targetOrg: 42,
-      }),
-    ).toBeNull();
-    expect(
-      validateCredentialScope({
-        repos: [null, "other/widget"],
-        items: [{ sourceRepo: "acme/allowed" }],
-      }),
-    ).toContain("'other'");
     expect(
       validateCredentialScope({
         sourceRepo: "acme/widget",
