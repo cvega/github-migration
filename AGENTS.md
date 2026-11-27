@@ -113,6 +113,8 @@ remaining limitation. Development authorization does not itself authorize a live
 migration, identity invitation, deployment, or production data reset.
 
 ## Branch rules for Orca workers
+- The coordinator runs in the main checkout (on `main`). Before planning any wave:
+  `git checkout main && git pull`. Workers are always created from up-to-date main.
 - Every Beads issue gets its own worker started with `--worktree new-child`.
   Never use `--worktree current` for task work.
 - Name the worktree after the issue: `--name <issue-id>` (e.g. github-migration-a1b).
