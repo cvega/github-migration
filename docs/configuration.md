@@ -97,6 +97,9 @@ installation tokens can refresh without persisting a request secret.
 
 Disabling source certificate verification allows an on-path system to impersonate the source and receive its credentials and migration data. Prefer installing the source CA. An exception permits an administrator to select the option for that source, subject to the usual credential and access rules. Starts and restarts record admission in the audit log. Dispatch and recovery record each allowed or denied use with the source origin and system actor. Restart reuses the stored option unless explicitly disabled. Dispatch and recovery recheck the current policy.
 
+GitHub source API calls using the exception reject automatic redirects. GHES
+archive discovery reads the redirect location for the separate archive transfer.
+
 ## Repository Analysis
 
 | Variable | Purpose |

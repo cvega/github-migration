@@ -8,7 +8,7 @@ test("collects independent organization resource counts", async () => {
       if (route.includes("teams"))
         return {
           data: [{}],
-          headers: { link: '<https://api.github.com/orgs/acme/teams?page=3>; rel="last"' },
+          headers: { link: '<x?page=2>; rel="next", <x?page=3>; rel="last"' },
         };
       if (route.includes("dependabot")) throw new Error("forbidden");
       return { data: { total_count: 4 } };
@@ -31,6 +31,8 @@ test("distinguishes measured zero from malformed totals and lists", async () => 
     request: async (route: string) => {
       if (route.endsWith("/actions/secrets")) return { data: { total_count: 0 } };
       if (route.endsWith("/actions/runners")) return { data: { total_count: -1 } };
+      if (route.endsWith("/teams"))
+        return { data: [{}], headers: { link: '<x?page=3>; rel="next", <x?page=3>; rel="last"' } };
       return { data: {} };
     },
   };

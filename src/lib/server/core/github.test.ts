@@ -1,6 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import {
   countByPagination,
+  createClients,
   doesOrgExist,
   doesRepoExist,
   getRepoCounts,
@@ -9,6 +11,91 @@ import {
   makeThrottleOptions,
   sourceBaseUrl,
 } from "./github";
+
+test("scopes the approved TLS policy to the source API and its App authentication", async () => {
+  const origin = "https://fixture.invalid:8443";
+  const sourceApiUrl = `${origin}/api/v3`;
+  const oldPolicy = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+  using warn = spyOn(console, "warn").mockImplementation(() => {});
+  using transport = spyOn(globalThis, "fetch").mockImplementation((async (
+    input: RequestInfo | URL,
+  ) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("/access_tokens")) {
+      return Response.json(
+        {
+          token: "fixture-installation",
+          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+          permissions: {},
+          repository_selection: "all",
+        },
+        { status: 201 },
+      );
+    }
+    if (path.endsWith("/archive"))
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://archives.invalid/fixture" },
+      });
+    return Response.json({ data: { viewer: { login: "fixture" } } });
+  }) as typeof fetch);
+  try {
+    process.env.GH_ALLOW_INSECURE_SOURCE_TLS = sourceApiUrl;
+    const options = {
+      sourceApiUrl,
+      sourceAuth: { token: "fixture" },
+      targetAuth: { token: "fixture" },
+    };
+    const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ format: "pem", type: "pkcs8" })
+      .toString();
+    const approved = createClients({
+      ...options,
+      sourceAuth: { appId: "111", installationId: 222, privateKey },
+      targetApiUrl: sourceApiUrl,
+      noSslVerify: true,
+    });
+    expect(await approved.getSourceToken()).toBe("fixture-installation");
+    await approved.source.request("GET /meta");
+    await approved.sourceGraphql("{ viewer { login } }");
+    const archive = await approved.source.request("GET /archive", {
+      request: { redirect: "manual" },
+    });
+    expect(archive.headers.location).toBe("https://archives.invalid/fixture");
+    await approved.source.request(`GET ${origin}/api/v30/meta`);
+    await approved.target.request("GET /meta");
+
+    const ordinary = createClients(options);
+    await ordinary.source.request("GET /meta");
+    expect(() =>
+      createClients({ ...options, sourceApiUrl: `${origin}/other/api/v3`, noSslVerify: true }),
+    ).toThrow("GH_ALLOW_INSECURE_SOURCE_TLS");
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    expect(
+      transport.mock.calls.map(([url, init]) => [
+        url,
+        init?.redirect,
+        init && "tls" in init ? init.tls : undefined,
+      ]),
+    ).toEqual([
+      [
+        `${sourceApiUrl}/app/installations/222/access_tokens`,
+        "error",
+        { rejectUnauthorized: false },
+      ],
+      [`${sourceApiUrl}/meta`, "error", { rejectUnauthorized: false }],
+      [`${origin}/api/graphql`, "error", { rejectUnauthorized: false }],
+      [`${sourceApiUrl}/archive`, "manual", { rejectUnauthorized: false }],
+      [`${origin}/api/v30/meta`, undefined, undefined],
+      [`${sourceApiUrl}/meta`, undefined, undefined],
+      [`${sourceApiUrl}/meta`, undefined, undefined],
+    ]);
+  } finally {
+    if (oldPolicy === undefined) delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+    else process.env.GH_ALLOW_INSECURE_SOURCE_TLS = oldPolicy;
+  }
+});
 
 /**
  * Minimal Octokit stand-in for the DI-style helpers under test. These take a
@@ -202,12 +289,12 @@ describe("doesRepoExist", () => {
 
 describe("countByPagination", () => {
   /** A client whose `request` returns the given headers/data and records args. */
-  function client(response: { headers?: Record<string, string>; data?: unknown }) {
+  function client(response: { headers?: Record<string, string>; data?: unknown; url?: string }) {
     const calls: Array<{ route: string; params: Record<string, unknown> }> = [];
     const c = {
       request: async (route: string, params: Record<string, unknown>) => {
         calls.push({ route, params });
-        return { headers: response.headers ?? {}, data: response.data ?? [] };
+        return { headers: response.headers ?? {}, data: response.data ?? [], url: response.url };
       },
     } as unknown as Parameters<typeof countByPagination>[0];
     return { c, calls };
@@ -215,6 +302,7 @@ describe("countByPagination", () => {
 
   test("reads the rel=last page number as the count", async () => {
     const { c } = client({
+      data: [{}],
       headers: {
         link: '<https://api.github.com/x?per_page=1&page=2>; rel="next", <https://api.github.com/x?per_page=1&page=987>; rel="last"',
       },
@@ -223,21 +311,60 @@ describe("countByPagination", () => {
     expect(await countByPagination(c, "GET /x", {})).toBe(987);
   });
 
-  test("forces per_page=1 regardless of caller params", async () => {
+  test("forces a one-item first page regardless of caller params", async () => {
     const { c, calls } = client({ data: [{}] });
     await countByPagination(c, "GET /repos/{owner}/{repo}/commits", {
       owner: "acme",
       repo: "widget",
+      page: 2,
       per_page: 100,
     });
-    expect(calls[0]?.params).toMatchObject({ owner: "acme", repo: "widget", per_page: 1 });
+    expect(calls[0]?.params).toMatchObject({ owner: "acme", repo: "widget", page: 1, per_page: 1 });
   });
 
   test("finds page= regardless of its position in the rel=last URL", async () => {
     const { c } = client({
-      headers: { link: '<https://api.github.com/x?page=55&per_page=1>; rel="last"' },
+      data: [{}],
+      headers: {
+        link: '<https://api.github.com/x?page=2&per_page=1>; rel="next", <https://api.github.com/x?page=55&per_page=1>; rel="last"',
+      },
     });
     expect(await countByPagination(c, "GET /x", {})).toBe(55);
+  });
+
+  test.each([
+    [[], '<x?page=2>; rel="next", <x?page=5>; rel="last"'],
+    [[{}, {}], '<x?page=2>; rel="next", <x?page=5>; rel="last"'],
+    [[{}, {}], ""],
+    [[{}], '<x?page=3>; rel="next", <x?page=5>; rel="last"'],
+    [[{}], '<x?page=2>; rel="next", <x?page=1>; rel="last"'],
+    [[{}], '<x?page=5>; rel="last"'],
+    [[{}], "<x?cursor=2>; rel=next"],
+    [[{}], '<x?page=2>; rel="next alternate"'],
+    [[{}], '<x?page=2>; rel="next", <y?page=5>; rel="last"'],
+    [
+      [{}],
+      '<https://one.invalid/x?page=2>; rel="next", <https://two.invalid/x?page=5>; rel="last"',
+    ],
+    [[{}], '<x?page=2&sha=main>; rel="next", <x?page=5&sha=release>; rel="last"'],
+    [[{}], '<x?page=2&sha=main>; rel="next", <x?page=5>; rel="last"'],
+    [[{}], '<x?page=2>; rel="next", <x?page=5&per_page=100>; rel="last"'],
+    [[{}], '<x?page=2>; rel="next", <x?page=5&page=8>; rel="last"'],
+    [[{}], '<x?page=2>; rel="next", <x?page=1>; rel="prev", <x?page=5>; rel="last"'],
+  ])("rejects contradictory first-page evidence %j %s", async (data, link) => {
+    const { c } = client({ data, headers: { link } });
+    await expect(countByPagination(c, "GET /x", {})).rejects.toThrow();
+  });
+
+  test("counts matching collection links with multi-token relations and reordered filters", async () => {
+    const { c } = client({
+      data: [{}],
+      url: "https://api.github.com/x?sha=main&mode=all&page=1",
+      headers: {
+        link: '<?sha=main&mode=all&page=2>; title="Next, alternate"; rel="next alternate", <https://api.github.com/x?page=5&mode=all&sha=main>; rel="alternate last"',
+      },
+    });
+    expect(await countByPagination(c, "GET /x", {})).toBe(5);
   });
 
   test("rejects an indeterminate count when there is a next page but no last link", async () => {
@@ -269,7 +396,9 @@ describe("getRepoCounts", () => {
 
   test("counts paginated commits and returns successful GraphQL counts", async () => {
     const octokit = client(async () => ({
-      headers: { link: '<https://api.github.com/commits?page=42&per_page=1>; rel="last"' },
+      headers: {
+        link: '<https://api.github.com/commits?page=2&per_page=1>; rel="next", <https://api.github.com/commits?page=42&per_page=1>; rel="last"',
+      },
       data: [{}],
     }));
     expect(await getRepoCounts(octokit, graph, "acme", "repo")).toEqual({

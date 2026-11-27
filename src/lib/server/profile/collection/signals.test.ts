@@ -181,7 +181,10 @@ describe("profile signals", () => {
     const rest = {
       request: async (route: string) => {
         if (route.includes("hooks"))
-          return { data: [{}], headers: { link: '<x?page=2>; rel="last"' } };
+          return {
+            data: [{}],
+            headers: { link: '<x?page=2>; rel="next", <x?page=2>; rel="last"' },
+          };
         if (route.includes("code-scanning"))
           throw Object.assign(new Error("forbidden"), { status: 403 });
         if (route.includes("collaborators")) return { data: [{}], headers: {} };
