@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { isPausedPersistedRoute } from "$lib/migration-target";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { confirmRestart } from "$lib/server/migrate/manager";
@@ -13,7 +14,9 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   try {
     const migration = confirmRestart(params.id, validated.value.confirmation);
     recordOperatorAuditEvent(locals, {
-      action: "migration.restart_confirmed",
+      action: isPausedPersistedRoute(migration)
+        ? "migration.ghes_hold_released"
+        : "migration.restart_confirmed",
       resourceType: "migration",
       resourceId: migration.id,
     });

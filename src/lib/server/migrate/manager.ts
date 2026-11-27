@@ -13,7 +13,11 @@ import type {
   RestartMigrationRequest,
 } from "$lib/migrate/types";
 import { isCancellableMigrationState, isExecutingMigrationState } from "$lib/migration-state";
-import { supportsMigrationTarget } from "$lib/migration-target";
+import {
+  GITLAB_GHES_PAUSE_REASON,
+  isPausedPersistedRoute,
+  supportsMigrationTarget,
+} from "$lib/migration-target";
 import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
 import { requireMigrationTargetProfile } from "$lib/server/core/targets";
@@ -38,6 +42,7 @@ import {
   claimQueuedMigrationCancellation,
   getBatchMigrationByItem,
   getMigration,
+  hasUnreconciledGhesImport,
   insertMigration,
   listMigrationsPaginated,
   resetMigration,
@@ -343,7 +348,8 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
 export function confirmRestart(migrationId: string, confirmation: string): Migration {
   const existing = getMigration(migrationId);
   if (!existing) throw new Error("Migration not found");
-  getExecutorForMigration(existing);
+  const paused = isPausedPersistedRoute(existing);
+  if (!paused) getExecutorForMigration(existing);
   const expected = `${existing.targetOrg}/${existing.targetRepo}`;
   if (confirmation !== expected) throw new Error(`Confirmation must exactly match "${expected}"`);
   const event: MigrationEvent = {
@@ -351,12 +357,15 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     eventType: "step",
     phase: null,
     payload: {
-      message:
-        "Manual review submitted: remote migration reported inactive; migration is now eligible for restart.",
+      message: paused
+        ? "Manual review submitted: remote GHES operation reported inactive; GitLab-to-GHES execution remains paused."
+        : "Manual review submitted: remote migration reported inactive; migration is now eligible for restart.",
     },
     createdAt: new Date().toISOString(),
   };
   getDb().transaction(() => {
+    if (paused && !hasUnreconciledGhesImport(migrationId))
+      throw new Error(GITLAB_GHES_PAUSE_REASON);
     const result = getDb()
       .prepare(
         "UPDATE migrations SET state = 'failed' WHERE id = ? AND state = 'reconciliation_required'",
@@ -368,7 +377,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
       );
     }
     const job = getGhesImportJobByMigrationId(migrationId);
-    if (job?.phase === "preparing" && !job.ghesImportId) {
+    if (!paused && job?.phase === "preparing" && !job.ghesImportId) {
       updateGhesImportJobCheckpoint(job.id, "failed", {
         failureReason: job.failureReason ?? undefined,
       });
@@ -376,7 +385,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     event.id = insertEvent(event);
   })();
   broadcastMigrationEvent(migrationId, event);
-  if (existing.targetPlatform === "ghes") drainQueue();
+  if (paused || existing.targetPlatform === "ghes") drainQueue();
   return getMigration(migrationId) as Migration;
 }
 

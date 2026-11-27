@@ -644,17 +644,25 @@ const LAST_GHES_STEP = `(SELECT json_extract(e.payload, '$.executorPhase') FROM 
     AND CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.executorPhase') IS NOT NULL END
   ORDER BY e.id DESC LIMIT 1)`;
 
+// A GHES job identifies the appliance even when a historical GitLab migration
+// inherited cloud target defaults during upgrade.
+const UNRECONCILED_GHES_IMPORT = `SELECT 1 FROM migrations m
+  JOIN ghes_import_jobs job ON job.migration_id = m.id
+  WHERE (m.target_platform = 'ghes' OR m.source_provider = 'gitlab')
+    AND m.state = 'reconciliation_required'
+    AND (job.phase IN ('mapping', 'importing', 'auditing', 'unlocking')
+      OR (job.ghes_import_id IS NULL AND (job.phase = 'preparing'
+        OR (job.phase = 'reconciliation_required' AND ${LAST_GHES_STEP} = 'preparing'))))`;
+
+export function hasUnreconciledGhesImport(id: string): boolean {
+  return !!getDb().prepare(`${UNRECONCILED_GHES_IMPORT} AND m.id = ? LIMIT 1`).get(id);
+}
+
 export function isGhesSlotHeld(): boolean {
   return !!getDb()
     .prepare(`SELECT 1 FROM migrations WHERE target_platform = 'ghes'
         AND state IN (${migrationStatesSql(CAPACITY_MIGRATION_STATES)})
-      UNION ALL
-      SELECT 1 FROM migrations m JOIN ghes_import_jobs job ON job.migration_id = m.id
-      WHERE m.target_platform = 'ghes' AND m.state = 'reconciliation_required'
-        AND (job.phase IN ('mapping', 'importing', 'auditing', 'unlocking')
-          OR (job.ghes_import_id IS NULL AND (job.phase = 'preparing'
-            OR (job.phase = 'reconciliation_required' AND ${LAST_GHES_STEP} = 'preparing'))))
-      LIMIT 1`)
+      UNION ALL ${UNRECONCILED_GHES_IMPORT} LIMIT 1`)
     .get();
 }
 
