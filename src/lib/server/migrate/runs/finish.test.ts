@@ -69,6 +69,21 @@ describe("migration run settlement", () => {
     expect(drains).toBe(1);
   });
 
+  test.each([
+    ["https://sample.ghe.com/log", "https://sample.ghe.com/log"],
+    ["https://github.com/log", null],
+    ["https://sample.ghe.com/log?sample=1", null],
+  ] as const)("checks the result log %s against the stored target", (link, expected) => {
+    const id = "tenant-run";
+    insertMigration({ ...migration(id), targetApiUrl: "https://api.sample.ghe.com" });
+    const registration = claimedRun(id);
+    createMigrationRunFinisher(() => {}).settleResult(id, registration.token, {
+      ...migration(id, "succeeded"),
+      migrationLogUrl: link,
+    });
+    expect(getMigration(id)).toMatchObject({ state: "succeeded", migrationLogUrl: expected });
+  });
+
   test("preserves an event-persisted terminal state", () => {
     insertMigration(migration("migration-1"));
     const registration = claimedRun("migration-1");

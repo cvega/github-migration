@@ -192,11 +192,33 @@ describe("migration provider schema upgrade", () => {
         payload TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL
       )`);
-      insertMigration(db, "checked");
-      db.run(
-        "INSERT INTO events (migration_id, event_type, created_at) VALUES ('checked', 'step', '2026-08-08T12:01:00Z')",
-      );
+      const fixtures = [
+        ["checked", "https://github.com/log?sample=1", null],
+        ["retained", "https://github.com/log", "https://github.com/log"],
+        ["redacted", "https://github.com/log#sample", null],
+      ] as const;
+      const payload = (url: string) =>
+        JSON.stringify({
+          progress: { current: { migrationLogUrl: url }, previous: { migrationLogUrl: url } },
+          detail: { logUrl: url },
+        });
+      for (const [id, link] of fixtures) {
+        insertMigration(db, id);
+        db.run("UPDATE migrations SET migration_log_url = ? WHERE id = ?", [link, id]);
+        db.run(
+          "INSERT INTO events (migration_id, event_type, payload, created_at) VALUES (?, 'failure', ?, '2026-08-08T12:01:00Z')",
+          [id, payload(link)],
+        );
+      }
       migrateStore.applySchema(db);
+      for (const [id, , expected] of fixtures) {
+        expect(db.query("SELECT migration_log_url FROM migrations WHERE id = ?").get(id)).toEqual({
+          migration_log_url: expected,
+        });
+        expect(db.query("SELECT payload FROM events WHERE migration_id = ?").get(id)).toEqual({
+          payload: payload(expected ?? ""),
+        });
+      }
       expect(
         db.run("UPDATE migrations SET source_provider = 'bitbucket-server' WHERE id = 'checked'")
           .changes,
@@ -218,7 +240,7 @@ describe("migration provider schema upgrade", () => {
       );
       expect(
         db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
-      ).toEqual({ version: 9 });
+      ).toEqual({ version: 10 });
       expect(
         (db.query("PRAGMA table_info(migrations)").all() as Array<{ name: string }>).map(
           (column) => column.name,

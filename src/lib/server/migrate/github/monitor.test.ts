@@ -82,6 +82,7 @@ describe("GitHub migration monitor", () => {
     });
     const events: MigrationEvent[] = [];
     const result = await monitorRepositoryMigration({
+      targetApiUrl: "https://api.github.com",
       clients,
       migrationId: "migration-1",
       githubMigrationId: "node-1",
@@ -113,6 +114,7 @@ describe("GitHub migration monitor", () => {
 
     const events: MigrationEvent[] = [];
     await monitorRepositoryMigration({
+      targetApiUrl: "https://api.github.com",
       clients,
       migrationId: "migration-1",
       githubMigrationId: "node-1",
@@ -148,6 +150,7 @@ describe("GitHub migration monitor", () => {
       wait: async () => {},
     });
     const result = await monitorRepositoryMigration({
+      targetApiUrl: "https://api.github.com",
       clients,
       migrationId: "migration-1",
       githubMigrationId: "node-1",
@@ -162,6 +165,7 @@ describe("GitHub migration monitor", () => {
 
   test("does not send target credentials to untrusted failure-log URLs", async () => {
     let tokenRequests = 0;
+    const events: MigrationEvent[] = [];
     let migrationLogUrl = "https://attacker.example/log.json";
     const guardedClients = {
       ...clients,
@@ -179,27 +183,38 @@ describe("GitHub migration monitor", () => {
         migrationLogUrl,
       }),
       doesRepoExist: async () => false,
+      fetch: async () => Response.json([]),
       wait: async () => {},
     });
     for (migrationLogUrl of [
       "https://attacker.example/log.json",
+      "https://api.github.com/log.json",
+      "https://github.com.example/log.json",
+      "https://other.ghe.com/log.json",
+      "https://github.com/log.json#sample",
+      "https://github.com/log.json?example=1",
+      "https://github.com:443/log.json",
       "http://github.com/log.json",
       "https://user@github.com/log.json",
       "https://github.com:444/log.json",
     ]) {
       await monitorRepositoryMigration({
+        targetApiUrl: "https://api.github.com",
         clients: guardedClients,
         migrationId: "migration-1",
         githubMigrationId: "node-1",
         targetOrg: "acme",
         targetRepo: "widget",
-        emit: () => {},
+        emit: (event) => events.push(event),
+      });
+      expect(events.at(-1)).toMatchObject({
+        payload: { detail: { logUrl: "" }, progress: { current: { migrationLogUrl: "" } } },
       });
     }
     expect(tokenRequests).toBe(0);
   });
 
-  test("fetches trusted HTTPS failure logs with target credentials", async () => {
+  test.each(["github.com", "sample.ghe.com"])("fetches failure logs only from %s", async (host) => {
     let authorization = "";
     restore = __setMonitorDependenciesForTests({
       getRepositoryMigration: async () => ({
@@ -207,16 +222,18 @@ describe("GitHub migration monitor", () => {
         repositoryName: "widget",
         warningsCount: 0,
         failureReason: "failed",
-        migrationLogUrl: "https://api.github.com/migrations/log.json",
+        migrationLogUrl: `https://${host}/migrations/log.json`,
       }),
       doesRepoExist: async () => false,
       fetch: async (_input, init) => {
+        expect(init?.redirect).toBe("error");
         authorization = new Headers(init?.headers).get("authorization") ?? "";
         return Response.json([]);
       },
       wait: async () => {},
     });
     await monitorRepositoryMigration({
+      targetApiUrl: `https://api.${host}`,
       clients,
       migrationId: "migration-1",
       githubMigrationId: "node-1",

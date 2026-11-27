@@ -9,6 +9,7 @@ import type {
 } from "$lib/migrate/types";
 import { doesRepoExist, type GitHubTargetClients, getRepoCounts } from "$lib/server/core/github";
 import { pollWithRetry, sleep } from "$lib/server/core/polling";
+import { migrationLogUrl } from "./log-url";
 import { getRepositoryMigration } from "./migration-source";
 
 const defaultDependencies = {
@@ -33,6 +34,7 @@ export type MigrationEventEmitter = (event: MigrationEvent) => void;
 
 export interface MonitorConfig {
   clients: GitHubTargetClients;
+  targetApiUrl: string;
   migrationId: string;
   githubMigrationId: string;
   targetOrg: string;
@@ -180,7 +182,7 @@ async function takeSnapshot(
     timestamp: new Date().toISOString(),
     migrationState: migration.state,
     failureReason: migration.failureReason || "",
-    migrationLogUrl: migration.migrationLogUrl || "",
+    migrationLogUrl: migrationLogUrl(migration.migrationLogUrl, config.targetApiUrl) ?? "",
     warningsCount: migration.warningsCount,
     repoExists,
     countsAuthoritative,
@@ -273,24 +275,12 @@ async function fetchFailureDetail(
   };
   if (snapshot.migrationLogUrl) {
     try {
-      const logUrl = new URL(snapshot.migrationLogUrl);
-      const trustedHost =
-        logUrl.hostname === "github.com" || logUrl.hostname.endsWith(".github.com");
-      if (
-        logUrl.protocol !== "https:" ||
-        logUrl.username !== "" ||
-        logUrl.password !== "" ||
-        logUrl.port !== "" ||
-        !trustedHost
-      ) {
-        console.warn("[monitor] Refusing to fetch migration log from an untrusted URL");
-      } else {
-        const token = await config.clients.getTargetToken();
-        const response = await dependencies.fetch(logUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.ok) detail.logEntries = (await response.json()) as LogEntry[];
-      }
+      const token = await config.clients.getTargetToken();
+      const response = await dependencies.fetch(snapshot.migrationLogUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "error",
+      });
+      if (response.ok) detail.logEntries = (await response.json()) as LogEntry[];
     } catch {
       // Failure logs are supplementary.
     }
