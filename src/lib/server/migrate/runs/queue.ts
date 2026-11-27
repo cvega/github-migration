@@ -1,6 +1,7 @@
-import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
+import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
+import { insertEvent } from "../database/events";
 import {
   getMigration,
   getNextQueuedMigration,
@@ -10,6 +11,7 @@ import {
 } from "../database/migrations";
 import { getActiveMigrationCount } from "../database/stats";
 import { activeMigrationRuns } from "./active";
+import { broadcastMigrationEvent, closeMigrationEventStream } from "./events";
 
 export const MAX_CONCURRENT_MIGRATIONS = 10;
 
@@ -40,8 +42,44 @@ export function getCapacityUsage(): number {
   return getActiveMigrationCount() + settling;
 }
 
+// Fresh attempts only. The executor runs asynchronously after registration.
+export function launchClaimedMigration(
+  id: string,
+  request: CreateMigrationRequest,
+  launchPipeline: PipelineLauncher,
+): boolean {
+  try {
+    if (launchPipeline(id, request)) return true;
+  } catch {
+    // Launcher errors may contain request data.
+  }
+  console.error(`[manager] Could not launch claimed migration ${id}`);
+  // A refused registration can mean an existing run still owns the row.
+  if (!activeMigrationRuns.isActive(id)) {
+    const failureReason = "Migration could not be launched";
+    const event: MigrationEvent = {
+      migrationId: id,
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { error: failureReason },
+      createdAt: new Date().toISOString(),
+    };
+    const recorded = getDb().transaction(() => {
+      if (!updateMigrationState(id, "failed", { failureReason, completedAt: event.createdAt }))
+        return false;
+      event.id = insertEvent(event);
+      return true;
+    })();
+    if (recorded) {
+      broadcastMigrationEvent(id, event);
+      closeMigrationEventStream(id, "failed");
+    }
+  }
+  return false;
+}
+
 export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
-  for (const _slot of Array(MAX_CONCURRENT_MIGRATIONS)) {
+  while (true) {
     const claimed = getDb().transaction(() => {
       if (getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS) return null;
       const queued = getNextQueuedMigration(ghesBusy());
@@ -60,6 +98,6 @@ export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
       });
       continue;
     }
-    launchPipeline(claimed.id, request);
+    launchClaimedMigration(claimed.id, request, launchPipeline);
   }
 }

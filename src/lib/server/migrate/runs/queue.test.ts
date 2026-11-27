@@ -10,6 +10,7 @@ import { getRegisteredMigrationExecutor } from "../executors/registry";
 import type { GhesImportJobPhase } from "../ghes/job";
 import { cancel, confirmRestart, restart, start } from "../manager";
 import { activeMigrationRuns } from "./active";
+import { subscribeToGlobalMigrationEvents, subscribeToMigrationEvents } from "./events";
 import {
   drainMigrationQueue,
   getCapacityUsage,
@@ -315,6 +316,76 @@ describe("migration queue", () => {
       return true;
     });
     expect(launches).toBe(0);
+  });
+
+  test.each(["refuses", "throws"])("releases capacity when the launcher %s", (mode) => {
+    using log = spyOn(console, "error").mockImplementation(() => {});
+    for (const row of [
+      enterprise("01", null, "queued"),
+      enterprise("02", null, "queued"),
+      migration("03", "queued"),
+    ]) {
+      insertMigration(row);
+      activeMigrationRuns.enqueue(row.id, request(row.id));
+    }
+    const launched: string[] = [];
+    drainMigrationQueue((id) => {
+      if (id === "01") {
+        if (mode === "throws") throw new Error("fixture detail");
+        return false;
+      }
+      launched.push(id);
+      return true;
+    });
+    expect(launched).toEqual(["02", "03"]);
+    expect(getMigration("01")).toMatchObject({
+      state: "failed",
+      completedAt: expect.any(String),
+      failureReason: "Migration could not be launched",
+    });
+    expect(cancel("01")).toBe(false);
+    expect(getCapacityUsage()).toBe(2);
+    expect(log.mock.calls).toEqual([["[manager] Could not launch claimed migration 01"]]);
+  });
+
+  test("publishes the durable launch failure and closes the migration stream", async () => {
+    using log = spyOn(console, "error");
+    log.mockImplementation(() => {});
+    insertMigration(migration("01", "queued"));
+    activeMigrationRuns.enqueue("01", request("acme/01"));
+    const migrationStream = new ReadableStream<string>({
+      start: (controller) => {
+        subscribeToMigrationEvents("01", controller);
+      },
+    });
+    let unsubscribeGlobal = () => {};
+    const globalStream = new ReadableStream<string>({
+      start: (controller) => {
+        unsubscribeGlobal = subscribeToGlobalMigrationEvents(controller);
+      },
+    });
+    try {
+      drainMigrationQueue(() => false);
+      const events = getEvents("01");
+      expect(events).toHaveLength(1);
+      const event = events[0]!;
+      expect(event).toMatchObject({
+        migrationId: "01",
+        eventType: "failure",
+        phase: "FAILED",
+        payload: { error: "Migration could not be launched" },
+        createdAt: getMigration("01")?.completedAt,
+      });
+      const reader = migrationStream.getReader();
+      const { value } = await reader.read();
+      expect(value?.split("\n")[0]).toBe(`id: ${event.id}`);
+      expect(JSON.parse(value!.split("\n")[1]!.slice(6))).toEqual(event);
+      expect((await globalStream.getReader().read()).value).toBe(value);
+      expect((await reader.read()).value).toBe('data: {"type":"done","state":"failed"}\n\n');
+      expect((await reader.read()).done).toBe(true);
+    } finally {
+      unsubscribeGlobal();
+    }
   });
 
   test("fails a claimed migration when its secret request is missing", () => {

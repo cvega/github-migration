@@ -62,7 +62,7 @@ import {
   subscribeToMigrationEvents,
 } from "./runs/events";
 import { createMigrationRunFinisher } from "./runs/finish";
-import { drainMigrationQueue, shouldQueueMigration } from "./runs/queue";
+import { drainMigrationQueue, launchClaimedMigration, shouldQueueMigration } from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
 import {
   determineAuthModeFromRequest,
@@ -248,7 +248,7 @@ export function start(request: CreateMigrationRequest, batchId?: string): Migrat
   })();
   if (existing) return existing;
   if (queued) activeMigrationRuns.enqueue(migration.id, request);
-  else if (!launchPipeline(migration.id, request))
+  else if (!launchClaimedMigration(migration.id, request, launchPipeline))
     throw new Error("Migration could not be launched");
   return migration;
 }
@@ -343,7 +343,7 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
   })();
   broadcastMigrationEvent(migrationId, event);
   if (queued) activeMigrationRuns.enqueue(migrationId, request);
-  else if (!launchPipeline(migrationId, request))
+  else if (!launchClaimedMigration(migrationId, request, launchPipeline))
     throw new Error("Migration restart could not be launched");
   const updated = getMigration(migrationId);
   if (!updated) throw new Error(`Migration ${migrationId} not found after restart`);
