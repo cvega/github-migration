@@ -4,6 +4,7 @@ import { building, dev } from "$app/env";
 import { profileStarters } from "$lib/server/application/adapters/profile-starters";
 import { createMigrationSourceRuntime } from "$lib/server/application/adapters/source-runtime";
 import { getCapabilityReport, logCapabilityReport } from "$lib/server/application/capabilities";
+import { settleDashboardShutdown } from "$lib/server/application/dashboard-shutdown";
 import { configureOperatorJobPolicy } from "$lib/server/application/self-service/jobs";
 import { resolveSession, SESSION_COOKIE } from "$lib/server/core/auth/sessions";
 import { initializeAuthentication } from "$lib/server/core/auth/startup";
@@ -16,7 +17,6 @@ import { recoverInterruptedMigrations } from "$lib/server/migrate/database/schem
 import { recoverOrphans } from "$lib/server/migrate/manager";
 import { configureMigrationSourceRuntime } from "$lib/server/migrate/ports/source-runtime";
 import { dispatchProfiles } from "$lib/server/profile/database/queue";
-import { recoverInterruptedProfiles } from "$lib/server/profile/database/schema";
 import { stopActiveProfileRuns } from "$lib/server/profile/service";
 import { DOMAIN_STORES } from "$lib/server/schemas";
 
@@ -25,6 +25,7 @@ configureMigrationSourceRuntime(createMigrationSourceRuntime());
 configureOperatorJobPolicy();
 const instanceLock = acquireInstanceLock(dataDirectory);
 let authEnabled = false;
+let profileDispatch: ReturnType<typeof setInterval> | undefined;
 try {
   initStore(`${dataDirectory}/gh-migrate.db`, [...DOMAIN_STORES]);
   if (!building) {
@@ -49,7 +50,7 @@ try {
   logCapabilityReport(getCapabilityReport());
   recoverOrphans();
   if (!building)
-    setInterval(() => {
+    profileDispatch = setInterval(() => {
       try {
         dispatchProfiles((provider, namespace) => profileStarters[provider](namespace));
       } catch (error) {
@@ -68,18 +69,26 @@ if (!building && !authEnabled) {
   );
 }
 
-function shutdown(signal: string): void {
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[hooks] ${signal} received - shutting down`);
-  recoverInterruptedMigrations(getDb());
-  recoverInterruptedProfiles(getDb());
-  stopActiveProfileRuns();
-  closeStore();
-  instanceLock.release();
-  process.exit(0);
+  clearInterval(profileDispatch);
+  let exitCode = 1;
+  try {
+    exitCode = await settleDashboardShutdown(stopActiveProfileRuns, () =>
+      recoverInterruptedMigrations(getDb()),
+    );
+  } finally {
+    closeStore();
+    instanceLock.release();
+    process.exit(exitCode);
+  }
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
 
 export const handle = createRequestHandler({
   authEnabled,

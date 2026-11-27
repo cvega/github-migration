@@ -224,8 +224,9 @@ export function createProfileClient(
     fetch?: GitHubFetch;
     wait?: typeof sleep;
   } = {},
-): GitHubClient {
+): GitHubClient & { drainProfileRequests(): Promise<void> } {
   const active = new AsyncLocalStorage<AbortSignal>();
+  const pending = new Set<Promise<unknown>>();
   const transport = options.fetch ?? globalThis.fetch;
   const client = buildSide(
     auth,
@@ -237,6 +238,7 @@ export function createProfileClient(
     },
     {
       fetch: async (url, init) => {
+        runSignal.throwIfAborted();
         const signal = init?.signal ?? active.getStore() ?? runSignal;
         signal.throwIfAborted();
         return transport(url, { ...init, signal });
@@ -271,13 +273,22 @@ export function createProfileClient(
         }
       }
     };
+    // The caller can time out before the underlying request or response body settles.
+    const operation = active.run(signal, perform);
+    pending.add(operation);
+    const remove = () => pending.delete(operation);
+    void operation.then(remove, remove);
     try {
-      return await Promise.race([interrupted, active.run(signal, perform)]);
+      return await Promise.race([interrupted, operation]);
     } finally {
       signal.removeEventListener("abort", onAbort);
     }
   });
-  return client;
+  return Object.assign(client, {
+    async drainProfileRequests() {
+      while (pending.size > 0) await Promise.allSettled(pending);
+    },
+  });
 }
 
 function profileRetryDelay(error: unknown, attempt: number): number | null {

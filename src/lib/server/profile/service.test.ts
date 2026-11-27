@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { createProfileClient } from "$lib/server/core/github";
-import { sleep } from "$lib/server/core/polling";
-import { profileStore } from "./database/schema";
+import { getProfileRun } from "./database/runs";
+import { profileStore, recoverInterruptedProfiles } from "./database/schema";
 import { runProfile } from "./runner";
 import { getProfileDetail, startOrgProfile, stopActiveProfileRuns } from "./service";
 
@@ -52,9 +52,9 @@ test("persists a generic failure when a background runner crashes", async () => 
   });
 });
 
-test("shutdown cancels discovery retry and releases the GitHub lane", async () => {
+test("shutdown fences admission and waits for an aborted discovery retry to settle", async () => {
   const queued = Promise.withResolvers<void>();
-  const settled = Promise.withResolvers<void>();
+  const releaseRetry = Promise.withResolvers<void>();
   let attempts = 0;
   let id = 0;
   const deps = {
@@ -68,9 +68,9 @@ test("shutdown cancels discovery retry and releases the GitHub lane", async () =
             ? Response.json({}, { status: 429, headers: { "retry-after": "20" } })
             : Response.json([]);
         },
-        wait: (delay, signal) => {
+        wait: async () => {
           queued.resolve();
-          return sleep(delay, signal);
+          await releaseRetry.promise;
         },
       });
       return {
@@ -80,22 +80,69 @@ test("shutdown cancels discovery retry and releases the GitHub lane", async () =
         getApiCalls: () => attempts,
       };
     },
-    run: async (...args: Parameters<typeof runProfile>) => {
-      const run = await runProfile(...args);
-      settled.resolve();
-      return run;
-    },
+    run: runProfile,
   };
   startOrgProfile("acme", deps);
   await queued.promise;
-  stopActiveProfileRuns();
-  await settled.promise;
+  let settled = false;
+  const shutdown = Promise.resolve(stopActiveProfileRuns()).then(() => {
+    settled = true;
+  });
+  await Bun.sleep(0);
+  try {
+    expect(settled).toBe(false);
+    expect(getProfileDetail("1")?.run.state).toBe("running");
+    expect(() => startOrgProfile("acme", deps)).toThrow("shutting down");
+  } finally {
+    releaseRetry.resolve();
+    await shutdown;
+  }
   expect(attempts).toBe(1);
   expect(getProfileDetail("1")?.run).toMatchObject({
     state: "failed",
     failureReason: "Profile worker cancelled",
+    apiCalls: 1,
   });
-  expect(startOrgProfile("acme", { ...deps, run: runProfile }).state).toBe("running");
-  stopActiveProfileRuns();
-  await Bun.sleep(0);
+});
+
+test("shutdown snapshots dispatched calls when settlement exceeds the deadline", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const finished = Promise.withResolvers<void>();
+  let apiCalls = 0;
+  startOrgProfile("acme", {
+    newId: () => "unfinished",
+    buildSourceClients: () =>
+      ({
+        rest: {},
+        sourceApiUrl: "https://github.example",
+        getApiCalls: () => apiCalls,
+      }) as never,
+    run: async () => {
+      apiCalls++;
+      started.resolve();
+      await release.promise;
+      try {
+        const run = getProfileRun("unfinished");
+        if (!run) throw new Error("missing fixture run");
+        return run;
+      } finally {
+        finished.resolve();
+      }
+    },
+  });
+  await started.promise;
+  try {
+    expect(await stopActiveProfileRuns(0)).toBe(false);
+    expect(getProfileRun("unfinished")).toMatchObject({ state: "running", apiCalls: 1 });
+    recoverInterruptedProfiles(getDb());
+    expect(getProfileRun("unfinished")).toMatchObject({
+      state: "failed",
+      failureReason: "Server restarted during profiling",
+      apiCalls: 1,
+    });
+  } finally {
+    release.resolve();
+    await finished.promise;
+  }
 });

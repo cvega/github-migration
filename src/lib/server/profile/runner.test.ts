@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { createProfileClient } from "$lib/server/core/github";
 import { countRepoCommits } from "./collection/commits";
 import { discoverOrgRepos } from "./collection/discovery";
-import { augmentRepoCounts, augmentRepoDetails } from "./collection/signals";
+import { augmentRepoCounts, augmentRepoDetails, gatherRepoRestSignals } from "./collection/signals";
 import { getRunRepoProfiles } from "./database/repos";
-import { getProfileRunRollup } from "./database/runs";
+import { getProfileRun, getProfileRunRollup } from "./database/runs";
 import { profileStore } from "./database/schema";
 import { type ProfileRunnerDeps, runProfile } from "./runner";
 import { getProfileDetail } from "./service";
@@ -192,6 +193,69 @@ describe("profile runner", () => {
     expect(phases).toEqual(
       expect.arrayContaining(["discovering", "organization", "counting", "details", "signals"]),
     );
+  });
+
+  test("aborts sibling retries and keeps the run active until transport settlement", async () => {
+    const retryWaiting = Promise.withResolvers<void>();
+    const releaseRetry = Promise.withResolvers<void>();
+    const allDispatched = Promise.withResolvers<void>();
+    const aborted = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    controller.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+    const requests: string[] = [];
+    const rest = createProfileClient(
+      { token: "fixture" },
+      "https://github.example",
+      controller.signal,
+      {
+        fetch: async (url) => {
+          const endpoint = new URL(String(url)).pathname.split("/").at(-1) ?? "";
+          requests.push(endpoint);
+          if (requests.length === 5) allDispatched.resolve();
+          if (endpoint === "commits") {
+            await Promise.all([retryWaiting.promise, allDispatched.promise]);
+            return Response.json({}, { status: 403 });
+          }
+          if (endpoint === "hooks")
+            return Response.json({}, { status: 429, headers: { "retry-after": "20" } });
+          return Response.json([]);
+        },
+        wait: async () => {
+          retryWaiting.resolve();
+          await releaseRetry.promise;
+        },
+      },
+    );
+    const input = {
+      id: "draining",
+      org: "acme",
+      sourceApiUrl: "https://github.example",
+      abortRequests: () => controller.abort(),
+    };
+    const run = runProfile(
+      { rest, gql: rest.graphql, getApiCalls: () => requests.length },
+      input,
+      undefined,
+      {
+        ...dependencies,
+        countCommits: countRepoCommits,
+        gatherRestSignals: gatherRepoRestSignals,
+      },
+    );
+    await Promise.race([aborted.promise, run, Bun.sleep(500)]);
+    try {
+      expect(controller.signal.aborted).toBe(true);
+      expect(getProfileRun(input.id)?.state).toBe("running");
+    } finally {
+      releaseRetry.resolve();
+      await run;
+    }
+    expect(await run).toMatchObject({
+      state: "failed",
+      apiCalls: 5,
+      failureReason: "GitHub profile failed during signals (HTTP 403)",
+    });
+    expect(requests.filter((endpoint) => endpoint === "hooks")).toHaveLength(1);
   });
 
   test("returns a durable failed run when discovery fails", async () => {
