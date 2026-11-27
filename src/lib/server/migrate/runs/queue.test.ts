@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { CreateMigrationRequest, Migration, MigrationState } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
+import { insertEvent } from "../database/events";
+import { insertGhesImportJob } from "../database/import-jobs";
 import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
 import { migrateStore } from "../database/schema";
-import { cancel, confirmRestart, restart } from "../manager";
+import { getRegisteredMigrationExecutor } from "../executors/registry";
+import { cancel, confirmRestart, restart, start } from "../manager";
 import { activeMigrationRuns } from "./active";
 import {
   drainMigrationQueue,
@@ -48,73 +51,147 @@ function migration(id: string, state: MigrationState): Migration {
   };
 }
 
+const enterprise = (id: string, batchId: string | null, state: MigrationState): Migration => ({
+  ...migration(id, state),
+  batchId,
+  sourceProvider: "bitbucket-server",
+  targetPlatform: "ghes",
+  targetProfileId: "enterprise",
+  targetApiUrl: "https://enterprise.example/api/v3",
+});
+
 describe("migration queue", () => {
-  test.each(["failed", "reconciliation_required"] as const)(
-    "holds siblings after %s without blocking unrelated work or losing a queued restart",
-    (state) => {
-      const enterprise = (id: string, batchId: string, state: MigrationState): Migration => ({
-        ...migration(id, state),
-        batchId,
-        sourceProvider: "bitbucket-server",
-        targetPlatform: "ghes",
-        targetProfileId: "enterprise",
-        targetApiUrl: "https://enterprise.example/api/v3",
+  test("holds siblings after a failure without blocking unrelated work or losing a queued restart", () => {
+    const blocker = enterprise("01", "held", "failed");
+    const sibling = { ...enterprise("02", "held", "queued"), startedAt: "2000-01-01T00:00:00Z" };
+    insertMigration(blocker);
+    expect(shouldQueueMigration(sibling)).toBe(true);
+    insertMigration(sibling);
+    insertMigration(enterprise("06", "held", "queued"));
+    insertMigration(enterprise("03", "other", "queued"));
+    insertMigration({ ...migration("04", "queued"), batchId: "held" });
+    const launched: string[] = [];
+    const drain = () =>
+      drainMigrationQueue((id) => {
+        launched.push(id);
+        return true;
       });
-      const blocker = enterprise("01", "held", state);
-      const sibling = { ...enterprise("02", "held", "queued"), startedAt: "2000-01-01T00:00:00Z" };
-      insertMigration(blocker);
+    for (const id of ["02", "03", "04", "06"])
+      activeMigrationRuns.enqueue(id, request(`acme/${id}`));
+    try {
+      drain();
+      expect(launched).toEqual(["03", "04"]);
+      expect(cancel("06")).toBe(true);
+      expect(getMigration("06")?.state).toBe("cancelled");
+      expect(getMigration("02")?.state).toBe("queued");
+      expect(restart("01", { sourceToken: "test", targetToken: "test" }).state).toBe("queued");
+      updateMigrationState("03", "succeeded");
       expect(shouldQueueMigration(sibling)).toBe(true);
-      insertMigration(sibling);
-      insertMigration(enterprise("06", "held", "queued"));
-      insertMigration(enterprise("03", "other", "queued"));
-      insertMigration({ ...migration("04", "queued"), batchId: "held" });
-      const launched: string[] = [];
-      const drain = () =>
+      const secondBlocker = enterprise("07", "held", "failed");
+      insertMigration(secondBlocker);
+      drain();
+      expect(getMigration("01")?.state).toBe("queued");
+      expect(shouldQueueMigration(secondBlocker)).toBe(false);
+      // Model the second blocker's successful retry without calling an executor.
+      updateMigrationState("07", "pending");
+      updateMigrationState("07", "succeeded");
+      drain();
+      expect(launched).toEqual(["03", "04", "01"]);
+      // The appliance becomes available to another batch after a failed retry.
+      insertMigration(enterprise("05", "other", "queued"));
+      activeMigrationRuns.enqueue("05", request("acme/05"));
+      updateMigrationState("01", "failed");
+      drain();
+      expect(launched.at(-1)).toBe("05");
+      expect(getMigration("02")?.state).toBe("queued");
+      expect(restart("01", { sourceToken: "test", targetToken: "test" }).state).toBe("queued");
+      updateMigrationState("05", "succeeded");
+      drain();
+      expect(launched.at(-1)).toBe("01");
+      updateMigrationState("01", "succeeded");
+      drain();
+      expect(launched).toEqual(["03", "04", "01", "05", "01", "02"]);
+    } finally {
+      for (const id of ["01", "02", "03", "04", "05", "06"]) activeMigrationRuns.dropQueued(id);
+    }
+  });
+
+  test.each([
+    "preparing",
+    "mapping",
+    "importing",
+    "auditing",
+    "unlocking",
+    "reconciliation_required",
+  ] as const)(
+    "blocks GHES starts, restarts and other batches until confirmation at %s",
+    async (phase) => {
+      const blocker = enterprise("01", "held", "reconciliation_required");
+      insertMigration(blocker);
+      insertGhesImportJob({
+        id: "job",
+        migrationId: blocker.id,
+        phase,
+        exporterJobId: "export",
+        archivePath: null,
+        archiveSha256: null,
+        ghesImportId:
+          phase === "preparing" || phase === "reconciliation_required" ? null : "saved-guid",
+        sourceWasArchived: true,
+        failureReason: null,
+        createdAt: blocker.startedAt,
+        updatedAt: blocker.startedAt,
+      });
+      if (phase === "reconciliation_required")
+        insertEvent({
+          migrationId: blocker.id,
+          eventType: "step",
+          phase: null,
+          payload: { message: "Preparing", executorPhase: "preparing" },
+          createdAt: blocker.startedAt,
+        });
+      insertMigration(enterprise("02", "other", "queued"));
+      activeMigrationRuns.enqueue("02", request("acme/02"));
+      insertMigration(enterprise("03", null, "failed"));
+      const env = { ...process.env };
+      process.env.GHES_TARGET_ID = "enterprise";
+      process.env.GHES_TARGET_API_URL = blocker.targetApiUrl;
+      const executor = getRegisteredMigrationExecutor(blocker);
+      using run = spyOn(executor, "run").mockImplementation(async ({ id }) => ({
+        ...getMigration(id!)!,
+        state: "succeeded",
+      }));
+      try {
+        const started = start({
+          ...request("acme/new"),
+          sourceApiUrl: "https://bb.example",
+          targetToken: "fixture",
+          sourceProvider: "bitbucket-server",
+          targetProfileId: "enterprise",
+        });
+        expect(started.state).toBe("queued");
+        expect(restart("03", { sourceToken: "fixture", targetToken: "fixture" }).state).toBe(
+          "queued",
+        );
+        insertMigration(migration("04", "queued"));
+        activeMigrationRuns.enqueue("04", request("acme/04"));
+        const launched: string[] = [];
         drainMigrationQueue((id) => {
           launched.push(id);
           return true;
         });
-      for (const id of ["02", "03", "04", "06"])
-        activeMigrationRuns.enqueue(id, request(`acme/${id}`));
-      try {
-        drain();
-        expect(launched).toEqual(["03", "04"]);
-        expect(cancel("06")).toBe(true);
-        expect(getMigration("06")?.state).toBe("cancelled");
-        if (state === "reconciliation_required") {
-          expect(() => restart("01", {})).toThrow("reconciliation_required");
-          confirmRestart("01", "acme-cloud/01");
-        }
-        expect(getMigration("02")?.state).toBe("queued");
-        expect(restart("01", { sourceToken: "test", targetToken: "test" }).state).toBe("queued");
-        updateMigrationState("03", "succeeded");
-        expect(shouldQueueMigration(sibling)).toBe(true);
-        const secondBlocker = enterprise("07", "held", "failed");
-        insertMigration(secondBlocker);
-        drain();
-        expect(getMigration("01")?.state).toBe("queued");
-        expect(shouldQueueMigration(secondBlocker)).toBe(false);
-        // Model the second blocker's successful retry without calling an executor.
-        updateMigrationState("07", "pending");
-        updateMigrationState("07", "succeeded");
-        drain();
-        expect(launched).toEqual(["03", "04", "01"]);
-        // The appliance becomes available to another batch after a failed retry.
-        insertMigration(enterprise("05", "other", "queued"));
-        activeMigrationRuns.enqueue("05", request("acme/05"));
-        updateMigrationState("01", "failed");
-        drain();
-        expect(launched.at(-1)).toBe("05");
-        expect(getMigration("02")?.state).toBe("queued");
-        expect(restart("01", { sourceToken: "test", targetToken: "test" }).state).toBe("queued");
-        updateMigrationState("05", "succeeded");
-        drain();
-        expect(launched.at(-1)).toBe("01");
-        updateMigrationState("01", "succeeded");
-        drain();
-        expect(launched).toEqual(["03", "04", "01", "05", "01", "02"]);
+        expect(launched).toEqual(["04"]);
+        expect(() => restart("01", {})).toThrow("reconciliation_required");
+        confirmRestart("01", "acme-cloud/01");
+        await Bun.sleep(0);
+        expect(run).toHaveBeenCalledTimes(3);
+        for (const id of ["02", "03", started.id])
+          expect(getMigration(id)?.state).toBe("succeeded");
       } finally {
-        for (const id of ["01", "02", "03", "04", "05", "06"]) activeMigrationRuns.dropQueued(id);
+        for (const key of ["GHES_TARGET_ID", "GHES_TARGET_API_URL"]) {
+          if (env[key] === undefined) delete process.env[key];
+          else process.env[key] = env[key];
+        }
       }
     },
   );

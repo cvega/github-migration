@@ -30,6 +30,10 @@ import {
 } from "./database/batches";
 import { getEvents, getRecentActivity, insertEvent } from "./database/events";
 import {
+  getGhesImportJobByMigrationId,
+  updateGhesImportJobCheckpoint,
+} from "./database/import-jobs";
+import {
   claimMigrationCancellation,
   claimQueuedMigrationCancellation,
   getBatchMigrationByItem,
@@ -363,9 +367,16 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
         `Cannot confirm restart for migration in state "${getMigration(migrationId)?.state ?? "missing"}"`,
       );
     }
+    const job = getGhesImportJobByMigrationId(migrationId);
+    if (job?.phase === "preparing" && !job.ghesImportId) {
+      updateGhesImportJobCheckpoint(job.id, "failed", {
+        failureReason: job.failureReason ?? undefined,
+      });
+    }
     event.id = insertEvent(event);
   })();
   broadcastMigrationEvent(migrationId, event);
+  if (existing.targetPlatform === "ghes") drainQueue();
   return getMigration(migrationId) as Migration;
 }
 

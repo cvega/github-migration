@@ -25,7 +25,7 @@ import {
   countGhesAuditFailures,
   getGhesUserConflicts,
 } from "./mapping";
-import type { GhesSshClient } from "./ssh";
+import { GhesMigratorBusyError, type GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
 const MAX_MAPPING_PASSES = 3;
@@ -411,13 +411,14 @@ async function execute(
       current?.phase === "auditing" ||
       current?.phase === "unlocking" ||
       current?.phase === "succeeded";
-    const ambiguous =
+    const uncertainApplianceStep =
       afterImport ||
-      error instanceof ReconciliationRequiredError ||
-      (current !== null &&
-        (current.phase === "mapping" ||
-          current.phase === "importing" ||
-          (current.phase === "preparing" && !current.ghesImportId)));
+      current?.phase === "mapping" ||
+      current?.phase === "importing" ||
+      (current?.phase === "preparing" &&
+        !current.ghesImportId &&
+        !(error instanceof GhesMigratorBusyError));
+    const ambiguous = uncertainApplianceStep || error instanceof ReconciliationRequiredError;
     const state = ambiguous
       ? "reconciliation_required"
       : options.signal?.aborted
@@ -428,9 +429,13 @@ async function execute(
       ? `GHES import ${current.ghesImportId} reached ${current.phase}; check audit and unlock for that GUID before continuing.`
       : detail;
     if (current)
-      updateGhesImportJobCheckpoint(current.id, current.ghesImportId ? current.phase : state, {
-        failureReason: reason,
-      });
+      updateGhesImportJobCheckpoint(
+        current.id,
+        current.ghesImportId || uncertainApplianceStep ? current.phase : state,
+        {
+          failureReason: reason,
+        },
+      );
     result = settled(migration, state, reason);
   } finally {
     ssh?.disconnect();

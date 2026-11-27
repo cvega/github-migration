@@ -638,10 +638,23 @@ export function searchMigrationsPaginated(
   };
 }
 
-export function hasExecutingGhesMigration(): boolean {
+// Older prepare failures replaced the job phase before recording a GUID.
+const LAST_GHES_STEP = `(SELECT json_extract(e.payload, '$.executorPhase') FROM events e
+  WHERE e.migration_id = job.migration_id AND e.event_type = 'step'
+    AND CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.executorPhase') IS NOT NULL END
+  ORDER BY e.id DESC LIMIT 1)`;
+
+export function isGhesSlotHeld(): boolean {
   return !!getDb()
     .prepare(`SELECT 1 FROM migrations WHERE target_platform = 'ghes'
-      AND state IN (${migrationStatesSql(CAPACITY_MIGRATION_STATES)}) LIMIT 1`)
+        AND state IN (${migrationStatesSql(CAPACITY_MIGRATION_STATES)})
+      UNION ALL
+      SELECT 1 FROM migrations m JOIN ghes_import_jobs job ON job.migration_id = m.id
+      WHERE m.target_platform = 'ghes' AND m.state = 'reconciliation_required'
+        AND (job.phase IN ('mapping', 'importing', 'auditing', 'unlocking')
+          OR (job.ghes_import_id IS NULL AND (job.phase = 'preparing'
+            OR (job.phase = 'reconciliation_required' AND ${LAST_GHES_STEP} = 'preparing'))))
+      LIMIT 1`)
     .get();
 }
 
