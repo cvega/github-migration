@@ -43,7 +43,7 @@ export function recoverMigrationRuns(
     if (!dependencies.hasExecutor(migration)) {
       updateMigrationState(migration.id, "reconciliation_required", {
         failureReason:
-          "No executor is available for this route. Review the checkpointed migration before restarting.",
+          "No executor is available for this route. Confirm the remote migration is inactive before completing review.",
         completedAt: new Date().toISOString(),
       });
       continue;
