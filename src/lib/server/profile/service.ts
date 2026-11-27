@@ -2,6 +2,7 @@ import { MAX_PROFILE_PLAN_REPOS, type ProfilePlanRepo } from "$lib/profile/migra
 import type { RepositoryAnalysisDetail } from "$lib/profile/repository-analysis";
 import type { ProfileInventorySummary } from "$lib/profile/types";
 import { getSourceClients } from "$lib/server/core/auth";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import type { SourceInventoryProgress } from "$lib/source/types";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import { deriveInsights, type Insight } from "./analysis/insights";
@@ -27,6 +28,7 @@ import {
   getProfileRun,
   getProfileRunRollup,
   ProfileRunCapacityError,
+  setProfileRunApiCalls,
 } from "./database/runs";
 import { publishProfileEvent } from "./events";
 import type { InventoryProfileClient, InventoryProfileInput } from "./inventory-runner";
@@ -56,7 +58,13 @@ const DEFAULT_DEPS: ProfileServiceDeps = {
   run: runProfile,
   newId: () => Bun.randomUUIDv7(),
 };
-const controllers = new Map<string, AbortController>();
+interface ActiveProfile {
+  controller: AbortController;
+  settled: Promise<void>;
+  getApiCalls(): number;
+}
+const activeProfiles = new Map<string, ActiveProfile>();
+let stopping: Promise<boolean> | undefined;
 
 export class GitLabProfileCapacityError extends Error {
   constructor() {
@@ -70,18 +78,53 @@ export class BitbucketProfileCapacityError extends Error {
     this.name = "BitbucketProfileCapacityError";
   }
 }
-function execution(
+function assertProfileAdmission(): void {
+  if (stopping) throw new Error("Profile service is shutting down");
+}
+
+function executeProfile(
   id: string,
-  controller = new AbortController(),
-): { signal: AbortSignal; stop: () => void } {
-  controllers.set(id, controller);
-  return { signal: controller.signal, stop: () => controllers.delete(id) };
+  controller: AbortController,
+  getApiCalls: () => number,
+  run: () => Promise<ProfileRun>,
+  onCrash: () => void,
+): void {
+  const settled = Promise.resolve()
+    .then(run)
+    .then((result) => publishProfileEvent(id, { type: "done", state: result.state }))
+    .catch(onCrash)
+    .catch((error) => console.error("[profile] Could not settle run", safeErrorReason(error)))
+    .finally(() => {
+      activeProfiles.delete(id);
+    });
+  activeProfiles.set(id, { controller, getApiCalls, settled });
 }
-export function stopActiveProfileRuns(): void {
-  for (const controller of controllers.values())
-    controller.abort(new Error("Profile worker shut down"));
-  controllers.clear();
+
+export function stopActiveProfileRuns(timeoutMs = 5000): Promise<boolean> {
+  if (stopping) return stopping;
+  const active = [...activeProfiles.values()];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  stopping = Promise.race([
+    Promise.all(active.map((run) => run.settled)).then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ])
+    .then((drained) => {
+      // Startup recovery will fail any unfinished rows and retain their dispatch counts.
+      if (!drained) {
+        for (const [id, run] of activeProfiles) setProfileRunApiCalls(id, run.getApiCalls());
+      }
+      return drained;
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      stopping = undefined;
+    });
+  for (const run of active) run.controller.abort(new Error("Profile worker shut down"));
+  return stopping;
 }
+
 function crash(id: string, message: string, inventoryCalls?: () => number): void {
   let run = getProfileRun(id);
   if (run?.state === "running") {
@@ -93,8 +136,10 @@ function crash(id: string, message: string, inventoryCalls?: () => number): void
 }
 
 export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_DEPS): ProfileRun {
+  assertProfileAdmission();
   const controller = new AbortController();
-  const clients = deps.buildSourceClients(controller.signal);
+  const requests = new AbortController();
+  const clients = deps.buildSourceClients(AbortSignal.any([controller.signal, requests.signal]));
   const id = deps.newId();
   const run = createProfileRun({
     id,
@@ -102,33 +147,36 @@ export function startOrgProfile(org: string, deps: ProfileServiceDeps = DEFAULT_
     org,
     enforceCapacity: true,
   });
-  const active = execution(id, controller);
-  deps
-    .run(
-      clients,
-      {
-        id,
-        org,
-        sourceApiUrl: clients.sourceApiUrl,
-        runAlreadyCreated: true,
-        signal: active.signal,
-      },
-      (progress) =>
-        publishProfileEvent(id, {
-          type: "progress",
-          profiled: progress.profiled,
-          total: progress.total,
-          repo: progress.repo,
-          phase: progress.phase,
-        }),
-      {
-        getOrgRulesetCount: (target) => getOrgRulesetCount(clients.rest, target),
-        getOrgResources: (target) => getOrgResources(clients.rest, target),
-      },
-    )
-    .then((settled) => publishProfileEvent(id, { type: "done", state: settled.state }))
-    .catch(() => crash(id, "Organization profiling failed"))
-    .finally(active.stop);
+  executeProfile(
+    id,
+    controller,
+    clients.getApiCalls,
+    () =>
+      deps.run(
+        clients,
+        {
+          id,
+          org,
+          sourceApiUrl: clients.sourceApiUrl,
+          runAlreadyCreated: true,
+          signal: controller.signal,
+          abortRequests: () => requests.abort(),
+        },
+        (progress) =>
+          publishProfileEvent(id, {
+            type: "progress",
+            profiled: progress.profiled,
+            total: progress.total,
+            repo: progress.repo,
+            phase: progress.phase,
+          }),
+        {
+          getOrgRulesetCount: (target) => getOrgRulesetCount(clients.rest, target),
+          getOrgResources: (target) => getOrgResources(clients.rest, target),
+        },
+      ),
+    () => crash(id, "Organization profiling failed"),
+  );
   return run;
 }
 
@@ -136,6 +184,7 @@ export function startGitLabProfile<Client extends InventoryProfileClient>(
   namespace: string,
   deps: GitLabProfileServiceDeps<Client>,
 ): ProfileRun {
+  assertProfileAdmission();
   const client = deps.buildSourceClient();
   const initial = client.getApiCalls();
   const id = deps.newId();
@@ -152,16 +201,20 @@ export function startGitLabProfile<Client extends InventoryProfileClient>(
     if (error instanceof ProfileRunCapacityError) throw new GitLabProfileCapacityError();
     throw error;
   }
-  const active = execution(id);
-  deps
-    .run(client, { id, namespace, runAlreadyCreated: true, signal: active.signal }, (progress) =>
-      publishProfileEvent(id, { type: "inventory-progress", ...progress }),
-    )
-    .then((settled) => publishProfileEvent(id, { type: "done", state: settled.state }))
-    .catch(() =>
-      crash(id, "GitLab inventory profiling failed", () => client.getApiCalls() - initial),
-    )
-    .finally(active.stop);
+  const controller = new AbortController();
+  const getApiCalls = () => client.getApiCalls() - initial;
+  executeProfile(
+    id,
+    controller,
+    getApiCalls,
+    () =>
+      deps.run(
+        client,
+        { id, namespace, runAlreadyCreated: true, signal: controller.signal },
+        (progress) => publishProfileEvent(id, { type: "inventory-progress", ...progress }),
+      ),
+    () => crash(id, "GitLab inventory profiling failed", getApiCalls),
+  );
   return run;
 }
 
@@ -169,6 +222,7 @@ export function startBitbucketServerProfile<Client extends InventoryProfileClien
   namespace: string,
   deps: BitbucketProfileServiceDeps<Client>,
 ): ProfileRun {
+  assertProfileAdmission();
   const client = deps.buildSourceClient();
   const initial = client.getApiCalls();
   const id = deps.newId();
@@ -185,20 +239,20 @@ export function startBitbucketServerProfile<Client extends InventoryProfileClien
     if (error instanceof ProfileRunCapacityError) throw new BitbucketProfileCapacityError();
     throw error;
   }
-  const active = execution(id);
-  deps
-    .run(client, { id, namespace, runAlreadyCreated: true, signal: active.signal }, (progress) =>
-      publishProfileEvent(id, { type: "inventory-progress", ...progress }),
-    )
-    .then((settled) => publishProfileEvent(id, { type: "done", state: settled.state }))
-    .catch(() =>
-      crash(
-        id,
-        "Bitbucket Server inventory profiling failed",
-        () => client.getApiCalls() - initial,
+  const controller = new AbortController();
+  const getApiCalls = () => client.getApiCalls() - initial;
+  executeProfile(
+    id,
+    controller,
+    getApiCalls,
+    () =>
+      deps.run(
+        client,
+        { id, namespace, runAlreadyCreated: true, signal: controller.signal },
+        (progress) => publishProfileEvent(id, { type: "inventory-progress", ...progress }),
       ),
-    )
-    .finally(active.stop);
+    () => crash(id, "Bitbucket Server inventory profiling failed", getApiCalls),
+  );
   return run;
 }
 

@@ -29,7 +29,7 @@ import {
 
 export interface ProfileClients {
   gql: typeof graphql;
-  rest: GitHubClient;
+  rest: GitHubClient & { drainProfileRequests?(): Promise<void> };
   getApiCalls: () => number;
 }
 export interface ProfileRunnerDeps {
@@ -68,6 +68,7 @@ async function pool<T, R>(
   items: T[],
   concurrency: number,
   operation: (item: T) => Promise<R>,
+  onFailure: (error: unknown) => void,
 ): Promise<R[]> {
   let next = 0;
   const result: R[] = [];
@@ -78,6 +79,7 @@ async function pool<T, R>(
         result[index] = await operation(items[index] as T);
       } catch (error) {
         next = items.length;
+        onFailure(error);
         throw error;
       }
     }
@@ -88,6 +90,21 @@ async function pool<T, R>(
   for (const worker of workers) if (worker.status === "rejected") throw worker.reason;
   return result;
 }
+async function join<A, B>(
+  first: () => Promise<A>,
+  second: () => Promise<B>,
+  onFailure: (error: unknown) => void,
+): Promise<[A, B]> {
+  const operations = [Promise.resolve().then(first), Promise.resolve().then(second)] as const;
+  try {
+    return await Promise.all(operations);
+  } catch (error) {
+    onFailure(error);
+    await Promise.allSettled(operations);
+    throw error;
+  }
+}
+
 function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted)
     throw signal.reason instanceof Error ? signal.reason : new Error("Profile worker cancelled");
@@ -114,6 +131,7 @@ export async function runProfile(
     sourceApiUrl: string;
     runAlreadyCreated?: boolean;
     signal?: AbortSignal;
+    abortRequests?: () => void;
   },
   onProgress?: (progress: ProfileProgress) => void,
   deps: Partial<ProfileRunnerDeps> = {},
@@ -131,25 +149,39 @@ export async function runProfile(
     currentPhase = phase;
     onProgress?.({ runId: input.id, phase, profiled, total, repo });
   };
+  const failure = new AbortController();
+  const signal = input.signal ? AbortSignal.any([input.signal, failure.signal]) : failure.signal;
+  let failureReason: string | undefined;
+  const onFailure = (error: unknown) => {
+    if (failureReason !== undefined) return failureReason;
+    failureReason = input.signal?.aborted
+      ? "Profile worker cancelled"
+      : safeErrorReason(error, `GitHub profile failed during ${currentPhase}`);
+    failure.abort(error);
+    input.abortRequests?.();
+    return failureReason;
+  };
   try {
-    cancelled(input.signal);
+    cancelled(signal);
     const discovery = await dependency.discover(
       clients.rest,
       input.org,
       (value) => {
-        cancelled(input.signal);
+        cancelled(signal);
         setProfileRunTotal(input.id, value.total);
         progress("discovering", 0, value.total);
       },
       getSourceProviderAdapter("github").inventoryProjectLimit ?? 10_000,
     );
-    cancelled(input.signal);
+    cancelled(signal);
     setProfileRunTotal(input.id, discovery.total);
     progress("organization", 0, discovery.total);
-    const [rulesets, resources] = await Promise.all([
-      dependency.getOrgRulesetCount(input.org),
-      dependency.getOrgResources(input.org),
-    ]);
+    const [rulesets, resources] = await join(
+      () => dependency.getOrgRulesetCount(input.org),
+      () => dependency.getOrgResources(input.org),
+      onFailure,
+    );
+    cancelled(signal);
     setProfileRunRulesets(input.id, rulesets);
     setProfileRunOrgResources(input.id, resources);
 
@@ -162,12 +194,18 @@ export async function runProfile(
       ),
       LIMITS.counts,
     );
-    const counts = await pool(countBatches, LIMITS.augmentWorkers, async (batch) => {
-      cancelled(input.signal);
-      const values = await dependency.augmentCounts(clients.gql, batch);
-      progress("counting", 0, discovery.total, batch[0]?.nameWithOwner);
-      return values;
-    });
+    const counts = await pool(
+      countBatches,
+      LIMITS.augmentWorkers,
+      async (batch) => {
+        cancelled(signal);
+        const values = await dependency.augmentCounts(clients.gql, batch);
+        cancelled(signal);
+        progress("counting", 0, discovery.total, batch[0]?.nameWithOwner);
+        return values;
+      },
+      onFailure,
+    );
 
     const ordered = counts.flat().sort((left, right) => risk(right) - risk(left));
     const detailTasks = [
@@ -181,47 +219,56 @@ export async function runProfile(
       ).map((repos) => ({ repos, scanReleases: true })),
     ];
     if (detailTasks.length > 0) progress("details", profiled, discovery.total);
-    const details = await pool(detailTasks, LIMITS.augmentWorkers, async (task) => {
-      cancelled(input.signal);
-      return dependency.augmentDetails(clients.gql, task.repos, {
-        scanReleases: task.scanReleases,
-      });
-    });
+    const details = await pool(
+      detailTasks,
+      LIMITS.augmentWorkers,
+      async (task) => {
+        cancelled(signal);
+        return dependency.augmentDetails(clients.gql, task.repos, {
+          scanReleases: task.scanReleases,
+        });
+      },
+      onFailure,
+    );
     const byName = new Map(details.flat().map((detail) => [detail.nameWithOwner, detail]));
 
     if (ordered.length > 0) progress("signals", profiled, discovery.total);
-    const signals = await pool(ordered, LIMITS.restWorkers, async (repo) => {
-      cancelled(input.signal);
-      const detail = byName.get(repo.nameWithOwner);
-      if (!detail) throw new Error(`Missing GraphQL details for ${repo.nameWithOwner}`);
-      const [commitsCount, rest] = await Promise.all([
-        dependency.countCommits(clients.rest, repo),
-        dependency.gatherRestSignals(clients.rest, repo),
-      ]);
-      cancelled(input.signal);
-      progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
-      return {
-        ...repo,
-        ...detail,
-        releaseAssetScanComplete: repo.releasesCount === 0 || detail.releaseAssetScanComplete,
-        commitsCount,
-        ...rest,
-      };
-    });
-    cancelled(input.signal);
+    const signals = await pool(
+      ordered,
+      LIMITS.restWorkers,
+      async (repo) => {
+        cancelled(signal);
+        const detail = byName.get(repo.nameWithOwner);
+        if (!detail) throw new Error(`Missing GraphQL details for ${repo.nameWithOwner}`);
+        const [commitsCount, rest] = await join(
+          () => dependency.countCommits(clients.rest, repo),
+          () => dependency.gatherRestSignals(clients.rest, repo),
+          onFailure,
+        );
+        cancelled(signal);
+        progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
+        return {
+          ...repo,
+          ...detail,
+          releaseAssetScanComplete: repo.releasesCount === 0 || detail.releaseAssetScanComplete,
+          commitsCount,
+          ...rest,
+        };
+      },
+      onFailure,
+    );
+    await clients.rest.drainProfileRequests?.();
+    cancelled(signal);
     if (signals.length !== discovery.total) throw new Error("Incomplete GitHub repository profile");
     recordRepoProfiles(input.id, records(signals));
     setProfileRunApiCalls(input.id, clients.getApiCalls());
     saveProfileRunRollup(input.id, buildProfileDetailRollup(iterateRunRepoProfiles(input.id)));
     completeProfileRun(input.id);
   } catch (error) {
+    const reason = onFailure(error);
+    await clients.rest.drainProfileRequests?.();
     setProfileRunApiCalls(input.id, clients.getApiCalls());
-    failProfileRun(
-      input.id,
-      input.signal?.aborted
-        ? "Profile worker cancelled"
-        : safeErrorReason(error, `GitHub profile failed during ${currentPhase}`),
-    );
+    failProfileRun(input.id, reason);
   }
   const run = getProfileRun(input.id);
   if (!run) throw new Error(`Profile run '${input.id}' vanished after execution`);

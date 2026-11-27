@@ -64,16 +64,19 @@ export async function runGitLabInventoryProfile<Client extends InventoryProfileC
       org: input.namespace,
     });
   try {
+    input.signal?.throwIfAborted();
     const inventory = await deps.discover(client, input.namespace, {
       onProgress,
       signal: input.signal,
     });
+    input.signal?.throwIfAborted();
     if (inventory.provider !== "gitlab")
       throw new TypeError("GitLab discovery returned an inventory for a different provider");
     const enrichment =
       inventory.projectCount.kind !== "unavailable" && deps.enrich
         ? await deps.enrich(client, inventory, { signal: input.signal })
         : undefined;
+    input.signal?.throwIfAborted();
     settleProfileInventoryRun(
       input.id,
       inventory,
@@ -108,16 +111,19 @@ export async function runBitbucketInventoryProfile<Client extends InventoryProfi
       org: input.namespace,
     });
   try {
+    input.signal?.throwIfAborted();
     const inventory = await deps.discover(client, input.namespace, {
       onProgress,
       signal: input.signal,
     });
+    input.signal?.throwIfAborted();
     if (inventory.provider !== "bitbucket-server")
       throw new TypeError("Bitbucket discovery returned an inventory for a different provider");
     const enrichment =
       inventory.projectCount.kind !== "unavailable" && deps.enrich
         ? await deps.enrich(client, inventory, { signal: input.signal })
         : undefined;
+    input.signal?.throwIfAborted();
     settleProfileInventoryRun(
       input.id,
       inventory,
