@@ -8,6 +8,7 @@ import {
   getFormDefaults,
   isCredentialOverrideAllowed,
 } from "$lib/server/core/auth";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { getCachedGitHubStatus } from "$lib/server/core/github-status";
 import { getMigrationTargetProfiles } from "$lib/server/core/targets";
 import { getActiveMigrationCount, getMigrationCount } from "$lib/server/migrate/database/stats";
@@ -29,6 +30,7 @@ export const load: LayoutServerLoad = ({ locals }) => {
     };
   }
 
+  requireAdminIfAuthEnabled(locals);
   const auth = getAuthConfig();
   const liveRates = getCachedLiveRateLimits();
   const ghStatus = getCachedGitHubStatus();

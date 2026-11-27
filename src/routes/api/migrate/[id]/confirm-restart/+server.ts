@@ -2,12 +2,14 @@ import { json } from "@sveltejs/kit";
 import { isPausedPersistedRoute } from "$lib/migration-target";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import { confirmRestart, MigrationRestartConflict } from "$lib/server/migrate/manager";
 import { confirmRestartSchema, validateBody } from "$lib/server/migrate/schemas";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
+  requireAdminIfAuthEnabled(locals);
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) return json({ error: parsed.error }, { status: parsed.status });
   const validated = validateBody(confirmRestartSchema, parsed.data);

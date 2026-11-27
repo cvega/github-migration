@@ -3,6 +3,7 @@ import { parsePaginationParams } from "$lib/migrate/types";
 import { validateAuthAvailable } from "$lib/server/application/migration-policy";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import { listBatchesPaginated, startBatch } from "$lib/server/migrate/manager";
 import { batchMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
@@ -28,6 +29,7 @@ export function __setBatchRouteDependenciesForTests(
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
+  requireAdminIfAuthEnabled(locals);
   const parsed = await parseJsonBody(request);
   if ("error" in parsed) return json({ error: parsed.error }, { status: parsed.status });
   const validated = validateBody(batchMigrationSchema, parsed.data);
@@ -65,5 +67,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 };
 
-export const GET: RequestHandler = ({ url }) =>
-  json(listBatchesPaginated(parsePaginationParams(url.searchParams)));
+export const GET: RequestHandler = ({ url, locals }) => {
+  requireAdminIfAuthEnabled(locals);
+  return json(listBatchesPaginated(parsePaginationParams(url.searchParams)));
+};

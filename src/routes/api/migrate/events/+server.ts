@@ -1,4 +1,5 @@
 import { json } from "@sveltejs/kit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import {
   createBufferedSseController,
   parseSseLastEventId,
@@ -8,7 +9,8 @@ import { getGlobalEventReplayWindow } from "$lib/server/migrate/database/events"
 import { subscribeGlobal } from "$lib/server/migrate/manager";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = ({ url, request }) => {
+export const GET: RequestHandler = ({ url, request, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   let afterId: number | undefined;
   try {
     afterId = parseSseLastEventId(

@@ -2,16 +2,19 @@ import { json } from "@sveltejs/kit";
 import { enterpriseNamespaces } from "$lib/server/application/adapters/namespace-discovery";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { enqueueProfiles, profileQueueStatus } from "$lib/server/profile/database/queue";
 import { getSourceProviderAdapter, isSourceProvider } from "$lib/source-provider";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = ({ url }) => {
+export const GET: RequestHandler = ({ url, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const provider = url.searchParams.get("provider");
   if (!isSourceProvider(provider)) return json({ error: "Invalid provider" }, { status: 400 });
   return json(profileQueueStatus(provider), { headers: { "cache-control": "no-store" } });
 };
 export const POST: RequestHandler = async ({ request, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const body = await parseJsonBody(request);
   if ("error" in body) return json({ error: body.error }, { status: body.status });
   const { sourceProvider, scope, enterprise } = body.data;

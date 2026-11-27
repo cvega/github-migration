@@ -1,9 +1,11 @@
 import { json } from "@sveltejs/kit";
 import { discoverNamespacePage } from "$lib/server/application/adapters/namespace-discovery";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { isSourceProvider } from "$lib/source-provider";
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = async ({ url, request }) => {
+export const GET: RequestHandler = async ({ url, request, locals }) => {
+  requireAdminIfAuthEnabled(locals);
   const provider = url.searchParams.get("provider");
   const raw = url.searchParams.get("cursor") ?? "0";
   if (!isSourceProvider(provider) || !/^\d{1,9}$/.test(raw))

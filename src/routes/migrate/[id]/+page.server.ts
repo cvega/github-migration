@@ -3,6 +3,7 @@ import type { Counts } from "$lib/migrate/types";
 import { isPausedPersistedRoute } from "$lib/migration-target";
 import { ownJobActions } from "$lib/server/application/self-service/jobs";
 import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { hasUnreconciledGhesImport } from "$lib/server/migrate/database/migrations";
 import { events, get } from "$lib/server/migrate/manager";
 import {
@@ -36,6 +37,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 export const actions: Actions = {
   refreshCounts: async ({ params, locals }) => {
     if (locals?.user?.role === "operator") return fail(403, { countsError: "Not permitted." });
+    requireAdminIfAuthEnabled(locals);
     const migration = get(params.id);
     if (!migration) return fail(404, { countsError: "Migration not found." });
     if (migration.state !== "succeeded") {
