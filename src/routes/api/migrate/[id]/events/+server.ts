@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
+import { hasActiveAdminSession } from "$lib/server/core/auth/sessions";
 import {
   createBufferedSseController,
   parseSseLastEventId,
@@ -31,19 +32,28 @@ export const GET: RequestHandler = ({ params, url, request, locals }) => {
   const migration = get(params.id);
   if (!migration) return new Response("Not found", { status: 404 });
   if (url.searchParams.get("download") === "1") {
+    const tokenHash = locals?.authEnabled ? (locals.sessionTokenHash ?? "") : undefined;
     const pages = eventDownloadPages(migration.id);
     const encoder = new TextEncoder();
     return new Response(
-      new ReadableStream<Uint8Array>({
-        pull(controller) {
-          const page = pages.next();
-          if (page.done) controller.close();
-          else
-            controller.enqueue(
-              encoder.encode(page.value.map((event) => `${JSON.stringify(event)}\n`).join("")),
-            );
+      new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (tokenHash !== undefined && !hasActiveAdminSession(tokenHash)) {
+              controller.error(new Error("Event download interrupted"));
+              return;
+            }
+            const page = pages.next();
+            if (page.done) controller.close();
+            else
+              controller.enqueue(
+                encoder.encode(page.value.map((event) => `${JSON.stringify(event)}\n`).join("")),
+              );
+          },
         },
-      }),
+        // Check the session when the consumer requests a page.
+        { highWaterMark: 0 },
+      ),
       {
         headers: {
           "Content-Type": "application/x-ndjson; charset=utf-8",

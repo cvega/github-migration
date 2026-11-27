@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
+import { authStore } from "$lib/server/core/auth/schema";
+import { createSession, resolveSession, revokeSession } from "$lib/server/core/auth/sessions";
+import { createUser } from "$lib/server/core/auth/users";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { insertEvent } from "$lib/server/migrate/database/events";
 import { insertMigration } from "$lib/server/migrate/database/migrations";
@@ -35,13 +38,17 @@ function completedMigration(): Migration {
   };
 }
 
-function eventRequest(id: string, query = "") {
+function eventRequest(
+  id: string,
+  query = "",
+  locals: Partial<App.Locals> = { authEnabled: false },
+) {
   const url = new URL(`http://localhost/api/migrate/${id}/events${query}`);
-  return { params: { id }, url, request: new Request(url) } as never;
+  return { params: { id }, url, request: new Request(url), locals } as never;
 }
 
 beforeEach(() => {
-  initStore(":memory:", [migrateStore]);
+  initStore(":memory:", [migrateStore, authStore]);
   insertMigration(completedMigration());
 });
 afterEach(closeStore);
@@ -75,6 +82,43 @@ describe("migration event stream", () => {
       ),
     ).toBe(true);
   });
+  test.each([true, false])(
+    "checks the admin session on each page (revoked: %s)",
+    async (revoked) => {
+      const { user } = await createUser({
+        username: "fixture-admin",
+        role: "admin",
+        password: "fixture password",
+      });
+      const token = createSession(user.id);
+      const principal = resolveSession(token);
+      for (let i = 0; i < 129; i++) {
+        insertEvent({
+          migrationId: "completed",
+          eventType: "step",
+          phase: null,
+          createdAt: "2026-01-01T00:00:00Z",
+          payload: { message: `message ${i}` },
+        });
+      }
+      const response = await GET(
+        eventRequest("completed", "?download=1", { authEnabled: true, ...principal }),
+      );
+      const reader = response.body!.getReader();
+      const first = await reader.read();
+      expect(new TextDecoder().decode(first.value).trimEnd().split("\n")).toHaveLength(128);
+      if (revoked) {
+        revokeSession(token);
+        await expect(reader.read()).rejects.toThrow("Event download interrupted");
+        return;
+      }
+      const second = await reader.read();
+      expect(second.done).toBe(false);
+      expect(new TextDecoder().decode(second.value)).toContain("message 128");
+      expect((await reader.read()).done).toBe(true);
+    },
+  );
+
   test("returns 404 for an unknown migration and 400 for an invalid cursor", async () => {
     expect((await GET(eventRequest("missing"))).status).toBe(404);
     expect((await GET(eventRequest("completed", "?after=-1"))).status).toBe(400);
