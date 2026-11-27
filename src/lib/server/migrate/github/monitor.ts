@@ -1,7 +1,6 @@
 import type {
   Counts,
   FailureDetail,
-  LogEntry,
   MigrationEvent,
   Phase,
   Progress,
@@ -9,6 +8,7 @@ import type {
 } from "$lib/migrate/types";
 import { doesRepoExist, type GitHubTargetClients, getRepoCounts } from "$lib/server/core/github";
 import { pollWithRetry, sleep } from "$lib/server/core/polling";
+import { readFailureLog } from "../failure-log";
 import { migrationLogUrl } from "./log-url";
 import { getRepositoryMigration } from "./migration-source";
 
@@ -273,17 +273,30 @@ async function fetchFailureDetail(
     logUrl: snapshot.migrationLogUrl,
     logEntries: [],
   };
-  if (snapshot.migrationLogUrl) {
-    try {
-      const token = await config.clients.getTargetToken();
-      const response = await dependencies.fetch(snapshot.migrationLogUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-        redirect: "error",
-      });
-      if (response.ok) detail.logEntries = (await response.json()) as LogEntry[];
-    } catch {
-      // Failure logs are supplementary.
-    }
+  if (!snapshot.migrationLogUrl) return detail;
+
+  let message: string | undefined;
+  try {
+    const token = await config.clients.getTargetToken();
+    const response = await dependencies.fetch(snapshot.migrationLogUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: "error",
+      signal: config.signal,
+    });
+    const log = await readFailureLog(response, token);
+    detail.logEntries = log.entries;
+    if (log.truncated) message = "Migration log entries were omitted or shortened.";
+  } catch {
+    message = "Migration log could not be read.";
+  }
+  if (message) {
+    config.emit({
+      migrationId: config.migrationId,
+      eventType: "step",
+      phase: null,
+      payload: { message },
+      createdAt: new Date().toISOString(),
+    });
   }
   return detail;
 }

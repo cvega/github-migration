@@ -15,20 +15,31 @@ const VALID_EVENT_TYPES = new Set<EventType>([
 ]);
 const ACTIVITY_EVENT_TYPES = ["complete", "failure", "restart", "banner"] as const;
 
+function readEventPayload(row: Record<string, unknown>): MigrationEvent["payload"] | null {
+  try {
+    return parsePersistedEventPayload(row.event_type as EventType, row.payload as string);
+  } catch {
+    // A malformed legacy row must not prevent reading the rest of the history.
+    return null;
+  }
+}
+
 function rowsToEvents(rows: Record<string, unknown>[]): MigrationEvent[] {
-  return rows
-    .filter((row) => VALID_EVENT_TYPES.has(row.event_type as EventType))
-    .map(
-      (row) =>
-        ({
-          id: row.id as number,
-          migrationId: row.migration_id as string,
-          eventType: row.event_type,
-          phase: row.phase ?? null,
-          payload: parsePersistedEventPayload(row.event_type as EventType, row.payload as string),
-          createdAt: row.created_at as string,
-        }) as MigrationEvent,
-    );
+  const events: MigrationEvent[] = [];
+  for (const row of rows) {
+    if (!VALID_EVENT_TYPES.has(row.event_type as EventType)) continue;
+    const payload = readEventPayload(row);
+    if (!payload) continue;
+    events.push({
+      id: row.id as number,
+      migrationId: row.migration_id as string,
+      eventType: row.event_type,
+      phase: row.phase ?? null,
+      payload,
+      createdAt: row.created_at as string,
+    } as MigrationEvent);
+  }
+  return events;
 }
 
 export function insertEvent(event: MigrationEvent): number {
@@ -175,17 +186,13 @@ function activityKind(eventType: string): ActivityKind {
   }
 }
 
-function activitySummary(eventType: string, payload: Record<string, unknown>): string {
+function activitySummary(eventType: string, payload: MigrationEvent["payload"]): string {
   if (eventType === "failure") {
-    const detail = payload.detail as { failureReason?: string } | undefined;
-    return (
-      (typeof payload.error === "string" && payload.error) ||
-      detail?.failureReason ||
-      "Migration failed"
-    );
+    const detail = "detail" in payload ? payload.detail : undefined;
+    return ("error" in payload && payload.error) || detail?.failureReason || "Migration failed";
   }
-  if (eventType === "restart" || eventType === "banner") {
-    return typeof payload.message === "string" ? payload.message : "";
+  if ((eventType === "restart" || eventType === "banner") && "message" in payload) {
+    return payload.message;
   }
   return "";
 }
@@ -204,19 +211,19 @@ export function getRecentActivity(limit = 20): ActivityItem[] {
 			 ORDER BY e.id DESC LIMIT ?`,
     )
     .all(...ACTIVITY_EVENT_TYPES, limit) as Record<string, unknown>[];
-  return rows.map((row) => {
+  const activity: ActivityItem[] = [];
+  for (const row of rows) {
     const eventType = row.event_type as string;
-    const payload = parsePersistedEventPayload(
-      eventType as EventType,
-      row.payload as string,
-    ) as Record<string, unknown>;
-    return {
+    const payload = readEventPayload(row);
+    if (!payload) continue;
+    activity.push({
       id: row.id as number,
       migrationId: row.migration_id as string,
       kind: activityKind(eventType),
       repo: `${row.source_org as string}/${row.source_repo as string}`,
       summary: activitySummary(eventType, payload),
       createdAt: row.created_at as string,
-    };
-  });
+    });
+  }
+  return activity;
 }

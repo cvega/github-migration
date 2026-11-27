@@ -23,6 +23,7 @@ import { getDb } from "$lib/server/core/db";
 import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
+import { logEntrySchema } from "../failure-log";
 import {
   PAUSED_GITLAB_ROUTE_SQL,
   PRE_IMPORT_EXPORT_SQL,
@@ -90,15 +91,7 @@ const failureDetailSchema = z
     failureReason: z.string(),
     elapsed: z.number().nonnegative(),
     logUrl: z.string(),
-    logEntries: z.array(
-      z
-        .object({
-          severity: z.string(),
-          message: z.string(),
-          modelName: z.string(),
-        })
-        .strict(),
-    ),
+    logEntries: z.array(logEntrySchema),
   })
   .strict();
 

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration, MigrationEvent } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import {
+  eventDownloadPages,
   GLOBAL_EVENT_REPLAY_LIMIT,
   getEvents,
   getGlobalEventReplayWindow,
@@ -89,6 +90,40 @@ describe("migration event persistence", () => {
     expect(replay.stale).toBe("replay_limit");
     expect(replay.events).toHaveLength(GLOBAL_EVENT_REPLAY_LIMIT);
     expect(replay.replayFrom).toBe(2);
+  });
+
+  test("skips a legacy malformed failure event across history readers", () => {
+    insertOwner();
+    const first = insertEvent(banner("migration-1", "first", "2026-08-17T12:00:01Z"));
+    getDb().run(
+      "INSERT INTO events (migration_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
+      [
+        "migration-1",
+        "failure",
+        JSON.stringify({
+          detail: {
+            migrationId: "migration-1",
+            state: "FAILED",
+            failureReason: "Import failed",
+            elapsed: 1,
+            logUrl: "",
+            logEntries: [{ severity: "ERROR", message: 1, modelName: "Repository" }],
+          },
+        }),
+        "2026-08-17T12:00:02Z",
+      ],
+    );
+    const last = insertEvent(banner("migration-1", "last", "2026-08-17T12:00:03Z"));
+    expect(getEvents("migration-1").map(({ id }) => id)).toEqual([first, last]);
+    expect(getGlobalEventReplayWindow(0).events.map(({ id }) => id)).toEqual([first, last]);
+    expect(getMigrationEventReplayWindow("migration-1", first).events.map(({ id }) => id)).toEqual([
+      last,
+    ]);
+    expect([...eventDownloadPages("migration-1")].flat().map(({ id }) => id)).toEqual([
+      first,
+      last,
+    ]);
+    expect(getRecentActivity().map(({ id }) => id)).toEqual([last, first]);
   });
 
   test("projects recent failure and restart activity", () => {
