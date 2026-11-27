@@ -112,27 +112,82 @@ function parseHeaderInteger(value: string | null): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function readCountLinks(value: string): { hasNext: boolean; lastPage: number | null } | null {
+  let hasNext = false;
+  let lastPage: number | null = null;
+  // Consume complete link values so quoted parameters and targets can contain commas.
+  const link =
+    /\s*<([^<>]+)>((?:\s*;\s*[\w-]+(?:\s*=\s*(?:"(?:[^"\\]|\\.)*"|[^\s;,"]+))?)*)\s*(,|$)/gy;
+  let offset = 0;
+  while (offset < value.length) {
+    const entry = link.exec(value);
+    if (!entry) return null;
+    offset = link.lastIndex;
+    const [, target, parameters] = entry;
+    if (target === undefined || parameters === undefined) return null;
+    for (const parameter of parameters.matchAll(
+      /;\s*([\w-]+)(?:\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s;,"]+)))?/g,
+    )) {
+      if (parameter[1]?.toLowerCase() !== "rel") continue;
+      const relations = (parameter[2] ?? parameter[3] ?? "").toLowerCase().trim().split(/\s+/);
+      if (relations.includes("prev") || relations.includes("previous")) return null;
+      const next = relations.includes("next");
+      const last = relations.includes("last");
+      if (!next && !last) continue;
+      const url = URL.parse(target, "https://gitlab.invalid");
+      const pages = url?.searchParams.getAll("page");
+      const page = pages?.length === 1 ? parseHeaderInteger(pages[0] ?? null) : null;
+      if (page === null || page === 0 || (next && page !== 2)) return null;
+      if (last) {
+        if (lastPage !== null && lastPage !== page) return null;
+        lastPage = page;
+      }
+      hasNext ||= next;
+    }
+    if (entry[3] === "," && offset === value.length) return null;
+  }
+  return { hasNext, lastPage };
+}
+
 function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCountObservation {
   const malformed = { kind: "unavailable", reason: "malformed" } as const;
+  const page = headers.get("x-page");
+  const perPage = headers.get("x-per-page");
+  if (
+    (page !== null && parseHeaderInteger(page) !== 1) ||
+    (perPage !== null && parseHeaderInteger(perPage) !== 1) ||
+    headers.get("x-prev-page")
+  ) {
+    return malformed;
+  }
+
   const totalHeader = headers.get("x-total");
   const total = parseHeaderInteger(totalHeader);
   if (totalHeader !== null && total === null) return malformed;
+  // With per_page=1, the reported item count and page count must agree.
+  const totalPagesHeader = headers.get("x-total-pages");
+  const totalPages = parseHeaderInteger(totalPagesHeader);
+  if (totalPagesHeader !== null && totalPages === null) return malformed;
+  const links = readCountLinks(headers.get("Link") ?? "");
+  if (!links) return malformed;
+  const reportedSize = total ?? totalPages ?? links.lastPage;
+  if (
+    [total, totalPages, links.lastPage].some(
+      (size) => size !== null && (size !== reportedSize || Math.min(size, 1) !== itemsRead),
+    )
+  ) {
+    return malformed;
+  }
 
   const nextPage = headers.get("x-next-page");
   if (nextPage && parseHeaderInteger(nextPage) !== 2) return malformed;
-  const hasNextLink = headers.get("Link")?.includes('rel="next"') ?? false;
-  if (nextPage === "" && hasNextLink) return malformed;
-  const hasNextPage = Boolean(nextPage) || hasNextLink;
+  const hasNextPage = Boolean(nextPage) || links.hasNext || (reportedSize ?? 0) > 1;
+  if (hasNextPage && (nextPage === "" || (reportedSize !== null && reportedSize <= 1))) {
+    return malformed;
+  }
   if (itemsRead > 1 || (itemsRead === 0 && hasNextPage)) return malformed;
 
   if (total !== null) {
-    if (
-      itemsRead !== Math.min(total, 1) ||
-      (hasNextPage && total <= itemsRead) ||
-      (nextPage === "" && total > itemsRead)
-    ) {
-      return malformed;
-    }
     return { kind: "exact", value: total, basis: "reported" };
   }
   if (itemsRead === 0 || nextPage === "") {
@@ -499,7 +554,10 @@ export class GitLabClient {
         }
         const nowMs = this.#now();
         const retryAfter = retryAfterDelayMs(response.headers.get("retry-after"), nowMs);
-        const reset = response.headers.get("ratelimit-reset");
+        const throttled =
+          response.status === 429 ||
+          parseHeaderInteger(response.headers.get("ratelimit-remaining")) === 0;
+        const reset = throttled ? response.headers.get("ratelimit-reset") : null;
         const delayMs =
           retryAfter ??
           (reset && /^\d+$/.test(reset)

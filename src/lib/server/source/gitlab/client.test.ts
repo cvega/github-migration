@@ -483,45 +483,102 @@ describe("GitLabClient", () => {
 
   const cooldownNowMs = Date.UTC(2026, 7, 8, 12);
 
-  test.each([
-    ["numeric Retry-After", "Retry-After", "31"],
-    ["HTTP-date Retry-After", "Retry-After", new Date(cooldownNowMs + 31_000).toUTCString()],
-    ["RateLimit-Reset", "RateLimit-Reset", String(cooldownNowMs / 1_000 + 31)],
-  ])("honors %s within the retry budget and stops above it", async (_, header, value) => {
-    const delays: number[] = [];
-    const options = {
-      baseUrl: "https://gitlab.com",
-      token: "token",
-      now: () => cooldownNowMs,
-      sleep: async (milliseconds: number) => {
-        delays.push(milliseconds);
-      },
-    };
-    const throttled = mockFetch([
-      jsonResponse({}, { status: 429, headers: { [header]: value } }),
-      jsonResponse({ ok: true }),
-    ]);
-    const retrying = new GitLabClient({
-      ...options,
-      fetch: throttled.fetch,
-      maxRetryDelayMs: 31_000,
-    });
-    expect((await retrying.get("/version")).data).toEqual({ ok: true });
-    expect(delays).toEqual([31_000]);
-    expect(throttled.calls).toHaveLength(2);
+  test.each([31, -1])(
+    "backs off a 503 with quota remaining and reset offset %i",
+    async (offset) => {
+      const delays: number[] = [];
+      const { fetch, calls } = mockFetch([
+        jsonResponse(
+          {},
+          {
+            status: 503,
+            headers: {
+              "RateLimit-Remaining": "1",
+              "RateLimit-Reset": String(cooldownNowMs / 1_000 + offset),
+            },
+          },
+        ),
+        jsonResponse({ ok: true }),
+      ]);
+      const client = new GitLabClient({
+        baseUrl: "https://gitlab.com",
+        token: "token",
+        fetch,
+        now: () => cooldownNowMs,
+        random: () => 0.5,
+        sleep: async (delay) => {
+          delays.push(delay);
+        },
+      });
 
-    const deferred = mockFetch([
-      jsonResponse({}, { status: 429, headers: { [header]: value } }),
-      jsonResponse({ unexpected: true }),
-    ]);
-    const stopping = new GitLabClient({ ...options, fetch: deferred.fetch });
-    await expect(stopping.get("/version")).rejects.toMatchObject({
-      status: 429,
-      message: expect.stringContaining("cooldown beyond the retry delay budget"),
-    });
-    expect(deferred.calls).toHaveLength(1);
-    expect(delays).toEqual([31_000]);
-  });
+      expect((await client.get("/version")).data).toEqual({ ok: true });
+      expect(delays).toEqual([250]);
+      expect(calls).toHaveLength(2);
+    },
+  );
+
+  test.each([
+    [
+      "numeric Retry-After ahead of reset",
+      503,
+      {
+        "Retry-After": "31",
+        "RateLimit-Remaining": "0",
+        "RateLimit-Reset": String(cooldownNowMs / 1_000 + 1),
+      },
+    ],
+    [
+      "HTTP-date Retry-After",
+      429,
+      { "Retry-After": new Date(cooldownNowMs + 31_000).toUTCString() },
+    ],
+    ["RateLimit-Reset on HTTP 429", 429, { "RateLimit-Reset": String(cooldownNowMs / 1_000 + 31) }],
+    [
+      "RateLimit-Reset on quota exhaustion",
+      503,
+      {
+        "RateLimit-Remaining": "0",
+        "RateLimit-Reset": String(cooldownNowMs / 1_000 + 31),
+      },
+    ],
+  ] as const)(
+    "honors %s within the retry budget and stops above it",
+    async (_, status, headers) => {
+      const delays: number[] = [];
+      const options = {
+        baseUrl: "https://gitlab.com",
+        token: "token",
+        now: () => cooldownNowMs,
+        sleep: async (milliseconds: number) => {
+          delays.push(milliseconds);
+        },
+      };
+      const throttled = mockFetch([
+        jsonResponse({}, { status, headers }),
+        jsonResponse({ ok: true }),
+      ]);
+      const retrying = new GitLabClient({
+        ...options,
+        fetch: throttled.fetch,
+        maxRetryDelayMs: 31_000,
+      });
+      expect((await retrying.get("/version")).data).toEqual({ ok: true });
+      expect(delays).toEqual([31_000]);
+      expect(throttled.calls).toHaveLength(2);
+
+      const deferred = mockFetch([
+        jsonResponse({}, { status, headers }),
+        jsonResponse({ unexpected: true }),
+      ]);
+      const stopping = new GitLabClient({ ...options, fetch: deferred.fetch });
+      await expect(stopping.get("/version")).rejects.toMatchObject({
+        status,
+        message: expect.stringContaining("cooldown beyond the retry delay budget"),
+      });
+      expect(deferred.calls).toHaveLength(1);
+      expect(delays).toEqual([31_000]);
+    },
+  );
 
   test("stops when a cooldown would overflow the retry timer", async () => {
     const throttled = mockFetch([
@@ -746,11 +803,20 @@ describe("GitLabClient", () => {
 
   test("distinguishes exact, lower-bound, and unavailable counts", async () => {
     const { fetch } = mockFetch([
-      jsonResponse([{}], { headers: { "X-Total": "42", "X-Next-Page": "2" } }),
+      jsonResponse([{}], {
+        headers: {
+          "X-Total": "42",
+          "X-Total-Pages": "42",
+          "X-Next-Page": "2",
+          Link: '</issues?page=2>; rel=next; title="Issues, page two", </issues?page=42>; rel="last"',
+        },
+      }),
       jsonResponse([]),
-      jsonResponse([], { headers: { "X-Total": "0", "X-Next-Page": "" } }),
-      jsonResponse([{}], { headers: { "X-Next-Page": "" } }),
-      jsonResponse([{}], { headers: { "X-Next-Page": "2" } }),
+      jsonResponse([], { headers: { "X-Total": "0", "X-Total-Pages": "0", "X-Next-Page": "" } }),
+      jsonResponse([{}], {
+        headers: { "X-Page": "1", "X-Per-Page": "1", "X-Prev-Page": "", "X-Next-Page": "" },
+      }),
+      jsonResponse([{}], { headers: { Link: '</issues?page=2>; rel="next alternate"' } }),
       jsonResponse({ message: "forbidden" }, { status: 403 }),
     ]);
     const client = new GitLabClient({
@@ -816,11 +882,35 @@ describe("GitLabClient", () => {
     { data: [], headers: { "X-Total": "3" } },
     { data: [], headers: { "X-Total": "" } },
     { data: [{}], headers: { "X-Total": "unknown" } },
+    { data: [{}], headers: { "X-Total": "1", "X-Total-Pages": "2" } },
+    { data: [], headers: { "X-Total-Pages": "2" } },
+    { data: [{}], headers: { "X-Total-Pages": "" } },
+    { data: [{}], headers: { "X-Total-Pages": "1", "X-Next-Page": "2" } },
+    { data: [{}], headers: { Link: "</issues?page=3>; rel=next" } },
+    { data: [{}], headers: { Link: "</issues?page=2>; rel=next, malformed" } },
+    {
+      data: [{}],
+      headers: { "X-Total": "1", Link: "<https://gitlab.example/issues?page=2>; rel=next" },
+    },
+    {
+      data: [{}],
+      headers: {
+        "X-Total-Pages": "2",
+        Link: '<https://gitlab.example/issues?page=3>; rel="last"',
+      },
+    },
     { data: [], headers: { "X-Total": "0", "X-Next-Page": "2" } },
     { data: [], headers: { "X-Next-Page": "2" } },
     { data: [{}], headers: { "X-Total": "1", "X-Next-Page": "2" } },
     { data: [{}], headers: { "X-Total": "3", "X-Next-Page": "" } },
     { data: [{}], headers: { "X-Next-Page": "1" } },
+    {
+      data: [{}],
+      headers: { "X-Page": "2", "X-Prev-Page": "1", "X-Next-Page": "" },
+    },
+    { data: [{}], headers: { "X-Page": "2", "X-Next-Page": "" } },
+    { data: [{}], headers: { "X-Prev-Page": "1", "X-Next-Page": "" } },
+    { data: [{}], headers: { "X-Per-Page": "2", "X-Next-Page": "" } },
     { data: [{}, {}], headers: {} },
     {
       data: [],
