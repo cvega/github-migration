@@ -214,6 +214,120 @@ describe("GitHub migration monitor", () => {
     expect(tokenRequests).toBe(0);
   });
 
+  const entry = { severity: "ERROR", message: "Archive unavailable", modelName: "Repository" };
+
+  async function failureLogEvents(response: Response): Promise<MigrationEvent[]> {
+    const events: MigrationEvent[] = [];
+    restore = __setMonitorDependenciesForTests({
+      getRepositoryMigration: async () => ({
+        state: "FAILED",
+        repositoryName: "widget",
+        warningsCount: 0,
+        failureReason: "Import failed",
+        migrationLogUrl: "https://github.com/migrations/log.json",
+      }),
+      doesRepoExist: async () => false,
+      fetch: async () => response,
+    });
+    await monitorRepositoryMigration({
+      clients,
+      targetApiUrl: "https://api.github.com",
+      migrationId: "migration-1",
+      githubMigrationId: "node-1",
+      targetOrg: "acme",
+      targetRepo: "widget",
+      emit: (event) => events.push(event),
+    });
+    return events;
+  }
+
+  test("keeps valid log entries and reports omitted entries", async () => {
+    const events = await failureLogEvents(Response.json([{ ...entry, message: 1 }, entry]));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "step",
+        payload: { message: "Migration log entries were omitted or shortened." },
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({ payload: { detail: { logEntries: [entry] } } });
+  });
+
+  test("keeps allowed log fields when the provider adds an unknown field", async () => {
+    const events = await failureLogEvents(Response.json([{ ...entry, extra: "sample" }]));
+    const failure = events.at(-1);
+    expect(failure?.eventType === "failure" && failure.payload.detail?.logEntries).toEqual([entry]);
+  });
+
+  test("redacts the mock target credential and URLs from diagnostic fields", async () => {
+    const events = await failureLogEvents(
+      Response.json([{ ...entry, message: "target-token https://example.test/archive?sample=1" }]),
+    );
+    expect(events.at(-1)).toMatchObject({
+      payload: {
+        detail: { logEntries: [{ ...entry, message: "[redacted] [redacted URL]" }] },
+      },
+    });
+  });
+
+  test("bounds the number and field lengths of retained entries", async () => {
+    const events = await failureLogEvents(
+      Response.json([
+        { severity: "S".repeat(33), message: "M".repeat(2049), modelName: "N".repeat(257) },
+        ...Array.from({ length: 100 }, () => entry),
+      ]),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "step",
+        payload: { message: "Migration log entries were omitted or shortened." },
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({
+      payload: {
+        detail: {
+          logEntries: [
+            { severity: "S".repeat(32), message: "M".repeat(2048), modelName: "N".repeat(256) },
+            ...Array.from({ length: 99 }, () => entry),
+          ],
+        },
+      },
+    });
+  });
+
+  test.each([
+    ["non-array JSON", () => Response.json({ entries: [] })],
+    ["invalid JSON", () => new Response("[")],
+    [
+      "oversized declared body",
+      () => new Response("[]", { headers: { "content-length": "262145" } }),
+    ],
+    [
+      "oversized streamed body",
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(JSON.stringify(["a".repeat(262144)])));
+              controller.close();
+            },
+          }),
+        ),
+    ],
+    ["unavailable response", () => new Response("Unavailable", { status: 503 })],
+  ] as const)("reports an unavailable log for %s", async (_name, response) => {
+    const events = await failureLogEvents(response());
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: "step",
+        payload: { message: "Migration log could not be read." },
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({
+      eventType: "failure",
+      payload: { detail: { logEntries: [] } },
+    });
+  });
+
   test.each(["github.com", "sample.ghe.com"])("fetches failure logs only from %s", async (host) => {
     let authorization = "";
     restore = __setMonitorDependenciesForTests({

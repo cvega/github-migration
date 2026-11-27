@@ -23,6 +23,7 @@ import { getDb } from "$lib/server/core/db";
 import { assertMigrationSourceApiUrl } from "$lib/server/core/source-url";
 import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
+import { logEntrySchema } from "../failure-log";
 import {
   PAUSED_GITLAB_ROUTE_SQL,
   PRE_IMPORT_EXPORT_SQL,
@@ -90,15 +91,14 @@ const failureDetailSchema = z
     failureReason: z.string(),
     elapsed: z.number().nonnegative(),
     logUrl: z.string(),
-    logEntries: z.array(
-      z
-        .object({
-          severity: z.string(),
-          message: z.string(),
-          modelName: z.string(),
-        })
-        .strict(),
-    ),
+    // Legacy log data is supplementary to the terminal failure.
+    logEntries: z.unknown().transform((value) => {
+      if (!Array.isArray(value)) return [];
+      return value.flatMap((item) => {
+        const entry = logEntrySchema.safeParse(item);
+        return entry.success ? [entry.data] : [];
+      });
+    }),
   })
   .strict();
 
