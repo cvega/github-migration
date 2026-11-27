@@ -42,7 +42,7 @@ function run(cmd: string[]): { code: number; out: string; ms: number } {
   return { code: proc.exitCode ?? 1, out, ms: elapsedMilliseconds(startedAt) };
 }
 
-/** Last `n` non-empty lines — a compact, actionable failure excerpt. */
+/** Report the last `n` non-empty lines — a compact, actionable failure excerpt. */
 function tail(out: string, n = 15): string {
   const lines = out
     .split("\n")
