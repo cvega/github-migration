@@ -19,6 +19,8 @@ export { sourceBaseUrl } from "$lib/source-provider";
 
 const RetryOctokit = Octokit.plugin(retry, throttling);
 
+type GitHubFetch = (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
 /** An authenticated Octokit client (REST + GraphQL), with retry + throttling. */
 export type GitHubClient = InstanceType<typeof RetryOctokit>;
 
@@ -92,7 +94,7 @@ function buildSide(
   throttleOpts: ThrottleOptions,
   requestOpts?: {
     agent?: InstanceType<typeof Agent>;
-    fetch?: (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    fetch?: GitHubFetch;
   },
   retryEnabled = true,
 ): {
@@ -186,8 +188,9 @@ export function createClients(opts: {
 export function createSingleClient(
   auth: AuthInput,
   baseUrl: string,
+  request?: { fetch: GitHubFetch },
 ): InstanceType<typeof RetryOctokit> {
-  return buildSide(auth, normalizeGitHubApiUrl(baseUrl), makeThrottleOptions()).client;
+  return buildSide(auth, normalizeGitHubApiUrl(baseUrl), makeThrottleOptions(), request).client;
 }
 
 /** Bind the deadline to the whole Octokit operation, including auth, throttling and body reads. */
@@ -197,7 +200,7 @@ export function createProfileClient(
   runSignal: AbortSignal,
   options: {
     deadline?: () => AbortSignal;
-    fetch?: (url: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    fetch?: GitHubFetch;
     wait?: typeof sleep;
   } = {},
 ): GitHubClient {

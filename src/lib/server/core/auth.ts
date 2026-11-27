@@ -242,17 +242,17 @@ export function getSourceClients(signal?: AbortSignal): {
 } {
   const sourceAuth = resolveSourceAuth();
   const sourceApiUrl = normalizeGitHubApiUrl(configuredSourceApiUrl());
-  const client = signal
-    ? createProfileClient(sourceAuth, sourceApiUrl, signal)
-    : rateLimitDependencies.createSingleClient(sourceAuth, sourceApiUrl);
-  // Count every HTTP request the crawl makes. The `before` hook fires once per
-  // actual request — REST and GraphQL (both go through Octokit's request
-  // pipeline), each pagination page, and each retry — so the tally reflects the
-  // true API cost of a run, which the runner persists for rate-limit visibility.
+  const transport = globalThis.fetch;
   let apiCalls = 0;
-  client.hook.before("request", () => {
+  // Each retry and pagination page reaches fetch, even when request hooks run only once.
+  const fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
+    init?.signal?.throwIfAborted();
     apiCalls += 1;
-  });
+    return transport(url, init);
+  };
+  const client = signal
+    ? createProfileClient(sourceAuth, sourceApiUrl, signal, { fetch })
+    : rateLimitDependencies.createSingleClient(sourceAuth, sourceApiUrl, { fetch });
   return {
     gql: client.graphql as typeof graphql,
     rest: client,

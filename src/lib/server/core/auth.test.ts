@@ -5,7 +5,7 @@
  * These functions read process.env live, and other test files mutate the same
  * GH_* vars, so each test fully controls the auth env block (saved/restored).
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   __setRateLimitDependenciesForTests,
   fetchLiveRateLimits,
@@ -185,19 +185,12 @@ describe("getSourceClients", () => {
     expect(clients.getApiCalls()).toBe(0);
   });
 
-  test("passes normalized auth and URL to the client and counts request hooks", () => {
+  test("passes normalized auth and URL to the client", () => {
     process.env.GH_SOURCE_PAT = "source-pat";
     process.env.GH_SOURCE_API_URL = "  https://ghes.example.com/  ";
-    let beforeRequest: (() => void) | undefined;
     const graphqlClient = () => {};
     const fakeClient = {
       graphql: graphqlClient,
-      hook: {
-        before: (name: string, callback: () => void) => {
-          expect(name).toBe("request");
-          beforeRequest = callback;
-        },
-      },
     } as unknown as GitHubClient;
     const created: Array<{ auth: unknown; baseUrl: string }> = [];
     restoreRateLimitDependencies = __setRateLimitDependenciesForTests({
@@ -216,18 +209,73 @@ describe("getSourceClients", () => {
       rest: fakeClient,
       sourceApiUrl: "https://ghes.example.com/api/v3",
     });
-    expect(clients.getApiCalls()).toBe(0);
-    beforeRequest?.();
-    beforeRequest?.();
-    expect(clients.getApiCalls()).toBe(2);
   });
+
+  test.each(["discovery", "profile"])("counts each REST retry dispatch for %s", async (kind) => {
+    process.env.GH_SOURCE_PAT = "source-pat";
+    process.env.GH_SOURCE_API_URL = "https://github.invalid";
+    using transport = spyOn(globalThis, "fetch")
+      .mockResolvedValue(Response.json({ login: "acme" }))
+      .mockResolvedValueOnce(Response.json({ message: "Unavailable" }, { status: 503 }));
+    const signal = kind === "profile" ? new AbortController().signal : undefined;
+    const { rest, getApiCalls } = getSourceClients(signal);
+
+    const response = await rest.orgs.get({ org: "acme" });
+
+    expect(response.data.login).toBe("acme");
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(getApiCalls()).toBe(2);
+  });
+
+  test("counts REST pagination pages and GraphQL through the same profile client", async () => {
+    process.env.GH_SOURCE_PAT = "source-pat";
+    process.env.GH_SOURCE_API_URL = "https://github.invalid";
+    using transport = spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("Unexpected fixture request"))
+      .mockResolvedValueOnce(
+        Response.json([{ name: "first" }], {
+          headers: { link: '<https://github.invalid/api/v3/orgs/acme/repos?page=2>; rel="next"' },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json([{ name: "second" }]))
+      .mockResolvedValueOnce(Response.json({ data: { viewer: { login: "acme" } } }));
+    const { rest, gql, getApiCalls } = getSourceClients(new AbortController().signal);
+
+    const repos = await rest.paginate(rest.repos.listForOrg, { org: "acme" });
+    expect(repos.map(({ name }) => name)).toEqual(["first", "second"]);
+    expect(getApiCalls()).toBe(2);
+
+    expect(await gql("{ viewer { login } }")).toEqual({ viewer: { login: "acme" } });
+    expect(transport.mock.calls.map(([url]) => url)).toEqual([
+      "https://github.invalid/api/v3/orgs/acme/repos",
+      "https://github.invalid/api/v3/orgs/acme/repos?page=2",
+      "https://github.invalid/api/graphql",
+    ]);
+    expect(getApiCalls()).toBe(3);
+  });
+
+  test.each(["discovery", "profile"])(
+    "excludes requests aborted before %s dispatch",
+    async (kind) => {
+      process.env.GH_SOURCE_PAT = "source-pat";
+      process.env.GH_SOURCE_API_URL = "https://github.invalid";
+      using transport = spyOn(globalThis, "fetch").mockResolvedValue(
+        Response.json({ login: "acme" }),
+      );
+      const signal = AbortSignal.abort();
+      const { rest, getApiCalls } = getSourceClients(kind === "profile" ? signal : undefined);
+
+      await expect(rest.orgs.get({ org: "acme", request: { signal } })).rejects.toThrow();
+      expect(transport).not.toHaveBeenCalled();
+      expect(getApiCalls()).toBe(0);
+    },
+  );
 
   test("uses cloud defaults and restores a previous client dependency", () => {
     process.env.GH_SOURCE_PAT = "source-pat";
     const selected: string[] = [];
     const fakeClient = {
       graphql: () => {},
-      hook: { before: () => {} },
     } as unknown as GitHubClient;
     restoreRateLimitDependencies = __setRateLimitDependenciesForTests({
       createSingleClient: () => {
