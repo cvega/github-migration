@@ -1,7 +1,10 @@
 import process from "node:process";
 import { defineConfig, devices } from "@playwright/test";
 
-const port = 4173;
+const port = Number(process.env.E2E_PORT ?? 4173);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("E2E_PORT must be an integer between 1 and 65535");
+}
 const host = "[::1]";
 const authState = ".e2e-data/auth-state.json";
 const isCI = process.env.CI !== undefined;
