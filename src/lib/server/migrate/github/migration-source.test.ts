@@ -68,6 +68,67 @@ describe("GitHub migration GraphQL operations", () => {
     ).rejects.toThrow();
     expect(submissions).toBe(1);
   });
+
+  test.each([
+    {
+      createSource: createGitHubMigrationSource,
+      message: "Upstream disconnected",
+      headers: undefined,
+    },
+    {
+      createSource: createGitLabMigrationSource,
+      message: "Upstream disconnected with an exhausted quota",
+      headers: new Headers({ "x-ratelimit-remaining": "0" }),
+    },
+    {
+      createSource: createBitbucketMigrationSource,
+      message: "Upstream disconnected during secondary rate limiting",
+      headers: new Headers({ "retry-after": "1" }),
+    },
+  ])(
+    "dispatches source creation once after $message",
+    async ({ createSource, message, headers }) => {
+      let submissions = 0;
+      const { targetGraphql } = createTargetClients(
+        { token: "fixture" },
+        "https://fixture.invalid",
+      );
+      const gql = targetGraphql.defaults({
+        request: {
+          fetch: async () => {
+            submissions++;
+            return submissions === 1
+              ? Response.json({ message }, { status: 502, headers })
+              : Response.json({
+                  data: { createMigrationSource: { migrationSource: { id: "SOURCE" } } },
+                });
+          },
+        },
+      });
+
+      await expect(createSource(gql, "ORG")).rejects.toThrow(message);
+      expect(submissions).toBe(1);
+    },
+  );
+
+  test("retries an organization lookup after a transient upstream failure", async () => {
+    let lookups = 0;
+    const { targetGraphql } = createTargetClients({ token: "fixture" }, "https://fixture.invalid");
+    const gql = targetGraphql.defaults({
+      request: {
+        fetch: async () => {
+          lookups++;
+          return lookups === 1
+            ? Response.json({ message: "Upstream disconnected" }, { status: 502 })
+            : Response.json({ data: { organization: { id: "ORG" } } });
+        },
+      },
+    });
+
+    expect(await getOrgId(gql, "acme")).toBe("ORG");
+    expect(lookups).toBe(2);
+  });
+
   test("creates source types with the target organization owner", async () => {
     const variables: Record<string, unknown>[] = [];
     const gql = gqlMock((_query, input) => {
