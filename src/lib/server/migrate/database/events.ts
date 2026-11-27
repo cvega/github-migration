@@ -59,6 +59,16 @@ export function insertEvent(event: MigrationEvent): number {
   return Number(result.lastInsertRowid);
 }
 
+export function hasStepSinceRestart(migrationId: string, message: string): boolean {
+  return !!getDb()
+    .prepare(`SELECT 1 FROM events
+    WHERE migration_id = $id AND event_type = 'step'
+      AND id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE migration_id = $id AND event_type = 'restart')
+      AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.message') = $message END
+    LIMIT 1`)
+    .get({ $id: migrationId, $message: message });
+}
+
 export function getEvents(migrationId: string, afterId?: number): MigrationEvent[] {
   const rows =
     afterId !== undefined

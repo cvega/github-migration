@@ -17,6 +17,7 @@ import { GET as logRoute } from "../../../../routes/api/migrate/[id]/events/+ser
 import { POST as restartRoute } from "../../../../routes/api/migrate/[id]/restart/+server";
 import { POST as adminProfileBatch } from "../../../../routes/api/migrate/batches/+server";
 import { POST as operatorProfileBatch } from "../../../../routes/api/profile/[id]/+server";
+import { load as detailPage } from "../../../../routes/migrate/[id]/+page.server";
 import { assignGrant, listGrants } from "./grants";
 import {
   cancelOwnJob,
@@ -126,6 +127,33 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
     executor,
   };
 }
+
+test("shows a held queue reason without disclosing another route to operators", async () => {
+  const { selection, run } = fixture("bitbucket-server", "enterprise");
+  const db = getDb();
+  db.run(`INSERT INTO migrations (id, source_provider, source_api_url, source_org, source_repo, target_platform, target_profile_id, target_api_url, target_org, target_repo, state, started_at)
+    VALUES ('private-blocker', 'bitbucket-server', 'https://other.example', 'other', 'private', 'ghes', 'enterprise', 'https://ghes.example/api/v3', 'dest', 'private', 'reconciliation_required', 'now')`);
+  db.run(`INSERT INTO ghes_import_jobs (id, migration_id, phase, created_at, updated_at)
+    VALUES ('job', 'private-blocker', 'importing', 'now', 'now')`);
+  const {
+    jobIds: [id],
+  } = submitOwnBatch("alice", selection);
+  try {
+    const params = { id };
+    const scoped = await detailPage({
+      params,
+      locals: { user: { id: "alice", role: "operator" } },
+    } as never);
+    expect(scoped).toMatchObject({ waitingForReview: true });
+    expect(JSON.stringify(scoped)).not.toContain("private-blocker");
+    expect(
+      await detailPage({ params, locals: { user: { id: "admin", role: "admin" } } } as never),
+    ).toMatchObject({ blockers: ["private-blocker"] });
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    cancel(id!);
+  }
+});
 
 test.each(["admin", "operator"] as const)(
   "%s cannot admit a partial batch with a flagged, unanalyzed repo",

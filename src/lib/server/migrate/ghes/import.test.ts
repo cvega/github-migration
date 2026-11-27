@@ -1,12 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import type { Counts, Migration, MigrationEvent } from "$lib/migrate/types";
 import { closeStore, initStore } from "$lib/server/core/db";
 import { getEvents, insertEvent } from "../database/events";
 import { approveIdentityMapping, listIdentityMappings } from "../database/identity-mappings";
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
-import { getMigration, insertMigration } from "../database/migrations";
+import {
+  getMigration,
+  insertMigration,
+  isGhesSlotHeld,
+  updateMigrationState,
+} from "../database/migrations";
 import { migrateStore } from "../database/schema";
 import { ExporterOwnershipError, type ExporterWorker, exporterFailures } from "../exporters/worker";
+import { confirmRestart } from "../manager";
 import { activeMigrationRuns } from "../runs/active";
 import { createMigrationRunFinisher } from "../runs/finish";
 import { drainMigrationQueue, shouldQueueMigration } from "../runs/queue";
@@ -17,7 +24,7 @@ import {
   runExporterGhesMigration,
 } from "./import";
 
-import { GhesMigratorBusyError } from "./ssh";
+import { GhesMigratorBusyError, GhesSshClient } from "./ssh";
 
 const targetCounts: Counts = {
   commits: 1,
@@ -95,6 +102,84 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("GHES import execution", () => {
+  test.each(["abort", "deadline"])(
+    "preserves the appliance hold after a silent prepare channel hits %s",
+    async (mode) => {
+      const record = { ...migration("silent"), sourceProvider: "bitbucket-server" as const };
+      insertMigration(record);
+      const controller = new AbortController();
+      const connection = new EventEmitter();
+      let destroyed = false;
+      Object.assign(connection, {
+        connect(options: { keepaliveInterval: number; keepaliveCountMax: number }) {
+          expect(options.keepaliveInterval).toBeGreaterThan(0);
+          expect(options.keepaliveCountMax).toBeGreaterThan(0);
+          queueMicrotask(() => connection.emit("ready"));
+        },
+        exec(_command: string, callback: (error: null, channel: EventEmitter) => void) {
+          callback(
+            null,
+            Object.assign(new EventEmitter(), {
+              stderr: new EventEmitter(),
+              end() {
+                if (mode === "abort") {
+                  updateMigrationState(record.id, "cancelling");
+                  controller.abort();
+                }
+              },
+            }),
+          );
+        },
+        destroy() {
+          destroyed = true;
+        },
+        end() {},
+      });
+      const source = adapter({
+        submit: async () => ({ jobId: "export" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/fixture.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      source.provider = record.sourceProvider;
+      const ssh = source.createSshClient({} as never);
+      const client = new GhesSshClient(
+        {} as never,
+        connection as never,
+        mode === "abort" ? 1000 : 10,
+      );
+      source.createSshClient = () => ({
+        ...ssh,
+        connect: client.connect.bind(client),
+        prepare: client.prepare.bind(client),
+        disconnect: client.disconnect.bind(client),
+      });
+      const registration = activeMigrationRuns.claim(record.id)!;
+      const result = await runExporterGhesMigration(
+        {
+          id: record.id,
+          sourceProvider: record.sourceProvider,
+          signal: controller.signal,
+          emit: insertEvent,
+        },
+        source,
+      );
+      createMigrationRunFinisher(() => {}).settleResult(record.id, registration.token, result);
+      expect(destroyed).toBe(true);
+      expect(getMigration(record.id)?.state).toBe("reconciliation_required");
+      expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+        phase: "preparing",
+        ghesImportId: null,
+      });
+      expect(isGhesSlotHeld()).toBe(true);
+      confirmRestart(record.id, "target/project");
+      expect(isGhesSlotHeld()).toBe(false);
+    },
+  );
+
   test.each(["running", "expired", "unstarted"] as const)(
     "releases the GHES slot after a %s exporter fails",
     async (scenario) => {

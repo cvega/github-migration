@@ -8,7 +8,7 @@ import { getMigration, insertMigration, updateMigrationState } from "../database
 import { migrateStore, recoverInterruptedMigrations } from "../database/schema";
 import { getRegisteredMigrationExecutor } from "../executors/registry";
 import type { GhesImportJobPhase } from "../ghes/job";
-import { cancel, confirmRestart, restart, start } from "../manager";
+import { cancel, confirmRestart, restart, restartBatch, start } from "../manager";
 import { activeMigrationRuns } from "./active";
 import { subscribeToGlobalMigrationEvents, subscribeToMigrationEvents } from "./events";
 import {
@@ -18,7 +18,18 @@ import {
   shouldQueueMigration,
 } from "./queue";
 
-beforeEach(() => initStore(":memory:", [migrateStore]));
+const savedTarget = { id: process.env.GHES_TARGET_ID, url: process.env.GHES_TARGET_API_URL };
+beforeEach(() => {
+  process.env.GHES_TARGET_ID = "enterprise";
+  process.env.GHES_TARGET_API_URL = "https://enterprise.example/api/v3";
+  initStore(":memory:", [migrateStore]);
+});
+afterEach(() => {
+  if (savedTarget.id === undefined) delete process.env.GHES_TARGET_ID;
+  else process.env.GHES_TARGET_ID = savedTarget.id;
+  if (savedTarget.url === undefined) delete process.env.GHES_TARGET_API_URL;
+  else process.env.GHES_TARGET_API_URL = savedTarget.url;
+});
 afterEach(closeStore);
 
 function request(sourceRepo: string): CreateMigrationRequest {
@@ -80,6 +91,24 @@ function seedJob(migration: Migration, phase: GhesImportJobPhase, guid: string |
 }
 
 describe("migration queue", () => {
+  test.each(["missing", "changed"])(
+    "rejects a %s GHES target before changing the saved attempt",
+    (mode) => {
+      const record = enterprise("01", "batch", "failed");
+      insertMigration(record);
+      if (mode === "missing") delete process.env.GHES_TARGET_API_URL;
+      else process.env.GHES_TARGET_API_URL = "https://other.example/api/v3";
+      const previous = getMigration(record.id);
+      const credentials = { sourceToken: "fixture", targetToken: "fixture" };
+      expect(() => restart(record.id, credentials)).toThrow("saved GHES target");
+      expect(restartBatch("batch", credentials)).toMatchObject({
+        restarted: 0,
+        errors: [{ id: record.id, error: expect.stringContaining("saved GHES target") }],
+      });
+      expect(getMigration(record.id)).toEqual(previous);
+      expect(getEvents(record.id)).toEqual([]);
+    },
+  );
   test.each(["failed", "reconciliation_required"] as const)(
     "holds siblings after %s without blocking unrelated work or losing a queued restart",
     (state) => {
@@ -198,7 +227,21 @@ describe("migration queue", () => {
         expect(() => restart("01", {})).toThrow("reconciliation_required");
         confirmRestart("01", "acme-cloud/01");
         await Bun.sleep(0);
+        if (phase === "importing") {
+          expect(() => restart("01", {})).toThrow("import outcome");
+          expect(getMigration("01")?.state).toBe("failed");
+          expect(getGhesImportJobByMigrationId("01")).toMatchObject({
+            phase,
+            ghesImportId: "saved-guid",
+          });
+          expect(shouldQueueMigration(enterprise("09", null, "pending"))).toBe(false);
+        }
         expect(run).toHaveBeenCalledTimes(3);
+        expect(
+          getEvents(started.id).filter(
+            (e) => e.eventType === "step" && e.payload.message.includes("administrator review"),
+          ),
+        ).toHaveLength(2);
         for (const id of ["02", "03", started.id])
           expect(getMigration(id)?.state).toBe("succeeded");
       } finally {

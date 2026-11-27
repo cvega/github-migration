@@ -4,7 +4,12 @@ import { isPausedPersistedRoute } from "$lib/migration-target";
 import { ownJobActions } from "$lib/server/application/self-service/jobs";
 import { getVisibleDetail } from "$lib/server/application/self-service/visible-events";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
-import { hasUnreconciledGhesImport } from "$lib/server/migrate/database/migrations";
+import { getGhesImportJobByMigrationId } from "$lib/server/migrate/database/import-jobs";
+import {
+  ghesQueueBlockers,
+  hasUnreconciledGhesImport,
+} from "$lib/server/migrate/database/migrations";
+import { requiresManualImportReview } from "$lib/server/migrate/ghes/job";
 import { events, get } from "$lib/server/migrate/manager";
 import {
   fetchMigrationTargetCounts,
@@ -16,7 +21,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (locals?.user?.role === "operator") {
     const detail = getVisibleDetail(locals.user.id, params.id);
     if (!detail) error(404, "Migration not found");
-    return { ...detail, scoped: true, ...ownJobActions(locals.user.id, params.id) };
+    return {
+      ...detail,
+      waitingForReview: ghesQueueBlockers(detail.migration).length > 0,
+      manualReview: requiresManualImportReview(getGhesImportJobByMigrationId(params.id)),
+      scoped: true,
+      ...ownJobActions(locals.user.id, params.id),
+    };
   }
   const migration = get(params.id);
   if (!migration) throw error(404, "Migration not found");
@@ -25,6 +36,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   return {
     scoped: false,
+    manualReview: requiresManualImportReview(getGhesImportJobByMigrationId(params.id)),
+    blockers: ghesQueueBlockers(migration),
     canReviewRemote: !isPausedPersistedRoute(migration) || hasUnreconciledGhesImport(params.id),
     canCancel: true,
     canRestart: true,

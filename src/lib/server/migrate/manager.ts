@@ -21,7 +21,7 @@ import {
 import { validateCredentialScope } from "$lib/server/core/credential-scope";
 import { getDb } from "$lib/server/core/db";
 import { safeErrorReason } from "$lib/server/core/safe-error";
-import { requireMigrationTargetProfile } from "$lib/server/core/targets";
+import { getMigrationTargetProfile, requireMigrationTargetProfile } from "$lib/server/core/targets";
 import { getSourceProjectIdentity, getSourceProviderAdapter } from "$lib/source-provider";
 import {
   getBatchListItem,
@@ -51,6 +51,7 @@ import {
 } from "./database/migrations";
 import { getMigrationStats, getStateCounts } from "./database/stats";
 import { getExecutorForMigration, getRegisteredMigrationExecutor } from "./executors/registry";
+import { MANUAL_IMPORT_REVIEW, requiresManualImportReview } from "./ghes/job";
 import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 import { activeMigrationRuns } from "./runs/active";
 import {
@@ -62,7 +63,12 @@ import {
   subscribeToMigrationEvents,
 } from "./runs/events";
 import { createMigrationRunFinisher } from "./runs/finish";
-import { drainMigrationQueue, launchClaimedMigration, shouldQueueMigration } from "./runs/queue";
+import {
+  drainMigrationQueue,
+  launchClaimedMigration,
+  recordGhesQueueHold,
+  shouldQueueMigration,
+} from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
 import { auditSourceTlsOverride } from "./runs/source-tls-audit";
 import {
@@ -233,6 +239,7 @@ export function enqueueOwnedBatch(ownerUserId: string, requests: CreateMigration
       migration.authMode = determineAuthModeFromRequest(request);
       migration.requestOptions = serializeRequestOptions(request);
       insertMigration(migration);
+      recordGhesQueueHold(migration);
       return { id: migration.id, request };
     }),
   )();
@@ -269,6 +276,7 @@ export function start(
         : null;
       if (!existing) throw error;
     }
+    if (!existing && queued) recordGhesQueueHold(migration);
     if (!existing && request.noSslVerify)
       auditSourceTlsOverride(migration, "start", "admitted", actorUserId);
   })();
@@ -339,6 +347,15 @@ export function restart(
   if (existing.state !== "failed" && existing.state !== "cancelled") {
     throw new MigrationRestartConflict(`Cannot restart migration in state "${existing.state}"`);
   }
+  if (existing.targetPlatform === "ghes") {
+    if (requiresManualImportReview(getGhesImportJobByMigrationId(migrationId)))
+      throw new MigrationRestartConflict(MANUAL_IMPORT_REVIEW);
+    const target = getMigrationTargetProfile(existing.targetProfileId);
+    if (target?.platform !== "ghes" || target.apiUrl !== existing.targetApiUrl)
+      throw new MigrationRestartConflict(
+        "The saved GHES target is missing or changed. Restore the original destination before restarting.",
+      );
+  }
   const request =
     existing.ownerUserId !== undefined
       ? ownedRequest(existing)
@@ -368,6 +385,7 @@ export function restart(
     )
       throw new Error("Migration was already claimed for restart");
     event.id = insertEvent(event);
+    if (queued) recordGhesQueueHold(existing);
     if (request.noSslVerify) auditSourceTlsOverride(existing, "restart", "admitted", actorUserId);
   })();
   broadcastMigrationEvent(migrationId, event);
@@ -393,11 +411,14 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
     eventType: "step",
     phase: null,
     payload: {
-      message: paused
-        ? "Manual review submitted: remote GHES operation reported inactive; GitLab-to-GHES execution remains paused."
-        : executable
-          ? "Manual review submitted: remote migration reported inactive; migration is now eligible for restart."
-          : "Manual review submitted: remote migration reported inactive; execution remains unsupported for this route.",
+      message:
+        executable && requiresManualImportReview(getGhesImportJobByMigrationId(migrationId))
+          ? `Manual review submitted: remote GHES operation reported inactive. ${MANUAL_IMPORT_REVIEW}`
+          : paused
+            ? "Manual review submitted: remote GHES operation reported inactive; GitLab-to-GHES execution remains paused."
+            : executable
+              ? "Manual review submitted: remote migration reported inactive; migration is now eligible for restart."
+              : "Manual review submitted: remote migration reported inactive; execution remains unsupported for this route.",
     },
     createdAt: new Date().toISOString(),
   };

@@ -290,13 +290,11 @@ async function execute(
     }
     if (job.phase === "mapping" || job.phase === "importing") {
       throw new ReconciliationRequiredError(
-        `Server restarted during ambiguous ghe-migrator ${job.phase} operation`,
+        `Unresolved checkpoint for ambiguous ghe-migrator ${job.phase} operation`,
       );
     }
     if (job.phase === "preparing" && !job.ghesImportId) {
-      throw new ReconciliationRequiredError(
-        "Server restarted before the ghe-migrator prepare outcome was recorded",
-      );
+      throw new ReconciliationRequiredError("The ghe-migrator prepare outcome was not recorded");
     }
     if (job.phase === "exporting") {
       job = await waitForArchive(
