@@ -251,6 +251,7 @@ export async function countByPagination(
   params: Record<string, string | number>,
 ): Promise<number> {
   const res = await client.request(route, { ...params, per_page: 1 });
+  if (!Array.isArray(res.data)) throw new Error(`Invalid count response for ${route}`);
   const link = res.headers?.link;
   if (typeof link === "string") {
     // The header is a comma-separated list of `<url>; rel="…"` parts. Find the
@@ -261,7 +262,6 @@ export async function countByPagination(
     if (last || /\brel="next"/.test(link))
       throw new Error(`Cannot determine count from pagination for ${route}`);
   }
-  if (!Array.isArray(res.data)) throw new Error(`Invalid count response for ${route}`);
   return res.data.length;
 }
 

@@ -23,6 +23,7 @@ interface ProfileRunRow {
   blockers: number;
   warnings: number;
   org_ruleset_count: number;
+  observed_org_ruleset_count: number | null;
   org_resources: string;
   api_calls: number;
   started_at: string;
@@ -31,7 +32,7 @@ interface ProfileRunRow {
 }
 
 const RUN_COLS =
-  "id, source_provider, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
+  "id, source_provider, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, observed_org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
 const SUPPORTED_PROVIDER_SQL = SOURCE_PROVIDERS.map((provider) => `'${provider}'`).join(", ");
 
 type SourceScope = { sourceProvider: SourceProvider; sourceApiUrl: string; namespace: string };
@@ -80,7 +81,10 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
     profiledRepos: row.profiled_repos,
     blockers: row.blockers,
     warnings: row.warnings,
-    orgRulesetCount: row.org_ruleset_count,
+    // The old collector returned zero on failure and stopped at its 100-item page limit.
+    orgRulesetCount:
+      row.observed_org_ruleset_count ??
+      (row.org_ruleset_count > 0 && row.org_ruleset_count < 100 ? row.org_ruleset_count : null),
     orgResources: parsePersistedOrgResources(row.org_resources),
     apiCalls: row.api_calls,
     startedAt: row.started_at,
@@ -145,10 +149,10 @@ export function setProfileRunTotal(runId: string, total: number): void {
     .run({ $id: runId, $total: total });
 }
 
-export function setProfileRunRulesets(runId: string, count: number): void {
+export function setProfileRunRulesets(runId: string, count: number | null): void {
   getDb()
     .prepare(
-      "UPDATE profile_runs SET org_ruleset_count = $count WHERE id = $id AND state = 'running'",
+      "UPDATE profile_runs SET observed_org_ruleset_count = $count, org_ruleset_count = 0 WHERE id = $id AND state = 'running'",
     )
     .run({ $id: runId, $count: count });
 }
@@ -156,7 +160,7 @@ export function setProfileRunRulesets(runId: string, count: number): void {
 export function setProfileRunOrgResources(runId: string, resources: OrgResources): void {
   getDb()
     .prepare("UPDATE profile_runs SET org_resources = $json WHERE id = $id AND state = 'running'")
-    .run({ $id: runId, $json: JSON.stringify(resources) });
+    .run({ $id: runId, $json: JSON.stringify({ counts: resources }) });
 }
 
 export function setProfileRunApiCalls(runId: string, count: number): void {

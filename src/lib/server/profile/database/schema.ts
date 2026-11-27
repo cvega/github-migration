@@ -90,6 +90,7 @@ const PROFILE_DDL = `
     blockers INTEGER NOT NULL DEFAULT 0,
     warnings INTEGER NOT NULL DEFAULT 0,
     org_ruleset_count INTEGER NOT NULL DEFAULT 0,
+    observed_org_ruleset_count INTEGER,
     org_resources TEXT NOT NULL DEFAULT '{}',
     api_calls INTEGER NOT NULL DEFAULT 0,
     detail_rollup TEXT,
@@ -233,6 +234,7 @@ const PROFILE_RUN_COLUMNS = [
   "blockers",
   "warnings",
   "org_ruleset_count",
+  "observed_org_ruleset_count",
   "org_resources",
   "api_calls",
   "detail_rollup",
@@ -258,6 +260,7 @@ function removeProfileProviderConstraint(db: Database): void {
         blockers INTEGER NOT NULL DEFAULT 0,
         warnings INTEGER NOT NULL DEFAULT 0,
         org_ruleset_count INTEGER NOT NULL DEFAULT 0,
+        observed_org_ruleset_count INTEGER,
         org_resources TEXT NOT NULL DEFAULT '{}',
         api_calls INTEGER NOT NULL DEFAULT 0,
         detail_rollup TEXT,
@@ -418,6 +421,7 @@ function upgradeProfileSchema(db: Database): void {
   // Columns added after the table's first release — upgrade older databases.
   addColumnIfMissing(db, "profile_runs", "source_provider", "TEXT NOT NULL DEFAULT 'github'");
   addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "profile_runs", "observed_org_ruleset_count", "INTEGER");
   addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
   addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "profile_runs", "detail_rollup", "TEXT");

@@ -27,24 +27,22 @@
 		] satisfies Array<{ label: string; value: string; icon: UsedIconName }>,
 	);
 	const orgResourceTiles = $derived(
-		(
-			[
-				{ label: "Rulesets", value: run.orgRulesetCount, icon: "law", warn: true },
-				{ label: "Actions secrets", value: run.orgResources.actionsSecrets, icon: "key" },
-				{ label: "Actions variables", value: run.orgResources.actionsVariables, icon: "note" },
-				{ label: "Dependabot secrets", value: run.orgResources.dependabotSecrets, icon: "dependabot" },
-				{ label: "Codespaces secrets", value: run.orgResources.codespacesSecrets, icon: "codespaces" },
-				{ label: "Self-hosted runners", value: run.orgResources.selfHostedRunners, icon: "server" },
-				{ label: "Custom properties", value: run.orgResources.customProperties, icon: "list-unordered" },
-				{ label: "Teams", value: run.orgResources.teams, icon: "people" },
-				{ label: "GitHub Apps", value: run.orgResources.appInstallations, icon: "apps" },
-			] satisfies Array<{
-				label: string;
-				value: number;
-				icon: UsedIconName;
-				warn?: boolean;
-			}>
-		).filter((tile) => tile.value > 0),
+		[
+			{ label: "Rulesets", value: run.orgRulesetCount, icon: "law", warn: (run.orgRulesetCount ?? 0) > 0 },
+			{ label: "Actions secrets", value: run.orgResources.actionsSecrets, icon: "key" },
+			{ label: "Actions variables", value: run.orgResources.actionsVariables, icon: "note" },
+			{ label: "Dependabot secrets", value: run.orgResources.dependabotSecrets, icon: "dependabot" },
+			{ label: "Codespaces secrets", value: run.orgResources.codespacesSecrets, icon: "codespaces" },
+			{ label: "Self-hosted runners", value: run.orgResources.selfHostedRunners, icon: "server" },
+			{ label: "Custom properties", value: run.orgResources.customProperties, icon: "list-unordered" },
+			{ label: "Teams", value: run.orgResources.teams, icon: "people" },
+			{ label: "GitHub Apps", value: run.orgResources.appInstallations, icon: "apps" },
+		] satisfies Array<{
+			label: string;
+			value: number | null;
+			icon: UsedIconName;
+			warn?: boolean;
+		}>,
 	);
 </script>
 
@@ -67,7 +65,7 @@
 	</div>
 {/if}
 
-{#if view === "readiness" && scale.repos > 0}
+{#if view === "readiness"}
 	<div class="space-y-3">
 		<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-4">
 			<div class="bg-gray-950 px-4 py-3">
@@ -88,7 +86,7 @@
 			</div>
 		</div>
 
-		{#if orgResourceTiles.length > 0}
+		{#if run.sourceProvider === "github"}
 			<div class="space-y-2">
 				<h3 class="text-sm font-medium text-gray-300">Organization resources to recreate</h3>
 				<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-5">
@@ -96,8 +94,8 @@
 						<div class="flex items-center gap-2 px-3 py-2.5 {tile.warn ? 'bg-yellow-500/10' : 'bg-gray-950'}">
 							<Octicon name={tile.icon} size={16} class="shrink-0 {tile.warn ? 'text-yellow-400' : 'text-gray-500'}" />
 							<div class="min-w-0">
-								<div class="text-sm font-semibold tabular-nums {tile.warn ? 'text-yellow-200' : 'text-gray-100'}">{tile.value.toLocaleString()}</div>
-								<div class="truncate text-sm text-gray-400">{tile.label}</div>
+								<div class="text-sm font-semibold tabular-nums {tile.warn ? 'text-yellow-200' : 'text-gray-100'}">{tile.value?.toLocaleString() ?? "Unavailable"}</div>
+								<div class="text-sm text-gray-400">{tile.label}</div>
 							</div>
 						</div>
 					{/each}

@@ -48,16 +48,16 @@ export interface OrgDiscovery {
   repos: DiscoveredRepo[];
 }
 
-/** All-zero organization resources used before gathering and on total failure. */
-export const ZERO_ORG_RESOURCES: OrgResources = {
-  actionsSecrets: 0,
-  actionsVariables: 0,
-  dependabotSecrets: 0,
-  codespacesSecrets: 0,
-  selfHostedRunners: 0,
-  customProperties: 0,
-  teams: 0,
-  appInstallations: 0,
+/** Organization resource counts before observation. */
+export const UNKNOWN_ORG_RESOURCES: OrgResources = {
+  actionsSecrets: null,
+  actionsVariables: null,
+  dependabotSecrets: null,
+  codespacesSecrets: null,
+  selfHostedRunners: null,
+  customProperties: null,
+  teams: null,
+  appInstallations: null,
 };
 
 /** A persisted match keyed by migration catalog entry ID. */

@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { type ProfileRun, type RepoSignals, ZERO_ORG_RESOURCES } from "./types";
+import { type ProfileRun, type RepoSignals, UNKNOWN_ORG_RESOURCES } from "./types";
 
 describe("profile contracts", () => {
-  test("provides an immutable all-zero organization resource baseline", () => {
-    expect(ZERO_ORG_RESOURCES).toEqual({
-      actionsSecrets: 0,
-      actionsVariables: 0,
-      dependabotSecrets: 0,
-      codespacesSecrets: 0,
-      selfHostedRunners: 0,
-      customProperties: 0,
-      teams: 0,
-      appInstallations: 0,
+  test("provides an unavailable organization resource baseline", () => {
+    expect(UNKNOWN_ORG_RESOURCES).toEqual({
+      actionsSecrets: null,
+      actionsVariables: null,
+      dependabotSecrets: null,
+      codespacesSecrets: null,
+      selfHostedRunners: null,
+      customProperties: null,
+      teams: null,
+      appInstallations: null,
     });
   });
 
