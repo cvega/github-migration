@@ -61,3 +61,5 @@ bun run verify
 | [Migration Workbench](docs/design-system/migration-workbench.md) | Designers and frontend contributors |
 | [Troubleshooting](docs/troubleshooting.md) | Operators and developers |
 | [Contributing](CONTRIBUTING.md) | Contributors |
+
+<!-- CI timing sample -->
