@@ -55,7 +55,7 @@ export function recordAuditEvent(input: AuditEventInput, database: Database = ge
 }
 
 export function recordOperatorAuditEvent(
-  locals: App.Locals | undefined,
+  locals: { authEnabled: boolean; user?: { id: string } } | undefined,
   input: AuditEventInput,
   database?: Database,
 ): void {

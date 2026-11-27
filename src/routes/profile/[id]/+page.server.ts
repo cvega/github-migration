@@ -5,6 +5,8 @@ import {
   resolveOwnProfile,
 } from "$lib/server/application/self-service/profiles";
 import { isSourceAuthAvailable } from "$lib/server/core/auth";
+import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { getDb } from "$lib/server/core/db";
 import type { RepoReadinessFilter } from "$lib/server/profile/database/repos";
 import { retryRepositoryAnalysisJob } from "$lib/server/profile/database/repository-analysis-jobs";
 import {
@@ -73,10 +75,18 @@ export const actions: Actions = {
       });
     }
     try {
-      const detail = startRepositoryAnalysis(params.id);
-      return {
-        analysisSuccess: `Queued ${detail.run.selectedRepoCount} repositories for analysis`,
-      };
+      return getDb().transaction(() => {
+        const detail = startRepositoryAnalysis(params.id);
+        recordOperatorAuditEvent(locals, {
+          action: "profile.analysis.started",
+          resourceType: "analysis",
+          resourceId: detail.run.id,
+          metadata: { profileRunId: params.id },
+        });
+        return {
+          analysisSuccess: `Queued ${detail.run.selectedRepoCount} repositories for analysis`,
+        };
+      })();
     } catch (cause) {
       return actionFailure(cause);
     }
@@ -86,8 +96,16 @@ export const actions: Actions = {
     const analysisRunId = (await request.formData()).get("analysisRunId")?.toString();
     if (!analysisRunId) return fail(400, { analysisError: "Analysis run ID is required" });
     try {
-      cancelRepositoryAnalysis(params.id, analysisRunId);
-      return { analysisSuccess: "Repository analysis cancelled" };
+      return getDb().transaction(() => {
+        cancelRepositoryAnalysis(params.id, analysisRunId);
+        recordOperatorAuditEvent(locals, {
+          action: "profile.analysis.cancelled",
+          resourceType: "analysis",
+          resourceId: analysisRunId,
+          metadata: { profileRunId: params.id },
+        });
+        return { analysisSuccess: "Repository analysis cancelled" };
+      })();
     } catch (cause) {
       return actionFailure(cause);
     }
@@ -106,8 +124,16 @@ export const actions: Actions = {
       return fail(400, { analysisError: "Analysis run ID and job ID are required" });
     }
     try {
-      retryRepositoryAnalysisJob({ profileRunId: params.id, analysisRunId, jobId });
-      return { analysisSuccess: "Repository queued for analysis" };
+      return getDb().transaction(() => {
+        retryRepositoryAnalysisJob({ profileRunId: params.id, analysisRunId, jobId });
+        recordOperatorAuditEvent(locals, {
+          action: "profile.analysis.job.retried",
+          resourceType: "analysis",
+          resourceId: analysisRunId,
+          metadata: { profileRunId: params.id, jobId },
+        });
+        return { analysisSuccess: "Repository queued for analysis" };
+      })();
     } catch (cause) {
       return actionFailure(cause);
     }
