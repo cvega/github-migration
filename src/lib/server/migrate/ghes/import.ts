@@ -12,6 +12,7 @@ import {
 } from "../database/import-jobs";
 import { getMigration, updateCheckpoint } from "../database/migrations";
 import {
+  ExporterOwnershipError,
   type ExporterSourceProvider,
   type ExporterWorker,
   exporterFailureReason,
@@ -30,6 +31,16 @@ import {
 import { GhesMigratorBusyError, type GhesSshClient } from "./ssh";
 
 const EXPORT_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_EXPORT_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
+
+function exportTimeoutMs(): number {
+  const configured = Number(process.env.GHES_EXPORT_TIMEOUT_MS);
+  return Number.isInteger(configured) && configured > 0 && configured <= 2_147_483_647
+    ? configured
+    : DEFAULT_EXPORT_TIMEOUT_MS;
+}
+
+const RECOVERY_INSPECTION_TIMEOUT_MS = 45_000;
 const MAX_MAPPING_PASSES = 3;
 
 function emitImportStep(
@@ -103,28 +114,91 @@ function settled(
   };
 }
 
+function rethrowOwnershipError(error: unknown): void {
+  if (error instanceof ExporterOwnershipError) throw error;
+}
+
+async function removeFailedExporter(
+  worker: ExporterWorker,
+  containerId: string,
+  migrationId: string,
+) {
+  try {
+    await worker.cleanup?.(containerId, migrationId);
+  } catch (error) {
+    rethrowOwnershipError(error);
+    throw new ReconciliationRequiredError(
+      "Local exporter cleanup is unconfirmed. Check the exporter container before confirming a restart.",
+    );
+  }
+}
+
 async function waitForArchive(
   migration: Migration,
   worker: ExporterWorker,
   signal: AbortSignal | undefined,
   emit: MigrationEventEmitter,
   source: ExporterGhesSourceAdapter,
+  recovering: boolean,
 ) {
   let job = getGhesImportJobByMigrationId(migration.id);
   if (!job?.exporterJobId) {
     throw new ReconciliationRequiredError("Exporter container identifier is missing");
   }
-  while (job.phase === "exporting") {
-    signal?.throwIfAborted();
-    job = await refreshExporterArchive(job, worker, signal);
-    if (job.phase === "failed")
-      throw new ExportFailedError(
-        `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
-      );
-    if (job.phase === "cancelled") {
-      throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
+  const containerId = job.exporterJobId;
+  const remaining = Date.parse(job.createdAt) + exportTimeoutMs() - Date.now();
+  const timeout = new AbortController();
+  // A completed archive may have been waiting for inspection throughout an outage.
+  const inspectExpired = recovering && remaining <= 0;
+  const timer = setTimeout(
+    () => timeout.abort(),
+    inspectExpired ? RECOVERY_INSPECTION_TIMEOUT_MS : Math.max(0, remaining),
+  );
+  const pollSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
+  try {
+    if (remaining <= 0 && !inspectExpired) timeout.abort();
+    while (job.phase === "exporting") {
+      pollSignal.throwIfAborted();
+      try {
+        job = await refreshExporterArchive(job, worker, pollSignal);
+      } catch (error) {
+        rethrowOwnershipError(error);
+        signal?.throwIfAborted();
+        if (inspectExpired)
+          throw new ReconciliationRequiredError(
+            "Expired exporter status is unconfirmed. Check the container and archive before confirming a restart.",
+          );
+        throw error;
+      }
+      if (job.phase === "failed") {
+        await removeFailedExporter(worker, containerId, migration.id);
+        throw new ExportFailedError(
+          `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
+        );
+      }
+      if (job.phase === "cancelled") {
+        throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
+      }
+      if (job.phase === "exporting") {
+        if (inspectExpired) {
+          timeout.abort();
+          pollSignal.throwIfAborted();
+        }
+        await source.wait(EXPORT_POLL_INTERVAL_MS, pollSignal);
+      }
     }
-    if (job.phase === "exporting") await source.wait(EXPORT_POLL_INTERVAL_MS, signal);
+  } catch (error) {
+    if (error instanceof ReconciliationRequiredError || error instanceof ExporterOwnershipError)
+      throw error;
+    signal?.throwIfAborted();
+    if (!timeout.signal.aborted) throw error;
+    await worker
+      .cancel(containerId, migration.id, AbortSignal.timeout(45_000))
+      .catch(rethrowOwnershipError);
+    await removeFailedExporter(worker, containerId, migration.id);
+    throw new ExportFailedError("GHES exporter timed out");
+  } finally {
+    clearTimeout(timer);
   }
   if (job.phase !== "archive_ready" || !job.archivePath || !job.archiveSha256) {
     throw new Error(`Unexpected GHES import phase '${job.phase}' after export`);
@@ -139,7 +213,7 @@ async function waitForArchive(
     `${source.displayName} archive ready (${job.archiveSha256.slice(0, 12)})`,
     "EXPORTING",
   );
-  await worker.cleanup?.(exporterJobId).catch(() => {});
+  await worker.cleanup?.(exporterJobId, migration.id).catch(rethrowOwnershipError);
   return job;
 }
 
@@ -189,7 +263,7 @@ async function execute(
       (job.phase === "pending" ||
         (!recovering && ["failed", "cancelled", "reconciliation_required"].includes(job.phase)))
     ) {
-      if (job.exporterJobId) await worker.cleanup?.(job.exporterJobId).catch(() => {});
+      if (job.exporterJobId) await removeFailedExporter(worker, job.exporterJobId, migration.id);
       if (job.archivePath) await rm(job.archivePath, { force: true }).catch(() => {});
       deleteGhesImportJob(job.id);
       job = null;
@@ -225,7 +299,14 @@ async function execute(
       );
     }
     if (job.phase === "exporting") {
-      job = await waitForArchive(migration, worker, options.signal, options.emit, source);
+      job = await waitForArchive(
+        migration,
+        worker,
+        options.signal,
+        options.emit,
+        source,
+        recovering,
+      );
     }
     if (!job.archivePath) throw new Error("GHES import archive checkpoint is missing");
 
@@ -409,10 +490,15 @@ async function execute(
     if (!localArchivePath) throw new Error("GHES import archive checkpoint is missing");
     await rm(localArchivePath, { force: true }).catch(() => {});
     result = settled(migration, "succeeded");
-  } catch (error) {
+  } catch (executionError) {
+    let error = executionError;
     const current = getGhesImportJobByMigrationId(migration.id);
     if (options.signal?.aborted && current?.phase === "exporting" && current.exporterJobId) {
-      await worker?.cancel(current.exporterJobId).catch(() => {});
+      try {
+        await worker?.cancel(current.exporterJobId, migration.id);
+      } catch (cancelError) {
+        if (cancelError instanceof ExporterOwnershipError) error = cancelError;
+      }
     }
     const afterImport =
       current?.phase === "auditing" ||
@@ -425,7 +511,10 @@ async function execute(
       (current?.phase === "preparing" &&
         !current.ghesImportId &&
         !(error instanceof GhesMigratorBusyError));
-    const ambiguous = uncertainApplianceStep || error instanceof ReconciliationRequiredError;
+    const ambiguous =
+      uncertainApplianceStep ||
+      error instanceof ReconciliationRequiredError ||
+      error instanceof ExporterOwnershipError;
     const state = ambiguous
       ? "reconciliation_required"
       : options.signal?.aborted
@@ -437,7 +526,9 @@ async function execute(
       ? `${checkpoint}; check audit and unlock for that GUID before continuing.`
       : error instanceof ExportFailedError
         ? error.message
-        : error instanceof GhesImportDiagnostic || error instanceof GhesMigratorBusyError
+        : error instanceof GhesImportDiagnostic ||
+            error instanceof GhesMigratorBusyError ||
+            error instanceof ExporterOwnershipError
           ? `${checkpoint}. ${error.message}`
           : `${checkpoint}. ${options.signal?.aborted ? "Operation aborted" : "Operation failed"}`;
     const reason = safeErrorReason(error, detail);

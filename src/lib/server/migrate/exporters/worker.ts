@@ -29,6 +29,7 @@ export type ExporterJobStatus =
   | { jobId: string; state: "failed" | "cancelled"; failureReason: string };
 
 export const exporterFailures = {
+  unstarted: "Exporter container was never started",
   stopped: "Exporter container stopped unexpectedly",
   exit: "Exporter container exited unsuccessfully",
   archive: "Exporter archive is not a regular file",
@@ -39,12 +40,18 @@ export function exporterFailureReason(reason: string | null): string {
   return Object.values(exporterFailures).find((known) => known === reason) ?? "Exporter job failed";
 }
 
+export class ExporterOwnershipError extends Error {
+  constructor() {
+    super("Exporter container ownership could not be confirmed");
+  }
+}
+
 export interface ExporterWorker {
   identify?(request: ExporterArchiveRequest): string;
   submit(request: ExporterArchiveRequest, signal?: AbortSignal): Promise<{ jobId: string }>;
-  inspect(jobId: string, signal?: AbortSignal): Promise<ExporterJobStatus>;
-  cancel(jobId: string, signal?: AbortSignal): Promise<void>;
-  cleanup?(jobId: string): Promise<void>;
+  inspect(jobId: string, migrationId: string, signal?: AbortSignal): Promise<ExporterJobStatus>;
+  cancel(jobId: string, migrationId: string, signal?: AbortSignal): Promise<void>;
+  cleanup?(jobId: string, migrationId: string): Promise<void>;
 }
 
 function requirePersistedJob(id: string): GhesImportJob {
@@ -126,7 +133,7 @@ export async function refreshExporterArchive(
   signal?: AbortSignal,
 ): Promise<GhesImportJob> {
   if (!job.exporterJobId) throw new Error("Exporter job ID is missing");
-  const status = await worker.inspect(job.exporterJobId, signal);
+  const status = await worker.inspect(job.exporterJobId, job.migrationId, signal);
   if (status.jobId !== job.exporterJobId) {
     throw new Error("Exporter returned a status for a different job");
   }
