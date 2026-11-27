@@ -153,6 +153,18 @@ describe("GitLab repository metric collectors", () => {
     });
   });
 
+  test("keeps a release count unavailable when a terminal header disagrees with Link", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{}], { "X-Next-Page": "2" }),
+      jsonResponse([{}], { "X-Next-Page": "", Link: '<?page=3>; rel="next"' }),
+    ]);
+
+    await expect(collectGitLabReleaseMetric(client, { sourceId: "42" })).resolves.toMatchObject({
+      observation: { kind: "unavailable", reason: "malformed", scope: GITLAB_RELEASES_SCOPE },
+    });
+    expect(calls.map((call) => call.searchParams.get("page"))).toEqual(["1", "2"]);
+  });
+
   test("counts commits reachable from the reported default-branch head SHA", async () => {
     const { calls, client } = clientWithResponses([
       jsonResponse({ commit: { id: "abc123" } }),
