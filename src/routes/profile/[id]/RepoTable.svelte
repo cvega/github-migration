@@ -5,10 +5,12 @@
 	import { formatRepoSize, timeAgo } from "$lib/format";
 	import type { UsedIconName } from "$lib/icons.generated";
 	import { MIGRATION_CATALOG } from "$lib/profile/migration-catalog";
-	import type {
-		RepositoryAnalysisDetail,
-		RepositoryAnalysisJob,
-		RepositoryAnalysisJobState,
+	import { releaseScanComplete, ruleScanComplete } from "$lib/profile/readiness";
+	import {
+		type RepositoryAnalysisDetail,
+		type RepositoryAnalysisJob,
+		type RepositoryAnalysisJobState,
+		requiresRepositoryAnalysis,
 	} from "$lib/profile/repository-analysis";
 	import type { PageData } from "./$types";
 	import type { ProfileMigrationPlannerController } from "./planner.svelte";
@@ -176,7 +178,7 @@
 				{#if planning}<th class="w-10 px-3 py-2 font-medium"><span class="sr-only">Select</span></th>{/if}
 				<th class="px-4 py-2 font-medium">Repository</th>
 				<th class="px-4 py-2 font-medium">Target repository</th>
-				<th class="px-4 py-2 font-medium">Git analysis</th>
+				<th class="whitespace-nowrap px-4 py-2 font-medium">Git analysis</th>
 				<th class="px-4 py-2 font-medium">Readiness</th>
 			</tr>
 		</thead>
@@ -184,6 +186,9 @@
 			{#each repos as repo (repo.nameWithOwner)}
 				{@const analysisJob = analysisByRepository.get(repo.nameWithOwner)}
 				{@const canPlan = planningEligible.has(repo.nameWithOwner)}
+				{@const branchRulesIncomplete = !ruleScanComplete(repo.signals)}
+				{@const releaseAssetsIncomplete = !releaseScanComplete(repo.signals)}
+				{@const scanIncomplete = branchRulesIncomplete || releaseAssetsIncomplete}
 				<tr class="bg-gray-950/40 align-top transition-colors hover:bg-gray-900/60">
 					{#if planning}
 						<td class="px-3 py-3">
@@ -220,23 +225,38 @@
 								<p class="mt-0.5 whitespace-nowrap text-xs text-gray-500">{formatBytes(analysisJob.result.mirrorSizeBytes)} mirror</p>
 							{/if}
 						{:else if repo.signals.isEmpty}
-							<span class="text-sm text-gray-500">Not required</span>
+							{#if requiresRepositoryAnalysis({ ...repo, isEmpty: true })}
+								<span class="whitespace-nowrap text-sm font-medium text-yellow-400">Required</span>
+							{:else}
+								<span class="whitespace-nowrap text-sm text-gray-500">Not required</span>
+							{/if}
 						{:else}
-							<span class="text-sm text-gray-500">Not analyzed</span>
+							<span class="whitespace-nowrap text-sm text-gray-500">Not analyzed</span>
 						{/if}
 					</td>
 					<td class="px-4 py-3">
 						<div class="space-y-1.5">
-							<div class="inline-flex items-center gap-1.5 text-sm font-medium {repo.blockers > 0 ? 'text-red-400' : repo.warnings > 0 ? 'text-yellow-400' : 'text-green-400'}">
-								<Octicon name={repo.blockers > 0 ? "stop" : repo.warnings > 0 ? "alert" : "check-circle"} size={16} />
+							<div class="inline-flex items-center gap-1.5 text-sm font-medium {repo.blockers > 0 ? 'text-red-400' : repo.warnings > 0 || scanIncomplete ? 'text-yellow-400' : 'text-green-400'}">
+								<Octicon name={repo.blockers > 0 ? "stop" : repo.warnings > 0 || scanIncomplete ? "alert" : "check-circle"} size={16} />
 								{#if repo.blockers > 0}
 									{repo.blockers} {repo.blockers === 1 ? "blocker" : "blockers"}
 								{:else if repo.warnings > 0}
 									{repo.warnings} {repo.warnings === 1 ? "warning" : "warnings"}
+								{:else if scanIncomplete}
+									Incomplete scan
 								{:else}
 									Ready
 								{/if}
 							</div>
+							{#if branchRulesIncomplete}
+								<p class="text-sm text-gray-300">Branch rule scan incomplete</p>
+							{/if}
+							{#if releaseAssetsIncomplete}
+								<p class="text-sm text-gray-300">Release asset scan incomplete</p>
+							{/if}
+							{#if scanIncomplete && repo.signals.isEmpty && canPlan}
+								<p class="text-sm text-gray-400">Run a new profile to recheck readiness evidence.</p>
+							{/if}
 							{#if repo.catalogMatches.length > 0}
 								{#each repo.catalogMatches as match (match.catalogEntryId)}
 									<p class="text-sm text-gray-300" title={match.evidence}>{catalogMetadata.get(match.catalogEntryId) ?? match.catalogEntryId}</p>

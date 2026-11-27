@@ -54,8 +54,10 @@ interface AnalysisJobRow {
 
 interface ProfileRepoRow {
   id: number;
-  name_with_owner: string;
+  nameWithOwner: string;
   signals: string;
+  blockers: number;
+  warnings: number;
 }
 
 export interface RepositoryAnalysisRunDeps {
@@ -255,12 +257,18 @@ export function startRepositoryAnalysis(
     }
 
     const rows = database
-      .prepare("SELECT id, name_with_owner, signals FROM profile_repos WHERE run_id = ?")
+      .prepare(
+        "SELECT id, name_with_owner AS nameWithOwner, signals, blockers, warnings FROM profile_repos WHERE run_id = ?",
+      )
       .all(profileRunId) as ProfileRepoRow[];
     const selected = rows
       .map((row) => ({ ...row, parsedSignals: parsePersistedRepoSignals(row.signals) }))
-      .filter(({ parsedSignals }) => !parsedSignals.isEmpty);
-    if (selected.length === 0) throw new Error("Profile has no non-empty repositories to analyze");
+      .filter(
+        ({ parsedSignals, ...repo }) =>
+          !parsedSignals.isEmpty || requiresRepositoryAnalysis({ ...repo, isEmpty: true }),
+      );
+    if (selected.length === 0)
+      throw new Error("Profile has no repositories eligible for Git analysis");
 
     const estimates = selected.map(({ parsedSignals }) => workspaceEstimate(parsedSignals));
     const estimatedCloneBytes = selected.reduce(
@@ -299,7 +307,7 @@ export function startRepositoryAnalysis(
         deps.newId(),
         analysisRunId,
         row.id,
-        row.name_with_owner,
+        row.nameWithOwner,
         priority.score,
         JSON.stringify(priority.reasons),
         workspaceEstimate(row.parsedSignals),

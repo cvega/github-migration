@@ -1,14 +1,10 @@
 import type { ProfilePlanRepo } from "$lib/profile/migration-plan";
+import { releaseScanComplete, ruleScanComplete } from "$lib/profile/readiness";
 import { getDb } from "$lib/server/core/db";
 import { parseSourceProjectInventory } from "$lib/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import type { RepoProfile } from "../analysis/repos";
-import {
-  type RepoSignals,
-  releaseScanComplete,
-  ruleScanComplete,
-  type StoredRepoProfile,
-} from "../types";
+import type { RepoSignals, StoredRepoProfile } from "../types";
 import { repositoryNamespace } from "./namespace";
 import { parsePersistedCatalogMatches, parsePersistedRepoSignals } from "./results";
 import { getProfileRun } from "./runs";
@@ -169,6 +165,7 @@ export interface PlanningRow {
   nameWithOwner: string;
   blockers: number;
   warnings: number;
+  isEmpty: number | null;
   releaseComplete: number | null;
   rulesComplete: number | null;
   releasesCount: number | null;
@@ -176,13 +173,22 @@ export interface PlanningRow {
 }
 
 export const PLANNING_COLUMNS = `name_with_owner AS nameWithOwner, blockers, warnings,
+  json_extract(signals, '$.isEmpty') AS isEmpty,
   json_extract(signals, '$.releaseAssetScanComplete') AS releaseComplete,
   json_extract(signals, '$.branchRuleScanComplete') AS rulesComplete,
   json_extract(signals, '$.releasesCount') AS releasesCount,
   json_extract(signals, '$.branchProtectionRuleCount') AS branchProtectionRuleCount`;
 
 export function planningRepo(row: PlanningRow): ProfilePlanRepo {
-  const { releaseComplete, rulesComplete, releasesCount, branchProtectionRuleCount, ...repo } = row;
+  const {
+    isEmpty,
+    releaseComplete,
+    rulesComplete,
+    releasesCount,
+    branchProtectionRuleCount,
+    ...repo
+  } = row;
+  const planning = isEmpty === 1 ? { ...repo, isEmpty: true } : repo;
   const releases = releaseScanComplete({
     releasesCount,
     releaseAssetScanComplete: releaseComplete === null ? undefined : releaseComplete === 1,
@@ -191,7 +197,7 @@ export function planningRepo(row: PlanningRow): ProfilePlanRepo {
     branchProtectionRuleCount,
     branchRuleScanComplete: rulesComplete === null ? undefined : rulesComplete === 1,
   });
-  return releases && rules ? repo : { ...repo, incompleteReadinessScan: true };
+  return releases && rules ? planning : { ...planning, incompleteReadinessScan: true };
 }
 
 export function getRunRepoPlanProfiles(

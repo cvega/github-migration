@@ -92,6 +92,26 @@ describe("repository analyzer", () => {
     });
   });
 
+  test("records a verified ref-less mirror without running history analyzers", async () => {
+    const deps = dependencies([]);
+    const run = deps.run;
+    deps.run = async (command, options) => {
+      if (command.includes("for-each-ref")) return { exitCode: 0, stdout: "", stderr: "" };
+      if (command.includes("--json")) return { exitCode: 1, stdout: "", stderr: "empty history" };
+      return run(command, options);
+    };
+
+    const result = await analyzeRepository(job, { workspaceRoot: "/analysis" }, deps);
+    expect(result).toMatchObject({
+      sourceRefFingerprint:
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      mirrorSizeBytes: 42 * 1024,
+      metrics: {},
+      lfsPointers: [],
+    });
+    expect(result.rawArtifact).toBeUndefined();
+  });
+
   test("rejects a job that cannot fit above the filesystem reserve", async () => {
     const deps = dependencies([]);
     deps.workspaceCapacity = async () => ({

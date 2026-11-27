@@ -67,7 +67,7 @@
 
 {#if view === "readiness"}
 	<div class="space-y-3">
-		<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-4">
+		<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-gray-700 bg-gray-700 sm:grid-cols-3 lg:grid-cols-5">
 			<div class="bg-gray-950 px-4 py-3">
 				<div class="flex items-center gap-2 text-2xl font-semibold text-gray-50"><Octicon name="stop" size={16} class="text-red-400" />{summary.blockerRepos}</div>
 				<div class="mt-1 text-sm text-gray-400">Repos with blocking issues</div>
@@ -81,6 +81,10 @@
 				<div class="mt-1 text-sm text-gray-400">Ready repositories</div>
 			</div>
 			<div class="bg-gray-950 px-4 py-3">
+				<div class="flex items-center gap-2 text-2xl font-semibold text-gray-50"><Octicon name="alert" size={16} class="text-yellow-400" />{summary.incompleteRepos}</div>
+				<div class="mt-1 text-sm text-gray-400">Repos with incomplete scans</div>
+			</div>
+			<div class="col-span-2 bg-gray-950 px-4 py-3 lg:col-span-1">
 				<div class="flex items-center gap-2 text-2xl font-semibold text-gray-50"><Octicon name="tools" size={16} class="text-gray-500" />{summary.items.length}</div>
 				<div class="mt-1 text-sm text-gray-400">Preparation items</div>
 			</div>

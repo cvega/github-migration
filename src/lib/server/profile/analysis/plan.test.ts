@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { RepoSignals, StoredCatalogMatch, StoredRepoProfile } from "../types";
 import { buildPreparationSummary } from "./plan";
 
-const STUB_SIGNALS = {} as RepoSignals;
+const STUB_SIGNALS = { releasesCount: 0, branchProtectionRuleCount: 0 } as RepoSignals;
 
 function match(catalogEntryId: string): StoredCatalogMatch {
   return { catalogEntryId, evidence: "x" };
@@ -48,6 +48,25 @@ describe("buildPreparationSummary", () => {
       repo({}),
     ]);
     expect(summary).toMatchObject({ blockerRepos: 1, warnRepos: 2, cleanRepos: 1 });
+  });
+
+  test("preserves proven findings when readiness evidence is incomplete", () => {
+    const incomplete = { ...STUB_SIGNALS, releaseAssetScanComplete: false };
+    expect(
+      buildPreparationSummary([
+        {
+          ...repo({ blockers: 1, warnings: 1, matches: [match("git-archive-size-limit")] }),
+          signals: incomplete,
+        },
+        { ...repo({}), signals: incomplete },
+      ]),
+    ).toMatchObject({
+      items: [{ catalogEntryId: "git-archive-size-limit", affectedRepos: 1 }],
+      blockerRepos: 1,
+      warnRepos: 1,
+      cleanRepos: 0,
+      incompleteRepos: 2,
+    });
   });
 
   test("reports unevaluated coverage without duplicating detected or migration-wide facts", () => {

@@ -126,7 +126,11 @@ export interface RepositoryAnalysisDetail {
 }
 
 export function requiresRepositoryAnalysis(repo: ProfilePlanRepo): boolean {
-  return repo.blockers > 0 || repo.warnings > 0 || repo.incompleteReadinessScan === true;
+  return (
+    repo.blockers > 0 ||
+    repo.warnings > 0 ||
+    (repo.isEmpty !== true && repo.incompleteReadinessScan === true)
+  );
 }
 
 export function repositoryAnalysisAllowsPlanning(
