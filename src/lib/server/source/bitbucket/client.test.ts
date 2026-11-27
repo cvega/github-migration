@@ -15,6 +15,20 @@ function jsonResponse(data: unknown, status = 200, headers: Record<string, strin
   });
 }
 
+function interruptedResponse(onInterrupt?: () => void): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"ok":'));
+      },
+      pull(controller) {
+        onInterrupt?.();
+        controller.error(new TypeError("connection reset while reading"));
+      },
+    }),
+  );
+}
+
 function mockFetch(responses: QueuedResponse[]) {
   const calls: Array<{ url: URL; init?: RequestInit }> = [];
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -118,22 +132,85 @@ describe("BitbucketServerClient", () => {
         declaredCancelled = true;
       },
     });
-    const oversizedDeclared = client(
+    const { client: oversizedDeclared, mocked: declaredFetch } = client(
       [new Response(declaredBody, { headers: { "content-length": "3" } })],
-      { maxResponseBytes: 2, maxRetries: 0 },
-    ).client;
+      { maxResponseBytes: 2 },
+    );
     await expect(oversizedDeclared.get("/application-properties")).rejects.toThrow(
       "exceeds 2 bytes",
     );
     expect(declaredCancelled).toBe(true);
+    expect(declaredFetch.calls).toHaveLength(1);
 
     const exactStream = client([new Response("{}")], { maxResponseBytes: 2 }).client;
     expect(await exactStream.get<Record<string, never>>("/application-properties")).toEqual({});
-    const oversizedStream = client([new Response("{} ")], {
+    const { client: oversizedStream, mocked: streamFetch } = client([new Response("{} ")], {
       maxResponseBytes: 2,
-      maxRetries: 0,
-    }).client;
+    });
     await expect(oversizedStream.get("/application-properties")).rejects.toThrow("exceeds 2 bytes");
+    expect(streamFetch.calls).toHaveLength(1);
+  });
+
+  test("retries an interrupted GET body with the existing bounded backoff", async () => {
+    const delays: number[] = [];
+    const { client: api, mocked } = client([interruptedResponse(), jsonResponse({ ok: true })], {
+      maxRetries: 1,
+      maxRetryDelayMs: 100,
+      random: () => 0.5,
+      sleep: async (milliseconds: number) => {
+        delays.push(milliseconds);
+      },
+    });
+
+    expect(await api.get("/application-properties")).toEqual({ ok: true });
+    expect(mocked.calls).toHaveLength(2);
+    expect(api.getApiCalls()).toBe(2);
+    expect(delays).toEqual([100]);
+  });
+
+  test("shares the retry budget between HTTP failures and interrupted GET bodies", async () => {
+    const { client: api, mocked } = client(
+      [jsonResponse({}, 503), interruptedResponse(), jsonResponse({ ok: true })],
+      { maxRetries: 1 },
+    );
+
+    await expect(api.get("/application-properties")).rejects.toThrow("body could not be read");
+    expect(mocked.calls).toHaveLength(2);
+  });
+
+  test.each(["body read", "backoff"])(
+    "does not replay after cancellation during %s",
+    async (phase) => {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const retrySignals: Array<AbortSignal | undefined> = [];
+      const { client: api, mocked } = client(
+        [
+          interruptedResponse(phase === "body read" ? abort : undefined),
+          jsonResponse({ ok: true }),
+        ],
+        {
+          sleep: async (_milliseconds: number, signal?: AbortSignal) => {
+            retrySignals.push(signal);
+            abort();
+            signal?.throwIfAborted();
+          },
+        },
+      );
+
+      await expect(
+        api.get("/application-properties", {}, { signal: controller.signal }),
+      ).rejects.toThrow("request aborted");
+      expect(mocked.calls).toHaveLength(1);
+      expect(retrySignals).toEqual(phase === "backoff" ? [controller.signal] : []);
+    },
+  );
+
+  test("does not replay an export submission with an interrupted response body", async () => {
+    const { client: api, mocked } = client([interruptedResponse(), jsonResponse({ id: 2 })]);
+
+    await expect(api.startRepositoryExport("P", "r")).rejects.toThrow("body could not be read");
+    expect(mocked.calls).toHaveLength(1);
   });
 
   test("paginates with forward-only Bitbucket cursors", async () => {
@@ -373,13 +450,18 @@ describe("BitbucketServerClient", () => {
   });
 
   test("rejects invalid JSON and hides credentials in errors", async () => {
-    const api = client([new Response("not-json", { status: 200 })], { maxRetries: 0 }).client;
+    const { client: api, mocked } = client([new Response("not-json", { status: 200 })]);
     try {
       await api.get("/application-properties");
       throw new Error("expected failure");
     } catch (error) {
       expect(error).toBeInstanceOf(BitbucketServerApiError);
+      expect(error).toMatchObject({
+        status: 200,
+        message: expect.stringContaining("invalid JSON"),
+      });
       expect(String(error)).not.toContain("never-print-this");
     }
+    expect(mocked.calls).toHaveLength(1);
   });
 });

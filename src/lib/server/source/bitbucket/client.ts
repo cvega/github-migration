@@ -76,7 +76,7 @@ function parseHeaderInteger(value: string | null): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-async function readBoundedJson<T>(response: Response, maxBytes: number): Promise<T> {
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
   const declaredLength = parseHeaderInteger(response.headers.get("content-length"));
   if (declaredLength !== null && declaredLength > maxBytes) {
     await response.body?.cancel().catch(() => {});
@@ -85,7 +85,7 @@ async function readBoundedJson<T>(response: Response, maxBytes: number): Promise
       `Bitbucket Server API response exceeds ${maxBytes} bytes`,
     );
   }
-  if (!response.body) return JSON.parse(await response.text()) as T;
+  if (!response.body) return response.text();
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -104,8 +104,7 @@ async function readBoundedJson<T>(response: Response, maxBytes: number): Promise
     }
     text += decoder.decode(value, { stream: true });
   }
-  text += decoder.decode();
-  return JSON.parse(text) as T;
+  return text + decoder.decode();
 }
 
 function retryAfterDelayMs(value: string | null, nowMs: number): number | null {
@@ -454,10 +453,9 @@ export class BitbucketServerClient {
       }
       if (!response.ok) {
         if (response.status === 404 && options.distinguishMissingFile) {
-          const error = await readBoundedJson<{ errors?: Array<{ exceptionName?: string }> }>(
-            response,
-            16_384,
-          ).catch(() => null);
+          const error = await readBoundedText(response, 16_384)
+            .then((text) => JSON.parse(text) as { errors?: Array<{ exceptionName?: string }> })
+            .catch(() => null);
           if (
             error?.errors?.[0]?.exceptionName ===
             "com.atlassian.bitbucket.content.NoSuchPathException"
@@ -470,19 +468,29 @@ export class BitbucketServerClient {
           `Bitbucket Server API request failed with HTTP ${response.status}`,
         );
       }
+      let responseText: string;
       try {
-        return await readBoundedJson<T>(response, this.#maxResponseBytes);
+        responseText = await readBoundedText(response, this.#maxResponseBytes);
       } catch (cause) {
         if (cause instanceof BitbucketServerApiError) throw cause;
-        if (cause instanceof SyntaxError) {
-          throw new BitbucketServerApiError(
-            response.status,
-            "Bitbucket Server API returned invalid JSON",
-          );
+        if (options.signal?.aborted) {
+          throw new BitbucketServerApiError(0, "Bitbucket Server API request aborted");
+        }
+        if (retryable && attempt < this.#maxRetries) {
+          await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
+          continue;
         }
         throw new BitbucketServerApiError(
           0,
           "Bitbucket Server API response body could not be read",
+        );
+      }
+      try {
+        return JSON.parse(responseText) as T;
+      } catch {
+        throw new BitbucketServerApiError(
+          response.status,
+          "Bitbucket Server API returned invalid JSON",
         );
       }
     }
