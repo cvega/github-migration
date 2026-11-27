@@ -317,6 +317,36 @@ describe("migration queue", () => {
     expect(launches).toBe(0);
   });
 
+  test.each(["refuses", "throws"])("releases capacity when the launcher %s", (mode) => {
+    using log = spyOn(console, "error").mockImplementation(() => {});
+    for (const row of [
+      enterprise("01", null, "queued"),
+      enterprise("02", null, "queued"),
+      migration("03", "queued"),
+    ]) {
+      insertMigration(row);
+      activeMigrationRuns.enqueue(row.id, request(row.id));
+    }
+    const launched: string[] = [];
+    drainMigrationQueue((id) => {
+      if (id === "01") {
+        if (mode === "throws") throw new Error("fixture detail");
+        return false;
+      }
+      launched.push(id);
+      return true;
+    });
+    expect(launched).toEqual(["02", "03"]);
+    expect(getMigration("01")).toMatchObject({
+      state: "failed",
+      completedAt: expect.any(String),
+      failureReason: "Migration could not be launched",
+    });
+    expect(cancel("01")).toBe(false);
+    expect(getCapacityUsage()).toBe(2);
+    expect(log.mock.calls).toEqual([["[manager] Could not launch claimed migration 01"]]);
+  });
+
   test("fails a claimed migration when its secret request is missing", () => {
     using consoleError = spyOn(console, "error");
     consoleError.mockImplementation(() => {});

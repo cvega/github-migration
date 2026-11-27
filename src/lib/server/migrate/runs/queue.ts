@@ -40,8 +40,30 @@ export function getCapacityUsage(): number {
   return getActiveMigrationCount() + settling;
 }
 
+// Fresh attempts only. The executor runs asynchronously after registration.
+export function launchClaimedMigration(
+  id: string,
+  request: CreateMigrationRequest,
+  launchPipeline: PipelineLauncher,
+): boolean {
+  try {
+    if (launchPipeline(id, request)) return true;
+  } catch {
+    // Launcher errors may contain request data.
+  }
+  console.error(`[manager] Could not launch claimed migration ${id}`);
+  // A refused registration can mean an existing run still owns the row.
+  if (!activeMigrationRuns.isActive(id)) {
+    updateMigrationState(id, "failed", {
+      failureReason: "Migration could not be launched",
+      completedAt: new Date().toISOString(),
+    });
+  }
+  return false;
+}
+
 export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
-  for (const _slot of Array(MAX_CONCURRENT_MIGRATIONS)) {
+  while (true) {
     const claimed = getDb().transaction(() => {
       if (getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS) return null;
       const queued = getNextQueuedMigration(ghesBusy());
@@ -60,6 +82,6 @@ export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
       });
       continue;
     }
-    launchPipeline(claimed.id, request);
+    launchClaimedMigration(claimed.id, request, launchPipeline);
   }
 }
