@@ -129,6 +129,7 @@ jobs:
         with:
           context: .
           target: dashboard
+          no-cache-filters: dashboard
           cache-from: type=gha
           cache-to: type=gha,mode=max
           load: true
@@ -140,6 +141,7 @@ jobs:
         with:
           context: .
           target: profile-analyzer
+          no-cache-filters: profile-analyzer
           cache-from: type=gha,scope=profile-analyzer
           cache-to: type=gha,mode=max,scope=profile-analyzer
           load: true
