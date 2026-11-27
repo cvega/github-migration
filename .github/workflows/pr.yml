@@ -5,7 +5,7 @@ name: PR
 
 on:
   pull_request:
-    types: [opened, edited, reopened, synchronize]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
 
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
@@ -42,4 +42,5 @@ jobs:
 
   verify:
     name: Verify
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     uses: ./.github/workflows/verify.yml
