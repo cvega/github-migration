@@ -230,7 +230,7 @@ export function findRepositoriesAwaitingAnalysis(
 export function startRepositoryAnalysis(
   profileRunId: string,
   deps: RepositoryAnalysisRunDeps = DEFAULT_DEPS,
-): RepositoryAnalysisDetail {
+): RepositoryAnalysisDetail & { created: boolean } {
   const database = getDb();
   const analysisRunId = deps.newId();
   const startedAt = new Date(deps.nowMs()).toISOString();
@@ -251,7 +251,7 @@ export function startRepositoryAnalysis(
     if (active && ["queued", "running", "finalizing"].includes(active.state)) {
       const detail = getRepositoryAnalysisDetail(profileRunId, active.id);
       if (!detail) throw new Error("Active repository analysis could not be read");
-      return detail;
+      return { ...detail, created: false };
     }
 
     const rows = database
@@ -308,7 +308,7 @@ export function startRepositoryAnalysis(
 
     const detail = getRepositoryAnalysisDetail(profileRunId, analysisRunId);
     if (!detail) throw new Error("Repository analysis could not be read after creation");
-    return detail;
+    return { ...detail, created: true };
   })();
 }
 

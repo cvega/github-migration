@@ -77,12 +77,14 @@ export const actions: Actions = {
     try {
       return getDb().transaction(() => {
         const detail = startRepositoryAnalysis(params.id);
-        recordOperatorAuditEvent(locals, {
-          action: "profile.analysis.started",
-          resourceType: "analysis",
-          resourceId: detail.run.id,
-          metadata: { profileRunId: params.id },
-        });
+        if (detail.created) {
+          recordOperatorAuditEvent(locals, {
+            action: "profile.analysis.started",
+            resourceType: "analysis",
+            resourceId: detail.run.id,
+            metadata: { profileRunId: params.id },
+          });
+        }
         return {
           analysisSuccess: `Queued ${detail.run.selectedRepoCount} repositories for analysis`,
         };

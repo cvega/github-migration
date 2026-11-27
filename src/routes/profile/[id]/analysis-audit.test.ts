@@ -58,6 +58,7 @@ afterEach(closeStore);
 
 test("records the administrator and IDs for successful analysis actions", async () => {
   const { user } = await createUser({ username: "audit-admin", role: "admin" });
+  const { user: secondAdmin } = await createUser({ username: "second-admin", role: "admin" });
   createProfileRun({
     id: profileRunId,
     sourceApiUrl: "https://github.invalid/api/v3",
@@ -67,10 +68,14 @@ test("records the administrator and IDs for successful analysis actions", async 
   completeProfileRun(profileRunId);
 
   const url = new URL("https://dashboard.invalid/profile/profile-id");
-  async function run(action: keyof typeof actions, data: Record<string, string> = {}) {
+  async function run(
+    action: keyof typeof actions,
+    data: Record<string, string> = {},
+    actor = user,
+  ) {
     const event = {
       params: { id: profileRunId },
-      locals: { authEnabled: true, user },
+      locals: { authEnabled: true, user: actor },
       request: new Request(url, {
         method: "POST",
         body: new URLSearchParams({ ...data, token: sourceToken }),
@@ -82,7 +87,10 @@ test("records the administrator and IDs for successful analysis actions", async 
   const previousToken = process.env.GH_SOURCE_PAT;
   process.env.GH_SOURCE_PAT = sourceToken;
   try {
-    expect(await run("startAnalysis")).toHaveProperty("analysisSuccess");
+    const started = await run("startAnalysis");
+    expect(started).toHaveProperty("analysisSuccess");
+    expect(await run("startAnalysis", {}, secondAdmin)).toEqual(started);
+    expect(getDb().query("SELECT id FROM profile_repository_analysis_runs").all()).toHaveLength(1);
     const job = getDb()
       .query<{ id: string; analysis_run_id: string }, []>(
         "SELECT id, analysis_run_id FROM profile_repository_analysis_jobs",
