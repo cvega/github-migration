@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { verifyPassword } from "./passwords";
 import { authStore } from "./schema";
-import { createSession, resolveSession } from "./sessions";
+import { createSession, hashSessionToken, resolveSession } from "./sessions";
 import {
   changeOwnPassword,
   createUser,
@@ -46,26 +46,37 @@ describe("users", () => {
   });
 
   test("changes a password, clears the temporary flag, and revokes sessions", async () => {
-    const { user } = await createUser({ username: "operator", role: "operator" }, database);
-    const token = createSession(user.id, new Date("2026-08-29T00:00:00.000Z"), database);
-
+    const { user, temporaryPassword } = await createUser(
+      { username: "operator", role: "operator" },
+      database,
+    );
+    const token = createSession(user.id, new Date(), database);
+    const tokenHash = hashSessionToken(token);
     expect(
-      await changeOwnPassword(user.id, "wrong password", "a different secure password", database),
+      await changeOwnPassword(
+        user.id,
+        tokenHash,
+        "wrong password",
+        "a different secure password",
+        database,
+      ),
     ).toBeNull();
     expect(
       await changeOwnPassword(
         user.id,
-        await resetUserPassword(user.id, database),
+        tokenHash,
+        temporaryPassword ?? "",
         "a different secure password",
         database,
       ),
     ).toEqual(expect.any(String));
     expect(findUserById(user.id, database)?.mustChangePassword).toBe(false);
-    expect(resolveSession(token, new Date("2026-08-29T00:01:00.000Z"), database)).toBeNull();
+    expect(resolveSession(token, new Date(), database)).toBeNull();
   });
 
   test("keeps the current password state when a verified change is superseded", async () => {
     const { user } = await add("operator");
+    const token = createSession(user.id, new Date(), database);
     const hash = spyOn(Bun.password, "hash").mockImplementation(async () => {
       database.run("UPDATE app_users SET password_hash = ? WHERE id = ?", [
         "replacement-hash-fixture",
@@ -76,6 +87,7 @@ describe("users", () => {
     try {
       const result = await changeOwnPassword(
         user.id,
+        hashSessionToken(token),
         "correct horse battery staple",
         "a different secure password",
         database,
@@ -83,7 +95,7 @@ describe("users", () => {
       expect(findStoredUserById(user.id, database)?.passwordHash).toBe("replacement-hash-fixture");
       expect(result).toBeNull();
       expect(database.query("SELECT COUNT(*) AS count FROM app_sessions").get()).toEqual({
-        count: 0,
+        count: 1,
       });
     } finally {
       hash.mockRestore();

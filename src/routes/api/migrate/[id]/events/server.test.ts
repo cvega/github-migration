@@ -107,13 +107,15 @@ describe("migration event stream", () => {
       const reader = response.body!.getReader();
       const first = await reader.read();
       expect(new TextDecoder().decode(first.value).trimEnd().split("\n")).toHaveLength(128);
-      if (revoked) revokeSession(token);
-      const second = await reader.read();
-      expect(second.done).toBe(revoked);
-      if (!revoked) {
-        expect(new TextDecoder().decode(second.value)).toContain("message 128");
-        expect((await reader.read()).done).toBe(true);
+      if (revoked) {
+        revokeSession(token);
+        await expect(reader.read()).rejects.toThrow("Event download interrupted");
+        return;
       }
+      const second = await reader.read();
+      expect(second.done).toBe(false);
+      expect(new TextDecoder().decode(second.value)).toContain("message 128");
+      expect((await reader.read()).done).toBe(true);
     },
   );
 

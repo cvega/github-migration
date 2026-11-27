@@ -40,7 +40,7 @@ export const GET: RequestHandler = ({ params, url, request, locals }) => {
         {
           pull(controller) {
             if (tokenHash !== undefined && !hasActiveAdminSession(tokenHash)) {
-              controller.close();
+              controller.error(new Error("Event download interrupted"));
               return;
             }
             const page = pages.next();

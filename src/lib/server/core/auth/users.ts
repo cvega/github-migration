@@ -167,6 +167,7 @@ export async function createUser(
 
 export async function changeOwnPassword(
   userId: string,
+  sessionTokenHash: string,
   currentPassword: string,
   newPassword: string,
   database: Database = getDb(),
@@ -178,20 +179,27 @@ export async function changeOwnPassword(
   const passwordError = passwordPolicyError(newPassword);
   if (passwordError) throw new Error(passwordError);
   const passwordHash = await hashPassword(newPassword);
-  const now = new Date();
-  return database.transaction(() => {
-    const result = database
-      .prepare(
-        `UPDATE app_users
-         SET password_hash = ?, must_change_password = 0, updated_at = ?
-         WHERE id = ? AND password_hash = ? AND is_active = 1`,
-      )
-      .run(passwordHash, now.toISOString(), userId, user.passwordHash);
-    if (!result.changes) return null;
+  return database
+    .transaction(() => {
+      const now = new Date();
+      const result = database
+        .prepare(
+          `UPDATE app_users
+         SET password_hash = ?1, must_change_password = 0, updated_at = ?2
+         WHERE id = ?3 AND password_hash = ?4 AND is_active = 1
+           AND EXISTS (
+             SELECT 1 FROM app_sessions
+             WHERE token_hash = ?5 AND user_id = ?3
+               AND revoked_at IS NULL AND expires_at >= ?2
+           )`,
+        )
+        .run(passwordHash, now.toISOString(), userId, user.passwordHash, sessionTokenHash);
+      if (!result.changes) return null;
 
-    revokeUserSessions(userId, now, database);
-    return createSession(userId, now, database);
-  })();
+      revokeUserSessions(userId, now, database);
+      return createSession(userId, now, database);
+    })
+    .immediate();
 }
 
 export async function resetUserPassword(

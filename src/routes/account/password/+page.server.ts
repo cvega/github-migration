@@ -20,7 +20,12 @@ export const actions: Actions = {
 
     let token: string | null;
     try {
-      token = await changeOwnPassword(user.id, currentPassword, newPassword);
+      token = await changeOwnPassword(
+        user.id,
+        locals.sessionTokenHash ?? "",
+        currentPassword,
+        newPassword,
+      );
       if (!token) {
         return fail(400, { error: "Current password is incorrect." });
       }
