@@ -39,6 +39,7 @@ function exportTimeoutMs(): number {
     : DEFAULT_EXPORT_TIMEOUT_MS;
 }
 
+const RECOVERY_INSPECTION_TIMEOUT_MS = 45_000;
 const MAX_MAPPING_PASSES = 3;
 
 function emitImportStep(
@@ -112,12 +113,23 @@ function settled(
   };
 }
 
+async function removeFailedExporter(worker: ExporterWorker, containerId: string) {
+  try {
+    await worker.cleanup?.(containerId);
+  } catch {
+    throw new ReconciliationRequiredError(
+      "Local exporter cleanup is unconfirmed. Check the exporter container before confirming a restart.",
+    );
+  }
+}
+
 async function waitForArchive(
   migration: Migration,
   worker: ExporterWorker,
   signal: AbortSignal | undefined,
   emit: MigrationEventEmitter,
   source: ExporterGhesSourceAdapter,
+  recovering: boolean,
 ) {
   let job = getGhesImportJobByMigrationId(migration.id);
   if (!job?.exporterJobId) {
@@ -126,15 +138,29 @@ async function waitForArchive(
   const containerId = job.exporterJobId;
   const remaining = Date.parse(job.createdAt) + exportTimeoutMs() - Date.now();
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), Math.max(0, remaining));
+  // A completed archive may have been waiting for inspection throughout an outage.
+  const inspectExpired = recovering && remaining <= 0;
+  const timer = setTimeout(
+    () => timeout.abort(),
+    inspectExpired ? RECOVERY_INSPECTION_TIMEOUT_MS : Math.max(0, remaining),
+  );
   const pollSignal = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
   try {
-    if (remaining <= 0) timeout.abort();
+    if (remaining <= 0 && !inspectExpired) timeout.abort();
     while (job.phase === "exporting") {
       pollSignal.throwIfAborted();
-      job = await refreshExporterArchive(job, worker, pollSignal);
+      try {
+        job = await refreshExporterArchive(job, worker, pollSignal);
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (inspectExpired)
+          throw new ReconciliationRequiredError(
+            "Expired exporter status is unconfirmed. Check the container and archive before confirming a restart.",
+          );
+        throw error;
+      }
       if (job.phase === "failed") {
-        await worker.cleanup?.(containerId).catch(() => {});
+        await removeFailedExporter(worker, containerId);
         throw new ExportFailedError(
           `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
         );
@@ -142,13 +168,20 @@ async function waitForArchive(
       if (job.phase === "cancelled") {
         throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
       }
-      if (job.phase === "exporting") await source.wait(EXPORT_POLL_INTERVAL_MS, pollSignal);
+      if (job.phase === "exporting") {
+        if (inspectExpired) {
+          timeout.abort();
+          pollSignal.throwIfAborted();
+        }
+        await source.wait(EXPORT_POLL_INTERVAL_MS, pollSignal);
+      }
     }
   } catch (error) {
+    if (error instanceof ReconciliationRequiredError) throw error;
     signal?.throwIfAborted();
     if (!timeout.signal.aborted) throw error;
     await worker.cancel(containerId, AbortSignal.timeout(45_000)).catch(() => {});
-    await worker.cleanup?.(containerId).catch(() => {});
+    await removeFailedExporter(worker, containerId);
     throw new ExportFailedError("GHES exporter timed out");
   } finally {
     clearTimeout(timer);
@@ -216,7 +249,7 @@ async function execute(
       (job.phase === "pending" ||
         (!recovering && ["failed", "cancelled", "reconciliation_required"].includes(job.phase)))
     ) {
-      if (job.exporterJobId) await worker.cleanup?.(job.exporterJobId).catch(() => {});
+      if (job.exporterJobId) await removeFailedExporter(worker, job.exporterJobId);
       if (job.archivePath) await rm(job.archivePath, { force: true }).catch(() => {});
       deleteGhesImportJob(job.id);
       job = null;
@@ -252,7 +285,14 @@ async function execute(
       );
     }
     if (job.phase === "exporting") {
-      job = await waitForArchive(migration, worker, options.signal, options.emit, source);
+      job = await waitForArchive(
+        migration,
+        worker,
+        options.signal,
+        options.emit,
+        source,
+        recovering,
+      );
     }
     if (!job.archivePath) throw new Error("GHES import archive checkpoint is missing");
 

@@ -9,7 +9,7 @@ import { migrateStore } from "../database/schema";
 import { type ExporterWorker, exporterFailures } from "../exporters/worker";
 import { activeMigrationRuns } from "../runs/active";
 import { createMigrationRunFinisher } from "../runs/finish";
-import { drainMigrationQueue } from "../runs/queue";
+import { drainMigrationQueue, shouldQueueMigration } from "../runs/queue";
 import {
   defaultGhesWait,
   type ExporterGhesSourceAdapter,
@@ -170,7 +170,8 @@ describe("GHES import execution", () => {
           scenario === "unstarted"
             ? ["inspect export-job", "remove export-job"]
             : [
-                ...(scenario === "running" ? ["submit", "inspect export-job"] : []),
+                ...(scenario === "running" ? ["submit"] : []),
+                "inspect export-job",
                 "stop export-job",
                 "remove export-job",
               ],
@@ -185,6 +186,114 @@ describe("GHES import execution", () => {
     },
   );
 
+  test.each(["completed", "unavailable", "cleanup pending"] as const)(
+    "inspects an expired recovery and preserves ownership when %s",
+    async (scenario) => {
+      const record = {
+        ...migration("expired-recovery"),
+        sourceProvider: "bitbucket-server" as const,
+      };
+      insertMigration(record);
+      insertGhesImportJob({
+        id: "original",
+        migrationId: record.id,
+        phase: "exporting",
+        exporterJobId: "old-export",
+        archivePath: null,
+        archiveSha256: null,
+        ghesImportId: null,
+        sourceWasArchived: true,
+        failureReason: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: record.startedAt,
+      });
+      const calls: string[] = [];
+      let refuseCleanup = scenario === "cleanup pending";
+      const source = adapter({
+        submit: async () => {
+          calls.push("submit");
+          return { jobId: "new-export" };
+        },
+        inspect: async (id, signal) => {
+          calls.push(`inspect ${id}`);
+          expect(signal?.aborted).toBe(false);
+          if (scenario === "unavailable") throw new Error("inert-private-detail");
+          return refuseCleanup
+            ? { jobId: id, state: "running" }
+            : {
+                jobId: id,
+                state: "succeeded",
+                archive: { path: "/tmp/expired-recovery-fixture.tar.gz", sha256: "a".repeat(64) },
+              };
+        },
+        cancel: async (id) => {
+          calls.push(`stop ${id}`);
+          throw new Error("inert-private-detail");
+        },
+        cleanup: async (id) => {
+          calls.push(`remove ${id}`);
+          if (refuseCleanup) throw new Error("inert-private-detail");
+        },
+      });
+      source.provider = record.sourceProvider;
+      source.localMappingRecords = async () =>
+        "model_name,source_url,target_url,state\nrepository,https://bb.example/project,,exported\n";
+      source.wait = async () => {
+        throw new Error("Expired recovery must not poll again");
+      };
+      const result = await resumeExporterGhesMigration(record, insertEvent, undefined, source);
+      if (scenario === "unavailable") {
+        expect(result.state).toBe("reconciliation_required");
+        expect(result.failureReason).toContain("exporter status is unconfirmed");
+        expect(result.failureReason).not.toContain("inert-private-detail");
+        expect(calls).toEqual(["inspect old-export"]);
+        expect(getGhesImportJobByMigrationId(record.id)?.exporterJobId).toBe("old-export");
+        return;
+      }
+      if (scenario === "completed") {
+        expect(result.state).toBe("succeeded");
+        expect(calls).toEqual(["inspect old-export", "remove old-export"]);
+        expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+          id: "original",
+          archiveSha256: "a".repeat(64),
+          phase: "succeeded",
+        });
+        return;
+      }
+      const run = () =>
+        runExporterGhesMigration(
+          { id: record.id, sourceProvider: record.sourceProvider, emit: insertEvent },
+          source,
+        );
+      const registration = activeMigrationRuns.claim(record.id)!;
+      createMigrationRunFinisher(() => {}).settleResult(record.id, registration.token, result);
+      expect(shouldQueueMigration({ ...record, id: "unrelated" })).toBe(false);
+      for (const attempt of [result, await run()]) {
+        expect(attempt.state).toBe("reconciliation_required");
+        expect(attempt.failureReason).toContain("exporter cleanup");
+        expect(attempt.failureReason).not.toContain("inert-private-detail");
+      }
+      expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+        id: "original",
+        exporterJobId: "old-export",
+        phase: "reconciliation_required",
+      });
+      expect(calls).toEqual([
+        "inspect old-export",
+        "stop old-export",
+        "remove old-export",
+        "remove old-export",
+      ]);
+      refuseCleanup = false;
+      expect((await run()).state).toBe("succeeded");
+      expect(calls.slice(4)).toEqual([
+        "remove old-export",
+        "submit",
+        "inspect new-export",
+        "remove new-export",
+      ]);
+    },
+  );
   test.each([false, true])(
     "Bitbucket sends approved archive mappings upfront; remaining conflict: %s",
     async (blocked) => {
