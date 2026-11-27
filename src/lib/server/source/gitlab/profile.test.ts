@@ -82,6 +82,22 @@ describe("collectGitLabIssueMetric", () => {
     });
   });
 
+  test("keeps contradictory pagination unavailable with scoped provenance", async () => {
+    const { client } = clientWithResponses([
+      jsonResponse([], { "X-Total": "0", "X-Next-Page": "2" }),
+    ]);
+
+    await expect(collectGitLabIssueMetric(client, { sourceId: "42" })).resolves.toMatchObject({
+      provider: "gitlab",
+      endpointFamily: "project-issues",
+      observation: {
+        kind: "unavailable",
+        reason: "malformed",
+        scope: GITLAB_ISSUES_SCOPE,
+      },
+    });
+  });
+
   test("preserves permission denial instead of reporting zero", async () => {
     const { client } = clientWithResponses([new Response(null, { status: 403 })]);
 
