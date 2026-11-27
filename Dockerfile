@@ -58,3 +58,5 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
 	CMD ["bun", "-e", "const response = await fetch('http://127.0.0.1:' + process.env.ANALYSIS_HEALTH_PORT + '/health'); console.log(await response.text()); process.exit(response.ok ? 0 : 1)"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bun", "build/profile-analyzer.js"]
+
+# Exercise the production image workflow.
