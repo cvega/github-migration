@@ -15,7 +15,7 @@ export const AUTH_DURABLE_TABLES = [
   {
     name: "auth_login_attempts",
     purpose: "Persistent sign-in throttling",
-    notes: "Bounded failed attempts keyed by username and client address",
+    notes: "Counts pending and failed sign-in attempts by username and client address",
   },
   {
     name: "audit_events",

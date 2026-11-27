@@ -24,10 +24,14 @@ export const actions = {
       verifyCredentials(username, password),
     );
     if (result.throttled) {
+      if (result.reason === "capacity") {
+        setHeaders({ "Retry-After": "1" });
+        return fail(503, { username, error: "Sign-in is busy. Try again in a second." });
+      }
       setHeaders({ "Retry-After": String(LOGIN_WINDOW_SECONDS) });
       return fail(429, {
         username,
-        error: "Too many sign-in attempts. Try again in a few minutes.",
+        error: "Too many sign-in attempts. Try again in 15 minutes.",
       });
     }
 

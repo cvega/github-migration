@@ -5,7 +5,7 @@ export const LOGIN_WINDOW_SECONDS = 15 * 60;
 const USER_IP_LIMIT = 5;
 const IP_LIMIT = 20;
 
-// Each password verification can allocate 64 MiB. Reject excess work before hashing.
+// Each sign-in verification can allocate 64 MiB. Reject excess work before hashing.
 const MAX_ACTIVE_VERIFICATIONS = 5;
 let activeVerifications = 0;
 
@@ -15,8 +15,11 @@ export async function verifyLoginAttempt<T>(
   verify: () => Promise<T | null>,
   database: Database = getDb(),
   now: Date = new Date(),
-): Promise<{ throttled: true } | { throttled: false; user: T | null }> {
-  if (activeVerifications >= MAX_ACTIVE_VERIFICATIONS) return { throttled: true };
+): Promise<
+  { throttled: true; reason: "capacity" | "window" } | { throttled: false; user: T | null }
+> {
+  if (activeVerifications >= MAX_ACTIVE_VERIFICATIONS)
+    return { throttled: true, reason: "capacity" };
 
   const cutoff = new Date(now.getTime() - LOGIN_WINDOW_SECONDS * 1000).toISOString();
   const reservation = database
@@ -37,7 +40,7 @@ export async function verifyLoginAttempt<T>(
       IP_LIMIT,
       USER_IP_LIMIT,
     );
-  if (!reservation.changes) return { throttled: true };
+  if (!reservation.changes) return { throttled: true, reason: "window" };
 
   activeVerifications++;
   try {

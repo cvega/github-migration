@@ -37,7 +37,9 @@ Sign-in allows five attempts per username and client address, and twenty across
 all usernames from one address, in a rolling 15-minute window. Pending and
 failed attempts count toward these limits. A successful attempt releases its
 own reservation. Each dashboard process verifies up to five sign-ins at once.
-When a limit is reached, sign-in returns HTTP 429 with a 900-second Retry-After.
+Reaching an attempt limit returns HTTP 429 with a 900-second Retry-After. When
+all five verification slots are busy, sign-in returns HTTP 503 with a one-second
+Retry-After and the request consumes no attempt.
 
 Migration, profile, failed-login, and expired-session retention is enforced at
 process startup. A continuously running process can temporarily retain rows
