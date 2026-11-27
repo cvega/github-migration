@@ -9,6 +9,7 @@ import type {
   SourceNamespaceInventory,
   SourceProjectInventory,
 } from "$lib/source/types";
+import { enrichmentWorkers } from "../enrichment-workers";
 import {
   BitbucketServerApiError,
   type BitbucketServerClient,
@@ -297,10 +298,13 @@ export async function collectBitbucketProfileEnrichment(
     throw new TypeError("Bitbucket profile concurrency must be an integer between 1 and 8");
   }
 
+  const workers = enrichmentWorkers(options.signal);
+  const metricOptions = { ...options, signal: workers.signal };
   const projects = new Array<BitbucketProjectProfile>(inventory.projects.length);
   let nextProject = 0;
   const worker = async (): Promise<void> => {
     while (nextProject < inventory.projects.length) {
+      workers.signal.throwIfAborted();
       const position = nextProject++;
       const project = inventory.projects[position];
       if (!project) return;
@@ -309,18 +313,18 @@ export async function collectBitbucketProfileEnrichment(
         tipCommittedAt: null,
         review: null,
       };
-      const commits = await collectBitbucketCommitMetric(client, project, options, (date) => {
+      const commits = await collectBitbucketCommitMetric(client, project, metricOptions, (date) => {
         activity.tipCommittedAt = date;
       });
       const { metric: pullRequests, review } = await collectBitbucketPullRequestMetric(
         client,
         project,
-        options,
+        metricOptions,
       );
       activity.review = review;
-      const branches = await collectBitbucketBranchMetric(client, project, options);
-      const tags = await collectBitbucketTagMetric(client, project, options);
-      const forks = await collectBitbucketForkMetric(client, project, options);
+      const branches = await collectBitbucketBranchMetric(client, project, metricOptions);
+      const tags = await collectBitbucketTagMetric(client, project, metricOptions);
+      const forks = await collectBitbucketForkMetric(client, project, metricOptions);
       projects[position] = {
         sourceId: project.sourceId,
         path: project.path,
@@ -329,7 +333,7 @@ export async function collectBitbucketProfileEnrichment(
       };
     }
   };
-  await Promise.all(
+  await workers.join(
     Array.from({ length: Math.min(concurrency, inventory.projects.length) }, () => worker()),
   );
 

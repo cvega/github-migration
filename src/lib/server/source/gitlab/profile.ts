@@ -8,6 +8,7 @@ import type {
   SourceNamespaceInventory,
   SourceProjectInventory,
 } from "$lib/source/types";
+import { enrichmentWorkers } from "../enrichment-workers";
 import { GitLabApiError, type GitLabClient, type GitLabCountObservation } from "./client";
 
 export const GITLAB_ISSUES_SCOPE =
@@ -265,20 +266,23 @@ export async function collectGitLabProfileEnrichment(
     throw new TypeError("GitLab profile concurrency must be an integer between 1 and 16");
   }
 
+  const workers = enrichmentWorkers(options.signal);
+  const metricOptions = { ...options, signal: workers.signal };
   const projects = new Array<GitLabProjectProfile>(inventory.projects.length);
   let nextProject = 0;
   const worker = async (): Promise<void> => {
     while (nextProject < inventory.projects.length) {
+      workers.signal.throwIfAborted();
       const position = nextProject++;
       const project = inventory.projects[position];
       if (!project) return;
-      const [issues, mergeRequests, commits, branches, tags, releases] = await Promise.all([
-        collectGitLabIssueMetric(client, project, options),
-        collectGitLabMergeRequestMetric(client, project, options),
-        collectGitLabCommitMetric(client, project, options),
-        collectGitLabBranchMetric(client, project, options),
-        collectGitLabTagMetric(client, project, options),
-        collectGitLabReleaseMetric(client, project, options),
+      const [issues, mergeRequests, commits, branches, tags, releases] = await workers.join([
+        collectGitLabIssueMetric(client, project, metricOptions),
+        collectGitLabMergeRequestMetric(client, project, metricOptions),
+        collectGitLabCommitMetric(client, project, metricOptions),
+        collectGitLabBranchMetric(client, project, metricOptions),
+        collectGitLabTagMetric(client, project, metricOptions),
+        collectGitLabReleaseMetric(client, project, metricOptions),
       ]);
       projects[position] = {
         sourceId: project.sourceId,
@@ -287,7 +291,7 @@ export async function collectGitLabProfileEnrichment(
       };
     }
   };
-  await Promise.all(
+  await workers.join(
     Array.from({ length: Math.min(concurrency, inventory.projects.length) }, () => worker()),
   );
 
