@@ -1,6 +1,7 @@
-import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
+import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
+import { insertEvent } from "../database/events";
 import {
   getMigration,
   getNextQueuedMigration,
@@ -10,6 +11,7 @@ import {
 } from "../database/migrations";
 import { getActiveMigrationCount } from "../database/stats";
 import { activeMigrationRuns } from "./active";
+import { broadcastMigrationEvent, closeMigrationEventStream } from "./events";
 
 export const MAX_CONCURRENT_MIGRATIONS = 10;
 
@@ -54,10 +56,24 @@ export function launchClaimedMigration(
   console.error(`[manager] Could not launch claimed migration ${id}`);
   // A refused registration can mean an existing run still owns the row.
   if (!activeMigrationRuns.isActive(id)) {
-    updateMigrationState(id, "failed", {
-      failureReason: "Migration could not be launched",
-      completedAt: new Date().toISOString(),
-    });
+    const failureReason = "Migration could not be launched";
+    const event: MigrationEvent = {
+      migrationId: id,
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { error: failureReason },
+      createdAt: new Date().toISOString(),
+    };
+    const recorded = getDb().transaction(() => {
+      if (!updateMigrationState(id, "failed", { failureReason, completedAt: event.createdAt }))
+        return false;
+      event.id = insertEvent(event);
+      return true;
+    })();
+    if (recorded) {
+      broadcastMigrationEvent(id, event);
+      closeMigrationEventStream(id, "failed");
+    }
   }
   return false;
 }
