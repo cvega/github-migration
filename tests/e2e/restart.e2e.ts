@@ -140,3 +140,20 @@ test("an administrator can review an unsupported route without enabling restart"
 	await expect(reviewButton).toHaveCount(0);
 	await expect(restart).toHaveCount(0);
 });
+
+test("follows the queued GHES hold to manual import review", async ({page}, info) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height: 844});
+    const hydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
+    await page.goto("/migrate/seed-ghes-waiting");
+    await hydrated;
+    const link = page.getByRole("link", {name: "Review migration seed-ghes-review"});
+    await expect(link).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path: info.outputPath(`ghes-queue-${width}.png`)});
+    await link.press("Enter");
+    await expect(page).toHaveURL(/seed-ghes-review$/);
+    await page.getByRole("button", {name: "Review remote status"}).press("Enter");
+    await expect(page.getByRole("dialog")).toContainText("Restart is unavailable for this attempt");
+  }
+});

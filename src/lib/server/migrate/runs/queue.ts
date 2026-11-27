@@ -1,17 +1,18 @@
 import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
-import { insertEvent } from "../database/events";
+import { hasStepSinceRestart, insertEvent, insertQueuedGhesWaitSteps } from "../database/events";
 import {
   getMigration,
   getNextQueuedMigration,
+  hasUnreconciledGhesImport,
   isBatchAdmissionBlocked,
   isGhesSlotHeld,
   updateMigrationState,
 } from "../database/migrations";
 import { getActiveMigrationCount } from "../database/stats";
 import { activeMigrationRuns } from "./active";
-import { broadcastMigrationEvent, closeMigrationEventStream } from "./events";
+import { broadcastMigrationEvent, closeMigrationEventStream, insertLifecycleStep } from "./events";
 
 export const MAX_CONCURRENT_MIGRATIONS = 10;
 
@@ -31,6 +32,17 @@ export function shouldQueueMigration(migration: Migration): boolean {
     (migration.targetPlatform === "ghes" && ghesBusy()) ||
     isBatchAdmissionBlocked(migration)
   );
+}
+
+const WAITING_FOR_REVIEW = "GHES migration queued pending administrator review.";
+
+export function recordGhesQueueHold(migration: Migration): void {
+  if (migration.targetPlatform === "ghes" && hasUnreconciledGhesImport())
+    insertLifecycleStep(migration.id, WAITING_FOR_REVIEW);
+}
+
+export function recordExistingGhesQueueHold(blockerId?: string): void {
+  if (hasUnreconciledGhesImport(blockerId)) insertQueuedGhesWaitSteps(WAITING_FOR_REVIEW);
 }
 
 export function getCapacityUsage(): number {
@@ -98,6 +110,15 @@ export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
       });
       continue;
     }
-    launchClaimedMigration(claimed.id, request, launchPipeline);
+    if (
+      launchClaimedMigration(claimed.id, request, launchPipeline) &&
+      claimed.targetPlatform === "ghes" &&
+      hasStepSinceRestart(claimed.id, WAITING_FOR_REVIEW)
+    ) {
+      broadcastMigrationEvent(
+        claimed.id,
+        insertLifecycleStep(claimed.id, "GHES migration launched after administrator review."),
+      );
+    }
   }
 }

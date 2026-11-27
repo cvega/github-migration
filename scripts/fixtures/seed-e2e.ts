@@ -126,6 +126,26 @@ db.prepare(
      'reconciliation_required', ?, 'No executor is available for this route.')`,
 ).run("legacy-" + "repository".repeat(7), startedAt);
 
+for (const [id, state] of [
+  ["seed-ghes-review", "reconciliation_required"],
+  ["seed-ghes-waiting", "queued"],
+] as const) {
+  db.query(`INSERT INTO migrations (id, source_provider, source_api_url, source_org, source_repo,
+    target_org, target_repo, target_platform, target_profile_id, target_api_url, state, started_at)
+    VALUES (?, 'bitbucket-server', 'https://bitbucket.invalid', 'project', ?, 'destination',
+      'archive', 'ghes', 'enterprise', 'https://ghes.example/api/v3', ?, ?)`).run(
+    id,
+    "repository".repeat(8),
+    state,
+    "2021-03-01T12:00:00.000Z",
+  );
+}
+db.query(`INSERT INTO ghes_import_jobs (id, migration_id, phase, ghes_import_id, created_at, updated_at)
+  VALUES ('review-job', 'seed-ghes-review', 'importing', 'fixture-guid', ?, ?)`).run(
+  startedAt,
+  startedAt,
+);
+
 db.prepare(
   `INSERT INTO migrations (
      id, source_api_url, source_org, source_repo,

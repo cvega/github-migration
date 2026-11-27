@@ -180,6 +180,7 @@ exporter containers.
 |---|---|
 | `ARCHIVE_DIR` | Absolute archive directory visible to the dashboard process; Compose mounts the shared archive volume at `/archives` |
 | `EXPORTER_RUNTIME` | Container runtime command for source exporters |
+| `GHES_SSH_COMMAND_TIMEOUT_MS` | Local deadline for each GHES SSH command or SCP transfer. Defaults to six hours. Accepts 1–2147483647 milliseconds. |
 | `GHES_EXPORT_TIMEOUT_MS` | Maximum time to wait for a local exporter, measured from durable job creation across restarts. Accepts 1–2147483647 milliseconds and defaults to 21600000 (6 hours) when unset or invalid. |
 | `EXPORTER_NETWORK` | Container network mode or network name |
 | `EXPORTER_MEMORY` | Exporter memory limit |

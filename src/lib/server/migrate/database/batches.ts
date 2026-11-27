@@ -9,7 +9,7 @@ import type {
 import { isTargetPlatform, supportsMigrationTarget } from "$lib/migration-target";
 import { getDb } from "$lib/server/core/db";
 import { getSourceProviderAdapter, isSourceProvider } from "$lib/source-provider";
-import { PAUSED_GITLAB_ROUTE_SQL } from "./columns";
+import { MANUAL_GHES_IMPORT_SQL, PAUSED_GITLAB_ROUTE_SQL } from "./columns";
 import {
   EXECUTABLE_PROVIDER_SQL,
   likePattern,
@@ -61,11 +61,14 @@ export function rowToBatchListItem(row: Record<string, unknown>): BatchListItem 
   };
 }
 
-export function getBatchMigrations(batchId: string): Migration[] {
+const RESTART_CANDIDATE = `state IN ('failed', 'cancelled') AND NOT ${MANUAL_GHES_IMPORT_SQL}`;
+
+export function getBatchMigrations(batchId: string, restartableOnly = false): Migration[] {
   const rows = getDb()
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+       ${restartableOnly ? `AND ${RESTART_CANDIDATE}` : ""}
 			 ORDER BY source_repo ASC`,
     )
     .all(batchId) as Record<string, unknown>[];
@@ -82,7 +85,7 @@ export function getBatchSourceProviderValues(batchId: string): string[] {
 export function getRestartableBatchSourceProviderValues(batchId: string): string[] {
   const rows = getDb()
     .prepare(
-      "SELECT DISTINCT source_provider FROM migrations WHERE batch_id = ? AND state IN ('failed', 'cancelled')",
+      `SELECT DISTINCT source_provider FROM migrations WHERE batch_id = ? AND ${RESTART_CANDIDATE}`,
     )
     .all(batchId) as Array<{ source_provider: string }>;
   return rows.map((row) => row.source_provider);
@@ -103,7 +106,7 @@ export function batchHasSavedTlsOverride(batchId: string): boolean {
 export function getRestartableBatchCount(batchId: string): number {
   const routes = getDb()
     .query(`SELECT source_provider, target_platform,
-      count(*) AS count FROM migrations WHERE batch_id = ? AND state IN ('failed', 'cancelled')
+      count(*) AS count FROM migrations WHERE batch_id = ? AND ${RESTART_CANDIDATE}
       AND NOT ${PAUSED_GITLAB_ROUTE_SQL} GROUP BY source_provider, target_platform`)
     .all(batchId) as Array<{
     source_provider: string;

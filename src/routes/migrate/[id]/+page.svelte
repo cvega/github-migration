@@ -37,7 +37,7 @@
 	const migration = $derived<Migration>(freshMigration ?? data.migration);
 	const savedInsecureSourceTls = $derived(tryParsePersistedRequestOptions(migration.requestOptions)?.noSslVerify === true);
 	const provider = $derived(getSourceProviderAdapter(migration.sourceProvider));
-	const restartSupported = $derived(provider.capabilities.restart &&
+	const restartSupported = $derived(!data.manualReview && provider.capabilities.restart &&
 		supportsMigrationTarget(migration.sourceProvider, migration.targetPlatform) &&
 		!isPausedPersistedRoute(migration));
 	const sourcePlatform = $derived(provider.sourcePlatform(migration.sourceApiUrl));
@@ -266,7 +266,16 @@
 	function startPolling(migrationId = migration.id) {
 		if (pollInterval) clearInterval(pollInterval);
 		pollInterval = setInterval(async () => {
+			if (migration.targetPlatform === "ghes" && migration.state === "queued") {
+				await invalidateAll();
+				return;
+			}
+			const previousState = migration.state;
 			await refreshMigration(migrationId);
+			if (migration.targetPlatform === "ghes" && previousState !== migration.state && migration.state === "reconciliation_required") {
+				await invalidateAll();
+				return;
+			}
 			if (!isActiveMigrationState(migration.state)) {
 				if (pollInterval) clearInterval(pollInterval);
 				pollInterval = null;
@@ -445,6 +454,13 @@
 					{#if migration.warningsCount > 0}<span class="text-yellow-400">{migration.warningsCount} warnings</span>{/if}
 					{#if migration.batchId}<a href="/migrate/batches/{migration.batchId}" class="text-blue-400 hover:underline">View batch</a>{/if}
 				</div>
+				{#if migration.state === "queued" && (data.waitingForReview || data.blockers?.length)}
+					<p class="mt-3 text-sm text-gray-300">GHES work is waiting for administrator review.
+						{#each data.blockers ?? [] as id (id)}
+							<a class="block w-fit max-w-full text-blue-400 hover:underline" href="/migrate/{id}">Review migration <span class="break-all">{id}</span></a>
+						{/each}
+					</p>
+				{/if}
 			</div>
 			<div class="flex shrink-0 flex-wrap items-center gap-2">
 				{#if migration.githubMigrationId}
@@ -680,7 +696,7 @@
 			<p class="rounded-md border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-orange-200">
 				Verify in GitHub that no migration is active for <span class="break-all font-mono">{reconciliationPhrase}</span>.
 			</p>
-			<p>Confirm only after checking the destination. {restartSupported ? "Confirmation enables Restart." : "Restart remains unavailable for this route."}</p>
+			<p>Confirm only after checking the destination. {data.manualReview ? "Confirmation releases the appliance slot. Verify the import outcome on GHES. Restart is unavailable for this attempt." : restartSupported ? "Confirmation enables Restart." : "Restart remains unavailable for this route."}</p>
 		</div>
 	{/snippet}
 </ConfirmDialog>

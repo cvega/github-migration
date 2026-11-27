@@ -156,6 +156,7 @@ export interface FailureDetail {
 // ── Event payload types ────────────────────────────────────────────────────
 
 interface StepPayload {
+  confirmedInactive?: true;
   message: string;
   executorPhase?: string;
   counts?: Counts;

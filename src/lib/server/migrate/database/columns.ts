@@ -56,3 +56,12 @@ export const PAUSED_GITLAB_ROUTE_SQL = `(source_provider = 'gitlab' AND (
     THEN COALESCE(json_extract(request_options, '$.targetProfileId'), 'ghec') != 'ghec' ELSE 0 END
   OR EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id)
 ))`;
+
+export const MANUAL_GHES_IMPORT_SQL = `(target_platform = 'ghes' AND EXISTS (
+  SELECT 1 FROM ghes_import_jobs job WHERE job.migration_id = migrations.id
+  AND (job.phase = 'importing'
+    OR (job.phase IN ('mapping', 'auditing', 'unlocking') AND COALESCE(job.ghes_import_id, '') = '')
+    OR (job.phase IN ('failed', 'cancelled', 'reconciliation_required') AND COALESCE(job.ghes_import_id, '') != ''))))`;
+
+export const EVENTS_THIS_ATTEMPT_SQL = `e.migration_id = migrations.id AND e.event_type = 'step'
+  AND e.id > (SELECT COALESCE(MAX(id), 0) FROM events WHERE migration_id = migrations.id AND event_type = 'restart')`;

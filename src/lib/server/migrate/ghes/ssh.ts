@@ -132,14 +132,21 @@ function acknowledgements(channel: ClientChannel): { next(): Promise<void>; disp
 async function write(channel: ClientChannel, chunk: Buffer | string): Promise<void> {
   if (channel.write(chunk)) return;
   await new Promise<void>((resolve, reject) => {
-    const onDrain = () => {
+    const cleanup = () => {
+      channel.off("drain", onDrain);
       channel.off("error", onError);
+      channel.off("close", onClose);
+    };
+    const onDrain = () => {
+      cleanup();
       resolve();
     };
     const onError = (error: Error) => {
-      channel.off("drain", onDrain);
+      cleanup();
       reject(error);
     };
+    const onClose = () => onError(new Error("SCP channel closed during transfer"));
+    channel.once("close", onClose);
     channel.once("drain", onDrain);
     channel.once("error", onError);
   });
@@ -149,20 +156,33 @@ export class GhesSshClient {
   readonly #config: GhesTargetConnectionConfig;
   readonly #client: Client;
   #connected = false;
+  #signal?: AbortSignal;
+  readonly #deadlineMs: number;
 
-  constructor(config: GhesTargetConnectionConfig, client: Client = new Client()) {
+  constructor(
+    config: GhesTargetConnectionConfig,
+    client: Client = new Client(),
+    deadlineMs = Number(process.env.GHES_SSH_COMMAND_TIMEOUT_MS),
+  ) {
     this.#config = config;
     this.#client = client;
+    this.#deadlineMs =
+      Number.isInteger(deadlineMs) && deadlineMs > 0 && deadlineMs <= 2147483647
+        ? deadlineMs
+        : 6 * 60 * 60 * 1000;
   }
 
   async connect(signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
+    this.#signal = signal;
     const options: ConnectConfig = {
       host: this.#config.sshHost,
       port: this.#config.sshPort,
       username: this.#config.sshUsername,
       privateKey: this.#config.sshPrivateKey,
       hostVerifier: (key: Buffer) => verifySshHostKey(key, this.#config.sshHostFingerprint),
+      keepaliveInterval: 15000,
+      keepaliveCountMax: 3,
       readyTimeout: 30_000,
     };
     await new Promise<void>((resolve, reject) => {
@@ -199,6 +219,10 @@ export class GhesSshClient {
   }
 
   async uploadArchive(localPath: string, signal?: AbortSignal): Promise<string> {
+    return this.#bounded(() => this.#uploadArchive(localPath, signal), signal);
+  }
+
+  async #uploadArchive(localPath: string, signal?: AbortSignal): Promise<string> {
     signal?.throwIfAborted();
     const remotePath = this.remoteArchivePath(localPath);
     const archive = await lstat(localPath);
@@ -207,8 +231,7 @@ export class GhesSshClient {
     }
     const channel = await this.#openChannel(`scp -t ${quote(remotePath)}`);
     const acknowledger = acknowledgements(channel);
-    const abort = () => this.#client.end();
-    signal?.addEventListener("abort", abort, { once: true });
+
     try {
       await acknowledger.next();
       await write(channel, `C0644 ${archive.size} ${basename(remotePath)}\n`);
@@ -222,7 +245,6 @@ export class GhesSshClient {
       channel.end();
       return remotePath;
     } finally {
-      signal?.removeEventListener("abort", abort);
       acknowledger.dispose();
     }
   }
@@ -264,7 +286,30 @@ export class GhesSshClient {
   }
 
   async #exec(command: string, input?: string): Promise<GhesCommandResult> {
-    return collectChannel(await this.#openChannel(command), command, input);
+    return this.#bounded(async () =>
+      collectChannel(await this.#openChannel(command), command, input),
+    );
+  }
+
+  async #bounded<T>(operation: () => Promise<T>, signal = this.#signal): Promise<T> {
+    signal?.throwIfAborted();
+    let abort!: () => void;
+    let timer!: ReturnType<typeof setTimeout>;
+    const interrupted = new Promise<never>((_, reject) => {
+      abort = () => {
+        reject(new Error("GHES SSH command interrupted"));
+        this.#connected = false;
+        this.#client.destroy();
+      };
+      timer = setTimeout(abort, this.#deadlineMs);
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      return await Promise.race([operation(), interrupted]);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
   }
 
   async #openChannel(command: string): Promise<ClientChannel> {

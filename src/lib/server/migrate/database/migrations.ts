@@ -25,6 +25,8 @@ import { assertPersistableSourceApiUrl } from "$lib/source/url";
 import { getMigrationExecutor, isSourceProvider, SOURCE_PROVIDERS } from "$lib/source-provider";
 import { logEntrySchema } from "../failure-log";
 import {
+  EVENTS_THIS_ATTEMPT_SQL,
+  MANUAL_GHES_IMPORT_SQL,
   PAUSED_GITLAB_ROUTE_SQL,
   PRE_IMPORT_EXPORT_SQL,
   RECOVERABLE_CHECKPOINT_SQL,
@@ -108,6 +110,7 @@ const eventPayloadSchemas = {
     .object({
       message: z.string(),
       executorPhase: z.string().optional(),
+      confirmedInactive: z.literal(true).optional(),
       counts: countsSchema.optional(),
       postTerminal: z
         .object({
@@ -610,7 +613,7 @@ const LAST_GHES_STEP = `(SELECT json_extract(e.payload, '$.executorPhase') FROM 
 
 // A GHES job identifies the appliance even when a historical GitLab migration
 // inherited cloud target defaults during upgrade.
-const UNRECONCILED_GHES_IMPORT = `SELECT 1 FROM migrations m
+const UNRECONCILED_GHES_IMPORT = `SELECT m.id FROM migrations m
   JOIN ghes_import_jobs job ON job.migration_id = m.id
   WHERE (m.target_platform = 'ghes' OR m.source_provider = 'gitlab')
     AND m.state = 'reconciliation_required'
@@ -618,7 +621,18 @@ const UNRECONCILED_GHES_IMPORT = `SELECT 1 FROM migrations m
       OR (job.ghes_import_id IS NULL AND (job.phase = 'preparing'
         OR (job.phase = 'reconciliation_required' AND ${LAST_GHES_STEP} = 'preparing'))))`;
 
-export function hasUnreconciledGhesImport(id: string): boolean {
+export function ghesQueueBlockers(
+  migration: Pick<Migration, "targetPlatform" | "state">,
+): string[] {
+  if (migration.targetPlatform !== "ghes" || migration.state !== "queued") return [];
+  return getDb()
+    .query<{ id: string }, []>(UNRECONCILED_GHES_IMPORT)
+    .all()
+    .map((row) => row.id);
+}
+
+export function hasUnreconciledGhesImport(id?: string): boolean {
+  if (id === undefined) return !!getDb().prepare(`${UNRECONCILED_GHES_IMPORT} LIMIT 1`).get();
   return !!getDb().prepare(`${UNRECONCILED_GHES_IMPORT} AND m.id = ? LIMIT 1`).get(id);
 }
 
@@ -638,7 +652,22 @@ const RETRYING_FAILURE = `(SELECT CASE WHEN json_valid(e.payload)
     FROM events e WHERE e.migration_id = migrations.id AND e.event_type = 'restart'
     ORDER BY e.id DESC LIMIT 1)`;
 
-const BLOCKER_STATES = "'failed', 'reconciliation_required'";
+export function requiresManualImportReview(id: string): boolean {
+  return !!getDb()
+    .prepare(`SELECT 1 FROM migrations WHERE id = ? AND ${MANUAL_GHES_IMPORT_SQL}`)
+    .get(id);
+}
+
+// Confirmation releases the batch only for an attempt that cannot be restarted.
+// Older confirmation events carried the outcome in their message.
+const BLOCKS_BATCH = `(state = 'reconciliation_required' OR (state = 'failed' AND NOT (
+  ${MANUAL_GHES_IMPORT_SQL} AND EXISTS (
+    SELECT 1 FROM events e WHERE ${EVENTS_THIS_ATTEMPT_SQL}
+    AND CASE WHEN json_valid(e.payload) THEN (
+      json_extract(e.payload, '$.confirmedInactive') = 1 OR json_extract(e.payload, '$.message') IN (
+        'Manual review submitted: remote migration reported inactive; migration is now eligible for restart.',
+        'Manual review submitted: remote GHES operation reported inactive. The GHES import outcome requires manual verification on the appliance. Restart is unavailable for this attempt.'
+      )) END))))`;
 
 export function isBatchAdmissionBlocked(
   migration: Pick<Migration, "id" | "batchId" | "sourceProvider" | "targetPlatform" | "state">,
@@ -651,7 +680,7 @@ export function isBatchAdmissionBlocked(
     return false;
   return !!getDb()
     .prepare(`SELECT 1 FROM migrations WHERE batch_id = $batch AND id != $id
-    AND (state IN (${BLOCKER_STATES}) OR (state = 'queued' AND NOT $retry AND ${RETRYING_FAILURE})) LIMIT 1`)
+    AND (${BLOCKS_BATCH} OR (state = 'queued' AND NOT $retry AND ${RETRYING_FAILURE})) LIMIT 1`)
     .get({
       $batch: migration.batchId,
       $id: migration.id,
@@ -671,7 +700,7 @@ export function getNextQueuedMigration(skipGhes = false): Migration | null {
 			 ${skipGhes ? "AND target_platform != 'ghes'" : ""}
 			 AND NOT (batch_id IS NOT NULL AND source_provider = 'bitbucket-server'
 			   AND target_platform = 'ghes'
-			   AND (batch_id IN (SELECT batch_id FROM migrations WHERE batch_id IS NOT NULL AND state IN (${BLOCKER_STATES}))
+			   AND (batch_id IN (SELECT batch_id FROM migrations WHERE batch_id IS NOT NULL AND ${BLOCKS_BATCH})
 			     OR (batch_id IN (SELECT batch_id FROM retries) AND id NOT IN (SELECT id FROM retries))))
 			 ORDER BY started_at ASC, id ASC LIMIT 1`,
     )

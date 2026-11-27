@@ -9,6 +9,8 @@ import { migrationLogUrl } from "../github/log-url";
 import { activeMigrationRuns } from "./active";
 import { broadcastMigrationEvent, closeMigrationEventStream, insertLifecycleStep } from "./events";
 
+import { recordExistingGhesQueueHold } from "./queue";
+
 export interface MigrationRunFinisher {
   settleResult(id: string, runToken: symbol, result: Migration): void;
   settleError(id: string, runToken: symbol, error: unknown): void;
@@ -23,6 +25,7 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
           : "Remote migration status requires review before restart";
       broadcastMigrationEvent(id, insertLifecycleStep(id, message));
     }
+    if (closeState === "reconciliation_required") recordExistingGhesQueueHold(id);
     if (closeState) closeMigrationEventStream(id, closeState);
     activeMigrationRuns.finish(id, runToken);
     drainQueue();

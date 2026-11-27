@@ -33,3 +33,6 @@ export interface GhesImportJob {
 export function isGhesImportJobPhase(value: unknown): value is GhesImportJobPhase {
   return typeof value === "string" && GHES_IMPORT_JOB_PHASES.includes(value as GhesImportJobPhase);
 }
+
+export const MANUAL_IMPORT_REVIEW =
+  "The GHES import outcome requires manual verification on the appliance. Restart is unavailable for this attempt.";

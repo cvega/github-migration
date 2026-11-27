@@ -203,7 +203,14 @@ it. The configured GHES appliance runs one dashboard migration at a time because
 `ghe-migrator` holds an appliance-wide lock. Other GHES requests wait in order,
 including single runs and restarts. A migration awaiting reconciliation holds this
 slot after an unacknowledged prepare or during mapping, import, audit, or unlock.
-Confirming that the remote operation is inactive releases the hold. Cloud work can use the remaining slots.
+Queued GHES detail pages identify this hold. Administrators can follow the links
+to review blocking migrations. Operators see a request for administrator review.
+Confirming that the remote operation is inactive releases the hold. If its import
+outcome is unknown, the saved attempt and GUID remain available for manual
+verification and restart admission refuses another submission. The confirmed
+attempt is excluded from batch restart counts and permits queued siblings to run.
+If a hold begins while GHES work is already queued, each waiting attempt records
+one wait event and a subsequent launch records its release. Cloud work can use the remaining slots.
 This does not coordinate imports started outside the dashboard.
 Batch migrations use the same queue; a batch is durable membership and
 identity metadata rather than a second execution mechanism.
