@@ -242,15 +242,12 @@ const PROFILE_RUN_COLUMNS = [
 ] as const;
 
 function removeProfileProviderConstraint(db: Database): void {
-  db.run("PRAGMA foreign_keys = OFF");
-  try {
-    db.transaction(() => {
-      const table = db
-        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'profile_runs'")
-        .get() as { sql: string } | null;
-      if (!table?.sql.includes("source_provider IN")) return;
+  const table = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'profile_runs'")
+    .get() as { sql: string } | null;
+  if (!table?.sql.includes("source_provider IN")) return;
 
-      db.run(`CREATE TABLE profile_runs_next (
+  db.run(`CREATE TABLE profile_runs_next (
         id TEXT PRIMARY KEY,
         source_provider TEXT NOT NULL DEFAULT 'github',
         source_api_url TEXT NOT NULL,
@@ -268,19 +265,11 @@ function removeProfileProviderConstraint(db: Database): void {
         completed_at TEXT,
         failure_reason TEXT
       )`);
-      const columns = PROFILE_RUN_COLUMNS.join(", ");
-      db.run(`INSERT INTO profile_runs_next (${columns}) SELECT ${columns} FROM profile_runs`);
-      db.run("DROP TABLE profile_runs");
-      db.run("ALTER TABLE profile_runs_next RENAME TO profile_runs");
-      db.run("CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state)");
-    })();
-  } finally {
-    db.run("PRAGMA foreign_keys = ON");
-  }
-  const violations = db.prepare("PRAGMA foreign_key_check").all();
-  if (violations.length > 0) {
-    throw new Error("Profile provider schema migration left invalid foreign keys");
-  }
+  const columns = PROFILE_RUN_COLUMNS.join(", ");
+  db.run(`INSERT INTO profile_runs_next (${columns}) SELECT ${columns} FROM profile_runs`);
+  db.run("DROP TABLE profile_runs");
+  db.run("ALTER TABLE profile_runs_next RENAME TO profile_runs");
+  db.run("CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state)");
 }
 
 function backfillSourceInventoryProjects(db: Database): void {
@@ -310,35 +299,33 @@ function backfillSourceInventoryProjects(db: Database): void {
        (run_id, position, source_id, path, payload)
      VALUES ($run_id, $position, $source_id, $path, $payload)`,
   );
-  db.transaction(() => {
-    for (const row of rows) {
-      const inventory = parseSourceNamespaceInventory(JSON.parse(row.payload));
-      if (
-        inventory.provider !== row.source_provider ||
-        inventory.sourceApiUrl !== row.source_api_url ||
-        inventory.namespace !== row.org
-      ) {
-        throw new Error(`Legacy source inventory identity does not match run '${row.run_id}'`);
-      }
-      for (const [position, project] of inventory.projects.entries()) {
-        insertProject.run({
-          $run_id: row.run_id,
-          $position: position,
-          $source_id: project.sourceId,
-          $path: project.path,
-          $payload: JSON.stringify(project),
-        });
-      }
-      db.prepare(
-        `UPDATE profile_source_inventories
-         SET payload = '{}', project_count = $project_count
-         WHERE run_id = $run_id`,
-      ).run({
+  for (const row of rows) {
+    const inventory = parseSourceNamespaceInventory(JSON.parse(row.payload));
+    if (
+      inventory.provider !== row.source_provider ||
+      inventory.sourceApiUrl !== row.source_api_url ||
+      inventory.namespace !== row.org
+    ) {
+      throw new Error(`Legacy source inventory identity does not match run '${row.run_id}'`);
+    }
+    for (const [position, project] of inventory.projects.entries()) {
+      insertProject.run({
         $run_id: row.run_id,
-        $project_count: JSON.stringify(inventory.projectCount),
+        $position: position,
+        $source_id: project.sourceId,
+        $path: project.path,
+        $payload: JSON.stringify(project),
       });
     }
-  })();
+    db.prepare(
+      `UPDATE profile_source_inventories
+         SET payload = '{}', project_count = $project_count
+         WHERE run_id = $run_id`,
+    ).run({
+      $run_id: row.run_id,
+      $project_count: JSON.stringify(inventory.projectCount),
+    });
+  }
 }
 
 /**
@@ -422,41 +409,56 @@ export function pruneProfileHistory(
   return rows.length;
 }
 
+function upgradeProfileSchema(db: Database): void {
+  db.run(PROFILE_DDL);
+  // Columns added after the table's first release — upgrade older databases.
+  addColumnIfMissing(db, "profile_runs", "source_provider", "TEXT NOT NULL DEFAULT 'github'");
+  addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "profile_runs", "detail_rollup", "TEXT");
+  addColumnIfMissing(
+    db,
+    "profile_repository_analysis_runs",
+    "unknown_size_repo_count",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(
+    db,
+    "profile_repository_analysis_jobs",
+    "priority_reasons",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  addColumnIfMissing(db, "profile_source_inventories", "summary", "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(
+    db,
+    "profile_source_inventories",
+    "project_count",
+    `TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}'`,
+  );
+  removeProfileProviderConstraint(db);
+  backfillSourceInventoryProjects(db);
+  db.run("DROP TABLE IF EXISTS profile_run_leases");
+  const columns = db.prepare("PRAGMA table_info(profile_runs)").all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "lease_managed")) {
+    db.run("ALTER TABLE profile_runs DROP COLUMN lease_managed");
+  }
+  const violations = db.prepare("PRAGMA foreign_key_check").all();
+  if (violations.length > 0) {
+    throw new Error("Profile provider schema migration left invalid foreign keys");
+  }
+}
+
 /** Profile domain store descriptor — see `$lib/server/schemas`. */
 export const profileStore: DomainStore = {
   applySchema(db) {
-    db.run(PROFILE_DDL);
-    // Columns added after the table's first release — upgrade older databases.
-    addColumnIfMissing(db, "profile_runs", "source_provider", "TEXT NOT NULL DEFAULT 'github'");
-    addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
-    addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
-    addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
-    addColumnIfMissing(db, "profile_runs", "detail_rollup", "TEXT");
-    addColumnIfMissing(
-      db,
-      "profile_repository_analysis_runs",
-      "unknown_size_repo_count",
-      "INTEGER NOT NULL DEFAULT 0",
-    );
-    addColumnIfMissing(
-      db,
-      "profile_repository_analysis_jobs",
-      "priority_reasons",
-      "TEXT NOT NULL DEFAULT '[]'",
-    );
-    addColumnIfMissing(db, "profile_source_inventories", "summary", "TEXT NOT NULL DEFAULT '{}'");
-    addColumnIfMissing(
-      db,
-      "profile_source_inventories",
-      "project_count",
-      `TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}'`,
-    );
-    removeProfileProviderConstraint(db);
-    backfillSourceInventoryProjects(db);
-    db.run("DROP TABLE IF EXISTS profile_run_leases");
-    const columns = db.prepare("PRAGMA table_info(profile_runs)").all() as Array<{ name: string }>;
-    if (columns.some((column) => column.name === "lease_managed")) {
-      db.run("ALTER TABLE profile_runs DROP COLUMN lease_managed");
+    // Rebuilding profile_runs must preserve referencing rows. SQLite only
+    // accepts foreign_keys changes outside a transaction.
+    db.run("PRAGMA foreign_keys = OFF");
+    try {
+      db.transaction(upgradeProfileSchema).immediate(db);
+    } finally {
+      db.run("PRAGMA foreign_keys = ON");
     }
   },
   onInit(db) {
