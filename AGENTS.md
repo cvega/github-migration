@@ -131,3 +131,11 @@ migration, identity invitation, deployment, or production data reset.
   when no other worker is running e2e. CI runs the full suite on the PR regardless.
 - If e2e fails with a port-in-use error, that is a collision, not a code failure:
   do not change code for it; report it and retry later.
+
+## Cross-review
+- Default reviewer: Codex with a different model than the builder
+  (astra-built → review with gpt-6.2-sol; otherwise review with gpt-6.2-astra).
+- Use --agent claude (claude-sonnet-5-5) only for P0/P1 changes to credential
+  handling, recovery/queue claims, or schema upgrades.
+- One review worker per wave covering all flagged PRs. Review `git diff main...HEAD`
+  only; at most 5 findings per PR with file:line, or "sound".
