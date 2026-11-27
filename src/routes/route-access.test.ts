@@ -11,7 +11,7 @@ type Access = "admin" | "operator" | "public" | "session" | "bearer";
 const routes: Record<string, Record<string, Access>> = {
   "+layout.server.ts": { load: "operator" },
   "+page.server.ts": { load: "operator" },
-  "account/password/+page.server.ts": { load: "session", actions: "session" },
+  "account/password/+page.server.ts": { load: "session", "actions.default": "session" },
   "admin/audit/+page.server.ts": { load: "admin" },
   "admin/targets/+page.server.ts": {
     load: "admin",
@@ -48,7 +48,7 @@ const routes: Record<string, Record<string, Access>> = {
   "api/profile/queue/+server.ts": { GET: "admin", POST: "admin" },
   "api/rate-limits/+server.ts": { GET: "admin" },
   "api/ready/+server.ts": { GET: "public" },
-  "login/+page.server.ts": { load: "public", actions: "public" },
+  "login/+page.server.ts": { load: "public", "actions.default": "public" },
   "logout/+server.ts": { POST: "public" },
   "mannequins/+page.server.ts": {
     load: "admin",
@@ -110,7 +110,7 @@ const hook = createRequestHandler({
 function operatorEvent(routeFile: string, entry: string): HookInput["event"] {
   const routeId = `/${routeFile.replace(/\/?\+[^/]+$/, "")}`;
   const url = new URL(routeId.replace("[id]", "fixture-id"), "http://localhost");
-  const method = entry.startsWith("actions") ? "POST" : entry === "load" ? "GET" : entry;
+  const method = entry.startsWith("actions.") ? "POST" : entry === "load" ? "GET" : entry;
   return {
     request: new Request(url, { method }),
     url,
@@ -168,7 +168,7 @@ for (const [file, access] of Object.entries(routes)) {
       [...new Set(names.map((name) => (name.startsWith("actions.") ? "actions" : name)))].sort(),
     );
 
-    if (Object.values(access).includes("admin")) {
+    if (exports.includes("actions") || Object.values(access).includes("admin")) {
       const route = await import(`./${file}`);
       expect(
         Object.keys(route.actions ?? {})
