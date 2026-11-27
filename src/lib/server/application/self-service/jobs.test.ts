@@ -100,7 +100,7 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
   );
   if (sourceProvider === "github") {
     getDb().run(
-      `INSERT INTO profile_repos(run_id,name_with_owner,created_at) VALUES ('profile','SRC/repo','now')`,
+      `INSERT INTO profile_repos(run_id,name_with_owner,signals,created_at) VALUES ('profile','SRC/repo','{"releasesCount":0,"branchProtectionRuleCount":0}','now')`,
     );
   } else {
     getDb().run(

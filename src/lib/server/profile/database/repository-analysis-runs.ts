@@ -8,9 +8,11 @@ import type {
 import {
   findingsFromGitSizerMetrics,
   normalizeGitSizerMetrics,
+  requiresRepositoryAnalysis,
 } from "$lib/profile/repository-analysis";
 import { getDb } from "$lib/server/core/db";
 import type { RepoSignals } from "../types";
+import { PLANNING_COLUMNS, type PlanningRow, planningRepo } from "./repos";
 import { parsePersistedRepoSignals } from "./results";
 
 const GIB = 1024 ** 3;
@@ -207,26 +209,22 @@ export function findRepositoriesAwaitingAnalysis(
   const placeholders = uniqueNames.map(() => "?").join(", ");
   const rows = getDb()
     .prepare(
-      `SELECT name_with_owner, blockers, warnings
+      `SELECT ${PLANNING_COLUMNS}
        FROM profile_repos
        WHERE run_id = ? AND name_with_owner IN (${placeholders})`,
     )
-    .all(profileRunId, ...uniqueNames) as Array<{
-    name_with_owner: string;
-    blockers: number;
-    warnings: number;
-  }>;
+    .all(profileRunId, ...uniqueNames) as PlanningRow[];
   const jobStates = new Map(
     getRepositoryAnalysisDetail(profileRunId)?.jobs.map((job) => [job.nameWithOwner, job.state]) ??
       [],
   );
   return rows
+    .map(planningRepo)
     .filter(
       (repo) =>
-        (repo.blockers > 0 || repo.warnings > 0) &&
-        jobStates.get(repo.name_with_owner) !== "succeeded",
+        requiresRepositoryAnalysis(repo) && jobStates.get(repo.nameWithOwner) !== "succeeded",
     )
-    .map((repo) => repo.name_with_owner);
+    .map((repo) => repo.nameWithOwner);
 }
 
 export function startRepositoryAnalysis(

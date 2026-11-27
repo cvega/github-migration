@@ -1,3 +1,4 @@
+import type { ProfilePlanRepo } from "./types";
 export type RepositoryAnalysisState =
   | "queued"
   | "running"
@@ -124,11 +125,15 @@ export interface RepositoryAnalysisDetail {
   jobs: RepositoryAnalysisJob[];
 }
 
+export function requiresRepositoryAnalysis(repo: ProfilePlanRepo): boolean {
+  return repo.blockers > 0 || repo.warnings > 0 || repo.incompleteReadinessScan === true;
+}
+
 export function repositoryAnalysisAllowsPlanning(
-  repo: { nameWithOwner: string; blockers: number; warnings: number },
+  repo: ProfilePlanRepo,
   analysis: RepositoryAnalysisDetail | null,
 ): boolean {
-  if (repo.blockers === 0 && repo.warnings === 0) return true;
+  if (!requiresRepositoryAnalysis(repo)) return true;
   return (
     analysis?.jobs.some(
       (job) => job.nameWithOwner === repo.nameWithOwner && job.state === "succeeded",

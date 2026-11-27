@@ -192,6 +192,23 @@ describe("analyzeRepo", () => {
     expect(small.summary.blockers).toBe(0);
   });
 
+  test("partial scans prove only findings supported by the observed lower bound", () => {
+    const partial = { branchRuleScanComplete: false, releaseAssetScanComplete: false };
+    const empty = analyzeRepo(cleanSignals(partial));
+    for (const id of ["release-size-limit", "metadata-archive-limit", "branch-protection-partial"])
+      expect(finding(empty, id)?.status).toBe("indeterminate");
+    const positive = analyzeRepo(
+      cleanSignals({
+        ...partial,
+        releaseAssetBytes: 10 * 1024 ** 3,
+        branchProtectionRulesUsingUnmigratedFeatures: 1,
+      }),
+    );
+    expect(finding(positive, "release-size-limit")?.evidence).toContain("At least");
+    expect(finding(positive, "metadata-archive-limit")?.status).toBe("indeterminate");
+    expect(finding(positive, "branch-protection-partial")?.evidence).toContain("At least 1 rule");
+  });
+
   test("flags release assets over 10 GiB as a release-size blocker", () => {
     const profile = analyzeRepo(cleanSignals({ releaseAssetBytes: 11 * 1024 ** 3 }));
     const f = finding(profile, "release-size-limit");

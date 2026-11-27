@@ -3,7 +3,12 @@ import { getDb } from "$lib/server/core/db";
 import { parseSourceProjectInventory } from "$lib/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import type { RepoProfile } from "../analysis/repos";
-import type { RepoSignals, StoredRepoProfile } from "../types";
+import {
+  type RepoSignals,
+  releaseScanComplete,
+  ruleScanComplete,
+  type StoredRepoProfile,
+} from "../types";
 import { repositoryNamespace } from "./namespace";
 import { parsePersistedCatalogMatches, parsePersistedRepoSignals } from "./results";
 import { getProfileRun } from "./runs";
@@ -160,6 +165,35 @@ export function getRunRepoProfilesPage(
   return { repos: rows.map(rowToRepoProfile), page, totalPages, total, limit };
 }
 
+export interface PlanningRow {
+  nameWithOwner: string;
+  blockers: number;
+  warnings: number;
+  releaseComplete: number | null;
+  rulesComplete: number | null;
+  releasesCount: number | null;
+  branchProtectionRuleCount: number | null;
+}
+
+export const PLANNING_COLUMNS = `name_with_owner AS nameWithOwner, blockers, warnings,
+  json_extract(signals, '$.releaseAssetScanComplete') AS releaseComplete,
+  json_extract(signals, '$.branchRuleScanComplete') AS rulesComplete,
+  json_extract(signals, '$.releasesCount') AS releasesCount,
+  json_extract(signals, '$.branchProtectionRuleCount') AS branchProtectionRuleCount`;
+
+export function planningRepo(row: PlanningRow): ProfilePlanRepo {
+  const { releaseComplete, rulesComplete, releasesCount, branchProtectionRuleCount, ...repo } = row;
+  const releases = releaseScanComplete({
+    releasesCount,
+    releaseAssetScanComplete: releaseComplete === null ? undefined : releaseComplete === 1,
+  });
+  const rules = ruleScanComplete({
+    branchProtectionRuleCount,
+    branchRuleScanComplete: rulesComplete === null ? undefined : rulesComplete === 1,
+  });
+  return releases && rules ? repo : { ...repo, incompleteReadinessScan: true };
+}
+
 export function getRunRepoPlanProfiles(
   runId: string,
   limit: number,
@@ -169,14 +203,12 @@ export function getRunRepoPlanProfiles(
   const scope = repositoryNamespace("name_with_owner", namespace);
   const profiles = getDb()
     .prepare(
-      `SELECT name_with_owner AS nameWithOwner, blockers, warnings
+      `SELECT ${PLANNING_COLUMNS}
 			 FROM profile_repos WHERE run_id = $id${scope.sql}
 			 ORDER BY name_with_owner ASC LIMIT $limit`,
     )
-    .all({ $id: runId, $limit: boundedLimit, ...scope.params }) as Array<
-    Pick<StoredRepoProfile, "nameWithOwner" | "blockers" | "warnings">
-  >;
-  if (profiles.length > 0) return profiles;
+    .all({ $id: runId, $limit: boundedLimit, ...scope.params }) as PlanningRow[];
+  if (profiles.length > 0) return profiles.map(planningRepo);
   const inventoryScope = repositoryNamespace("path", namespace);
   const inventoryProjects = getDb()
     .prepare(
