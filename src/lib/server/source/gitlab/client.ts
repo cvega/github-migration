@@ -732,7 +732,8 @@ export class GitLabClient {
       if (total !== null && lastPage !== null && Math.ceil(total / perPage) !== lastPage) {
         throw new GitLabPaginationError("GitLab API returned contradictory pagination totals");
       }
-      const continues = traversal.continues ?? response.data.length === perPage;
+      const continues =
+        traversal.continues ?? (itemsRead !== total && response.data.length === perPage);
       if (
         total !== null &&
         (itemsRead > total ||

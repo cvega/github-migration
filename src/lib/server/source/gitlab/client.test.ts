@@ -256,6 +256,19 @@ describe("GitLabClient", () => {
     expect(fallback.calls.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2"]);
   });
 
+  test("completes a full final page when X-Total matches the items read", async () => {
+    const { fetch, calls } = mockFetch([jsonResponse([1, 2], { headers: { "X-Total": "2" } })]);
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.com",
+      token: "token",
+      fetch,
+      maxPages: 1,
+    });
+
+    expect(await client.paginate("/projects", { per_page: 2 })).toEqual([1, 2]);
+    expect(calls).toHaveLength(1);
+  });
+
   test("rejects changing and incomplete totals during pagination", async () => {
     const changed = new GitLabClient({
       baseUrl: "https://gitlab.com",
