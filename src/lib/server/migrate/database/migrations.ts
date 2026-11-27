@@ -182,7 +182,10 @@ export function parsePersistedRequestOptions(json: string): PersistedRequestOpti
   return parsed.data;
 }
 
-export function tryParsePersistedRequestOptions(json: string): PersistedRequestOptions | null {
+export function tryParsePersistedRequestOptions(
+  json: string | null,
+): PersistedRequestOptions | null {
+  if (!json) return null;
   try {
     return parsePersistedRequestOptions(json);
   } catch {

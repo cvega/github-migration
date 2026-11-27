@@ -88,11 +88,14 @@ writes. Keep origin protection enabled.
 | `GH_TARGET_APP_ID` | GitHub target App ID |
 | `GH_TARGET_APP_PRIVATE_KEY` | GitHub target App private key |
 | `GH_TARGET_APP_INSTALLATION_ID` | GitHub target App installation ID |
+| `GH_ALLOW_INSECURE_SOURCE_TLS` | Comma-separated GitHub source HTTPS API URLs permitted to use `noSslVerify`. Empty by default. Matches the normalized API URL including port and path. |
 | `GH_ALLOWED_SOURCE_API_URLS` | Allowlist for request-overridden GitHub source API URLs |
 
 For each GitHub side, configure either a PAT or all three App values. GitHub App
 credentials are preferred for long-running, crash-recoverable work because
 installation tokens can refresh without persisting a request secret.
+
+Disabling source certificate verification allows an on-path system to impersonate the source and receive its credentials and migration data. Prefer installing the source CA. An exception permits an administrator to select the option for that source, subject to the usual credential and access rules. Starts and restarts record the override in the audit log. Restart reuses the stored option unless explicitly disabled. Dispatch and recovery recheck the current policy.
 
 ## Repository Analysis
 

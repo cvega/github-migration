@@ -7,6 +7,7 @@ import {
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { restartOwnJob } from "$lib/server/application/self-service/jobs";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
+import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import { get, MigrationRestartConflict, restart } from "$lib/server/migrate/manager";
 import { restartMigrationSchema, validateBody } from "$lib/server/migrate/schemas";
@@ -26,6 +27,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
       return json({ error: "Migration is unavailable for restart" }, { status: 404 });
     }
   }
+  requireAdminIfAuthEnabled(locals);
   const existing = get(params.id);
   if (existing && isPausedPersistedRoute(existing)) {
     recordOperatorAuditEvent(locals, {
@@ -44,7 +46,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   const authError = validateAuthAvailable(restartValidationInput(existing, parsed.body));
   if (authError) return json({ error: authError }, { status: 400 });
   try {
-    const migration = restart(params.id, parsed.body);
+    const migration = restart(params.id, parsed.body, locals?.user?.id);
     recordOperatorAuditEvent(locals, {
       action: "migration.restarted",
       resourceType: "migration",

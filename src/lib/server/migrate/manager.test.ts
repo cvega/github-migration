@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { authStore } from "$lib/server/core/auth/schema";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getEvents } from "./database/events";
 import { getMigration, insertMigration } from "./database/migrations";
 import { migrateStore } from "./database/schema";
@@ -44,10 +45,53 @@ function migration(id: string, state: Migration["state"]): Migration {
   };
 }
 
-beforeEach(() => initStore(":memory:", [migrateStore]));
+beforeEach(() => initStore(":memory:", [authStore, migrateStore]));
 afterEach(closeStore);
 
 describe("migration manager", () => {
+  test("audits approved TLS overrides and rechecks policy at dispatch and restart", async () => {
+    const prior = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+    const sourceApiUrl = "https://source.example/api/v3";
+    const executor = getRegisteredMigrationExecutor({
+      sourceProvider: "github",
+      targetPlatform: "ghec",
+    });
+    using run = spyOn(executor, "run").mockImplementation(async ({ id }) => ({
+      ...getMigration(id!)!,
+      state: "failed",
+    }));
+    try {
+      process.env.GH_ALLOW_INSECURE_SOURCE_TLS = sourceApiUrl;
+      const job = start({
+        sourceApiUrl,
+        sourceRepo: "org/test",
+        targetOrg: "dest",
+        noSslVerify: true,
+      });
+      delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      await Bun.sleep(0);
+      expect(run).not.toHaveBeenCalled();
+      expect(() => restart(job.id, {})).toThrow("GH_ALLOW_INSECURE_SOURCE_TLS");
+      process.env.GH_ALLOW_INSECURE_SOURCE_TLS = sourceApiUrl;
+      expect(restart(job.id, {}).noSslVerify).toBe(true);
+      await Bun.sleep(0);
+      expect(run.mock.calls[0]?.[0].noSslVerify).toBe(true);
+      expect(
+        getDb()
+          .query(
+            "SELECT metadata FROM audit_events WHERE resource_id = ? AND action = 'migration.source_tls_override' ORDER BY id",
+          )
+          .all(job.id),
+      ).toEqual(
+        ["start", "restart"].map((operation) => ({
+          metadata: JSON.stringify({ operation, noSslVerify: true }),
+        })),
+      );
+    } finally {
+      if (prior === undefined) delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      else process.env.GH_ALLOW_INSECURE_SOURCE_TLS = prior;
+    }
+  });
   test.each(["omitted GHES", "explicit GHES", "cloud"])(
     "executes and restarts the admitted %s host and options",
     async (scenario) => {

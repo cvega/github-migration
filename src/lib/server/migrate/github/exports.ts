@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { env } from "node:process";
 import type { CreateMigrationRequest, Migration } from "$lib/migrate/types";
 import type { GitHubClients } from "$lib/server/core/github";
-import { type GitHubClient, isVersionAtLeast } from "$lib/server/core/github";
+import { type GitHubClient, isVersionAtLeast, sourceTlsPolicyError } from "$lib/server/core/github";
 import { sleep } from "$lib/server/core/polling";
 import { getGitHubSourcePlatform } from "$lib/source-provider";
 import { getOrgDatabaseId } from "./migration-source";
@@ -344,6 +344,8 @@ async function downloadArchiveToFile(
   try {
     for (let redirects = 0; redirects <= ARCHIVE_REDIRECT_LIMIT; redirects += 1) {
       assertTrustedArchiveHost(currentUrl, options.sourceApiUrl);
+      const policyError = options.noSslVerify && sourceTlsPolicyError(options.sourceApiUrl);
+      if (policyError) throw new Error(policyError);
       response = await fetch(currentUrl, {
         headers: { Authorization: `Bearer ${token}` },
         redirect: "manual",

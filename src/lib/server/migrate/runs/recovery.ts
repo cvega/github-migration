@@ -48,7 +48,10 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const request = requestForMigration(migration);
+    const request = requestForMigration(
+      migration,
+      safeParsePersistedRequestOptions(migration.requestOptions) ?? {},
+    );
     const scopeError = dependencies.validateScope(request);
     if (scopeError) {
       updateMigrationState(migration.id, "reconciliation_required", {
@@ -68,9 +71,7 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const options = migration.requestOptions
-      ? safeParsePersistedRequestOptions(migration.requestOptions)
-      : null;
+    const options = safeParsePersistedRequestOptions(migration.requestOptions);
     if (!options) {
       updateMigrationState(migration.id, "failed", {
         failureReason: "Queued migration request options lost (internal error)",

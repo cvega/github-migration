@@ -54,6 +54,42 @@ beforeEach(() => initStore(":memory:", [migrateStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
+  test("revalidates stored TLS overrides before resuming queued or checkpointed jobs", () => {
+    const sourceApiUrl = "https://source.example/api/v3";
+    const priorPolicy = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+    const priorSource = process.env.GH_SOURCE_API_URL;
+    try {
+      process.env.GH_SOURCE_API_URL = sourceApiUrl;
+      delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      for (const state of ["running", "queued"] as const) {
+        insertMigration({
+          ...migration(state, state),
+          sourceApiUrl,
+          requestOptions: JSON.stringify({ noSslVerify: true }),
+        });
+      }
+      recoverMigrationRuns({
+        launchRecoveredPipeline: () => {
+          throw new Error("Unexpected recovery launch");
+        },
+        drainQueue: () => {},
+      });
+      expect(getMigration("running")).toMatchObject({
+        state: "reconciliation_required",
+        githubMigrationId: "remote-id",
+        failureReason: expect.stringContaining("GH_ALLOW_INSECURE_SOURCE_TLS"),
+      });
+      expect(getMigration("queued")).toMatchObject({
+        state: "failed",
+        failureReason: expect.stringContaining("GH_ALLOW_INSECURE_SOURCE_TLS"),
+      });
+    } finally {
+      if (priorPolicy === undefined) delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      else process.env.GH_ALLOW_INSECURE_SOURCE_TLS = priorPolicy;
+      if (priorSource === undefined) delete process.env.GH_SOURCE_API_URL;
+      else process.env.GH_SOURCE_API_URL = priorSource;
+    }
+  });
   test.each(["gitlab", "bitbucket-server"] as const)(
     "%s never resumes a source export after the target accepted but the worker lost the ID",
     (provider) => {
