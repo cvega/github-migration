@@ -18,7 +18,7 @@ export const GET: RequestHandler = ({ params, locals }) => {
   requireAdminIfAuthEnabled(locals);
   const run = dependencies.getProfileRun(params.id);
   if (!run) return new Response("Not found", { status: 404 });
-  return sseResponse((controller) => {
+  return sseResponse(locals, (controller) => {
     const unsubscribe = dependencies.subscribeProfile(params.id, controller);
     let poll: ReturnType<typeof setInterval> | undefined;
     const cleanup = () => {

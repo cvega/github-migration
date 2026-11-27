@@ -22,7 +22,7 @@ export const GET: RequestHandler = ({ url, request, locals }) => {
       { status: 400 },
     );
   }
-  return sseResponse((controller) => {
+  return sseResponse(locals, (controller) => {
     const handoff = createBufferedSseController(controller);
     const unsubscribe = subscribeGlobal(handoff.controller);
     if (afterId !== undefined) {

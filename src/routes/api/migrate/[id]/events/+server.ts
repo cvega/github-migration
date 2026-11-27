@@ -64,7 +64,7 @@ export const GET: RequestHandler = ({ params, url, request, locals }) => {
       { status: 400 },
     );
   }
-  return sseResponse((controller) => {
+  return sseResponse(locals, (controller) => {
     const handoff = createBufferedSseController(controller);
     const unsubscribe = subscribe(params.id, handoff.controller);
     if (afterId !== undefined) {

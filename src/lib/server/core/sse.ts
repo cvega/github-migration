@@ -9,6 +9,8 @@
  * endpoints (keepalive interval, cleanup wiring, headers).
  */
 
+import { hasActiveAdminSession } from "./auth/sessions";
+
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
 const SSE_HEADERS = {
@@ -29,10 +31,20 @@ const SSE_HEADERS = {
  *   or `null` when setup closes the stream synchronously.
  */
 export function sseResponse(
+  locals: App.Locals | undefined,
   onStart: (controller: ReadableStreamDefaultController<string>) => (() => void) | null,
 ): Response {
   let cleanup: (() => void) | null = null;
   let keepalive: ReturnType<typeof setInterval> | null = null;
+
+  // An undefined hash denotes the explicitly unauthenticated workbench.
+  const tokenHash = locals?.authEnabled ? (locals.sessionTokenHash ?? "") : undefined;
+  function dispose() {
+    if (keepalive) clearInterval(keepalive);
+    keepalive = null;
+    cleanup?.();
+    cleanup = null;
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -55,21 +67,20 @@ export function sseResponse(
 
       keepalive = setInterval(() => {
         try {
+          if (tokenHash !== undefined && !hasActiveAdminSession(tokenHash)) {
+            controller.enqueue(encoder.encode("event: session-ended\ndata: {}\n\n"));
+            controller.close();
+            dispose();
+            return;
+          }
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          if (keepalive) clearInterval(keepalive);
-          keepalive = null;
-          cleanup?.();
-          cleanup = null;
+          controller.error(new Error("Stream unavailable"));
+          dispose();
         }
       }, KEEPALIVE_INTERVAL_MS);
     },
-    cancel() {
-      if (keepalive) clearInterval(keepalive);
-      keepalive = null;
-      cleanup?.();
-      cleanup = null;
-    },
+    cancel: dispose,
   });
 
   return new Response(stream, { headers: SSE_HEADERS });
