@@ -481,25 +481,64 @@ describe("GitLabClient", () => {
     expect(server.calls).toHaveLength(3);
   });
 
-  test("caps retry delays and supports caller cancellation", async () => {
+  const cooldownNowMs = Date.UTC(2026, 7, 8, 12);
+
+  test.each([
+    ["numeric Retry-After", "Retry-After", "31"],
+    ["HTTP-date Retry-After", "Retry-After", new Date(cooldownNowMs + 31_000).toUTCString()],
+    ["RateLimit-Reset", "RateLimit-Reset", String(cooldownNowMs / 1_000 + 31)],
+  ])("honors %s within the retry budget and stops above it", async (_, header, value) => {
+    const delays: number[] = [];
+    const options = {
+      baseUrl: "https://gitlab.com",
+      token: "token",
+      now: () => cooldownNowMs,
+      sleep: async (milliseconds: number) => {
+        delays.push(milliseconds);
+      },
+    };
     const throttled = mockFetch([
-      jsonResponse({}, { status: 429, headers: { "Retry-After": "999999" } }),
+      jsonResponse({}, { status: 429, headers: { [header]: value } }),
       jsonResponse({ ok: true }),
     ]);
-    const delays: number[] = [];
+    const retrying = new GitLabClient({
+      ...options,
+      fetch: throttled.fetch,
+      maxRetryDelayMs: 31_000,
+    });
+    expect((await retrying.get("/version")).data).toEqual({ ok: true });
+    expect(delays).toEqual([31_000]);
+    expect(throttled.calls).toHaveLength(2);
+
+    const deferred = mockFetch([
+      jsonResponse({}, { status: 429, headers: { [header]: value } }),
+      jsonResponse({ unexpected: true }),
+    ]);
+    const stopping = new GitLabClient({ ...options, fetch: deferred.fetch });
+    await expect(stopping.get("/version")).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringContaining("cooldown beyond the retry delay budget"),
+    });
+    expect(deferred.calls).toHaveLength(1);
+    expect(delays).toEqual([31_000]);
+  });
+
+  test("stops when a cooldown would overflow the retry timer", async () => {
+    const throttled = mockFetch([
+      jsonResponse({}, { status: 429, headers: { "Retry-After": "2147484" } }),
+      jsonResponse({ unexpected: true }),
+    ]);
     const client = new GitLabClient({
       baseUrl: "https://gitlab.com",
       token: "token",
       fetch: throttled.fetch,
-      maxRetryDelayMs: 100,
-      random: () => 0.5,
-      sleep: async (milliseconds) => {
-        delays.push(milliseconds);
-      },
+      maxRetryDelayMs: 2_147_484_000,
     });
-    await client.get("/version");
-    expect(delays).toEqual([100]);
+    await expect(client.get("/version")).rejects.toMatchObject({ status: 429 });
+    expect(throttled.calls).toHaveLength(1);
+  });
 
+  test("skips the request if the caller has already cancelled", async () => {
     const cancelled = mockFetch([jsonResponse({ unexpected: true })]);
     const cancelledClient = new GitLabClient({
       baseUrl: "https://gitlab.com",
@@ -555,7 +594,7 @@ describe("GitLabClient", () => {
     const backoffStarted = new Promise<void>((resolve) => {
       enteredBackoff = resolve;
     });
-    const backoff = mockFetch([jsonResponse({}, { status: 503 })]);
+    const backoff = mockFetch([jsonResponse({}, { status: 503, headers: { "Retry-After": "2" } })]);
     const backoffClient = new GitLabClient({
       baseUrl: "https://gitlab.com",
       token: "token",
@@ -793,17 +832,17 @@ describe("GitLabClient", () => {
   });
 
   test("captures HTTP-date Retry-After telemetry", async () => {
-    const retryAt = new Date(Date.now() + 12_000).toUTCString();
+    const retryAt = new Date(cooldownNowMs + 12_000).toUTCString();
     const client = new GitLabClient({
       baseUrl: "https://gitlab.com",
       token: "token",
       maxRetries: 0,
+      now: () => cooldownNowMs,
       fetch: mockFetch([jsonResponse({}, { status: 429, headers: { "Retry-After": retryAt } })])
         .fetch,
     });
 
     await expect(client.get("/projects")).rejects.toMatchObject({ status: 429 });
-    expect(client.getRateLimit().retryAfterSeconds).toBeGreaterThanOrEqual(10);
-    expect(client.getRateLimit().retryAfterSeconds).toBeLessThanOrEqual(12);
+    expect(client.getRateLimit().retryAfterSeconds).toBe(12);
   });
 });

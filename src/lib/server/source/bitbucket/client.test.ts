@@ -240,11 +240,56 @@ describe("BitbucketServerClient", () => {
     expect(writing.mocked.calls).toHaveLength(1);
   });
 
-  test("bounds retry count and delay and aborts during retry sleep", async () => {
+  const cooldownNowMs = Date.UTC(2026, 7, 8, 12);
+
+  test.each([
+    ["numeric", "31"],
+    ["HTTP-date", new Date(cooldownNowMs + 31_000).toUTCString()],
+  ])("honors %s Retry-After within the retry budget and stops above it", async (_, value) => {
     const delays: number[] = [];
-    const bounded = client([jsonResponse({}, 503, { "retry-after": "2" }), jsonResponse({}, 503)], {
+    const options = {
+      now: () => cooldownNowMs,
+      sleep: async (milliseconds: number) => {
+        delays.push(milliseconds);
+      },
+    };
+    const retrying = client(
+      [jsonResponse({}, 503, { "retry-after": value }), jsonResponse({ ok: true })],
+      { ...options, maxRetryDelayMs: 31_000 },
+    );
+    expect(await retrying.client.get("/application-properties")).toEqual({ ok: true });
+    expect(delays).toEqual([31_000]);
+    expect(retrying.mocked.calls).toHaveLength(2);
+
+    const deferred = client(
+      [jsonResponse({}, 429, { "retry-after": value }), jsonResponse({ unexpected: true })],
+      options,
+    );
+    await expect(deferred.client.get("/application-properties")).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringContaining("cooldown beyond the retry delay budget"),
+    });
+    expect(deferred.mocked.calls).toHaveLength(1);
+    expect(delays).toEqual([31_000]);
+  });
+
+  test("stops when a cooldown would overflow the retry timer", async () => {
+    const throttled = client(
+      [jsonResponse({}, 429, { "retry-after": "2147484" }), jsonResponse({ unexpected: true })],
+      { maxRetryDelayMs: 2_147_484_000 },
+    );
+    await expect(throttled.client.get("/application-properties")).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(throttled.mocked.calls).toHaveLength(1);
+  });
+
+  test("bounds the retry count and fallback delay", async () => {
+    const delays: number[] = [];
+    const bounded = client([jsonResponse({}, 503), jsonResponse({}, 503)], {
       maxRetries: 1,
-      maxRetryDelayMs: 1_000,
+      maxRetryDelayMs: 100,
+      random: () => 0.5,
       sleep: async (milliseconds: number) => {
         delays.push(milliseconds);
       },
@@ -253,10 +298,12 @@ describe("BitbucketServerClient", () => {
       status: 503,
     });
     expect(bounded.mocked.calls).toHaveLength(2);
-    expect(delays).toEqual([1_000]);
+    expect(delays).toEqual([100]);
+  });
 
+  test("aborts during a provider cooldown without dispatching again", async () => {
     const controller = new AbortController();
-    const cancelled = client([jsonResponse({}, 503), jsonResponse({ ok: true })], {
+    const cancelled = client([jsonResponse({}, 503, { "retry-after": "2" })], {
       maxRetries: 2,
       sleep: async (_milliseconds: number, signal?: AbortSignal) => {
         controller.abort();
