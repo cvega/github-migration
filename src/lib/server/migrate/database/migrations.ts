@@ -91,7 +91,14 @@ const failureDetailSchema = z
     failureReason: z.string(),
     elapsed: z.number().nonnegative(),
     logUrl: z.string(),
-    logEntries: z.array(logEntrySchema),
+    // Legacy log data is supplementary to the terminal failure.
+    logEntries: z.unknown().transform((value) => {
+      if (!Array.isArray(value)) return [];
+      return value.flatMap((item) => {
+        const entry = logEntrySchema.safeParse(item);
+        return entry.success ? [entry.data] : [];
+      });
+    }),
   })
   .strict();
 

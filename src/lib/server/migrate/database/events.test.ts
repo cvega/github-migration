@@ -92,7 +92,7 @@ describe("migration event persistence", () => {
     expect(replay.replayFrom).toBe(2);
   });
 
-  test("skips a legacy malformed failure event across history readers", () => {
+  test("skips a legacy failure with malformed terminal metadata across history readers", () => {
     insertOwner();
     const first = insertEvent(banner("migration-1", "first", "2026-08-17T12:00:01Z"));
     getDb().run(
@@ -105,9 +105,9 @@ describe("migration event persistence", () => {
             migrationId: "migration-1",
             state: "FAILED",
             failureReason: "Import failed",
-            elapsed: 1,
+            elapsed: "unknown",
             logUrl: "",
-            logEntries: [{ severity: "ERROR", message: 1, modelName: "Repository" }],
+            logEntries: [],
           },
         }),
         "2026-08-17T12:00:02Z",
@@ -124,6 +124,46 @@ describe("migration event persistence", () => {
       last,
     ]);
     expect(getRecentActivity().map(({ id }) => id)).toEqual([last, first]);
+  });
+
+  const logEntry = { severity: "WARNING", message: "Label skipped", modelName: "Label" };
+
+  test.each([
+    ["mixed entries", [{ ...logEntry, message: 1 }, logEntry], [logEntry]],
+    ["a non-array log", { entries: [] }, []],
+  ] as const)("retains the terminal failure and its ID for %s", (_name, logEntries, expected) => {
+    insertOwner();
+    const first = insertEvent(banner("migration-1", "first", "2026-08-17T12:00:01Z"));
+    const detail = {
+      migrationId: "migration-1",
+      state: "FAILED",
+      failureReason: "Import failed",
+      elapsed: 1,
+      logUrl: "",
+      logEntries,
+    };
+    const { lastInsertRowid } = getDb().run(
+      "INSERT INTO events (migration_id, event_type, phase, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+      ["migration-1", "failure", "FAILED", JSON.stringify({ detail }), "2026-08-17T12:00:02Z"],
+    );
+    const id = Number(lastInsertRowid);
+    const terminalEvent: MigrationEvent = {
+      id,
+      migrationId: "migration-1",
+      eventType: "failure",
+      phase: "FAILED",
+      payload: { detail: { ...detail, logEntries: [...expected] } },
+      createdAt: "2026-08-17T12:00:02Z",
+    };
+
+    expect(getMigrationEventReplayWindow("migration-1", first)).toMatchObject({
+      highWater: id,
+      replayFrom: id,
+      events: [terminalEvent],
+    });
+    expect(getGlobalEventReplayWindow(first).events).toEqual([terminalEvent]);
+    expect([...eventDownloadPages("migration-1")].flat().at(-1)).toEqual(terminalEvent);
+    expect(getRecentActivity()[0]).toMatchObject({ id, kind: "failed", summary: "Import failed" });
   });
 
   test("projects recent failure and restart activity", () => {
