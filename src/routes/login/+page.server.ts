@@ -1,12 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
-import {
-  clearFailedLogins,
-  isLoginThrottled,
-  LOGIN_WINDOW_SECONDS,
-  recordFailedLogin,
-} from "$lib/server/core/auth/throttle";
+import { LOGIN_WINDOW_SECONDS, verifyLoginAttempt } from "$lib/server/core/auth/throttle";
 import { verifyCredentials } from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -18,29 +13,34 @@ export const load: PageServerLoad = async ({ locals }) => {
   return {};
 };
 
-export const actions: Actions = {
+export const actions = {
   default: async ({ request, cookies, getClientAddress, locals, setHeaders, url }) => {
     if (!locals.authEnabled) redirect(302, "/");
     const ip = getClientAddress();
     const data = await request.formData();
     const username = data.get("username")?.toString() ?? "";
     const password = data.get("password")?.toString() ?? "";
-    if (isLoginThrottled(username, ip)) {
+    const result = await verifyLoginAttempt(username, ip, () =>
+      verifyCredentials(username, password),
+    );
+    if (result.throttled) {
+      if (result.reason === "capacity") {
+        setHeaders({ "Retry-After": "1" });
+        return fail(503, { username, error: "Sign-in is busy. Try again in a second." });
+      }
       setHeaders({ "Retry-After": String(LOGIN_WINDOW_SECONDS) });
       return fail(429, {
         username,
-        error: "Too many sign-in attempts. Try again in a few minutes.",
+        error: "Too many sign-in attempts. Try again in 15 minutes.",
       });
     }
 
-    const user = await verifyCredentials(username, password);
+    const { user } = result;
     if (!user) {
-      recordFailedLogin(username, ip);
       recordAuditEvent({ action: "auth.login.failed", ipAddress: ip, metadata: { username } });
       return fail(401, { username, error: "Invalid username or password." });
     }
 
-    clearFailedLogins(user.username, ip);
     const token = createSession(user.id);
     recordAuditEvent({ actorUserId: user.id, action: "auth.login.succeeded", ipAddress: ip });
     cookies.set(SESSION_COOKIE, token, {
@@ -52,4 +52,4 @@ export const actions: Actions = {
     });
     redirect(302, user.mustChangePassword ? "/account/password" : "/");
   },
-};
+} satisfies Actions;

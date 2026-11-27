@@ -33,6 +33,14 @@ characters. Sessions are opaque, revocable, limited to five per user, and expire
 after seven days. Unauthenticated mode must be explicitly enabled and should be
 limited to a trusted network. It cannot be enabled after users have been created.
 
+Sign-in allows five attempts per username and client address, and twenty across
+all usernames from one address, in a rolling 15-minute window. Pending and
+failed attempts count toward these limits. A successful attempt releases its
+own reservation. Each dashboard process verifies up to five sign-ins at once.
+Reaching an attempt limit returns HTTP 429 with a 900-second Retry-After. When
+all five verification slots are busy, sign-in returns HTTP 503 with a one-second
+Retry-After and the request consumes no attempt.
+
 Migration, profile, failed-login, and expired-session retention is enforced at
 process startup. A continuously running process can temporarily retain rows
 beyond an age limit until its next restart. Profiles with queued, running, or
