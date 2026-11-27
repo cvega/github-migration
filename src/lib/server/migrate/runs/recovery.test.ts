@@ -160,41 +160,44 @@ describe("migration recovery", () => {
     expect(confirmRestart("active", "target/active").state).toBe("failed");
   });
 
-  test("confirms an unsupported route without discarding checkpoints or enabling restart", () => {
-    const id = "legacy";
-    insertMigration({
-      ...migration(id, "running"),
-      targetProfileId: "enterprise",
-      targetPlatform: "ghes",
-      targetApiUrl: "https://ghes.example/api/v3",
-    });
-    getDb()
-      .prepare(`INSERT INTO ghes_import_jobs (id, migration_id, phase, ghes_import_id, created_at, updated_at)
-        VALUES ('import', ?, 'importing', 'saved-import', '', '')`)
-      .run(id);
-    const job = getGhesImportJob("import");
-    recoverMigrationRuns({
-      launchRecoveredPipeline: () => {
-        throw new Error("Unexpected recovery launch");
-      },
-      drainQueue: () => {},
-    });
-    expect(() => restart(id, {})).toThrow("github cannot migrate to ghes");
-    expect(() => confirmRestart(id, "target/wrong")).toThrow("exactly match");
-    expect(getMigration(id)?.state).toBe("reconciliation_required");
-    expect(isGhesSlotHeld()).toBe(true);
-    expect(getEvents(id)).toHaveLength(0);
+  test.each(["importing", "preparing"] as const)(
+    "confirms an unsupported route in %s without discarding checkpoints or enabling restart",
+    (phase) => {
+      const id = "legacy";
+      insertMigration({
+        ...migration(id, "running"),
+        targetProfileId: "enterprise",
+        targetPlatform: "ghes",
+        targetApiUrl: "https://ghes.example/api/v3",
+      });
+      getDb()
+        .prepare(`INSERT INTO ghes_import_jobs (id, migration_id, phase, ghes_import_id, created_at, updated_at)
+        VALUES ('import', ?, ?, ?, '', '')`)
+        .run(id, phase, phase === "preparing" ? null : "saved-import");
+      const job = getGhesImportJob("import");
+      recoverMigrationRuns({
+        launchRecoveredPipeline: () => {
+          throw new Error("Unexpected recovery launch");
+        },
+        drainQueue: () => {},
+      });
+      expect(() => restart(id, {})).toThrow("github cannot migrate to ghes");
+      expect(() => confirmRestart(id, "target/wrong")).toThrow("exactly match");
+      expect(getMigration(id)?.state).toBe("reconciliation_required");
+      expect(isGhesSlotHeld()).toBe(true);
+      expect(getEvents(id)).toHaveLength(0);
 
-    expect(confirmRestart(id, "target/legacy").state).toBe("failed");
-    expect(isGhesSlotHeld()).toBe(false);
-    expect(getEvents(id).at(-1)).toMatchObject({
-      eventType: "step",
-      payload: { message: expect.stringContaining("execution remains unsupported") },
-    });
-    expect(() => restart(id, {})).toThrow("github cannot migrate to ghes");
-    expect(getMigration(id)?.githubMigrationId).toBe("remote-id");
-    expect(getGhesImportJob("import")).toEqual(job);
-  });
+      expect(confirmRestart(id, "target/legacy").state).toBe("failed");
+      expect(isGhesSlotHeld()).toBe(false);
+      expect(getEvents(id).at(-1)).toMatchObject({
+        eventType: "step",
+        payload: { message: expect.stringContaining("execution remains unsupported") },
+      });
+      expect(() => restart(id, {})).toThrow("github cannot migrate to ghes");
+      expect(getMigration(id)?.githubMigrationId).toBe("remote-id");
+      expect(getGhesImportJob("import")).toEqual(job);
+    },
+  );
 
   test("resumes durable work and rebuilds queued env-auth requests", () => {
     insertMigration(migration("active", "running"));

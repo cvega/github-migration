@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Counts, Migration } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import {
   getMigration,
   insertMigration,
@@ -104,6 +104,22 @@ afterEach(() => {
     else process.env[key] = value;
   }
   saved.clear();
+});
+
+test("offers review of a paused route only while an unresolved GHES import holds the slot", async () => {
+  const record: Migration = {
+    ...migration(),
+    sourceProvider: "gitlab",
+    state: "reconciliation_required",
+  };
+  persistMigration(record);
+  const event = { params: { id: record.id } } as never;
+  expect(await load(event)).toMatchObject({ canReviewRemote: false });
+  getDb()
+    .prepare(`INSERT INTO ghes_import_jobs (id, migration_id, phase, created_at, updated_at)
+      VALUES ('job', ?, 'preparing', '', '')`)
+    .run(record.id);
+  expect(await load(event)).toMatchObject({ canReviewRemote: true });
 });
 
 describe("completed migration resource counts", () => {
