@@ -6,7 +6,7 @@ import { approveIdentityMapping, listIdentityMappings } from "../database/identi
 import { getGhesImportJobByMigrationId, insertGhesImportJob } from "../database/import-jobs";
 import { getMigration, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
-import { type ExporterWorker, exporterFailures } from "../exporters/worker";
+import { ExporterOwnershipError, type ExporterWorker, exporterFailures } from "../exporters/worker";
 import { activeMigrationRuns } from "../runs/active";
 import { createMigrationRunFinisher } from "../runs/finish";
 import { drainMigrationQueue, shouldQueueMigration } from "../runs/queue";
@@ -186,7 +186,7 @@ describe("GHES import execution", () => {
     },
   );
 
-  test.each(["completed", "unavailable", "cleanup pending"] as const)(
+  test.each(["completed", "unavailable", "reassigned", "cleanup pending"] as const)(
     "inspects an expired recovery and preserves ownership when %s",
     async (scenario) => {
       const record = {
@@ -204,7 +204,7 @@ describe("GHES import execution", () => {
         ghesImportId: null,
         sourceWasArchived: true,
         failureReason: null,
-        createdAt: new Date(0).toISOString(),
+        createdAt: scenario === "reassigned" ? record.startedAt : new Date(0).toISOString(),
         updatedAt: record.startedAt,
       });
       const calls: string[] = [];
@@ -214,9 +214,11 @@ describe("GHES import execution", () => {
           calls.push("submit");
           return { jobId: "new-export" };
         },
-        inspect: async (id, signal) => {
+        inspect: async (id, migrationId, signal) => {
           calls.push(`inspect ${id}`);
           expect(signal?.aborted).toBe(false);
+          expect(migrationId).toBe(record.id);
+          if (scenario === "reassigned") throw new ExporterOwnershipError();
           if (scenario === "unavailable") throw new Error("inert-private-detail");
           return refuseCleanup
             ? { jobId: id, state: "running" }
@@ -242,9 +244,13 @@ describe("GHES import execution", () => {
         throw new Error("Expired recovery must not poll again");
       };
       const result = await resumeExporterGhesMigration(record, insertEvent, undefined, source);
-      if (scenario === "unavailable") {
+      if (scenario === "unavailable" || scenario === "reassigned") {
         expect(result.state).toBe("reconciliation_required");
-        expect(result.failureReason).toContain("exporter status is unconfirmed");
+        expect(result.failureReason).toContain(
+          scenario === "reassigned"
+            ? "ownership could not be confirmed"
+            : "exporter status is unconfirmed",
+        );
         expect(result.failureReason).not.toContain("inert-private-detail");
         expect(calls).toEqual(["inspect old-export"]);
         expect(getGhesImportJobByMigrationId(record.id)?.exporterJobId).toBe("old-export");

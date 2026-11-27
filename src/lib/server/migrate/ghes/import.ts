@@ -12,6 +12,7 @@ import {
 } from "../database/import-jobs";
 import { getMigration, updateCheckpoint } from "../database/migrations";
 import {
+  ExporterOwnershipError,
   type ExporterSourceProvider,
   type ExporterWorker,
   exporterFailureReason,
@@ -113,10 +114,19 @@ function settled(
   };
 }
 
-async function removeFailedExporter(worker: ExporterWorker, containerId: string) {
+function rethrowOwnershipError(error: unknown): void {
+  if (error instanceof ExporterOwnershipError) throw error;
+}
+
+async function removeFailedExporter(
+  worker: ExporterWorker,
+  containerId: string,
+  migrationId: string,
+) {
   try {
-    await worker.cleanup?.(containerId);
-  } catch {
+    await worker.cleanup?.(containerId, migrationId);
+  } catch (error) {
+    rethrowOwnershipError(error);
     throw new ReconciliationRequiredError(
       "Local exporter cleanup is unconfirmed. Check the exporter container before confirming a restart.",
     );
@@ -152,6 +162,7 @@ async function waitForArchive(
       try {
         job = await refreshExporterArchive(job, worker, pollSignal);
       } catch (error) {
+        rethrowOwnershipError(error);
         signal?.throwIfAborted();
         if (inspectExpired)
           throw new ReconciliationRequiredError(
@@ -160,7 +171,7 @@ async function waitForArchive(
         throw error;
       }
       if (job.phase === "failed") {
-        await removeFailedExporter(worker, containerId);
+        await removeFailedExporter(worker, containerId, migration.id);
         throw new ExportFailedError(
           `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
         );
@@ -177,11 +188,14 @@ async function waitForArchive(
       }
     }
   } catch (error) {
-    if (error instanceof ReconciliationRequiredError) throw error;
+    if (error instanceof ReconciliationRequiredError || error instanceof ExporterOwnershipError)
+      throw error;
     signal?.throwIfAborted();
     if (!timeout.signal.aborted) throw error;
-    await worker.cancel(containerId, AbortSignal.timeout(45_000)).catch(() => {});
-    await removeFailedExporter(worker, containerId);
+    await worker
+      .cancel(containerId, migration.id, AbortSignal.timeout(45_000))
+      .catch(rethrowOwnershipError);
+    await removeFailedExporter(worker, containerId, migration.id);
     throw new ExportFailedError("GHES exporter timed out");
   } finally {
     clearTimeout(timer);
@@ -199,7 +213,7 @@ async function waitForArchive(
     `${source.displayName} archive ready (${job.archiveSha256.slice(0, 12)})`,
     "EXPORTING",
   );
-  await worker.cleanup?.(exporterJobId).catch(() => {});
+  await worker.cleanup?.(exporterJobId, migration.id).catch(rethrowOwnershipError);
   return job;
 }
 
@@ -249,7 +263,7 @@ async function execute(
       (job.phase === "pending" ||
         (!recovering && ["failed", "cancelled", "reconciliation_required"].includes(job.phase)))
     ) {
-      if (job.exporterJobId) await removeFailedExporter(worker, job.exporterJobId);
+      if (job.exporterJobId) await removeFailedExporter(worker, job.exporterJobId, migration.id);
       if (job.archivePath) await rm(job.archivePath, { force: true }).catch(() => {});
       deleteGhesImportJob(job.id);
       job = null;
@@ -476,10 +490,15 @@ async function execute(
     if (!localArchivePath) throw new Error("GHES import archive checkpoint is missing");
     await rm(localArchivePath, { force: true }).catch(() => {});
     result = settled(migration, "succeeded");
-  } catch (error) {
+  } catch (executionError) {
+    let error = executionError;
     const current = getGhesImportJobByMigrationId(migration.id);
     if (options.signal?.aborted && current?.phase === "exporting" && current.exporterJobId) {
-      await worker?.cancel(current.exporterJobId).catch(() => {});
+      try {
+        await worker?.cancel(current.exporterJobId, migration.id);
+      } catch (cancelError) {
+        if (cancelError instanceof ExporterOwnershipError) error = cancelError;
+      }
     }
     const afterImport =
       current?.phase === "auditing" ||
@@ -492,7 +511,10 @@ async function execute(
       (current?.phase === "preparing" &&
         !current.ghesImportId &&
         !(error instanceof GhesMigratorBusyError));
-    const ambiguous = uncertainApplianceStep || error instanceof ReconciliationRequiredError;
+    const ambiguous =
+      uncertainApplianceStep ||
+      error instanceof ReconciliationRequiredError ||
+      error instanceof ExporterOwnershipError;
     const state = ambiguous
       ? "reconciliation_required"
       : options.signal?.aborted
@@ -504,7 +526,9 @@ async function execute(
       ? `${checkpoint}; check audit and unlock for that GUID before continuing.`
       : error instanceof ExportFailedError
         ? error.message
-        : error instanceof GhesImportDiagnostic || error instanceof GhesMigratorBusyError
+        : error instanceof GhesImportDiagnostic ||
+            error instanceof GhesMigratorBusyError ||
+            error instanceof ExporterOwnershipError
           ? `${checkpoint}. ${error.message}`
           : `${checkpoint}. ${options.signal?.aborted ? "Operation aborted" : "Operation failed"}`;
     const reason = safeErrorReason(error, detail);
