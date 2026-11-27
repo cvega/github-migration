@@ -201,12 +201,16 @@ export function getProfileRunRollup(runId: string): ProfileDetailRollup | null {
 }
 
 export function backfillProfileRunRollup(runId: string, rollup: ProfileDetailRollup): void {
-  getDb()
-    .prepare(
-      `UPDATE profile_runs SET detail_rollup = $rollup
-			 WHERE id = $id AND state = 'completed' AND detail_rollup IS NULL`,
-    )
-    .run({ $id: runId, $rollup: JSON.stringify(rollup) });
+  const db = getDb();
+  const row = db
+    .prepare("SELECT detail_rollup FROM profile_runs WHERE id = ? AND state = 'completed'")
+    .get(runId) as { detail_rollup: string | null } | null;
+  if (!row || (row.detail_rollup !== null && parsePersistedProfileRollup(row.detail_rollup)))
+    return;
+  db.prepare(
+    `UPDATE profile_runs SET detail_rollup = $rollup
+     WHERE id = $id AND state = 'completed' AND detail_rollup IS $previous`,
+  ).run({ $id: runId, $rollup: JSON.stringify(rollup), $previous: row.detail_rollup });
 }
 
 export function failProfileRun(runId: string, reason: string, nowMs?: number): void {

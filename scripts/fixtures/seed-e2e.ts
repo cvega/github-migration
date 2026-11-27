@@ -214,6 +214,53 @@ const blockedProfileRepo = insertProfileRepo.run(
   startedAt,
 );
 
+const readinessFixtureId = "seed-e2e-incomplete-readiness";
+const readinessFixtureOrg = "readiness-fixture";
+db.prepare(
+  `INSERT INTO profile_runs
+     (id, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, started_at, completed_at)
+   VALUES (?, ?, ?, 'completed', 4, 4, 1, 0, ?, ?)`,
+).run(
+  readinessFixtureId,
+  "https://ghes.example.com/api/v3",
+  readinessFixtureOrg,
+  startedAt,
+  completedAt,
+);
+const partialEvidence = { branchRuleScanComplete: false, releaseAssetScanComplete: false };
+const readinessFixtureRepos = [
+  { name: "clean-repository", signals: {}, blockers: 0 },
+  {
+    name: "empty-repository",
+    signals: {
+      ...partialEvidence,
+      isEmpty: true,
+      defaultBranch: null,
+      commitsCount: 0,
+      branchesCount: 0,
+    },
+    blockers: 0,
+  },
+  {
+    name: "repository-with-a-long-name-and-incomplete-readiness-evidence",
+    signals: partialEvidence,
+    blockers: 0,
+  },
+  { name: "blocked-repository", signals: { releaseAssetScanComplete: false }, blockers: 1 },
+];
+for (const { name, signals, blockers } of readinessFixtureRepos) {
+  const path = `${readinessFixtureOrg}/${name}`;
+  insertProfileRepo.run(
+    readinessFixtureId,
+    path,
+    JSON.stringify({ ...profileSignals(name), ...signals, nameWithOwner: path }),
+    blockers,
+    0,
+    "[]",
+    startedAt,
+  );
+}
+
 db.prepare(
   `INSERT INTO profile_repository_analysis_runs
      (id, profile_run_id, state, policy_version, selected_repo_count, completed_repo_count,

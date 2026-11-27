@@ -256,6 +256,7 @@ export interface ProfileInventorySummary {
 
 export interface ProfilePlanRepo {
   incompleteReadinessScan?: boolean;
+  isEmpty?: boolean;
   nameWithOwner: string;
   blockers: number;
   warnings: number;
@@ -297,6 +298,7 @@ interface PreparationSummary {
   blockerRepos: number;
   warnRepos: number;
   cleanRepos: number;
+  incompleteRepos: number;
 }
 
 interface DurationEstimate {

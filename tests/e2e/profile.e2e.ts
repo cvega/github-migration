@@ -84,3 +84,60 @@ for (const width of [1280, 390]) {
 		await readiness.screenshot({ path: testInfo.outputPath("readiness.png") });
 	});
 }
+
+for (const width of [1280, 390]) {
+	test(`shows readiness gaps and planning eligibility at ${width}px`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 844 });
+		const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
+		await page.goto("/profile/seed-e2e-incomplete-readiness");
+		await hydrated;
+
+		const readiness = page.getByRole("region", { name: "Migration readiness" });
+		await expect(readiness.getByText("Ready repositories", { exact: true }).locator("..")).toHaveText("1 Ready repositories");
+		await expect(readiness.getByText("Repos with incomplete scans").locator("..")).toHaveText("3 Repos with incomplete scans");
+		await readiness.screenshot({ path: testInfo.outputPath("readiness-gaps-rollup.png") });
+
+		const table = page.getByRole("table");
+		const clean = table.getByRole("row").filter({ hasText: "clean-repository" });
+		await expect(clean.getByText("Ready", { exact: true })).toBeVisible();
+
+		const longName = "repository-with-a-long-name-and-incomplete-readiness-evidence";
+		const partial = table.getByRole("row").filter({ hasText: longName });
+		await expect(partial.getByText("Incomplete scan", { exact: true })).toBeVisible();
+		await expect(partial.getByText("Branch rule scan incomplete")).toBeVisible();
+		await expect(partial.getByText("Release asset scan incomplete")).toBeVisible();
+		await expect(partial.getByRole("checkbox")).toBeDisabled();
+
+		const blocked = table.getByRole("row").filter({ hasText: "blocked-repository" });
+		await expect(blocked.getByText("1 blocker", { exact: true })).toBeVisible();
+		await expect(blocked.getByText("Release asset scan incomplete")).toBeVisible();
+
+		const empty = table.getByRole("row").filter({ hasText: "empty-repository" });
+		await expect(empty.getByText("Not required")).toBeVisible();
+		await expect(empty.getByText("Run a new profile to recheck readiness evidence.")).toBeVisible();
+		const selectEmpty = empty.getByRole("checkbox", { name: "Select readiness-fixture/empty-repository" });
+		await expect(selectEmpty).toBeChecked();
+		await selectEmpty.focus();
+		await selectEmpty.press("Space");
+		await expect(selectEmpty).not.toBeChecked();
+		await selectEmpty.press("Space");
+		await expect(selectEmpty).toBeChecked();
+
+		const expand = partial.getByRole("button", { name: longName });
+		await expand.focus();
+		await expand.press("Enter");
+		await expect(expand).toHaveAttribute("aria-expanded", "true");
+		await expand.press("Enter");
+		await expect(expand).toHaveAttribute("aria-expanded", "false");
+
+		const viewport = table.locator("..");
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+		await viewport.screenshot({ path: testInfo.outputPath("readiness-gaps-repositories.png") });
+		if (width === 390) {
+			await viewport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+			await viewport.screenshot({ path: testInfo.outputPath("readiness-gaps-repositories-scrolled.png") });
+		}
+		await page.getByRole("searchbox", { name: "Filter repositories" }).fill("does-not-exist");
+		await expect(page.getByText("No repositories match the current filters.")).toBeVisible();
+	});
+}

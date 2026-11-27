@@ -109,6 +109,7 @@ const preparationSummarySchema = z
     blockerRepos: count,
     warnRepos: count,
     cleanRepos: count,
+    incompleteRepos: count,
   })
   .strict();
 

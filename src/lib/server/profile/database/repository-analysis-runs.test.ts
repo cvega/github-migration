@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { repositoryAnalysisAllowsPlanning } from "$lib/profile/repository-analysis";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { analyzeRepo } from "$lib/server/profile/analysis/repos";
+import { buildProfileDetailRollup } from "../analysis/rollup";
+import { getProfileDetail } from "../service";
 import type { RepoSignals } from "../types";
 import { getRunRepoPlanProfiles, recordRepoProfile } from "./repos";
 import {
@@ -13,7 +15,7 @@ import {
   findRepositoriesAwaitingAnalysis,
   startRepositoryAnalysis,
 } from "./repository-analysis-runs";
-import { completeProfileRun, createProfileRun } from "./runs";
+import { completeProfileRun, createProfileRun, getProfileRunRollup } from "./runs";
 import { profileStore } from "./schema";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
@@ -142,6 +144,55 @@ describe("repository analysis runs", () => {
     expect(findRepositoriesAwaitingAnalysis("profile", [repo.nameWithOwner])).toEqual([
       repo.nameWithOwner,
     ]);
+  });
+
+  test("keeps incomplete readiness visible for both empty and nonempty repositories", () => {
+    createProfileRun({ id: "profile", sourceApiUrl: "https://api.github.com", org: "acme" });
+    const partial = { branchRuleScanComplete: false, releaseAssetScanComplete: false };
+    const empty = signals("acme/empty", {
+      ...partial,
+      isEmpty: true,
+      commitsCount: 0,
+      defaultBranch: null,
+      branchesCount: 0,
+    });
+    const nonempty = signals("acme/nonempty", partial);
+    const clean = signals("acme/clean");
+    for (const repo of [empty, nonempty, clean])
+      recordRepoProfile("profile", repo, analyzeRepo(repo));
+    completeProfileRun("profile");
+
+    const legacy = buildProfileDetailRollup([]);
+    const summary: Record<string, unknown> = { ...legacy.summary, cleanRepos: 3 };
+    delete summary.incompleteRepos;
+    getDb()
+      .prepare("UPDATE profile_runs SET detail_rollup = ? WHERE id = ?")
+      .run(JSON.stringify({ ...legacy, summary }), "profile");
+
+    const planning = getRunRepoPlanProfiles("profile", 10);
+    expect(
+      planning
+        .filter((repo) => repositoryAnalysisAllowsPlanning(repo, null))
+        .map((repo) => repo.nameWithOwner),
+    ).toEqual([clean.nameWithOwner, empty.nameWithOwner]);
+    expect(
+      findRepositoriesAwaitingAnalysis(
+        "profile",
+        planning.map((repo) => repo.nameWithOwner),
+      ),
+    ).toEqual([nonempty.nameWithOwner]);
+    expect(startRepositoryAnalysis("profile").jobs.map((job) => job.nameWithOwner)).toEqual([
+      clean.nameWithOwner,
+      nonempty.nameWithOwner,
+    ]);
+    expect(getProfileDetail("profile")?.summary).toMatchObject({
+      cleanRepos: 1,
+      incompleteRepos: 2,
+    });
+    expect(getProfileRunRollup("profile")?.summary).toMatchObject({
+      cleanRepos: 1,
+      incompleteRepos: 2,
+    });
   });
 
   test.each([{ discussionsCount: 1 }, { releaseAssetScanComplete: false }])(

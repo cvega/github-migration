@@ -1,4 +1,5 @@
-import { type RepoSignals, releaseScanComplete, ruleScanComplete } from "../types";
+import { releaseScanComplete, ruleScanComplete } from "$lib/profile/readiness";
+import type { RepoSignals } from "../types";
 
 // A null finding is clear; undefined means its evidence could not be read.
 type Detector = (signals: RepoSignals) => string | null | undefined;
