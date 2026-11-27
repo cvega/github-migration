@@ -134,6 +134,13 @@ migration, identity invitation, deployment, or production data reset.
 - If e2e fails with a port-in-use error, that is a collision, not a code failure:
   do not change code for it; report it and retry later.
 
+## Fixing review findings
+- Before fixing, search for the same pattern in sibling code paths (other providers,
+  other routes, other transports, UI and storage layers that carry the same data).
+  Fix every occurrence in scope, or file a linked issue for each one you leave.
+- Start with a test that fails on main for the finding's scenario; make it pass.
+- In the PR description, list the sibling paths you checked.
+
 ## Cross-review
 - Default reviewer: Codex with a different model than the builder
   (astra-built → review with gpt-6.2-sol; otherwise review with gpt-6.2-astra).
