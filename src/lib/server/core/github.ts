@@ -4,7 +4,6 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { Agent } from "node:https";
 import { createAppAuth } from "@octokit/auth-app";
 import type { graphql } from "@octokit/graphql";
 import { retry } from "@octokit/plugin-retry";
@@ -99,10 +98,7 @@ function buildSide(
   auth: AuthInput,
   baseUrl: string,
   throttleOpts: ThrottleOptions,
-  requestOpts?: {
-    agent?: InstanceType<typeof Agent>;
-    fetch?: GitHubFetch;
-  },
+  requestOpts?: { fetch: GitHubFetch },
   retryEnabled = true,
 ): {
   client: InstanceType<typeof RetryOctokit>;
@@ -164,6 +160,30 @@ export function sourceTlsPolicyError(sourceApiUrl: string): string | null {
   return "Source TLS verification can only be disabled for an exact source approved in GH_ALLOW_INSECURE_SOURCE_TLS";
 }
 
+function approvedSourceFetch(baseUrl: string): GitHubFetch {
+  const source = new URL(baseUrl);
+  const apiPath = source.pathname.replace(/\/$/, "");
+  // Octokit maps the GHES REST base to its sibling GraphQL endpoint.
+  const graphqlPath = apiPath.replace(/\/api\/v3$/, "/api/graphql");
+  return (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const isSourceApi =
+      url.origin === source.origin &&
+      (url.pathname === apiPath ||
+        url.pathname.startsWith(`${apiPath}/`) ||
+        url.pathname === graphqlPath);
+    if (!isSourceApi) return fetch(input, init);
+
+    // Keep explicit manual redirects for GHES archive discovery.
+    // Never let Fetch automatically carry the exception to another URL.
+    return fetch(input, {
+      ...init,
+      redirect: init?.redirect === "manual" ? "manual" : "error",
+      tls: { rejectUnauthorized: false },
+    });
+  };
+}
+
 /** Create authenticated Octokit clients for source and target. */
 export function createClients(opts: {
   sourceApiUrl: string;
@@ -176,11 +196,9 @@ export function createClients(opts: {
 
   const srcBaseUrl = normalizeGitHubApiUrl(opts.sourceApiUrl);
 
-  // Create an HTTPS agent that skips certificate validation for self-signed certs.
   const policyError = opts.noSslVerify && sourceTlsPolicyError(srcBaseUrl);
   if (policyError) throw new Error(policyError);
-  const insecureAgent = opts.noSslVerify ? new Agent({ rejectUnauthorized: false }) : undefined;
-  if (insecureAgent) {
+  if (opts.noSslVerify) {
     console.warn(
       "[github] SSL verification disabled for source — accepting self-signed certificates",
     );
@@ -190,7 +208,7 @@ export function createClients(opts: {
     opts.sourceAuth,
     srcBaseUrl,
     throttleOpts,
-    insecureAgent ? { agent: insecureAgent } : undefined,
+    opts.noSslVerify ? { fetch: approvedSourceFetch(srcBaseUrl) } : undefined,
   );
 
   const tgtBaseUrl = opts.targetApiUrl || "https://api.github.com";
@@ -352,8 +370,7 @@ export async function doesRepoExist(
 /**
  * Count a paginated REST collection cheaply via the `Link` header.
  *
- * GitHub paginates list endpoints and advertises a `rel="last"` link whenever a
- * collection spans more than one page. Requesting a single item per page
+ * When GitHub advertises both the next and last pages, requesting one item per page
  * (`per_page=1`) makes that last-page number equal the total item count — so one
  * request sizes the collection without walking every page or materializing every
  * object. This is the standard, protocol-level way to count commits, webhooks,
@@ -361,12 +378,12 @@ export async function doesRepoExist(
  * `history.totalCount`, which walks the whole commit graph and times out at
  * scale).
  *
- * When there's no `rel="last"` link the collection fits on one page, so the
- * count is the number of items actually returned (0 or 1).
+ * A first page with no pagination links can show an exact count of 0 or 1.
+ * Incomplete or contradictory pagination cannot establish an exact count.
  *
  * @param client REST client.
  * @param route  Octokit route, e.g. `"GET /repos/{owner}/{repo}/commits"`.
- * @param params Route + query params; `per_page` is forced to 1.
+ * @param params Route + query params; `page` and `per_page` are forced to 1.
  * @returns The item count.
  */
 export async function countByPagination(
@@ -374,19 +391,42 @@ export async function countByPagination(
   route: string,
   params: Record<string, string | number>,
 ): Promise<number> {
-  const res = await client.request(route, { ...params, per_page: 1 });
-  if (!Array.isArray(res.data)) throw new Error(`Invalid count response for ${route}`);
-  const link = res.headers?.link;
-  if (typeof link === "string") {
-    // The header is a comma-separated list of `<url>; rel="…"` parts. Find the
-    // `last` part and read its `page=N` query param (position-independent).
-    const last = link.split(",").find((part) => /\brel="last"/.test(part));
-    const page = Number(last?.match(/[?&]page=(\d+)(?:[&>]|$)/)?.[1]);
-    if (Number.isSafeInteger(page) && page > 0) return page;
-    if (last || /\brel="next"/.test(link))
-      throw new Error(`Cannot determine count from pagination for ${route}`);
+  const res = await client.request(route, { ...params, page: 1, per_page: 1 });
+  if (!Array.isArray(res.data) || res.data.length > 1)
+    throw new Error(`Invalid count response for ${route}`);
+
+  const links = res.headers?.link?.split(",") ?? [];
+  const next = links.filter((part) => /;\s*rel=(?:"next"|next)\s*(?:;|$)/.test(part));
+  const last = links.filter((part) => /;\s*rel=(?:"last"|last)\s*(?:;|$)/.test(part));
+  const hasPrevious = links.some((part) => /;\s*rel=(?:"prev"|prev)\s*(?:;|$)/.test(part));
+  if (!next.length && !last.length && !hasPrevious) return res.data.length;
+
+  const nextPage = paginationLinkPage(next[0]);
+  const lastPage = paginationLinkPage(last[0]);
+  if (
+    res.data.length === 1 &&
+    !hasPrevious &&
+    next.length === 1 &&
+    last.length === 1 &&
+    nextPage === 2 &&
+    lastPage >= nextPage
+  ) {
+    return lastPage;
   }
-  return res.data.length;
+  throw new Error(`Cannot determine count from pagination for ${route}`);
+}
+
+function paginationLinkPage(link: string | undefined): number {
+  const url = link?.match(/<([^<>]+)>/)?.[1];
+  const parsed = url && URL.parse(url, "https://github.invalid");
+  if (!parsed) return NaN;
+  const pages = parsed.searchParams.getAll("page");
+  const sizes = parsed.searchParams.getAll("per_page");
+  if (pages.length !== 1 || sizes.length > 1 || (sizes.length === 1 && sizes[0] !== "1"))
+    return NaN;
+  const value = pages[0] ?? "";
+  const page = Number(value);
+  return /^\d+$/.test(value) && Number.isSafeInteger(page) ? page : NaN;
 }
 
 /**

@@ -5,7 +5,7 @@ test("counts commits from the pagination last link", async () => {
   const rest = {
     request: async () => ({
       data: [{}],
-      headers: { link: '<https://api.github.com/repositories/1/commits?page=42>; rel="last"' },
+      headers: { link: '<x?page=2>; rel="next", <x?page=42>; rel="last"' },
     }),
   } as never;
   expect(

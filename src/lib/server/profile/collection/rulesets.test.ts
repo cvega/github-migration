@@ -3,8 +3,9 @@ import { getOrgRulesetCount } from "./rulesets";
 
 test.each([
   [{ data: [] }, 0],
-  [{ data: [{}], headers: { link: '<https://example.invalid/?page=204>; rel="last"' } }, 204],
-  [{ data: {}, headers: { link: '<https://example.invalid/?page=204>; rel="last"' } }, null],
+  [{ data: [{}], headers: { link: '<x?page=2>; rel="next", <x?page=204>; rel="last"' } }, 204],
+  [{ data: {}, headers: { link: '<x?page=204>; rel="last"' } }, null],
+  [{ data: [], headers: { link: '<x?page=2>; rel="next", <x?page=204>; rel="last"' } }, null],
   [{ data: [{}], headers: { link: '<https://example.invalid/?page=2>; rel="next"' } }, null],
 ] as const)("interprets ruleset pagination evidence %j", async (response, expected) => {
   const rest = {
