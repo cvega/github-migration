@@ -122,7 +122,10 @@ migration, identity invitation, deployment, or production data reset.
 - Workers commit only on their own branch. Never commit to main, never merge.
 - When done, the worker pushes its branch and opens a draft PR titled
   "<issue-id>: <issue title>".
-- The coordinator (not the worker) closes the Beads issue after the PR exists.
+- The coordinator (not the worker) closes the Beads issue after merge.
+- When one PR implements several Beads issues, list every issue ID in the PR body
+  (Refs:) and close all of them after merge. After any merge, check `bd list
+  --status in_progress` and `bd blocked` for stale entries.
 
 ## Parallel Orca workers
 - Each worker runs in its own worktree and starts with `bun install --frozen-lockfile`
