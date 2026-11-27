@@ -16,6 +16,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+
+      - name: Classify documentation changes
+        id: paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/docs-only.sh "$GITHUB_EVENT_NAME" "$BASE" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -31,6 +40,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validate GitHub Actions workflows
+        if: steps.paths.outputs.docs_only == 'false'
         run: >-
           docker run --rm
           -v "$GITHUB_WORKSPACE:/repo"
@@ -39,7 +49,12 @@ jobs:
           -color
 
       - name: Run repository gates
+        if: steps.paths.outputs.docs_only == 'false'
         run: bun scripts/gates.ts --except e2e
+
+      - name: Run documentation and formatting gates
+        if: steps.paths.outputs.docs_only == 'true'
+        run: bun scripts/gates.ts docs format
 
   e2e:
     name: E2E (Playwright)
@@ -47,34 +62,49 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+
+      - name: Classify documentation changes
+        id: paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/checks/docs-only.sh "$GITHUB_EVENT_NAME" "$BASE" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.paths.outputs.docs_only == 'false'
         with:
           bun-version-file: package.json
 
       - name: Cache Bun packages
+        if: steps.paths.outputs.docs_only == 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
+        if: steps.paths.outputs.docs_only == 'false'
         run: bun install --frozen-lockfile
 
       - name: Cache Playwright browsers
+        if: steps.paths.outputs.docs_only == 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
 
       - name: Install Chromium
+        if: steps.paths.outputs.docs_only == 'false'
         run: bunx --bun playwright install --with-deps chromium
 
       - name: Run browser gate
+        if: steps.paths.outputs.docs_only == 'false'
         run: bun scripts/gates.ts e2e
 
       - name: Upload browser failure traces
-        if: failure()
+        if: failure() && steps.paths.outputs.docs_only == 'false'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-results
