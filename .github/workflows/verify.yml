@@ -39,9 +39,7 @@ jobs:
           -color
 
       - name: Run repository gates
-        run: >-
-          bun scripts/gates.ts icons typecheck check lint format docs coverage dup deadcode
-          cycles boundaries actions provider-fixtures runtime mutation-config build audit
+        run: bun scripts/gates.ts --except e2e
 
   e2e:
     name: Browser regression
@@ -112,7 +110,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if git diff --quiet "$BASE...$HEAD_SHA" -- Dockerfile docker-compose.yml deploy/ scripts/packaging/ entrypoint.sh package.json bun.lock; then
+          if git diff --quiet "$BASE...$HEAD_SHA" -- Dockerfile .dockerignore docker-compose.yml deploy/ scripts/packaging/ entrypoint.sh package.json bun.lock; then
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
             status=$?

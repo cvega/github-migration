@@ -170,11 +170,22 @@ const GATES: Gate[] = [
 const arguments_ = process.argv.slice(2);
 const verbose = arguments_.includes("--verbose");
 const failFast = arguments_.includes("--fail-fast");
-const requested = arguments_.filter((argument) => !argument.startsWith("-"));
-const selected = requested.length ? GATES.filter((g) => requested.includes(g.name)) : GATES;
+const requested: string[] = [];
+const excluded: string[] = [];
+for (let i = 0; i < arguments_.length; i++) {
+  const argument = arguments_[i]!;
+  if (argument === "--except") {
+    const name = arguments_[++i];
+    if (!name || name.startsWith("-")) {
+      console.error(JSON.stringify({ ok: false, error: "--except requires a gate name" }));
+      process.exit(2);
+    }
+    excluded.push(name);
+  } else if (!argument.startsWith("-")) requested.push(argument);
+}
+const unknown = [...requested, ...excluded].filter((name) => !GATES.some((g) => g.name === name));
 
-if (requested.length && selected.length !== requested.length) {
-  const unknown = requested.filter((r) => !GATES.some((g) => g.name === r));
+if (unknown.length) {
   console.error(
     JSON.stringify({
       ok: false,
@@ -184,6 +195,9 @@ if (requested.length && selected.length !== requested.length) {
   );
   process.exit(2);
 }
+const selected = GATES.filter(
+  (g) => (!requested.length || requested.includes(g.name)) && !excluded.includes(g.name),
+);
 
 const startedAt = Bun.nanoseconds();
 const gates: Record<string, GateResult> = {};
