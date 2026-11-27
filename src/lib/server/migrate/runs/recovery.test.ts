@@ -7,6 +7,7 @@ import type { Migration } from "$lib/migrate/types";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getMigration, getRecoverableMigrations, insertMigration } from "../database/migrations";
 import { migrateStore } from "../database/schema";
+import { confirmRestart, restart } from "../manager";
 import { activeMigrationRuns } from "./active";
 import { recoverMigrationRuns } from "./recovery";
 
@@ -130,6 +131,28 @@ describe("migration recovery", () => {
       phase: "exporting",
     });
   });
+  test("requires review for checkpointed work when the executor is unavailable", () => {
+    insertMigration(migration("active", "running"));
+    insertMigration(migration("queued", "queued"));
+    recoverMigrationRuns({
+      hasExecutor: () => false,
+      launchRecoveredPipeline: () => {
+        throw new Error("Unexpected recovery launch");
+      },
+      drainQueue: () => {},
+    });
+    expect(() => restart("active", {})).toThrow(
+      'Cannot restart migration in state "reconciliation_required"',
+    );
+    expect(getMigration("active")).toMatchObject({
+      state: "reconciliation_required",
+      githubMigrationId: "remote-id",
+      failureReason: expect.stringContaining("No executor"),
+    });
+    expect(getMigration("queued")?.state).toBe("failed");
+    expect(confirmRestart("active", "target/active").state).toBe("failed");
+  });
+
   test("resumes durable work and rebuilds queued env-auth requests", () => {
     insertMigration(migration("active", "running"));
     insertMigration(migration("queued", "queued"));

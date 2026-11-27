@@ -41,8 +41,9 @@ export function recoverMigrationRuns(
 
   for (const migration of getRecoverableMigrations()) {
     if (!dependencies.hasExecutor(migration)) {
-      updateMigrationState(migration.id, "failed", {
-        failureReason: `${migration.sourceProvider} migration execution is not supported`,
+      updateMigrationState(migration.id, "reconciliation_required", {
+        failureReason:
+          "No executor is available for this route. Review the checkpointed migration before restarting.",
         completedAt: new Date().toISOString(),
       });
       continue;
