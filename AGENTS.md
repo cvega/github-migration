@@ -129,6 +129,7 @@ migration, identity invitation, deployment, or production data reset.
   (gates refuses to run without node_modules).
 - While other workers may be running, verify with every gate except e2e:
   `bun run verify icons typecheck check lint format docs coverage dup deadcode cycles boundaries actions provider-fixtures runtime mutation-config build audit`
+- Mechanical gate failures (format, lint autofix, type errors) are fixed and retried, not counted as stops. Stop only on a design-level failure or after 3 attempts.
 - Run the full `bun run verify` (including e2e) only for UI changes, and only
   when no other worker is running e2e. CI runs the full suite on the PR regardless.
 - If e2e fails with a port-in-use error, that is a collision, not a code failure:
@@ -142,9 +143,10 @@ migration, identity invitation, deployment, or production data reset.
 - In the PR description, list the sibling paths you checked.
 
 ## Cross-review
-- Default reviewer: Codex with a different model than the builder
-  (astra-built → review with gpt-6.2-sol; otherwise review with gpt-6.2-astra).
-- Use --agent claude (claude-sonnet-5-5) only for P0/P1 changes to credential
-  handling, recovery/queue claims, or schema upgrades.
-- One review worker per wave covering all flagged PRs. Review `git diff main...HEAD`
-  only; at most 5 findings per PR with file:line, or "sound".
+- Claude (claude-sonnet-5-5) reviews any change to auth, sessions, credentials,
+  migration recovery/queue/GHES, or schema upgrades, at any priority, while
+  Claude session usage is under 50%. Above 50%, Codex with a different model
+  than the builder.
+- Everything else: Codex with a different model than the builder.
+- One review worker per wave; diff only; at most 5 findings per PR with
+  file:line, or "sound".
