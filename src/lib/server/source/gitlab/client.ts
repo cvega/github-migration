@@ -32,6 +32,7 @@ export interface GitLabClientOptions {
   maxRetryDelayMs?: number;
   maxResponseBytes?: number;
   random?: () => number;
+  now?: () => number;
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 }
 
@@ -76,6 +77,7 @@ const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_PER_PAGE = 100;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 30_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 async function readBoundedJson<T>(response: Response, maxBytes: number): Promise<T> {
@@ -110,26 +112,11 @@ function parseHeaderInteger(value: string | null): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function retryDelayMs(
-  response: Response,
-  attempt: number,
-  maxDelayMs: number,
-  random: () => number,
-): number {
-  const retryAfter = response.headers.get("retry-after");
-  const seconds = parseHeaderInteger(retryAfter);
-  let delayMs = seconds === null ? null : seconds * 1_000;
-  if (retryAfter) {
-    const timestamp = Date.parse(retryAfter);
-    if (delayMs === null && Number.isFinite(timestamp)) {
-      delayMs = Math.max(0, timestamp - Date.now());
-    }
-  }
-  const reset = parseHeaderInteger(response.headers.get("ratelimit-reset"));
-  if (delayMs === null && reset !== null) delayMs = Math.max(0, reset * 1_000 - Date.now());
-  if (delayMs !== null) return Math.min(delayMs, maxDelayMs);
-  const jittered = 250 * 2 ** attempt * (0.8 + random() * 0.4);
-  return Math.min(Math.round(jittered), maxDelayMs);
+function retryAfterDelayMs(value: string | null, nowMs: number): number | null {
+  if (!value) return null;
+  if (/^\d+$/.test(value)) return Number(value) * 1_000;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - nowMs) : null;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -214,6 +201,7 @@ export class GitLabClient {
   readonly #maxRetryDelayMs: number;
   readonly #maxResponseBytes: number;
   readonly #random: () => number;
+  readonly #now: () => number;
   readonly #sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   #apiCalls = 0;
   #rateLimit: GitLabRateLimit = {
@@ -244,9 +232,11 @@ export class GitLabClient {
     this.#maxRetries = maxRetries;
     this.#maxPages = maxPages;
     this.#requestTimeoutMs = requestTimeoutMs;
-    this.#maxRetryDelayMs = maxRetryDelayMs;
+    // setTimeout runs immediately when its delay exceeds the signed 32-bit range.
+    this.#maxRetryDelayMs = Math.min(maxRetryDelayMs, MAX_TIMER_DELAY_MS);
     this.#maxResponseBytes = maxResponseBytes;
     this.#random = options.random ?? Math.random;
+    this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? defaultSleep;
   }
 
@@ -466,15 +456,7 @@ export class GitLabClient {
           throw new GitLabApiError(0, "GitLab API request aborted", { cause });
         }
         if (attempt < this.#maxRetries) {
-          await this.#waitBeforeRetry(
-            retryDelayMs(
-              new Response(null, { status: 503 }),
-              attempt,
-              this.#maxRetryDelayMs,
-              this.#random,
-            ),
-            options.signal,
-          );
+          await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
           continue;
         }
         throw new GitLabApiError(0, "GitLab API request failed", { cause });
@@ -483,10 +465,24 @@ export class GitLabClient {
       this.#captureRateLimit(response.headers);
       if (isRetryableStatus(response.status) && attempt < this.#maxRetries) {
         await response.body?.cancel().catch(() => {});
-        await this.#waitBeforeRetry(
-          retryDelayMs(response, attempt, this.#maxRetryDelayMs, this.#random),
-          options.signal,
-        );
+        if (options.signal?.aborted) {
+          throw new GitLabApiError(0, "GitLab API request aborted");
+        }
+        const nowMs = this.#now();
+        const retryAfter = retryAfterDelayMs(response.headers.get("retry-after"), nowMs);
+        const reset = response.headers.get("ratelimit-reset");
+        const delayMs =
+          retryAfter ??
+          (reset && /^\d+$/.test(reset)
+            ? Math.max(0, Number(reset) * 1_000 - nowMs)
+            : this.#backoffDelayMs(attempt));
+        if (delayMs > this.#maxRetryDelayMs) {
+          throw new GitLabApiError(
+            response.status,
+            `GitLab API returned HTTP ${response.status} with a cooldown beyond the retry delay budget`,
+          );
+        }
+        await this.#waitBeforeRetry(delayMs, options.signal);
         continue;
       }
       if (!response.ok) {
@@ -508,15 +504,7 @@ export class GitLabClient {
           throw new GitLabApiError(0, "GitLab API request aborted");
         }
         if (!(cause instanceof SyntaxError) && attempt < this.#maxRetries) {
-          await this.#waitBeforeRetry(
-            retryDelayMs(
-              new Response(null, { status: 503 }),
-              attempt,
-              this.#maxRetryDelayMs,
-              this.#random,
-            ),
-            options.signal,
-          );
+          await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
           continue;
         }
         if (cause instanceof SyntaxError) {
@@ -650,20 +638,20 @@ export class GitLabClient {
   }
 
   #captureRateLimit(headers: Headers): void {
-    const retryAfter = headers.get("retry-after");
-    const retryAfterDate = retryAfter ? Date.parse(retryAfter) : Number.NaN;
-    const retryAfterSeconds =
-      parseHeaderInteger(retryAfter) ??
-      (Number.isFinite(retryAfterDate)
-        ? Math.max(0, Math.ceil((retryAfterDate - Date.now()) / 1_000))
-        : null);
+    const delayMs = retryAfterDelayMs(headers.get("retry-after"), this.#now());
+    const retryAfterSeconds = delayMs === null ? null : Math.ceil(delayMs / 1_000);
     this.#rateLimit = {
       limit: parseHeaderInteger(headers.get("ratelimit-limit")) ?? this.#rateLimit.limit,
       remaining:
         parseHeaderInteger(headers.get("ratelimit-remaining")) ?? this.#rateLimit.remaining,
       reset: headers.get("ratelimit-reset") ?? this.#rateLimit.reset,
-      retryAfterSeconds,
+      retryAfterSeconds: Number.isSafeInteger(retryAfterSeconds) ? retryAfterSeconds : null,
     };
+  }
+
+  #backoffDelayMs(attempt: number): number {
+    const jittered = 250 * 2 ** attempt * (0.8 + this.#random() * 0.4);
+    return Math.min(Math.round(jittered), this.#maxRetryDelayMs);
   }
 
   async #waitBeforeRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {

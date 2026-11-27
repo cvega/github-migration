@@ -16,6 +16,7 @@ export interface BitbucketServerClientOptions {
   maxRetryDelayMs?: number;
   maxResponseBytes?: number;
   random?: () => number;
+  now?: () => number;
   sleep?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
 }
 
@@ -60,6 +61,7 @@ const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_PAGE_LIMIT = 100;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 30_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 function assertIntegerOption(name: string, value: number, minimum: number): void {
@@ -106,21 +108,11 @@ async function readBoundedJson<T>(response: Response, maxBytes: number): Promise
   return JSON.parse(text) as T;
 }
 
-function retryDelayMs(
-  response: Response | null,
-  attempt: number,
-  maxDelayMs: number,
-  random: () => number,
-): number {
-  const retryAfter = response?.headers.get("retry-after") ?? null;
-  const seconds = parseHeaderInteger(retryAfter);
-  if (seconds !== null) return Math.min(seconds * 1_000, maxDelayMs);
-  if (retryAfter) {
-    const timestamp = Date.parse(retryAfter);
-    if (Number.isFinite(timestamp))
-      return Math.min(Math.max(0, timestamp - Date.now()), maxDelayMs);
-  }
-  return Math.min(Math.round(250 * 2 ** attempt * (0.8 + random() * 0.4)), maxDelayMs);
+function retryAfterDelayMs(value: string | null, nowMs: number): number | null {
+  if (!value) return null;
+  if (/^\d+$/.test(value)) return Number(value) * 1_000;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - nowMs) : null;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -194,6 +186,7 @@ export class BitbucketServerClient {
   readonly #maxRetryDelayMs: number;
   readonly #maxResponseBytes: number;
   readonly #random: () => number;
+  readonly #now: () => number;
   readonly #sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   #apiCalls = 0;
 
@@ -219,9 +212,11 @@ export class BitbucketServerClient {
     this.#maxRetries = maxRetries;
     this.#maxPages = maxPages;
     this.#requestTimeoutMs = requestTimeoutMs;
-    this.#maxRetryDelayMs = maxRetryDelayMs;
+    // setTimeout runs immediately when its delay exceeds the signed 32-bit range.
+    this.#maxRetryDelayMs = Math.min(maxRetryDelayMs, MAX_TIMER_DELAY_MS);
     this.#maxResponseBytes = maxResponseBytes;
     this.#random = options.random ?? Math.random;
+    this.#now = options.now ?? Date.now;
     this.#sleep = options.sleep ?? defaultSleep;
   }
 
@@ -428,10 +423,7 @@ export class BitbucketServerClient {
           throw new BitbucketServerApiError(0, "Bitbucket Server API request aborted", { cause });
         }
         if (retryable && attempt < this.#maxRetries) {
-          await this.#waitBeforeRetry(
-            retryDelayMs(null, attempt, this.#maxRetryDelayMs, this.#random),
-            options.signal,
-          );
+          await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
           continue;
         }
         throw new BitbucketServerApiError(
@@ -445,10 +437,19 @@ export class BitbucketServerClient {
 
       if (retryable && isRetryableStatus(response.status) && attempt < this.#maxRetries) {
         await response.body?.cancel().catch(() => {});
-        await this.#waitBeforeRetry(
-          retryDelayMs(response, attempt, this.#maxRetryDelayMs, this.#random),
-          options.signal,
-        );
+        if (options.signal?.aborted) {
+          throw new BitbucketServerApiError(0, "Bitbucket Server API request aborted");
+        }
+        const delayMs =
+          retryAfterDelayMs(response.headers.get("retry-after"), this.#now()) ??
+          this.#backoffDelayMs(attempt);
+        if (delayMs > this.#maxRetryDelayMs) {
+          throw new BitbucketServerApiError(
+            response.status,
+            `Bitbucket Server API returned HTTP ${response.status} with a cooldown beyond the retry delay budget`,
+          );
+        }
+        await this.#waitBeforeRetry(delayMs, options.signal);
         continue;
       }
       if (!response.ok) {
@@ -485,6 +486,11 @@ export class BitbucketServerClient {
         );
       }
     }
+  }
+
+  #backoffDelayMs(attempt: number): number {
+    const jittered = 250 * 2 ** attempt * (0.8 + this.#random() * 0.4);
+    return Math.min(Math.round(jittered), this.#maxRetryDelayMs);
   }
 
   async #waitBeforeRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
