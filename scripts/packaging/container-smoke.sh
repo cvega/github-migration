@@ -122,6 +122,32 @@ docker exec -i "$container" sh <<'RESTORE_SMOKE'
 	cmp archives/sample fresh-archives/sample
 RESTORE_SMOKE
 
+# Exercise the image health check itself on a nondefault listening port.
+docker rm --force "$container" >/dev/null
+container="$(docker run --detach --rm --network none --env PORT=3100 \
+	--env GH_MIGRATE_ALLOW_UNAUTHENTICATED=false \
+	--env GH_MIGRATE_USER=smoke-admin \
+	--env GH_MIGRATE_PASS=smoke-test-password-not-for-deployment \
+	"$image")"
+attempt=0
+while [ "$attempt" -lt 45 ]; do
+	health="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+	if [ "$health" = healthy ]; then
+		break
+	fi
+	if [ "$health" = unhealthy ]; then
+		docker inspect --format '{{json .State.Health}}' "$container" >&2
+		exit 1
+	fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+if [ "$health" != healthy ]; then
+	docker logs "$container"
+	echo "Container health check did not pass on nondefault PORT" >&2
+	exit 1
+fi
+
 if [ -n "$analyzer_image" ]; then
 	docker run --rm --network none "$analyzer_image" sh -c '
 		set -eu
