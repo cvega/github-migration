@@ -5,6 +5,33 @@ import { dirname, join } from "node:path";
 
 const classifier = join(import.meta.dir, "docs-only.sh");
 
+test("verification takes the full path unless the classifier confirms docs-only", async () => {
+  const workflow = await Bun.file(
+    join(import.meta.dir, "../../.github/workflows/verify.yml"),
+  ).text();
+  type Step = { id?: string; name?: string; if?: string };
+  const { jobs } = Bun.YAML.parse(workflow) as {
+    jobs: { gates: { steps: Step[] }; e2e: { steps: Step[] } };
+  };
+  const fullPath = "steps.paths.outputs.docs_only != 'true'";
+  for (const name of ["Validate GitHub Actions workflows", "Run repository gates"]) {
+    expect(jobs.gates.steps.find((step) => step.name === name)?.if, name).toBe(fullPath);
+  }
+  expect(
+    jobs.gates.steps.find((step) => step.name === "Run documentation and formatting gates")?.if,
+  ).toBe("steps.paths.outputs.docs_only == 'true'");
+
+  const classifierIndex = jobs.e2e.steps.findIndex((step) => step.id === "paths");
+  expect(classifierIndex).toBeGreaterThanOrEqual(0);
+  const browserSteps = jobs.e2e.steps.slice(classifierIndex + 1);
+  expect(browserSteps.some((step) => step.name === "Run browser gate")).toBe(true);
+  for (const step of browserSteps) {
+    const condition =
+      step.name === "Upload browser failure traces" ? `failure() && ${fullPath}` : fullPath;
+    expect(step.if, step.name).toBe(condition);
+  }
+});
+
 test("only pull requests with exclusively documentation changes take the fast path", () => {
   const cwd = mkdtempSync(join(tmpdir(), "docs-only-"));
   const git = (...args: string[]) => {
