@@ -1,7 +1,7 @@
 # Pull-request checks: fast feedback for developers. Validates the PR title as
 # a Conventional Commit (it becomes the squash-merge commit and feeds the
 # changelog) and runs the full quality-gate suite.
-name: PR
+name: "CI: pull request"
 
 on:
   pull_request:

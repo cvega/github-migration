@@ -1,4 +1,4 @@
-name: Mutation testing
+name: "Weekly: mutation testing"
 
 on:
   workflow_dispatch:

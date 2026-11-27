@@ -1,6 +1,6 @@
 # Slow, licensed provider contract. This runs only on a dedicated runner because
 # Bitbucket Data Center, PostgreSQL, and OpenSearch require substantial resources.
-name: Bitbucket provider contract
+name: "Self-hosted: Bitbucket provider contract"
 
 on:
   workflow_dispatch:
