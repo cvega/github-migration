@@ -5,6 +5,7 @@ import {
   renewRepositoryAnalysisJobLease,
 } from "../database/repository-analysis-jobs";
 import { analyzeRepository, RepositoryAnalysisError } from "./analyze-repository";
+import type { ReportAnalyzerProgress } from "./health";
 import { getRepositoryAnalysisSourceToken } from "./source-auth";
 
 const LEASE_MS = 60_000;
@@ -15,6 +16,7 @@ export interface RepositoryAnalysisLoopOptions {
   operationalCeilingBytes?: number;
   idleMs?: number;
   signal?: AbortSignal;
+  onProgress?: ReportAnalyzerProgress;
 }
 
 export interface RepositoryAnalysisLoopDependencies {
@@ -34,7 +36,10 @@ export async function processNextRepositoryAnalysisJob(
   dependencies: RepositoryAnalysisLoopDependencies = DEFAULT_DEPS,
 ): Promise<boolean> {
   const job = claimRepositoryAnalysisJob({ leaseOwner: options.leaseOwner, leaseMs: LEASE_MS });
-  if (!job) return false;
+  if (!job) {
+    options.onProgress?.("waiting for jobs", 30_000);
+    return false;
+  }
   console.log(`[profile-analyzer] Analyzing ${job.nameWithOwner} (attempt ${job.attempt})`);
   const heartbeat = setInterval(() => {
     renewRepositoryAnalysisJobLease({
@@ -50,6 +55,7 @@ export async function processNextRepositoryAnalysisJob(
       {
         workspaceRoot: options.workspaceRoot,
         operationalCeilingBytes: options.operationalCeilingBytes,
+        onProgress: options.onProgress,
       },
       { getSourceToken: dependencies.getSourceToken },
     );

@@ -6,11 +6,13 @@ import { startRepositoryAnalysis } from "../database/repository-analysis-runs";
 import { completeProfileRun, createProfileRun } from "../database/runs";
 import { profileStore } from "../database/schema";
 import type { RepoSignals } from "../types";
+import type { RepositoryAnalyzerOptions } from "./analyze-repository";
 import {
   processNextRepositoryAnalysisJob,
   type RepositoryAnalysisLoopDependencies,
   runRepositoryAnalysisClaimLoop,
 } from "./claim-loop";
+import { createAnalyzerHealth } from "./health";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -128,10 +130,29 @@ describe("repository analysis claim loop", () => {
     ).toBe(false);
   });
 
+  test("successful empty polls mark an idle analyzer healthy and recover stale health", async () => {
+    let now = 0;
+    const health = createAnalyzerHealth(() => now);
+    const options = {
+      workspaceRoot: "/analysis",
+      leaseOwner: "worker",
+      onProgress: health.reportProgress,
+    };
+
+    expect(health.response().status).toBe(503);
+    expect(await processNextRepositoryAnalysisJob(options, dependencies())).toBe(false);
+    expect(health.response().status).toBe(200);
+    now = 30_000;
+    expect(health.response().status).toBe(503);
+    expect(await health.response().text()).toContain("waiting for jobs");
+    expect(await processNextRepositoryAnalysisJob(options, dependencies())).toBe(false);
+    expect(health.response().status).toBe(200);
+  });
+
   test("stops the claim loop after its signal aborts during a completed job", async () => {
     queuedAnalysis();
     const controller = new AbortController();
-    let receivedOptions: { workspaceRoot: string; operationalCeilingBytes?: number } | undefined;
+    let receivedOptions: RepositoryAnalyzerOptions | undefined;
     await runRepositoryAnalysisClaimLoop(
       {
         workspaceRoot: "/analysis",
@@ -149,6 +170,7 @@ describe("repository analysis claim loop", () => {
     expect(receivedOptions).toEqual({
       workspaceRoot: "/analysis",
       operationalCeilingBytes: 1_000,
+      onProgress: undefined,
     });
     expect(getDb().query("SELECT state FROM profile_repository_analysis_runs").get()).toEqual({
       state: "completed",

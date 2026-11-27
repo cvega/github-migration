@@ -50,11 +50,23 @@ invitations.
 
 ## Repository Analysis Does Not Advance
 
-Check that the `profile-analyzer` service is running and shares the dashboard's
-`DATA_DIR`. Its private `ANALYSIS_DIR` must be writable and have enough space
-for the configured workspace limit. Inspect analyzer logs for clone, source-App
-authentication, lease, and cleanup failures; failed jobs can be retried from
-the profile detail page.
+Check `docker compose ps profile-analyzer` for status and
+`docker compose logs --tail=100 profile-analyzer` for clone, source-App
+authentication, lease, and cleanup failures. Inspect the recent probe output
+for a timed-out phase or an unavailable listener:
+
+```sh
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q profile-analyzer)"
+```
+
+Confirm the service shares the dashboard's `DATA_DIR` and that its private
+`ANALYSIS_DIR` is writable with enough space for the configured workspace limit.
+Docker's `unless-stopped` restart policy acts on process exit. If the service
+remains unhealthy after addressing the reported cause, restart only the
+analyzer with `docker compose restart profile-analyzer`. Watch for healthy status
+and check the analysis run in the dashboard for progress. An interrupted job
+can be reclaimed after its lease expires. Retry failed jobs from the profile
+detail page.
 
 ## Another Device Cannot Reach The Dashboard
 

@@ -75,6 +75,8 @@ CI also builds both production container targets and runs
 `scripts/packaging/container-smoke.sh DASHBOARD_IMAGE ANALYZER_IMAGE`. This
 complements the dev-server browser suite with production login, API origin
 protection, SQLite backup, and analyzer startup checks, followed by image scans.
+The analyzer smoke test also suspends and resumes the isolated analyzer process
+to check that its container health changes independently of dashboard readiness.
 
 Run a focused gate by passing its name through `verify`, for example
 `bun run verify boundaries`, `bun run verify coverage`, or
