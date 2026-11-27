@@ -289,12 +289,12 @@ describe("doesRepoExist", () => {
 
 describe("countByPagination", () => {
   /** A client whose `request` returns the given headers/data and records args. */
-  function client(response: { headers?: Record<string, string>; data?: unknown }) {
+  function client(response: { headers?: Record<string, string>; data?: unknown; url?: string }) {
     const calls: Array<{ route: string; params: Record<string, unknown> }> = [];
     const c = {
       request: async (route: string, params: Record<string, unknown>) => {
         calls.push({ route, params });
-        return { headers: response.headers ?? {}, data: response.data ?? [] };
+        return { headers: response.headers ?? {}, data: response.data ?? [], url: response.url };
       },
     } as unknown as Parameters<typeof countByPagination>[0];
     return { c, calls };
@@ -340,12 +340,31 @@ describe("countByPagination", () => {
     [[{}], '<x?page=2>; rel="next", <x?page=1>; rel="last"'],
     [[{}], '<x?page=5>; rel="last"'],
     [[{}], "<x?cursor=2>; rel=next"],
+    [[{}], '<x?page=2>; rel="next alternate"'],
+    [[{}], '<x?page=2>; rel="next", <y?page=5>; rel="last"'],
+    [
+      [{}],
+      '<https://one.invalid/x?page=2>; rel="next", <https://two.invalid/x?page=5>; rel="last"',
+    ],
+    [[{}], '<x?page=2&sha=main>; rel="next", <x?page=5&sha=release>; rel="last"'],
+    [[{}], '<x?page=2&sha=main>; rel="next", <x?page=5>; rel="last"'],
     [[{}], '<x?page=2>; rel="next", <x?page=5&per_page=100>; rel="last"'],
     [[{}], '<x?page=2>; rel="next", <x?page=5&page=8>; rel="last"'],
     [[{}], '<x?page=2>; rel="next", <x?page=1>; rel="prev", <x?page=5>; rel="last"'],
   ])("rejects contradictory first-page evidence %j %s", async (data, link) => {
     const { c } = client({ data, headers: { link } });
     await expect(countByPagination(c, "GET /x", {})).rejects.toThrow();
+  });
+
+  test("counts matching collection links with multi-token relations and reordered filters", async () => {
+    const { c } = client({
+      data: [{}],
+      url: "https://api.github.com/x?sha=main&mode=all&page=1",
+      headers: {
+        link: '<?sha=main&mode=all&page=2>; title="Next, alternate"; rel="next alternate", <https://api.github.com/x?page=5&mode=all&sha=main>; rel="alternate last"',
+      },
+    });
+    expect(await countByPagination(c, "GET /x", {})).toBe(5);
   });
 
   test("rejects an indeterminate count when there is a next page but no last link", async () => {

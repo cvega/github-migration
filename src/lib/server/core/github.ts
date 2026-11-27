@@ -395,38 +395,66 @@ export async function countByPagination(
   if (!Array.isArray(res.data) || res.data.length > 1)
     throw new Error(`Invalid count response for ${route}`);
 
-  const links = res.headers?.link?.split(",") ?? [];
-  const next = links.filter((part) => /;\s*rel=(?:"next"|next)\s*(?:;|$)/.test(part));
-  const last = links.filter((part) => /;\s*rel=(?:"last"|last)\s*(?:;|$)/.test(part));
-  const hasPrevious = links.some((part) => /;\s*rel=(?:"prev"|prev)\s*(?:;|$)/.test(part));
-  if (!next.length && !last.length && !hasPrevious) return res.data.length;
-
-  const nextPage = paginationLinkPage(next[0]);
-  const lastPage = paginationLinkPage(last[0]);
-  if (
-    res.data.length === 1 &&
-    !hasPrevious &&
-    next.length === 1 &&
-    last.length === 1 &&
-    nextPage === 2 &&
-    lastPage >= nextPage
-  ) {
-    return lastPage;
-  }
+  const count = countFromPageLinks(res.data.length, res.headers?.link ?? "", res.url);
+  if (count !== null) return count;
   throw new Error(`Cannot determine count from pagination for ${route}`);
 }
 
-function paginationLinkPage(link: string | undefined): number {
-  const url = link?.match(/<([^<>]+)>/)?.[1];
-  const parsed = url && URL.parse(url, "https://github.invalid");
-  if (!parsed) return NaN;
+function countFromPageLinks(items: number, header: string, baseUrl: string): number | null {
+  // Consume complete link values so commas inside targets and quoted parameters stay intact.
+  const link =
+    /\s*<([^<>]+)>((?:\s*;\s*[\w-]+(?:\s*=\s*(?:"(?:[^"\\]|\\.)*"|[^\s;,"]+))?)*)\s*(,|$)/gy;
+  const next: string[] = [];
+  const last: string[] = [];
+  let hasFirst = false;
+  while (link.lastIndex < header.length) {
+    const entry = link.exec(header);
+    if (!entry || (entry[3] === "," && link.lastIndex === header.length)) return null;
+    const [, target, parameters] = entry;
+    if (!target || parameters === undefined) return null;
+    for (const parameter of parameters.matchAll(
+      /;\s*([\w-]+)(?:\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s;,"]+)))?/g,
+    )) {
+      if (parameter[1]?.toLowerCase() !== "rel") continue;
+      const relations = (parameter[2] ?? parameter[3] ?? "").trim().toLowerCase().split(/\s+/);
+      if (relations.includes("prev") || relations.includes("previous")) return null;
+      if (relations.includes("first")) hasFirst = true;
+      if (relations.includes("next")) next.push(target);
+      if (relations.includes("last")) last.push(target);
+    }
+  }
+  if (!hasFirst && !next.length && !last.length) return items;
+  if (items !== 1 || next.length !== 1 || last.length !== 1) return null;
+
+  const nextPage = paginationLinkPage(next[0]!, baseUrl);
+  const lastPage = paginationLinkPage(last[0]!, baseUrl);
+  if (
+    nextPage?.page !== 2 ||
+    !lastPage ||
+    lastPage.page < nextPage.page ||
+    nextPage.collection !== lastPage.collection
+  ) {
+    return null;
+  }
+  return lastPage.page;
+}
+
+function paginationLinkPage(target: string, baseUrl: string) {
+  const parsed = URL.parse(target, baseUrl || "https://github.invalid");
+  if (!parsed || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) return null;
   const pages = parsed.searchParams.getAll("page");
   const sizes = parsed.searchParams.getAll("per_page");
   if (pages.length !== 1 || sizes.length > 1 || (sizes.length === 1 && sizes[0] !== "1"))
-    return NaN;
+    return null;
   const value = pages[0] ?? "";
   const page = Number(value);
-  return /^\d+$/.test(value) && Number.isSafeInteger(page) ? page : NaN;
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(page)) return null;
+
+  parsed.searchParams.delete("page");
+  parsed.searchParams.delete("per_page");
+  parsed.searchParams.sort();
+  parsed.hash = "";
+  return { page, collection: parsed.href };
 }
 
 /**
