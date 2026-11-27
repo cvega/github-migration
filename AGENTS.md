@@ -121,3 +121,13 @@ migration, identity invitation, deployment, or production data reset.
 - When done, the worker pushes its branch and opens a draft PR titled
   "<issue-id>: <issue title>".
 - The coordinator (not the worker) closes the Beads issue after the PR exists.
+
+## Parallel Orca workers
+- Each worker runs in its own worktree and starts with `bun install --frozen-lockfile`
+  (gates refuses to run without node_modules).
+- While other workers may be running, verify with every gate except e2e:
+  `bun run verify icons typecheck check lint format docs coverage dup deadcode cycles boundaries actions provider-fixtures runtime mutation-config build audit`
+- Run the full `bun run verify` (including e2e) only for UI changes, and only
+  when no other worker is running e2e. CI runs the full suite on the PR regardless.
+- If e2e fails with a port-in-use error, that is a collision, not a code failure:
+  do not change code for it; report it and retry later.
