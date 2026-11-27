@@ -4,8 +4,8 @@ import { getDb } from "$lib/server/core/db";
 import {
   getMigration,
   getNextQueuedMigration,
-  hasExecutingGhesMigration,
   isBatchAdmissionBlocked,
+  isGhesSlotHeld,
   updateMigrationState,
 } from "../database/migrations";
 import { getActiveMigrationCount } from "../database/stats";
@@ -18,7 +18,7 @@ export type PipelineLauncher = (id: string, request: CreateMigrationRequest) => 
 // The configured GHES appliance has one ghe-migrator lock, shared across batches.
 function ghesBusy(): boolean {
   return (
-    hasExecutingGhesMigration() ||
+    isGhesSlotHeld() ||
     [...activeMigrationRuns.activeIds()].some((id) => getMigration(id)?.targetPlatform === "ghes")
   );
 }

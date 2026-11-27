@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { GhesSshClient } from "./ssh";
+import { GhesMigratorBusyError, GhesSshClient } from "./ssh";
 
 const config = {
   remoteDirectory: "/data/user/tmp",
@@ -21,7 +21,7 @@ describe("GHES SSH client", () => {
     expect(() => client.conflicts("bad")).toThrow("Invalid ghe-migrator GUID");
   });
 
-  test("rejects ghe-migrator lock errors even when the command exits successfully", async () => {
+  test.each([0, 1])("recognizes a prepare lock rejection with exit code %i", async (code) => {
     const channel = new EventEmitter();
     const stderr = new EventEmitter();
     const connection = new EventEmitter();
@@ -30,7 +30,7 @@ describe("GHES SSH client", () => {
       end: () =>
         queueMicrotask(() => {
           stderr.emit("data", Buffer.from("ghe-migrator already running, please wait\n"));
-          channel.emit("exit", 0);
+          channel.emit("exit", code);
           channel.emit("close");
         }),
     });
@@ -45,8 +45,6 @@ describe("GHES SSH client", () => {
     });
     const client = new GhesSshClient(config, connection as never);
     await client.connect();
-    await expect(client.conflicts("migration-guid-123")).rejects.toThrow(
-      "ghe-migrator is already running on GHES",
-    );
+    await expect(client.prepare("/remote/archive")).rejects.toThrow(GhesMigratorBusyError);
   });
 });

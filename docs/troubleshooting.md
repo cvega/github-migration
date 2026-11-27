@@ -86,6 +86,13 @@ audit or unlock checkpoint continues on that GUID; do not submit another import
 or erase its checkpoint. Use the confirmation endpoint/UI only after deciding
 that the next operation is safe.
 
+A paused GitLab-to-GHES import can also hold the appliance slot. After verifying
+that its remote operation is inactive and the appliance lock is free, an
+administrator can send `POST /api/migrate/:id/confirm-restart` with
+`{"confirmation":"<targetOrg>/<targetRepo>"}` using the exact saved target.
+The dashboard records the review, retains the import checkpoint, marks the
+migration failed, and drains eligible work. GitLab-to-GHES execution stays paused.
+
 ## Live Progress Disconnects
 
 The UI reconnects with a durable event cursor. Check proxy buffering and idle

@@ -13,6 +13,8 @@ import {
   runExporterGhesMigration,
 } from "./import";
 
+import { GhesMigratorBusyError } from "./ssh";
+
 const targetCounts: Counts = {
   commits: 1,
   branches: 3,
@@ -553,6 +555,37 @@ describe("GHES import execution", () => {
         expect(result.failureReason).toContain("Target user not found");
         expect(calls).toEqual(scenario === "initial" ? ["verify"] : ["map-org", "verify"]);
       }
+    },
+  );
+
+  test.each([true, false])(
+    "persists a prepare failure without a GUID, known busy rejection: %s",
+    async (busy) => {
+      const record = migration("prepare");
+      insertMigration(record);
+      const source = adapter({
+        submit: async () => ({ jobId: "export" }),
+        inspect: async (jobId) => ({
+          jobId,
+          state: "succeeded",
+          archive: { path: "/tmp/prepare.tar.gz", sha256: "a".repeat(64) },
+        }),
+        cancel: async () => {},
+      });
+      const ssh = source.createSshClient({} as never);
+      ssh.prepare = async () => {
+        throw busy ? new GhesMigratorBusyError() : new Error("Connection closed");
+      };
+      source.createSshClient = () => ssh;
+      const result = await runExporterGhesMigration(
+        { id: record.id, sourceProvider: record.sourceProvider, emit: insertEvent },
+        source,
+      );
+      expect(result.state).toBe(busy ? "failed" : "reconciliation_required");
+      expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+        phase: busy ? "failed" : "preparing",
+        ghesImportId: null,
+      });
     },
   );
 

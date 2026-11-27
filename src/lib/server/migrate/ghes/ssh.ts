@@ -22,7 +22,17 @@ function requireGuid(value: string): string {
   return value;
 }
 
-function collectChannel(channel: ClientChannel, input?: string): Promise<GhesCommandResult> {
+export class GhesMigratorBusyError extends Error {
+  constructor() {
+    super("ghe-migrator is already running on GHES; retry after it finishes");
+  }
+}
+
+function collectChannel(
+  channel: ClientChannel,
+  command: string,
+  input?: string,
+): Promise<GhesCommandResult> {
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
@@ -48,7 +58,13 @@ function collectChannel(channel: ClientChannel, input?: string): Promise<GhesCom
     });
     channel.on("error", reject);
     channel.on("close", () => {
-      if (exitCode === 0) resolve({ stdout, stderr });
+      if (
+        exitCode !== null &&
+        command.startsWith("ghe-migrator ") &&
+        /ghe-migrator already running\b/i.test(`${stdout}\n${stderr}`)
+      ) {
+        reject(new GhesMigratorBusyError());
+      } else if (exitCode === 0) resolve({ stdout, stderr });
       else reject(new Error(stderr.trim() || stdout.trim() || `GHES command exited ${exitCode}`));
     });
     channel.end(input);
@@ -248,14 +264,7 @@ export class GhesSshClient {
   }
 
   async #exec(command: string, input?: string): Promise<GhesCommandResult> {
-    const result = await collectChannel(await this.#openChannel(command), input);
-    if (
-      command.startsWith("ghe-migrator ") &&
-      /ghe-migrator already running/i.test(`${result.stdout}\n${result.stderr}`)
-    ) {
-      throw new Error("ghe-migrator is already running on GHES; retry after it finishes");
-    }
-    return result;
+    return collectChannel(await this.#openChannel(command), command, input);
   }
 
   async #openChannel(command: string): Promise<ClientChannel> {
