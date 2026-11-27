@@ -2,7 +2,11 @@ import { fail, redirect } from "@sveltejs/kit";
 import { recordAuditEvent } from "$lib/server/core/auth/audit";
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from "$lib/server/core/auth/sessions";
 import { LOGIN_WINDOW_SECONDS, verifyLoginAttempt } from "$lib/server/core/auth/throttle";
-import { verifyCredentials } from "$lib/server/core/auth/users";
+import {
+  matchesUsernamePolicy,
+  USERNAME_MAX_LENGTH,
+  verifyCredentials,
+} from "$lib/server/core/auth/users";
 import type { Actions, PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -18,7 +22,12 @@ export const actions = {
     if (!locals.authEnabled) redirect(302, "/");
     const ip = getClientAddress();
     const data = await request.formData();
-    const username = data.get("username")?.toString() ?? "";
+    const usernameField = data.get("username");
+    const username = typeof usernameField === "string" ? usernameField.trim() : "";
+    if (username.length > USERNAME_MAX_LENGTH) {
+      return fail(401, { username: "", error: "Invalid username or password." });
+    }
+    const displayUsername = matchesUsernamePolicy(username) ? username : "";
     const password = data.get("password")?.toString() ?? "";
     const result = await verifyLoginAttempt(username, ip, () =>
       verifyCredentials(username, password),
@@ -26,19 +35,22 @@ export const actions = {
     if (result.throttled) {
       if (result.reason === "capacity") {
         setHeaders({ "Retry-After": "1" });
-        return fail(503, { username, error: "Sign-in is busy. Try again in a second." });
+        return fail(503, {
+          username: displayUsername,
+          error: "Sign-in is busy. Try again in a second.",
+        });
       }
       setHeaders({ "Retry-After": String(LOGIN_WINDOW_SECONDS) });
       return fail(429, {
-        username,
+        username: displayUsername,
         error: "Too many sign-in attempts. Try again in 15 minutes.",
       });
     }
 
     const { user } = result;
     if (!user) {
-      recordAuditEvent({ action: "auth.login.failed", ipAddress: ip, metadata: { username } });
-      return fail(401, { username, error: "Invalid username or password." });
+      recordAuditEvent({ action: "auth.login.failed", ipAddress: ip });
+      return fail(401, { username: displayUsername, error: "Invalid username or password." });
     }
 
     const token = createSession(user.id);

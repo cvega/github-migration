@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { getDb } from "$lib/server/core/db";
+import { USERNAME_MAX_LENGTH } from "./users";
 
 export const LOGIN_WINDOW_SECONDS = 15 * 60;
 const USER_IP_LIMIT = 5;
@@ -22,19 +24,24 @@ export async function verifyLoginAttempt<T>(
     return { throttled: true, reason: "capacity" };
 
   const cutoff = new Date(now.getTime() - LOGIN_WINDOW_SECONDS * 1000).toISOString();
+  const trimmedUsername = username.trim();
+  const digest = createHash("sha256").update(trimmedUsername.toLowerCase()).digest("hex");
+  const usernameKey = `!${digest.slice(0, USERNAME_MAX_LENGTH - 1)}`;
+  // Let SQLite apply its original ASCII-only NOCASE comparison to legacy entries.
   const reservation = database
     .prepare(
       `INSERT INTO auth_login_attempts (username, ip_address, attempted_at)
      SELECT ?, ?, ?
-     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username = ?) AS pair_count
+     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username IN (?, ?)) AS pair_count
            FROM auth_login_attempts WHERE ip_address = ? AND attempted_at >= ?)
      WHERE address_count < ? AND pair_count < ?`,
     )
     .run(
-      username.trim(),
+      usernameKey,
       ipAddress,
       now.toISOString(),
-      username.trim(),
+      usernameKey,
+      trimmedUsername,
       ipAddress,
       cutoff,
       IP_LIMIT,

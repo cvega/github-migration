@@ -11,6 +11,11 @@ import {
 import { revokeUserSessions } from "./sessions";
 
 const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
+export const USERNAME_MAX_LENGTH = 32;
+
+export function matchesUsernamePolicy(username: string): boolean {
+  return USERNAME_PATTERN.test(username);
+}
 
 interface UserRow {
   id: string;
@@ -35,7 +40,7 @@ function mapUser(row: UserRow): StoredUser {
 }
 
 function usernamePolicyError(username: string): string | null {
-  if (!USERNAME_PATTERN.test(username)) {
+  if (!matchesUsernamePolicy(username)) {
     return "Username must be 3-32 characters using letters, numbers, periods, underscores, or hyphens.";
   }
   return null;
