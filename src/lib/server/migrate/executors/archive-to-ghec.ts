@@ -62,6 +62,7 @@ export async function monitorGhecMigration(
 ): Promise<Migration> {
   const { phase, finalCounts } = await dependencies.monitor({
     clients,
+    targetApiUrl: migration.targetApiUrl,
     migrationId: migration.id,
     githubMigrationId,
     targetOrg: migration.targetOrg,

@@ -196,7 +196,24 @@ describe("migration provider schema upgrade", () => {
       db.run(
         "INSERT INTO events (migration_id, event_type, created_at) VALUES ('checked', 'step', '2026-08-08T12:01:00Z')",
       );
+      const link = "https://github.com/log?sample=1";
+      db.run("UPDATE migrations SET migration_log_url = ?", [link]);
+      db.run("UPDATE events SET payload = ?", [
+        JSON.stringify({
+          progress: { current: { migrationLogUrl: link }, previous: { migrationLogUrl: link } },
+          detail: { logUrl: link },
+        }),
+      ]);
       migrateStore.applySchema(db);
+      expect(db.query("SELECT migration_log_url FROM migrations").get()).toEqual({
+        migration_log_url: null,
+      });
+      expect(db.query("SELECT payload FROM events").get()).toEqual({
+        payload: JSON.stringify({
+          progress: { current: { migrationLogUrl: "" }, previous: { migrationLogUrl: "" } },
+          detail: { logUrl: "" },
+        }),
+      });
       expect(
         db.run("UPDATE migrations SET source_provider = 'bitbucket-server' WHERE id = 'checked'")
           .changes,
@@ -218,7 +235,7 @@ describe("migration provider schema upgrade", () => {
       );
       expect(
         db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
-      ).toEqual({ version: 9 });
+      ).toEqual({ version: 10 });
       expect(
         (db.query("PRAGMA table_info(migrations)").all() as Array<{ name: string }>).map(
           (column) => column.name,

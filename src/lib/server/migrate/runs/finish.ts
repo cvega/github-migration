@@ -5,6 +5,7 @@ import {
   hasUnresolvedRemoteWork,
   updateMigrationState,
 } from "../database/migrations";
+import { migrationLogUrl } from "../github/log-url";
 import { activeMigrationRuns } from "./active";
 import { broadcastMigrationEvent, closeMigrationEventStream, insertLifecycleStep } from "./events";
 
@@ -67,7 +68,9 @@ export function createMigrationRunFinisher(drainQueue: () => void): MigrationRun
         completedAt: result.completedAt ?? undefined,
         elapsedSeconds: result.elapsedSeconds ?? undefined,
         failureReason: result.failureReason ?? undefined,
-        migrationLogUrl: result.migrationLogUrl ?? undefined,
+        migrationLogUrl: current
+          ? (migrationLogUrl(result.migrationLogUrl, current.targetApiUrl) ?? undefined)
+          : undefined,
       },
       true,
     );

@@ -21,6 +21,7 @@ import {
   type DurableTableContract,
 } from "$lib/server/core/db";
 import { getGitHubSourcePlatform, SOURCE_PROVIDERS } from "$lib/source-provider";
+import { migrationLogUrl } from "../github/log-url";
 import {
   MIGRATION_COLS,
   PAUSED_GITLAB_ROUTE_SQL,
@@ -464,6 +465,7 @@ export const migrateStore: DomainStore = {
       db.run("UPDATE app_schema_versions SET version = 8 WHERE domain = 'migrate' AND version < 8");
     })();
     invalidateLegacyNativeSourceCounts(db);
+    sanitizeLegacyLogUrls(db);
   },
   onInit(db) {
     recoverInterruptedMigrations(db);
@@ -490,5 +492,38 @@ function invalidateLegacyNativeSourceCounts(db: Database): void {
     db.run(`UPDATE events SET payload = json_object('message','Source counts unavailable')
       WHERE migration_id IN (SELECT id FROM migrations WHERE ${native})
         AND event_type = 'step' AND json_valid(payload) AND json_extract(payload,'$.message') = 'Source counts fetched'`);
+  })();
+}
+
+function sanitizeLegacyLogUrls(db: Database): void {
+  db.transaction(() => {
+    const upgraded = db.run(
+      "UPDATE app_schema_versions SET version = 10 WHERE domain = 'migrate' AND version < 10",
+    );
+    if (!upgraded.changes) return;
+    const rows = db.query<{ id: string; target_api_url: string; migration_log_url: string }, []>(
+      "SELECT id, target_api_url, migration_log_url FROM migrations WHERE migration_log_url IS NOT NULL",
+    );
+    const update = db.prepare("UPDATE migrations SET migration_log_url = ? WHERE id = ?");
+    for (const row of rows.iterate()) {
+      const url = migrationLogUrl(row.migration_log_url, row.target_api_url);
+      if (url !== row.migration_log_url) update.run(url, row.id);
+    }
+    const events = db.query<{ id: number; target_api_url: string; url: string }, [string, string]>(
+      `SELECT e.id, m.target_api_url, json_extract(e.payload, ?) AS url
+       FROM events e JOIN migrations m ON m.id = e.migration_id
+       WHERE json_valid(e.payload) AND json_type(e.payload, ?) = 'text'`,
+    );
+    const redact = db.prepare("UPDATE events SET payload = json_set(payload, ?, ?) WHERE id = ?");
+    for (const path of [
+      "$.progress.current.migrationLogUrl",
+      "$.progress.previous.migrationLogUrl",
+      "$.detail.logUrl",
+    ]) {
+      for (const row of events.iterate(path, path)) {
+        const url = migrationLogUrl(row.url, row.target_api_url) ?? "";
+        if (row.url !== url) redact.run(path, url, row.id);
+      }
+    }
   })();
 }
