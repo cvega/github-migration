@@ -1,5 +1,6 @@
 import type { graphql } from "@octokit/graphql";
 import type { GitHubClient } from "$lib/server/core/github";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import { analyzeRepo } from "./analysis/repos";
 import { buildProfileDetailRollup } from "./analysis/rollup";
@@ -91,20 +92,6 @@ function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted)
     throw signal.reason instanceof Error ? signal.reason : new Error("Profile worker cancelled");
 }
-function describeProfileError(error: unknown): string {
-  if (error && typeof error === "object") {
-    const value = error as {
-      status?: number;
-      message?: string;
-      errors?: Array<{ message?: string; type?: string }>;
-    };
-    const detail = value.errors?.[0]?.message ?? value.errors?.[0]?.type ?? value.message;
-    if (value.status && detail) return `HTTP ${value.status}: ${detail}`;
-    if (value.status) return `HTTP ${value.status}`;
-    if (detail) return detail;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
 function risk(
   signals: Pick<RepoSignals, "issuesCount" | "pullRequestsCount" | "diskUsageKb" | "releasesCount">,
 ): number {
@@ -134,8 +121,16 @@ export async function runProfile(
   const dependency = { ...DEFAULT_DEPS, ...deps };
   if (!input.runAlreadyCreated)
     createProfileRun({ id: input.id, sourceApiUrl: input.sourceApiUrl, org: input.org });
-  const progress = (phase: ProfileProgress["phase"], profiled: number, total: number, repo = "") =>
+  let currentPhase: ProfileProgress["phase"] = "discovering";
+  const progress = (
+    phase: ProfileProgress["phase"],
+    profiled: number,
+    total: number,
+    repo = "",
+  ) => {
+    currentPhase = phase;
     onProgress?.({ runId: input.id, phase, profiled, total, repo });
+  };
   try {
     cancelled(input.signal);
     const discovery = await dependency.discover(
@@ -199,26 +194,19 @@ export async function runProfile(
       cancelled(input.signal);
       const detail = byName.get(repo.nameWithOwner);
       if (!detail) throw new Error(`Missing GraphQL details for ${repo.nameWithOwner}`);
-      try {
-        const [commitsCount, rest] = await Promise.all([
-          dependency.countCommits(clients.rest, repo),
-          dependency.gatherRestSignals(clients.rest, repo),
-        ]);
-        cancelled(input.signal);
-        progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
-        return {
-          ...repo,
-          ...detail,
-          releaseAssetScanComplete: repo.releasesCount === 0 || detail.releaseAssetScanComplete,
-          commitsCount,
-          ...rest,
-        };
-      } catch (error) {
-        if (input.signal?.aborted) throw error;
-        throw new Error(
-          `REST signals unavailable for ${repo.nameWithOwner}: ${describeProfileError(error)}`,
-        );
-      }
+      const [commitsCount, rest] = await Promise.all([
+        dependency.countCommits(clients.rest, repo),
+        dependency.gatherRestSignals(clients.rest, repo),
+      ]);
+      cancelled(input.signal);
+      progress("signals", ++profiled, discovery.total, repo.nameWithOwner);
+      return {
+        ...repo,
+        ...detail,
+        releaseAssetScanComplete: repo.releasesCount === 0 || detail.releaseAssetScanComplete,
+        commitsCount,
+        ...rest,
+      };
     });
     cancelled(input.signal);
     if (signals.length !== discovery.total) throw new Error("Incomplete GitHub repository profile");
@@ -228,7 +216,12 @@ export async function runProfile(
     completeProfileRun(input.id);
   } catch (error) {
     setProfileRunApiCalls(input.id, clients.getApiCalls());
-    failProfileRun(input.id, describeProfileError(error));
+    failProfileRun(
+      input.id,
+      input.signal?.aborted
+        ? "Profile worker cancelled"
+        : safeErrorReason(error, `GitHub profile failed during ${currentPhase}`),
+    );
   }
   const run = getProfileRun(input.id);
   if (!run) throw new Error(`Profile run '${input.id}' vanished after execution`);

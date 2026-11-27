@@ -9,6 +9,7 @@ test("only reports recognized classes and numeric HTTP status codes", () => {
     }),
     { name: diagnostic, status: 403 },
   );
+  expect(safeErrorReason(new Error(diagnostic), "Export failed")).toBe("Export failed");
   expect(safeErrorReason(error)).toBe("TypeError");
   expect(safeErrorReason(error, "Import failed")).toBe("Import failed (HTTP 403)");
   expect(safeErrorReason({ status: diagnostic }, "Import failed")).toBe("Import failed");

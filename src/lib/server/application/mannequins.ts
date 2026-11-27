@@ -3,6 +3,7 @@ import type { MigrationTargetProfile } from "$lib/migration-target";
 import { isTargetAuthAvailable } from "$lib/server/core/auth";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import type { GitHubClient } from "$lib/server/core/github";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import {
   beginIdentityInvitation,
   markIdentityInvitationSent,
@@ -286,10 +287,7 @@ export async function inviteMappedMannequin(
       rejectIdentityInvitation(mapping);
       return { outcome: "invitation rejected", status } as const;
     }
-    console.error(
-      "[mannequins] invitation outcome requires verification",
-      error instanceof Error ? error.message : "unknown error",
-    );
+    console.error(safeErrorReason(error, "[mannequins] invitation outcome requires verification"));
     return { outcome: "invitation outcome uncertain" } as const;
   }
   markIdentityInvitationSent(mapping);

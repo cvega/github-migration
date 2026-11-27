@@ -10,6 +10,7 @@ import {
 } from "$lib/server/application/mannequins";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { getGhesTargetConnectionConfig } from "$lib/server/core/ghes-target";
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import { getMigrationTargetProfile, getMigrationTargetProfiles } from "$lib/server/core/targets";
 import {
   approveIdentityMapping,
@@ -268,9 +269,7 @@ export const actions: Actions = {
       }
       return { success: "Target users and mannequin matches checked.", checked };
     } catch (error) {
-      console.error(
-        `[mannequins] mapping check failed: ${error instanceof Error ? error.message : "unknown error"}`,
-      );
+      console.error(safeErrorReason(error, "[mannequins] mapping check failed"));
       return fail(502, {
         error: "Could not check mappings against GitHub. Verify target access and try again.",
       });
@@ -328,9 +327,7 @@ export const actions: Actions = {
         try {
           readiness = await getTargetUserReadiness(client, organization, targetLogin);
         } catch (error) {
-          console.error(
-            `[mannequins] target readiness failed: ${error instanceof Error ? error.message : "unknown error"}`,
-          );
+          console.error(safeErrorReason(error, "[mannequins] target readiness failed"));
           outcome("target check failed");
           continue;
         }
@@ -353,9 +350,7 @@ export const actions: Actions = {
       }
       return { success: "Finished processing mannequin mappings.", outcomes };
     } catch (error) {
-      console.error(
-        `[mannequins] mapping application failed: ${error instanceof Error ? error.message : "unknown error"}`,
-      );
+      console.error(safeErrorReason(error, "[mannequins] mapping application failed"));
       return fail(502, { error: "Could not apply mappings. Check GitHub access and try again." });
     }
   },
@@ -397,9 +392,10 @@ export const actions: Actions = {
       }
       return { success: `Found ${identities.length} GHES user conflict(s).` };
     } catch (error) {
-      console.error("[mannequins] GHES conflict discovery failed", error);
+      const reason = safeErrorReason(error, "Could not load GHES user conflicts");
+      console.error("[mannequins]", reason);
       return fail(502, {
-        error: `Could not load GHES user conflicts: ${error instanceof Error ? error.message : "unknown error"}`,
+        error: reason,
       });
     } finally {
       ssh?.disconnect();

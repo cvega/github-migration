@@ -560,6 +560,32 @@ describe("GHES import execution", () => {
     },
   );
 
+  test.each([
+    ["Exporter container stopped unexpectedly", "Exporter container stopped unexpectedly"],
+    ["Exporter container exited unsuccessfully", "Exporter container exited unsuccessfully"],
+    ["Exporter archive is not a regular file", "Exporter archive is not a regular file"],
+    ["Authorization: Bearer inert-placeholder", "Exporter job failed"],
+  ])("retains only curated exporter failures: %s", async (diagnostic, expected) => {
+    const record = migration("export-failed");
+    insertMigration(record);
+    const source = adapter({
+      submit: async () => ({ jobId: "export" }),
+      inspect: async (jobId) => ({ jobId, state: "failed", failureReason: diagnostic }),
+      cancel: async () => {},
+    });
+    const result = await runExporterGhesMigration(
+      { id: record.id, sourceProvider: record.sourceProvider, emit: insertEvent },
+      source,
+    );
+    const failureReason = `GitLab export failed: ${expected}`;
+    expect(result).toMatchObject({ state: "failed", failureReason });
+    expect(getGhesImportJobByMigrationId(record.id)).toMatchObject({
+      phase: "failed",
+      failureReason,
+    });
+    expect(JSON.stringify(getEvents(record.id))).not.toContain("inert-placeholder");
+  });
+
   test.each([true, false])(
     "persists a prepare failure without a GUID, known busy rejection: %s",
     async (busy) => {

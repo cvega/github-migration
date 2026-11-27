@@ -14,6 +14,7 @@ import { getMigration, updateCheckpoint } from "../database/migrations";
 import {
   type ExporterSourceProvider,
   type ExporterWorker,
+  exporterFailureReason,
   refreshExporterArchive,
   submitExporterArchive,
 } from "../exporters/worker";
@@ -47,6 +48,7 @@ function emitImportStep(
   });
 }
 export class GhesImportDiagnostic extends Error {}
+class ExportFailedError extends GhesImportDiagnostic {}
 class ReconciliationRequiredError extends GhesImportDiagnostic {}
 
 export type GhesImportClient = Pick<
@@ -116,7 +118,9 @@ async function waitForArchive(
     signal?.throwIfAborted();
     job = await refreshExporterArchive(job, worker, signal);
     if (job.phase === "failed")
-      throw new Error(job.failureReason || `${source.displayName} export failed`);
+      throw new ExportFailedError(
+        `${source.displayName} export failed: ${exporterFailureReason(job.failureReason)}`,
+      );
     if (job.phase === "cancelled") {
       throw new DOMException(`${source.displayName} export cancelled`, "AbortError");
     }
@@ -431,9 +435,11 @@ async function execute(
     const checkpoint = `GHES import${current?.ghesImportId ? ` ${current.ghesImportId}` : ""} reached ${phase}`;
     const detail = afterImport
       ? `${checkpoint}; check audit and unlock for that GUID before continuing.`
-      : error instanceof GhesImportDiagnostic || error instanceof GhesMigratorBusyError
-        ? `${checkpoint}. ${error.message}`
-        : `${checkpoint}. ${options.signal?.aborted ? "Operation aborted" : "Operation failed"}`;
+      : error instanceof ExportFailedError
+        ? error.message
+        : error instanceof GhesImportDiagnostic || error instanceof GhesMigratorBusyError
+          ? `${checkpoint}. ${error.message}`
+          : `${checkpoint}. ${options.signal?.aborted ? "Operation aborted" : "Operation failed"}`;
     const reason = safeErrorReason(error, detail);
     if (current)
       updateGhesImportJobCheckpoint(

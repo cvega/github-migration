@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type DockerExporterDependencies, DockerExporterWorker } from "./docker";
 
-test("creates a sandboxed exporter and verifies its archive", async () => {
+test.each([0, 1])("inspects the sandboxed exporter after exit %i", async (exitCode) => {
   const calls: Array<{
     args: string[];
     environment?: Record<string, string>;
@@ -13,7 +13,12 @@ test("creates a sandboxed exporter and verifies its archive", async () => {
       if (args[1] === "inspect") {
         return {
           exitCode: 0,
-          stdout: JSON.stringify({ Status: "exited", Running: false, ExitCode: 0 }),
+          stdout: JSON.stringify({
+            Status: "exited",
+            Running: false,
+            ExitCode: exitCode,
+            Error: "Authorization: Bearer inert-placeholder",
+          }),
           stderr: "",
         };
       }
@@ -74,12 +79,20 @@ test("creates a sandboxed exporter and verifies its archive", async () => {
   expect(calls[0]?.args).toContain("EXPORT_TOKEN");
   expect(calls[0]?.args).not.toContain("secret-value");
   expect(calls[0]?.environment).toEqual({ EXPORT_TOKEN: "secret-value" });
-  expect(status).toEqual({
-    jobId: "gh-migrate-gl-migration-1",
-    state: "succeeded",
-    archive: {
-      path: "/archives/gh-migrate-gl-migration-1.tar.gz",
-      sha256: "a".repeat(64),
-    },
-  });
+  expect(status).toEqual(
+    exitCode
+      ? {
+          jobId: submission.jobId,
+          state: "failed",
+          failureReason: "Exporter container exited unsuccessfully",
+        }
+      : {
+          jobId: "gh-migrate-gl-migration-1",
+          state: "succeeded",
+          archive: {
+            path: "/archives/gh-migrate-gl-migration-1.tar.gz",
+            sha256: "a".repeat(64),
+          },
+        },
+  );
 });

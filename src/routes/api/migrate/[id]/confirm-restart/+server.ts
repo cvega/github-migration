@@ -2,7 +2,8 @@ import { json } from "@sveltejs/kit";
 import { isPausedPersistedRoute } from "$lib/migration-target";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
-import { confirmRestart } from "$lib/server/migrate/manager";
+import { safeErrorReason } from "$lib/server/core/safe-error";
+import { confirmRestart, MigrationRestartConflict } from "$lib/server/migrate/manager";
 import { confirmRestartSchema, validateBody } from "$lib/server/migrate/schemas";
 import type { RequestHandler } from "./$types";
 
@@ -22,8 +23,14 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     });
     return json(migration);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("not found")) return json({ error: message }, { status: 404 });
-    return json({ error: message }, { status: 409 });
+    if (error instanceof Error && error.message === "Migration not found") {
+      return json({ error: "Migration not found" }, { status: 404 });
+    }
+    if (error instanceof MigrationRestartConflict)
+      return json({ error: error.message }, { status: 409 });
+    return json(
+      { error: safeErrorReason(error, "Migration restart confirmation failed") },
+      { status: 500 },
+    );
   }
 };

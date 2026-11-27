@@ -1,3 +1,4 @@
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import type {
   BitbucketProfileEnrichment,
   GitLabProfileEnrichment,
@@ -81,12 +82,11 @@ export async function runGitLabInventoryProfile<Client extends InventoryProfileC
       enrichment,
     );
   } catch (error) {
-    const reason =
-      deps.isApiError?.(error) && error instanceof Error
-        ? error.message
-        : error instanceof TypeError || (error instanceof Error && error.name === "ZodError")
-          ? "GitLab inventory response was invalid"
-          : "GitLab inventory profiling failed";
+    const reason = deps.isApiError?.(error)
+      ? safeErrorReason(error, "GitLab inventory request failed")
+      : error instanceof TypeError || (error instanceof Error && error.name === "ZodError")
+        ? "GitLab inventory response was invalid"
+        : "GitLab inventory profiling failed";
     failProfileInventoryRun(input.id, reason, client.getApiCalls() - initialCalls);
   }
   return result(input.id);
@@ -126,12 +126,11 @@ export async function runBitbucketInventoryProfile<Client extends InventoryProfi
       enrichment,
     );
   } catch (error) {
-    const reason =
-      deps.isApiError?.(error) && error instanceof Error
-        ? error.message
-        : error instanceof TypeError || (error instanceof Error && error.name === "ZodError")
-          ? "Bitbucket Server inventory response was invalid"
-          : "Bitbucket Server inventory profiling failed";
+    const reason = deps.isApiError?.(error)
+      ? safeErrorReason(error, "Bitbucket Server inventory request failed")
+      : error instanceof TypeError || (error instanceof Error && error.name === "ZodError")
+        ? "Bitbucket Server inventory response was invalid"
+        : "Bitbucket Server inventory profiling failed";
     failProfileInventoryRun(input.id, reason, client.getApiCalls() - initialCalls);
   }
   return result(input.id);

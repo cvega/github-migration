@@ -11,7 +11,7 @@ export function safeErrorReason(error: unknown, context?: string): string {
       : undefined;
   return typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599
     ? `${context} (HTTP ${status})`
-    : name === "UnknownError"
+    : name === "UnknownError" || name === "Error"
       ? context
       : `${context} (${name})`;
 }

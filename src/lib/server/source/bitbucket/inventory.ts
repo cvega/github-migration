@@ -1,3 +1,4 @@
+import { safeErrorReason } from "$lib/server/core/safe-error";
 import type {
   NumericObservation,
   SourceInventoryProgress,
@@ -314,7 +315,10 @@ export async function* streamBitbucketInventoryPages(
           if (project.repositorySizeBytes.kind === "unavailable")
             project.repositorySizeBytes = { kind: "unavailable", reason };
           console.warn(
-            `[profile] Bitbucket size details unavailable for ${project.path}: ${error.message}`,
+            safeErrorReason(
+              error,
+              `[profile] Bitbucket size details unavailable for ${project.path}`,
+            ),
           );
         }
       }
