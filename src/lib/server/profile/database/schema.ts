@@ -365,8 +365,8 @@ function positiveInteger(value: string | undefined, fallback: number): number {
  * Delete completed/failed profile runs older than the age limit or outside the
  * newest-run limit. Defaults come from `PROFILE_RETENTION_DAYS` (90) and
  * `PROFILE_RETENTION_RUNS` (500); zero disables that dimension. Repository and
- * normalized inventory rows are removed in the same transaction. Running runs
- * are never retention candidates.
+ * normalized inventory rows are removed in the same transaction. Profiles with active analysis
+ * are excluded from both limits.
  */
 export function pruneProfileHistory(
   db: Database,
@@ -377,36 +377,40 @@ export function pruneProfileHistory(
   const maxRuns = options.maxRuns ?? positiveInteger(process.env.PROFILE_RETENTION_RUNS, 500);
   if (maxAgeDays === 0 && maxRuns === 0) return 0;
   const cutoff = new Date(nowMs - maxAgeDays * 24 * 60 * 60_000).toISOString();
-  const rows = db
-    .prepare(
-      `SELECT id FROM profile_runs
-      WHERE state IN ('completed', 'failed')
-         AND (
-           ($max_age_days > 0 AND COALESCE(completed_at, started_at) < $cutoff)
-           OR ($max_runs > 0 AND id NOT IN (
-             SELECT id FROM profile_runs
-             WHERE state IN ('completed', 'failed')
-             ORDER BY COALESCE(completed_at, started_at) DESC, id DESC
-             LIMIT $max_runs
-           ))
-         )`,
-    )
-    .all({ $max_age_days: maxAgeDays, $cutoff: cutoff, $max_runs: maxRuns }) as Array<{
-    id: string;
-  }>;
-  if (rows.length === 0) return 0;
-
-  db.transaction(() => {
-    const deleteInventory = db.prepare("DELETE FROM profile_source_inventories WHERE run_id = ?");
-    const deleteRepos = db.prepare("DELETE FROM profile_repos WHERE run_id = ?");
-    const deleteRun = db.prepare("DELETE FROM profile_runs WHERE id = ?");
-    for (const { id } of rows) {
-      deleteInventory.run(id);
-      deleteRepos.run(id);
-      deleteRun.run(id);
-    }
-  })();
-  return rows.length;
+  // Hold the writer lock from eligibility evaluation through child and parent deletion.
+  return db
+    .transaction(() => {
+      const rows = db
+        .prepare(
+          `WITH eligible AS (
+           SELECT id, COALESCE(completed_at, started_at) AS retained_at
+           FROM profile_runs
+           WHERE state IN ('completed', 'failed')
+             AND NOT EXISTS (
+               SELECT 1 FROM profile_repository_analysis_runs
+               WHERE profile_run_id = profile_runs.id AND state IN ('queued', 'running', 'finalizing')
+             )
+         )
+         SELECT id FROM eligible
+         WHERE ($max_age_days > 0 AND retained_at < $cutoff)
+            OR ($max_runs > 0 AND id NOT IN (
+              SELECT id FROM eligible ORDER BY retained_at DESC, id DESC LIMIT $max_runs
+            ))`,
+        )
+        .all({ $max_age_days: maxAgeDays, $cutoff: cutoff, $max_runs: maxRuns }) as Array<{
+        id: string;
+      }>;
+      const deleteInventory = db.prepare("DELETE FROM profile_source_inventories WHERE run_id = ?");
+      const deleteRepos = db.prepare("DELETE FROM profile_repos WHERE run_id = ?");
+      const deleteRun = db.prepare("DELETE FROM profile_runs WHERE id = ?");
+      for (const { id } of rows) {
+        deleteInventory.run(id);
+        deleteRepos.run(id);
+        deleteRun.run(id);
+      }
+      return rows.length;
+    })
+    .immediate();
 }
 
 function upgradeProfileSchema(db: Database): void {
