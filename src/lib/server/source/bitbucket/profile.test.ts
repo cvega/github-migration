@@ -72,7 +72,7 @@ function inventory(): SourceNamespaceInventory {
 
 describe("Bitbucket repository profile metrics", () => {
   test("uses withCounts for commits reachable from the default branch", async () => {
-    const { calls, client } = clientWithResponses([page([{}], { totalCount: 42 })]);
+    const { calls, client } = clientWithResponses([page([{}], { totalCount: 1 })]);
 
     const metric = await collectBitbucketCommitMetric(
       client,
@@ -86,7 +86,7 @@ describe("Bitbucket repository profile metrics", () => {
       collectedAt: "2026-08-10T12:00:00.000Z",
       observation: {
         kind: "exact",
-        value: 42,
+        value: 1,
         basis: "reported",
         scope: BITBUCKET_COMMITS_SCOPE,
       },
@@ -99,18 +99,60 @@ describe("Bitbucket repository profile metrics", () => {
     });
   });
 
-  test("does not report a page-limited commit count as exact", async () => {
-    const { client } = clientWithResponses([
-      page([{}, {}], { totalCount: 3, isLastPage: false, nextPageStart: 2 }),
-    ]);
-    expect(
-      (
-        await collectBitbucketCommitMetric(client, {
-          path: "PC/service-api",
-          defaultBranch: "main",
-        })
-      ).observation,
-    ).toMatchObject({ kind: "at-least", value: 2, reason: "page-cap" });
+  test.each([3, undefined])(
+    "keeps the observed lower bound with nonterminal total %s",
+    async (totalCount) => {
+      const { client } = clientWithResponses([
+        page([{}, {}], { totalCount, isLastPage: false, nextPageStart: 2 }),
+      ]);
+      expect(
+        (
+          await collectBitbucketCommitMetric(client, {
+            path: "PC/service-api",
+            defaultBranch: "main",
+          })
+        ).observation,
+      ).toMatchObject({ kind: "at-least", value: 2, reason: "page-cap" });
+    },
+  );
+
+  test.each([
+    ["missing last-page flag", { values: [], totalCount: 0 }],
+    ["nonboolean last-page flag", { values: [], isLastPage: "true", totalCount: 0 }],
+    ["missing values", { isLastPage: true, totalCount: 0 }],
+    ["nonarray values", { values: {}, isLastPage: true, totalCount: 0 }],
+    ["malformed array entries", { values: [null, []], isLastPage: true, totalCount: 2 }],
+    ["missing terminal total", { values: [], isLastPage: true }],
+    ["zero total with a commit", { values: [{}], isLastPage: true, totalCount: 0 }],
+    ["terminal total exceeds page length", { values: [{}], isLastPage: true, totalCount: 2 }],
+    [
+      "nonterminal total below page length",
+      {
+        values: [{}],
+        isLastPage: false,
+        nextPageStart: 1,
+        totalCount: 0,
+      },
+    ],
+    ["nonterminal page missing its cursor", { values: [{}], isLastPage: false }],
+  ])("reports unavailable for %s", async (_description, response) => {
+    const { client } = clientWithResponses([jsonResponse(response)]);
+
+    await expect(
+      collectBitbucketCommitMetric(client, { path: "PC/service-api", defaultBranch: "main" }),
+    ).resolves.toMatchObject({
+      observation: { kind: "unavailable", reason: "malformed" },
+    });
+  });
+
+  test("reports exact zero for an authoritative empty terminal commit page", async () => {
+    const { client } = clientWithResponses([page([], { totalCount: 0 })]);
+
+    await expect(
+      collectBitbucketCommitMetric(client, { path: "PC/service-api", defaultBranch: "main" }),
+    ).resolves.toMatchObject({
+      observation: { kind: "exact", value: 0, basis: "reported", scope: BITBUCKET_COMMITS_SCOPE },
+    });
   });
 
   test("does not invent a commit zero when the default branch is unknown", async () => {
@@ -172,7 +214,7 @@ describe("Bitbucket repository profile metrics", () => {
 
   test("collects all five metrics sequentially with explicit pull-request filters", async () => {
     const { client, calls } = clientWithResponses([
-      page([{ committerTimestamp: 1000 }], { totalCount: 3 }),
+      page([{ committerTimestamp: 1000 }], { totalCount: 1 }),
       page([{ state: "OPEN", createdDate: 2000, updatedDate: 3000 }]),
       page([{}, {}]),
       page([{}]),
@@ -205,7 +247,7 @@ describe("Bitbucket repository profile metrics", () => {
           },
           metrics: {
             commits: {
-              observation: { kind: "exact", value: 3, scope: BITBUCKET_COMMITS_SCOPE },
+              observation: { kind: "exact", value: 1, scope: BITBUCKET_COMMITS_SCOPE },
             },
             pullRequests: {
               observation: {
