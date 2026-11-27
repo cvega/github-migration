@@ -54,7 +54,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const authError = validateAuthAvailable(body, { locals, resourceType: "batch" });
   if (authError) return json({ error: authError }, { status: 400 });
   try {
-    const batch = startBatch(body);
+    const batch = startBatch(body, undefined, locals?.user?.id ?? null);
     recordOperatorAuditEvent(locals, {
       action: "batch.started",
       resourceType: "batch",

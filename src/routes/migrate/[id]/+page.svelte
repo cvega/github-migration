@@ -14,6 +14,7 @@
 	import { createMigrationEventSource, refreshMigrations } from "$lib/migrate/live.svelte";
 	import { isGitHubCloud, STATE_ICONS, STATE_LABELS } from "$lib/migrate/migration-display";
 	import { createMigrationForm } from "$lib/migrate/migration-form.svelte";
+	import { tryParsePersistedRequestOptions } from "$lib/migrate/request-options";
 	import { pollScopedPage } from "$lib/migrate/scoped-poll";
 	import type {
 		Counts,
@@ -34,6 +35,7 @@
 		polledMigration?.id === data.migration.id ? polledMigration : null,
 	);
 	const migration = $derived<Migration>(freshMigration ?? data.migration);
+	const savedInsecureSourceTls = $derived(tryParsePersistedRequestOptions(migration.requestOptions)?.noSslVerify === true);
 	const provider = $derived(getSourceProviderAdapter(migration.sourceProvider));
 	const restartSupported = $derived(provider.capabilities.restart &&
 		supportsMigrationTarget(migration.sourceProvider, migration.targetPlatform) &&
@@ -636,6 +638,7 @@
 	{#snippet info()}
 		<div class="rounded-md border border-gray-700/50 bg-gray-800/50 px-4 py-3 text-sm text-gray-300">
 			{migration.sourceOrg}/{migration.sourceRepo} to {migration.targetOrg}/{migration.targetRepo}
+			{#if restart.state.useSavedOptions && savedInsecureSourceTls}<p class="mt-1 text-amber-300">Saved options disable source TLS certificate verification.</p>{/if}
 			{#if !isGitHubCloud(migration.sourceApiUrl)}<p class="mt-1 text-xs text-gray-500">{migration.sourceApiUrl}</p>{/if}
 		</div>
 	{/snippet}

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Migration } from "$lib/migrate/types";
+import { authStore } from "$lib/server/core/auth/schema";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getEvents } from "../database/events";
 import { getGhesImportJob } from "../database/import-jobs";
@@ -50,10 +51,65 @@ function migration(id: string, state: Migration["state"]): Migration {
   };
 }
 
-beforeEach(() => initStore(":memory:", [migrateStore]));
+beforeEach(() => initStore(":memory:", [migrateStore, authStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
+  test("revalidates stored TLS overrides before resuming queued or checkpointed jobs", () => {
+    const sourceApiUrl = "https://source.example/api/v3";
+    const priorPolicy = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+    const priorSource = process.env.GH_SOURCE_API_URL;
+    try {
+      process.env.GH_SOURCE_API_URL = sourceApiUrl;
+      delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      for (const state of ["running", "queued"] as const) {
+        insertMigration({
+          ...migration(state, state),
+          sourceApiUrl,
+          requestOptions: JSON.stringify({ noSslVerify: true }),
+        });
+      }
+      for (const state of ["running", "queued"] as const) {
+        insertMigration({
+          ...migration(`wrong-source-${state}`, state),
+          sourceApiUrl: "https://other.example/api/v3",
+          requestOptions: JSON.stringify({ noSslVerify: true }),
+        });
+      }
+      recoverMigrationRuns({
+        launchRecoveredPipeline: () => {
+          throw new Error("Unexpected recovery launch");
+        },
+        drainQueue: () => {},
+      });
+      expect(
+        getDb()
+          .query(
+            "SELECT resource_id FROM audit_events WHERE json_extract(metadata, '$.operation')='recovery' AND json_extract(metadata, '$.outcome')='denied' ORDER BY resource_id",
+          )
+          .all(),
+      ).toEqual([{ resource_id: "queued" }, { resource_id: "running" }]);
+      for (const state of ["running", "queued"]) {
+        expect(getMigration(`wrong-source-${state}`)?.failureReason).toContain(
+          "server-configured source",
+        );
+      }
+      expect(getMigration("running")).toMatchObject({
+        state: "reconciliation_required",
+        githubMigrationId: "remote-id",
+        failureReason: expect.stringContaining("GH_ALLOW_INSECURE_SOURCE_TLS"),
+      });
+      expect(getMigration("queued")).toMatchObject({
+        state: "failed",
+        failureReason: expect.stringContaining("GH_ALLOW_INSECURE_SOURCE_TLS"),
+      });
+    } finally {
+      if (priorPolicy === undefined) delete process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
+      else process.env.GH_ALLOW_INSECURE_SOURCE_TLS = priorPolicy;
+      if (priorSource === undefined) delete process.env.GH_SOURCE_API_URL;
+      else process.env.GH_SOURCE_API_URL = priorSource;
+    }
+  });
   test.each(["gitlab", "bitbucket-server"] as const)(
     "%s never resumes a source export after the target accepted but the worker lost the ID",
     (provider) => {

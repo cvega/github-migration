@@ -140,24 +140,6 @@ const eventPayloadSchemas = {
     .strict(),
 } satisfies Record<EventType, z.ZodType>;
 
-const persistedRequestOptionsSchema = z
-  .object({
-    sourceApiUrl: z.string().optional(),
-    sourceRepo: z.string().optional(),
-    targetProfileId: z.string().optional(),
-    targetOrg: z.string().optional(),
-    targetRepo: z.string().optional(),
-    noSslVerify: z.boolean().optional(),
-    skipReleases: z.boolean().optional(),
-    lockSource: z.boolean().optional(),
-    archiveSource: z.boolean().optional(),
-    targetRepoVisibility: z.enum(["private", "public", "internal"]).optional(),
-    directPassthrough: z.boolean().optional(),
-  })
-  .strict();
-
-export type PersistedRequestOptions = z.infer<typeof persistedRequestOptionsSchema>;
-
 function parseJson(json: string, description: string): unknown {
   try {
     return JSON.parse(json);
@@ -170,24 +152,6 @@ export function parsePersistedCounts(json: string, description = "migration coun
   const parsed = countsSchema.safeParse(parseJson(json, description));
   if (!parsed.success) throw new Error(`Invalid stored ${description}`, { cause: parsed.error });
   return parsed.data;
-}
-
-export function parsePersistedRequestOptions(json: string): PersistedRequestOptions {
-  const parsed = persistedRequestOptionsSchema.safeParse(
-    parseJson(json, "migration request options"),
-  );
-  if (!parsed.success) {
-    throw new Error("Invalid stored migration request options", { cause: parsed.error });
-  }
-  return parsed.data;
-}
-
-export function tryParsePersistedRequestOptions(json: string): PersistedRequestOptions | null {
-  try {
-    return parsePersistedRequestOptions(json);
-  } catch {
-    return null;
-  }
 }
 
 export function parsePersistedEventPayload(

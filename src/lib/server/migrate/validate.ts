@@ -1,3 +1,4 @@
+import { tryParsePersistedRequestOptions } from "$lib/migrate/request-options";
 import type {
   AuthMode,
   CreateMigrationRequest,
@@ -16,13 +17,13 @@ import {
   getInputSourceProvider,
   validateCredentialScope,
 } from "$lib/server/core/credential-scope";
+import { sourceTlsPolicyError } from "$lib/server/core/github";
 import { getMigrationTargetProfile } from "$lib/server/core/targets";
 import {
   getMigrationExecutor,
   getSourceProviderAdapter,
   type SourceProvider,
 } from "$lib/source-provider";
-import { tryParsePersistedRequestOptions } from "./database/migrations";
 import { resolveEffectiveSourceApiUrl } from "./ports/source-runtime";
 
 export function validateMigrationTargetSelection(input: {
@@ -42,8 +43,15 @@ export function validateMigrationTargetSelection(input: {
   return null;
 }
 
+export function migrationTlsPolicyError(input: CredentialScopeInput): string | null {
+  if (!input.noSslVerify) return null;
+  if (getInputSourceProvider(input) !== "github")
+    return "Source TLS override requires a GitHub source";
+  return sourceTlsPolicyError(resolveEffectiveSourceApiUrl(input));
+}
+
 export function requireCredentialScope(request: CreateMigrationRequest): void {
-  const error = validateCredentialScope(request);
+  const error = validateCredentialScope(request) ?? migrationTlsPolicyError(request);
   if (error) throw new TypeError(error);
 }
 
@@ -57,10 +65,10 @@ export function validatePersistedServerCredentialScope(input: CredentialScopeInp
     ) {
       return "Persisted source API URL no longer matches the server-configured source";
     }
+    return null;
   } catch {
     return "Persisted source API URL is invalid";
   }
-  return null;
 }
 
 export function determineAuthModeFromRequest(request: CreateMigrationRequest): AuthMode {
@@ -113,7 +121,10 @@ export function requestForMigration(
 
 export function restartValidationInput(migration: Migration, options: MigrationOptions) {
   return {
-    ...requestForMigration(migration, options),
+    ...requestForMigration(migration, {
+      ...safeParsePersistedRequestOptions(migration.requestOptions),
+      ...options,
+    }),
     targetPlatform: migration.targetPlatform,
   };
 }

@@ -16,7 +16,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     validateBody(restartMigrationSchema, data),
   );
   if ("errorResponse" in parsed) return parsed.errorResponse;
-  const result = restartBatch(params.id, parsed.body, validateAuthAvailable);
+  const result = restartBatch(
+    params.id,
+    parsed.body,
+    validateAuthAvailable,
+    locals?.user?.id ?? null,
+  );
   recordOperatorAuditEvent(locals, {
     action: "batch.restarted",
     resourceType: "batch",

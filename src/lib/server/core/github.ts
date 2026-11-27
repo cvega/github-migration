@@ -152,6 +152,18 @@ function buildSide(
   };
 }
 
+export function sourceTlsPolicyError(sourceApiUrl: string): string | null {
+  const source = normalizeGitHubApiUrl(sourceApiUrl);
+  for (const entry of (process.env.GH_ALLOW_INSECURE_SOURCE_TLS ?? "").split(",")) {
+    try {
+      if (normalizeGitHubApiUrl(entry.trim()) === source) return null;
+    } catch {
+      // Malformed policy entries grant no exception.
+    }
+  }
+  return "Source TLS verification can only be disabled for an exact source approved in GH_ALLOW_INSECURE_SOURCE_TLS";
+}
+
 /** Create authenticated Octokit clients for source and target. */
 export function createClients(opts: {
   sourceApiUrl: string;
@@ -165,6 +177,8 @@ export function createClients(opts: {
   const srcBaseUrl = normalizeGitHubApiUrl(opts.sourceApiUrl);
 
   // Create an HTTPS agent that skips certificate validation for self-signed certs.
+  const policyError = opts.noSslVerify && sourceTlsPolicyError(srcBaseUrl);
+  if (policyError) throw new Error(policyError);
   const insecureAgent = opts.noSslVerify ? new Agent({ rejectUnauthorized: false }) : undefined;
   if (insecureAgent) {
     console.warn(

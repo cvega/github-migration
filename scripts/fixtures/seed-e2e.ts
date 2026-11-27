@@ -104,8 +104,8 @@ db.prepare(
 db.prepare(
   `INSERT INTO migrations (
      id, source_api_url, source_org, source_repo,
-     target_org, target_repo, state, started_at, failure_reason
-   ) VALUES (?, ?, ?, ?, ?, ?, 'reconciliation_required', ?, ?)`,
+     target_org, target_repo, state, started_at, failure_reason, request_options, batch_id
+   ) VALUES (?, ?, ?, ?, ?, ?, 'reconciliation_required', ?, ?, '{"noSslVerify":true}', 'seed-restart-batch')`,
 ).run(
   "seed-e2e-reconciliation",
   "https://api.github.com",

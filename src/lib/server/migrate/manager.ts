@@ -64,8 +64,10 @@ import {
 import { createMigrationRunFinisher } from "./runs/finish";
 import { drainMigrationQueue, launchClaimedMigration, shouldQueueMigration } from "./runs/queue";
 import { recoverMigrationRuns } from "./runs/recovery";
+import { auditSourceTlsOverride } from "./runs/source-tls-audit";
 import {
   determineAuthModeFromRequest,
+  migrationTlsPolicyError,
   requestForMigration,
   requireCredentialScope,
   safeParsePersistedRequestOptions,
@@ -104,16 +106,22 @@ function launchPipeline(id: string, request: CreateMigrationRequest): boolean {
   const registration = activeMigrationRuns.claim(id, migration.state === "cancelling");
   if (!registration) return false;
   const promise = Promise.resolve()
-    .then(() =>
-      executor.run({
-        ...(migration.ownerUserId !== undefined
+    .then(() => {
+      const effective =
+        migration.ownerUserId !== undefined
           ? ownedRequest(migration)
-          : requestForMigration(migration, request)),
+          : requestForMigration(migration, request);
+      const error = migrationTlsPolicyError(effective);
+      if (effective.noSslVerify)
+        auditSourceTlsOverride(migration, "dispatch", error ? "denied" : "allowed", undefined);
+      if (error) throw new Error(error);
+      return executor.run({
+        ...effective,
         id,
         signal: registration.signal,
         emit: createMigrationEventHandler(id, registration.token),
-      }),
-    )
+      });
+    })
     .then((result) => finisher.settleResult(id, registration.token, result))
     .catch((error) => finisher.settleError(id, registration.token, error));
   activeMigrationRuns.attach(id, registration.token, promise);
@@ -140,6 +148,18 @@ function launchRecoveredPipeline(migration: Migration): boolean {
             completedAt: new Date().toISOString(),
           };
         }
+      }
+      const options = safeParsePersistedRequestOptions(resumable.requestOptions);
+      if (options?.noSslVerify) {
+        const error = migrationTlsPolicyError(requestForMigration(resumable, options));
+        auditSourceTlsOverride(resumable, "recovery", error ? "denied" : "allowed", undefined);
+        if (error)
+          return {
+            ...resumable,
+            state: "reconciliation_required" as const,
+            failureReason: error,
+            completedAt: new Date().toISOString(),
+          };
       }
       return executor.resume(
         resumable,
@@ -221,7 +241,11 @@ export function enqueueOwnedBatch(ownerUserId: string, requests: CreateMigration
   return { batchId, jobIds: queued.map(({ id }) => id) };
 }
 
-export function start(request: CreateMigrationRequest, batchId?: string): Migration {
+export function start(
+  request: CreateMigrationRequest,
+  batchId?: string,
+  actorUserId?: string | null,
+): Migration {
   const migration = newMigration(request, batchId);
   migration.requestOptions = serializeRequestOptions(requestForMigration(migration, request));
   migration.authMode = determineAuthModeFromRequest(request);
@@ -245,6 +269,8 @@ export function start(request: CreateMigrationRequest, batchId?: string): Migrat
         : null;
       if (!existing) throw error;
     }
+    if (!existing && request.noSslVerify)
+      auditSourceTlsOverride(migration, "start", "admitted", actorUserId);
   })();
   if (existing) return existing;
   if (queued) activeMigrationRuns.enqueue(migration.id, request);
@@ -288,9 +314,7 @@ function restartRequest(
   existing: Migration,
   credentials: RestartMigrationRequest,
 ): CreateMigrationRequest {
-  const stored = existing.requestOptions
-    ? safeParsePersistedRequestOptions(existing.requestOptions)
-    : null;
+  const stored = safeParsePersistedRequestOptions(existing.requestOptions);
   if (!stored && existing.targetPlatform === "ghec" && !credentials.targetRepoVisibility) {
     throw new MigrationRestartConflict(
       "Cannot restart with saved settings: the original options are unavailable. Review the options and select a target visibility.",
@@ -299,7 +323,11 @@ function restartRequest(
   return requestForMigration(existing, { ...stored, ...credentials });
 }
 
-export function restart(migrationId: string, credentials: RestartMigrationRequest): Migration {
+export function restart(
+  migrationId: string,
+  credentials: RestartMigrationRequest,
+  actorUserId?: string | null,
+): Migration {
   const existing = getMigration(migrationId);
   if (!existing) throw new Error("Migration not found");
   getExecutorForMigration(existing);
@@ -340,6 +368,7 @@ export function restart(migrationId: string, credentials: RestartMigrationReques
     )
       throw new Error("Migration was already claimed for restart");
     event.id = insertEvent(event);
+    if (request.noSslVerify) auditSourceTlsOverride(existing, "restart", "admitted", actorUserId);
   })();
   broadcastMigrationEvent(migrationId, event);
   if (queued) activeMigrationRuns.enqueue(migrationId, request);
@@ -401,6 +430,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
 export function startBatch(
   request: BatchMigrationRequest,
   requestedBatchId?: string,
+  actorUserId?: string | null,
 ): BatchSummary {
   const sourceProvider = request.sourceProvider ?? "github";
   if (!request.targetProfileId?.trim()) throw new TypeError("Choose a destination for this batch.");
@@ -424,7 +454,7 @@ export function startBatch(
     const key = `${sourceRepo}\0${targetRepo}`.toLowerCase();
     if (existingItems.has(key)) continue;
     existingItems.add(key);
-    start({ ...request, sourceProvider, sourceRepo, targetRepo }, batchId);
+    start({ ...request, sourceProvider, sourceRepo, targetRepo }, batchId, actorUserId);
   }
   const summary = getBatchSummary(batchId);
   if (!summary) throw new Error("Batch contains no migrations");
@@ -443,6 +473,7 @@ export function restartBatch(
   batchId: string,
   credentials: RestartMigrationRequest,
   validate?: (request: CreateMigrationRequest) => string | null,
+  actorUserId?: string | null,
 ) {
   for (const provider of getRestartableBatchSourceProviderValues(batchId)) {
     if (!getSourceProviderAdapter(provider as Migration["sourceProvider"])) {
@@ -458,7 +489,7 @@ export function restartBatch(
         results.errors.push({ id: migration.id, error: authError });
         continue;
       }
-      restart(migration.id, credentials);
+      restart(migration.id, credentials, actorUserId);
       results.restarted += 1;
     } catch (error) {
       results.errors.push({

@@ -96,6 +96,7 @@ describe("validateAuthAvailable", () => {
     "GH_TARGET_APP_INSTALLATION_ID",
     "GH_ALLOW_CREDENTIAL_OVERRIDE",
     "GH_ALLOWED_SOURCE_API_URLS",
+    "GH_ALLOW_INSECURE_SOURCE_TLS",
     "GH_SOURCE_API_URL",
     "GH_SOURCE_ORG",
     "GH_TARGET_ORG",
@@ -658,14 +659,23 @@ describe("validateAuthAvailable", () => {
     ).toMatch(/do not support/i);
   });
 
-  test("allows GitHub source options for GitHub migrations", () => {
-    expect(
-      validateAuthAvailable({
-        sourceToken: "source-token",
-        targetToken: "target-token",
-        noSslVerify: true,
-      }),
-    ).toBeNull();
+  test("requires an exact TLS exception in addition to the credential allowlist", () => {
+    const sourceApiUrl = "https://source.example:8443/team/api/v3";
+    const input = { sourceApiUrl, sourceToken: "s", targetToken: "t", noSslVerify: true };
+    process.env.GH_ALLOWED_SOURCE_API_URLS = sourceApiUrl;
+    for (const policy of [
+      "",
+      "*",
+      "https://source.example/team/api/v3",
+      "https://source.example:8443/api/v3",
+    ]) {
+      process.env.GH_ALLOW_INSECURE_SOURCE_TLS = policy;
+      expect(validateAuthAvailable(input)).toContain("GH_ALLOW_INSECURE_SOURCE_TLS");
+    }
+    process.env.GH_ALLOW_INSECURE_SOURCE_TLS = `invalid, ${sourceApiUrl}/`;
+    expect(validateAuthAvailable(input)).toBeNull();
+    delete process.env.GH_ALLOWED_SOURCE_API_URLS;
+    expect(validateAuthAvailable(input)).toContain("allowlist");
   });
 
   test("rejects each GitHub-only source option for every non-GitHub provider", () => {

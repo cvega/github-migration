@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("confirms ambiguous remote state before offering restart credentials", async ({ page }) => {
+test("confirms ambiguous remote state before offering restart credentials", async ({ page }, info) => {
 	const hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate/seed-e2e-reconciliation");
 	await hydrated;
@@ -39,7 +39,8 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 
 	const persisted = await page.request.get("/api/migrate/seed-e2e-reconciliation");
 	expect(persisted.ok()).toBe(true);
-	expect((await persisted.json()).state).toBe("failed");
+	const migration = await persisted.json();
+	expect(migration.state).toBe("failed");
 
 	const restartButton = page.getByRole("button", { name: "Restart", exact: true });
 	await expect(restartButton).toHaveAttribute("aria-expanded", "false");
@@ -57,6 +58,8 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	for (const width of [390, 1280, 1440]) {
 		await page.setViewportSize({width,height:800});
 		await expect(saved).toBeVisible();
+		await page.screenshot({ path: info.outputPath(`saved-tls-${width}.png`) });
+		await expect(restart.getByText("Saved options disable source TLS certificate verification.")).toBeVisible();
 		expect(await restart.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
 	}
 	await saved.focus();
@@ -72,9 +75,31 @@ test("confirms ambiguous remote state before offering restart credentials", asyn
 	await restart.getByLabel("Repository Visibility").selectOption("private");
 	await restart.getByLabel("Skip releases").check();
 	await restart.getByLabel("Direct transfer").check();
-	await restart.getByLabel("Skip SSL verification").check();
+	await restart.getByLabel("Skip SSL verification").uncheck();
+	const editedMigration = { ...migration, requestOptions: JSON.stringify({ noSslVerify: false }) };
+	await page.route("**/api/migrate/seed-e2e-reconciliation/restart", async route => {
+		expect(route.request().postDataJSON()).toMatchObject({ noSslVerify: false });
+		await route.fulfill({ json: editedMigration });
+	});
+	await page.route("**/api/migrate/seed-e2e-reconciliation", route => route.fulfill({ json: editedMigration }));
+	await restart.getByRole("button", { name: "Restart Migration", exact: true }).click();
+	await expect(restart).not.toBeVisible();
+	await restartButton.click();
+	await expect(saved).toBeChecked();
+	await expect(restart.getByText("Saved options disable source TLS certificate verification.")).toHaveCount(0);
 	await restart.getByRole("button", { name: "Cancel", exact: true }).click();
 	await expect(restart).not.toBeVisible();
+	const batchHydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
+	await page.goto("/migrate/batches/seed-restart-batch");
+	await batchHydrated;
+	await page.getByRole("button", {name: "Restart 1 Failed", exact:true}).click();
+	const batch = page.getByRole("dialog", {name: "Restart Failed Migrations"});
+	for (const width of [390,1280]) {
+		await page.setViewportSize({width,height:800});
+		await expect(batch.getByText("Saved options disable source TLS certificate verification for one or more migrations.")).toBeVisible();
+		expect(await batch.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+		await page.screenshot({path: info.outputPath(`batch-saved-tls-${width}.png`)});
+	}
 });
 test("an administrator can review an unsupported route without enabling restart", async ({ page }, info) => {
 	const endpoint = "**/api/migrate/seed-e2e-unsupported-review/confirm-restart";

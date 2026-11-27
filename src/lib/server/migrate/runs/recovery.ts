@@ -8,11 +8,13 @@ import {
 } from "../database/migrations";
 import { recoverInterruptedMigrations } from "../database/schema";
 import {
+  migrationTlsPolicyError,
   requestForMigration,
   safeParsePersistedRequestOptions,
   validatePersistedServerCredentialScope,
 } from "../validate";
 import { activeMigrationRuns } from "./active";
+import { auditSourceTlsOverride } from "./source-tls-audit";
 
 export interface MigrationRecoveryDependencies {
   launchRecoveredPipeline(migration: Migration): boolean;
@@ -37,6 +39,14 @@ export function recoverMigrationRuns(
     Partial<Pick<MigrationRecoveryDependencies, "hasExecutor" | "validateScope">>,
 ): void {
   const dependencies = { ...defaults(overrides), ...overrides };
+  function recoveryError(migration: Migration, request: CreateMigrationRequest): string | null {
+    const scopeError = dependencies.validateScope(request);
+    if (scopeError) return scopeError;
+    const tlsError = migrationTlsPolicyError(request);
+    if (tlsError) auditSourceTlsOverride(migration, "recovery", "denied", undefined);
+    return tlsError;
+  }
+
   recoverInterruptedMigrations(getDb());
 
   for (const migration of getRecoverableMigrations()) {
@@ -48,8 +58,11 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const request = requestForMigration(migration);
-    const scopeError = dependencies.validateScope(request);
+    const request = requestForMigration(
+      migration,
+      safeParsePersistedRequestOptions(migration.requestOptions) ?? {},
+    );
+    const scopeError = recoveryError(migration, request);
     if (scopeError) {
       updateMigrationState(migration.id, "reconciliation_required", {
         failureReason: scopeError,
@@ -68,9 +81,7 @@ export function recoverMigrationRuns(
       });
       continue;
     }
-    const options = migration.requestOptions
-      ? safeParsePersistedRequestOptions(migration.requestOptions)
-      : null;
+    const options = safeParsePersistedRequestOptions(migration.requestOptions);
     if (!options) {
       updateMigrationState(migration.id, "failed", {
         failureReason: "Queued migration request options lost (internal error)",
@@ -79,7 +90,7 @@ export function recoverMigrationRuns(
       continue;
     }
     const request = requestForMigration(migration, options);
-    const scopeError = dependencies.validateScope(request);
+    const scopeError = recoveryError(migration, request);
     if (scopeError) {
       updateMigrationState(migration.id, "failed", {
         failureReason: scopeError,

@@ -7,7 +7,7 @@ import {
   getInputSourceProvider,
   validateCredentialScope,
 } from "$lib/server/core/credential-scope";
-import { normalizeGitHubApiUrl } from "$lib/server/core/github";
+import { normalizeGitHubApiUrl, sourceTlsPolicyError } from "$lib/server/core/github";
 import { getMigrationTargetProfile } from "$lib/server/core/targets";
 import { resolveEffectiveSourceApiUrl } from "$lib/server/migrate/ports/source-runtime";
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
@@ -121,6 +121,10 @@ export function validateAuthAvailable(
     effectiveSourceApiUrl = resolveEffectiveSourceApiUrl(creds);
   } catch {
     return "Source API URL is invalid";
+  }
+  if (creds.noSslVerify) {
+    const error = sourceTlsPolicyError(effectiveSourceApiUrl);
+    if (error) return error;
   }
   const capability = getMigrationCapability(provider, targetProfileId ?? "ghec", {
     sourceAuthProvided: provider === "github" && Boolean(creds.sourceToken || creds.sourceApp),
