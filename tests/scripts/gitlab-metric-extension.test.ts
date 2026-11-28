@@ -11,34 +11,51 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 
+import { GITLAB_PROFILE_METRICS } from "../../src/lib/source/gitlab-metrics";
+
 const ROOT = join(import.meta.dir, "../..");
 const SKIPPED = new Set(["node_modules", ".git", "build", "coverage", ".e2e-data", "data"]);
 
-const METRIC = `import { defineGitLabMetric } from "./define";
+interface Probe {
+  stem: string;
+  key: string;
+  order: number;
+  position: number;
+}
+
+const metricModule = ({
+  key,
+  order,
+  position,
+}: Probe) => `import { defineGitLabMetric } from "./define";
 
 export default defineGitLabMetric({
-  key: "zzProbe",
-  order: 12,
-  card: { label: "Probe", icon: "tag", position: 13 },
+  key: "${key}",
+  order: ${order},
+  card: { label: "Probe", icon: "tag", position: ${position} },
 });
 `;
-const FIXTURE = `import type { ProfileNumericMetric } from "$lib/source/types";
+const fixtureModule = ({
+  stem,
+}: Probe) => `import type { ProfileNumericMetric } from "$lib/source/types";
 
 export default {
   provider: "gitlab",
-  endpointFamily: "zz-probe",
+  endpointFamily: "${stem}",
   collectedAt: "2026-08-10T12:00:00.000Z",
   observation: { kind: "exact", value: 1, basis: "enumerated", scope: "probe" },
 } satisfies ProfileNumericMetric;
 `;
-const COLLECTOR = `import descriptor from "$lib/source/gitlab-metrics/zz-probe.metric";
+const collectorModule = ({
+  stem,
+}: Probe) => `import descriptor from "$lib/source/gitlab-metrics/${stem}.metric";
 import { budgetObservation, metric } from "./counts";
 import { defineGitLabCollector } from "./types";
 
 // Makes no request, but honors the shared request budget like every collector.
 export default defineGitLabCollector(descriptor, async (client, _project, options = {}) =>
   metric(
-    "zz-probe",
+    "${stem}",
     options.apiCallCeiling !== undefined && client.getApiCalls() >= options.apiCallCeiling
       ? budgetObservation("probe")
       : { kind: "exact", value: 1, basis: "enumerated", scope: "probe" },
@@ -46,6 +63,19 @@ export default defineGitLabCollector(descriptor, async (client, _project, option
   ),
 );
 `;
+
+/** The lowest unused `order` and card `position` above everything already registered. */
+function freeSlots(taken: ReadonlyArray<{ order: number; position: number }>) {
+  return {
+    order: Math.max(-1, ...taken.map(({ order }) => order)) + 1,
+    position: Math.max(-1, ...taken.map(({ position }) => position)) + 1,
+  };
+}
+
+const REGISTERED = GITLAB_PROFILE_METRICS.map(({ order, card }) => ({
+  order,
+  position: card.position,
+}));
 
 const FAILURE_LINE = /^\(fail\)|^error:|<error|Found \d+ error/;
 
@@ -62,7 +92,7 @@ function run(cwd: string, command: string[], keep: RegExp = /./): { code: number
  * extra metric leaves every shared fixture consumer and the type check passing
  * without editing any shared fixture list.
  */
-test("a new metric needs only its own files and the regenerated lists", () => {
+function verifyExtension(probes: Probe[]): void {
   const copy = mkdtempSync(join(tmpdir(), "gitlab-metric-extension-"));
   try {
     cpSync(ROOT, copy, {
@@ -83,12 +113,15 @@ test("a new metric needs only its own files and the regenerated lists", () => {
     }
     // A partial run would trip the repository-wide coverage threshold.
     writeFileSync(join(copy, "bunfig.toml"), '[test]\npreload = ["./src/test-setup.ts"]\n');
-    writeFileSync(join(copy, "src/lib/source/gitlab-metrics/zz-probe.metric.ts"), METRIC);
-    writeFileSync(join(copy, "src/lib/source/gitlab-metrics/zz-probe.fixture.ts"), FIXTURE);
-    writeFileSync(
-      join(copy, "src/lib/server/source/gitlab/metrics/zz-probe.collector.ts"),
-      COLLECTOR,
-    );
+    for (const probe of probes) {
+      const client = join(copy, "src/lib/source/gitlab-metrics", probe.stem);
+      writeFileSync(`${client}.metric.ts`, metricModule(probe));
+      writeFileSync(`${client}.fixture.ts`, fixtureModule(probe));
+      writeFileSync(
+        join(copy, "src/lib/server/source/gitlab/metrics", `${probe.stem}.collector.ts`),
+        collectorModule(probe),
+      );
+    }
 
     const generated = run(copy, ["bun", "scripts/packaging/generate-gitlab-metrics.ts"]);
     expect(generated.output).toContain("generated lists");
@@ -120,4 +153,23 @@ test("a new metric needs only its own files and the regenerated lists", () => {
   } finally {
     rmSync(copy, { recursive: true, force: true });
   }
+}
+
+const probe = (stem: string, key: string, slots: { order: number; position: number }): Probe => ({
+  stem,
+  key,
+  ...slots,
+});
+
+test("a new metric needs only its own files and the regenerated lists", () => {
+  verifyExtension([probe("zz-probe", "zzProbe", freeSlots(REGISTERED))]);
+}, 120_000);
+
+test("a new metric still fits when the next order and card position are already taken", () => {
+  const first = freeSlots(REGISTERED);
+  const occupant = probe("zz-occupant", "zzOccupant", first);
+  const second = freeSlots([...REGISTERED, first]);
+  expect(second.order).not.toBe(first.order);
+  expect(second.position).not.toBe(first.position);
+  verifyExtension([occupant, probe("zz-probe", "zzProbe", second)]);
 }, 120_000);

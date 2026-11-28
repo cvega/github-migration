@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { ProfileInventorySummary } from "$lib/profile/types";
+import { GITLAB_PROFILE_METRIC_KEYS, type GitLabMetricKey } from "$lib/source/gitlab-metrics";
 import { gitLabMetricFixtures } from "$lib/source/gitlab-metrics/fixtures";
 import type {
   GitLabProfileEnrichment,
@@ -29,6 +31,18 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     projectWebhooks: { ...exact("project-hooks", 0, "enumerated"), eventCategories: [] },
     groupWebhooks: { ...exact("group-hooks", 1, "enumerated"), eventCategories: ["pipeline"] },
   });
+}
+
+type SummaryObservation = NonNullable<ProfileInventorySummary["metrics"]>[GitLabMetricKey];
+
+/** What summing one observation over identical projects gives: unavailable stays unavailable. */
+function sameInEveryProject(
+  observation: ProfileNumericMetric["observation"],
+  projects: number,
+): SummaryObservation {
+  return observation.kind === "unavailable"
+    ? { kind: "unavailable", reason: observation.reason }
+    : { kind: observation.kind, value: observation.value * projects };
 }
 
 function inventory(): SourceNamespaceInventory {
@@ -185,7 +199,7 @@ describe("summarizeGitLabEnrichment", () => {
       ],
     };
 
-    const listed: Record<string, { kind: "exact"; value: number }> = {
+    const listed: Record<string, SummaryObservation> = {
       issues: { kind: "exact", value: 5 },
       mergeRequests: { kind: "exact", value: 2 },
       commits: { kind: "exact", value: 6 },
@@ -200,16 +214,10 @@ describe("summarizeGitLabEnrichment", () => {
       groupWebhooks: { kind: "exact", value: 2 },
     };
     // Metrics the scenario does not name keep their generated fixture, summed over two projects.
-    const generated: Record<string, { kind: "exact"; value: number }> = Object.fromEntries(
+    const generated: Record<string, SummaryObservation> = Object.fromEntries(
       Object.entries(gitLabMetricFixtures())
         .filter(([key]) => !(key in listed))
-        .map(([key, { observation }]) => [
-          key,
-          {
-            kind: "exact",
-            value: 2 * (observation.kind === "unavailable" ? 0 : observation.value),
-          },
-        ]),
+        .map(([key, { observation }]) => [key, sameInEveryProject(observation, 2)]),
     );
     expect(
       summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).metrics,
@@ -217,6 +225,60 @@ describe("summarizeGitLabEnrichment", () => {
     expect(
       summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).webhookEvents,
     ).toEqual({ projectWebhooks: [], groupWebhooks: ["pipeline"] });
+  });
+
+  test("keeps a spent request budget unavailable, never a measured zero, for every metric", () => {
+    const fixtures = gitLabMetricFixtures();
+    const spent = gitLabMetricFixtures(
+      Object.fromEntries(
+        GITLAB_PROFILE_METRIC_KEYS.map((key) => [
+          key,
+          {
+            ...fixtures[key],
+            observation: {
+              kind: "unavailable",
+              reason: "request-budget",
+              scope: "fixture request budget",
+            },
+          },
+        ]),
+      ),
+    );
+    const enrichment = (second: GitLabProjectMetrics): GitLabProfileEnrichment => ({
+      version: 2,
+      provider: "gitlab",
+      sourceApiUrl: "https://gitlab.example.com/api/v4",
+      namespace: "platform/products",
+      projects: [
+        { sourceId: "1", path: "platform/products/api", metrics: spent },
+        { sourceId: "2", path: "platform/products/web", metrics: second },
+      ],
+    });
+    const summarize = (second: GitLabProjectMetrics) =>
+      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment(second)).metrics;
+
+    expect(summarize(spent)).toEqual(
+      Object.fromEntries(
+        GITLAB_PROFILE_METRIC_KEYS.map((key) => [
+          key,
+          { kind: "unavailable", reason: "request-budget" },
+        ]),
+      ),
+    );
+    // One project still measured: its count is a lower bound, not the total.
+    expect(summarize(fixtures)).toEqual(
+      Object.fromEntries(
+        GITLAB_PROFILE_METRIC_KEYS.map((key) => {
+          const { observation } = fixtures[key];
+          return [
+            key,
+            observation.kind === "unavailable"
+              ? { kind: "unavailable", reason: observation.reason }
+              : { kind: "at-least", value: observation.value },
+          ];
+        }),
+      ),
+    );
   });
 
   test("keeps known issue counts as a lower bound when one project is unavailable", () => {
