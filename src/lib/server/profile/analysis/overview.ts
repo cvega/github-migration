@@ -35,6 +35,7 @@ export interface ProfileInventorySummary {
   approvalPolicy?: GitLabApprovalPolicy;
   membershipScopes?: GitLabMembershipScope[];
   pullMirrorProjects?: NumericObservation;
+  containerRegistryTags?: NumericObservation;
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
@@ -93,6 +94,7 @@ const profileInventorySummarySchema = z
     approvalPolicy: gitLabApprovalPolicySchema.optional(),
     membershipScopes: z.array(gitLabMembershipScopeSchema).max(20_000).optional(),
     pullMirrorProjects: numericObservationSchema.optional(),
+    containerRegistryTags: numericObservationSchema.optional(),
     webhookEvents: z
       .object({
         projectWebhooks: gitLabWebhookEventCategoriesSchema,
@@ -133,7 +135,9 @@ export function parseProfileInventorySummary(value: unknown): ProfileInventorySu
   return profileInventorySummarySchema.parse(value) as ProfileInventorySummary;
 }
 
-function toSummaryObservation({ observation }: ProfileNumericMetric): NumericObservation {
+function toSummaryObservation({
+  observation,
+}: Pick<ProfileNumericMetric, "observation">): NumericObservation {
   return observation.kind === "unavailable"
     ? { kind: "unavailable", reason: observation.reason }
     : { kind: observation.kind, value: observation.value };
@@ -207,6 +211,11 @@ export function summarizeGitLabEnrichment(
   return {
     ...summary,
     metrics,
+    containerRegistryTags: sumObservations(
+      enrichment.projects.map(({ metrics }) =>
+        toSummaryObservation({ observation: metrics.containerRegistry.tags }),
+      ),
+    ),
     approvalPolicy: {
       requiresApprovals: approvalPresence("requiresApprovals"),
       hasRequiredProtectedBranchRules: approvalPresence("hasRequiredProtectedBranchRules"),

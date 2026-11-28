@@ -167,6 +167,20 @@ list establishes zero; an absent ecosystem in an incomplete breakdown does not.
 Packages need separate publishing and consumer reconfiguration after migration;
 the project export does not supply these package versions.
 
+Container registry inventory paginates only
+`GET /projects/:id/registry/repositories?tags_count=true` for selected projects.
+It records a visible repository count and a separate sum of reported tag counts,
+not enablement flags or storage bytes. An empty list reports exact zero for both;
+missing `tags_count` leaves tags unavailable (`not-reported`) or a lower bound
+when other repositories report counts. HTTP 401/403 is `forbidden`; 404 (including
+feature/tier unavailability) is `not-reported`, and the profile continues.
+Partial pagination preserves lower bounds within the shared profile budget.
+Malformed tag counts do not invalidate otherwise usable repository counts.
+Only aggregates are retained: no registry URLs, paths, names, tag identities or
+image contents. Images are not imported and require a separate transfer before
+cutover. The collector does not broaden project scope through group endpoints
+or fetch images or individual tag lists.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

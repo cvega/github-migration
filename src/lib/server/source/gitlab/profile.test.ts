@@ -282,6 +282,7 @@ describe("collectGitLabProfileEnrichment", () => {
       remote_mirrors: jsonResponse([]),
       "mirror/pull": jsonResponse({ enabled: false }),
       packages: jsonResponse([]),
+      "registry/repositories": jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -452,6 +453,56 @@ function budgetInventory(projectCount: number): SourceNamespaceInventory {
     })),
   };
 }
+
+describe("GitLab registry access during a profile", () => {
+  test.each([
+    [401, "forbidden"],
+    [403, "forbidden"],
+    [404, "not-reported"],
+  ] as const)(
+    "continues collecting selected projects after registry HTTP %i",
+    async (status, reason) => {
+      const registryPaths: string[] = [];
+      const client = new GitLabClient({
+        baseUrl: "https://gitlab.example.com",
+        token: "offline-fixture",
+        maxRetries: 0,
+        fetch: async (input) => {
+          const { pathname } = new URL(input.toString());
+          if (pathname.endsWith("/registry/repositories")) {
+            registryPaths.push(pathname);
+            return pathname === "/api/v4/projects/1/registry/repositories"
+              ? Response.json({ message: "Registry unavailable for this subscription" }, { status })
+              : jsonResponse([{ id: 2, tags_count: 7 }]);
+          }
+          if (pathname.endsWith("/sequence")) return jsonResponse({ count: 4 });
+          if (pathname.endsWith("/repository/branches/main")) {
+            return jsonResponse({ commit: { id: "abc123" } });
+          }
+          return jsonResponse([]);
+        },
+      });
+      const { projects } = await collectGitLabProfileEnrichment(client, budgetInventory(2));
+      expect(registryPaths.sort()).toEqual([
+        "/api/v4/projects/1/registry/repositories",
+        "/api/v4/projects/2/registry/repositories",
+      ]);
+      expect(projects[0]?.metrics.containerRegistry).toMatchObject({
+        observation: { kind: "unavailable", reason },
+        tags: { kind: "unavailable", reason },
+      });
+      expect(projects[1]?.metrics.containerRegistry).toMatchObject({
+        observation: { kind: "exact", value: 1 },
+        tags: { kind: "exact", value: 7 },
+      });
+      expect(projects.map(({ metrics }) => metrics.commits.observation)).toEqual([
+        expect.objectContaining({ kind: "exact", value: 4 }),
+        expect.objectContaining({ kind: "exact", value: 4 }),
+      ]);
+      expect(JSON.stringify(projects)).not.toContain("subscription");
+    },
+  );
+});
 
 describe("GitLab merge request approval policy collection", () => {
   const project = { sourceId: "platform/project" };

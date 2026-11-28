@@ -138,6 +138,12 @@
 						<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 							<div class="text-lg font-semibold text-gray-50">{tile.key === "members" ? "Per scope" : formatObservation(tile.value)}</div>
 							<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name={tile.icon} size={12} class="text-gray-500" />{tile.label}</div>
+							{#if tile.key === "containerRegistry"}
+								{#if tile.value.kind === "unavailable"}<div class="mt-1 text-xs text-gray-500">{tile.value.reason}</div>{/if}
+								{#if summary.containerRegistryTags}
+									<div class="mt-2 text-xs text-[var(--workbench-text-muted)]">Container tags: {formatObservation(summary.containerRegistryTags)}{#if summary.containerRegistryTags.kind === "unavailable"}{` (${summary.containerRegistryTags.reason})`}{/if}</div>
+								{/if}
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -146,6 +152,9 @@
 						Projects with an enabled pull mirror: {formatObservation(summary.pullMirrorProjects)}.
 						Reconfigure required mirrors before cutover; mirror settings do not migrate.
 					</p>
+				{/if}
+				{#if summary.containerRegistryTags}
+					<p class="mt-3 text-[13px] text-[var(--workbench-text-muted)]">Container images are not imported. Arrange a separate image transfer before cutover; counts cover only visible project registries.</p>
 				{/if}
 				{#if summary.approvalPolicy && summary.projectsCaptured > 0}
 					{@const policy = summary.approvalPolicy}
