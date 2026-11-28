@@ -3,6 +3,11 @@ import type { DomainStore, DurableTableContract } from "$lib/server/core/db";
 
 export const AUTH_DURABLE_TABLES = [
   {
+    name: "app_schema_versions",
+    purpose: "Per-domain schema versions",
+    notes: "Supports idempotent startup upgrades",
+  },
+  {
     name: "app_users",
     purpose: "Dashboard user identities and credentials",
     notes: "Usernames are unique case-insensitively; passwords are stored as Argon2id hashes",

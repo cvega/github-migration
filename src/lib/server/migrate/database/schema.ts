@@ -1,5 +1,5 @@
 /**
- * The Migrate domain's persistence contribution: table DDL, schema upgrades,
+ * The Migrate domain's persistence contribution: table DDL,
  * retention, and the first phase of startup recovery. Restart classification
  * fails provably local interruptions, quarantines ambiguous remote writes, and
  * leaves durable server-auth checkpoints for the manager to resume.
@@ -15,26 +15,15 @@ import {
   migrationStatesSql,
 } from "$lib/migration-state";
 import { GITLAB_GHES_PAUSE_REASON } from "$lib/migration-target";
-import {
-  addColumnIfMissing,
-  type DomainStore,
-  type DurableTableContract,
-} from "$lib/server/core/db";
+import type { DomainStore, DurableTableContract } from "$lib/server/core/db";
 import { getGitHubSourcePlatform, SOURCE_PROVIDERS } from "$lib/source-provider";
-import { migrationLogUrl } from "../github/log-url";
 import {
-  MIGRATION_COLS,
   PAUSED_GITLAB_ROUTE_SQL,
   RECOVERABLE_CHECKPOINT_SQL,
   UNRESOLVED_REMOTE_WORK_SQL,
 } from "./columns";
 
 export const MIGRATE_DURABLE_TABLES = [
-  {
-    name: "app_schema_versions",
-    purpose: "Per-domain schema versions",
-    notes: "Supports idempotent startup upgrades",
-  },
   {
     name: "migrations",
     purpose: "One row per repository migration",
@@ -65,11 +54,6 @@ export const MIGRATE_DURABLE_TABLES = [
 ] as const satisfies readonly DurableTableContract[];
 
 const MIGRATE_DDL = `
-  CREATE TABLE IF NOT EXISTS app_schema_versions (
-    domain TEXT PRIMARY KEY,
-    version INTEGER NOT NULL
-  );
-
   CREATE TABLE IF NOT EXISTS migrations (
     id TEXT PRIMARY KEY,
     batch_id TEXT,
@@ -96,7 +80,9 @@ const MIGRATE_DDL = `
     pipeline_step TEXT,
     auth_mode TEXT,
     request_options TEXT,
-    source_size_kb INTEGER
+    source_size_kb INTEGER,
+    -- Keep ownership when an operator is removed. NULL denotes unrestricted work.
+    owner_user_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -133,17 +119,6 @@ const MIGRATE_DDL = `
     PRIMARY KEY (target_api_url, target_org, source_kind, source_identity)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_events_migration_id ON events(migration_id);
-  CREATE INDEX IF NOT EXISTS idx_events_migration_id_id ON events(migration_id, id);
-  CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(migration_id, created_at);
-  CREATE INDEX IF NOT EXISTS idx_migrations_state ON migrations(state);
-  CREATE INDEX IF NOT EXISTS idx_migrations_batch_id ON migrations(batch_id);
-  CREATE INDEX IF NOT EXISTS idx_migrations_started_at ON migrations(started_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_migrations_completed_at ON migrations(completed_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_ghes_import_jobs_phase ON ghes_import_jobs(phase);
-`;
-
-const BATCH_ITEM_DDL = `
   CREATE TABLE IF NOT EXISTS migration_batch_items (
     batch_id TEXT NOT NULL,
     source_org TEXT NOT NULL COLLATE NOCASE,
@@ -152,157 +127,17 @@ const BATCH_ITEM_DDL = `
     migration_id TEXT NOT NULL UNIQUE REFERENCES migrations(id) ON DELETE CASCADE,
     PRIMARY KEY (batch_id, source_org, source_repo, target_repo)
   );
+
+  CREATE INDEX IF NOT EXISTS idx_events_migration_id ON events(migration_id);
+  CREATE INDEX IF NOT EXISTS idx_events_migration_id_id ON events(migration_id, id);
+  CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(migration_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_migrations_state ON migrations(state);
+  CREATE INDEX IF NOT EXISTS idx_migrations_batch_id ON migrations(batch_id);
+  CREATE INDEX IF NOT EXISTS idx_migrations_started_at ON migrations(started_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_migrations_completed_at ON migrations(completed_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_ghes_import_jobs_phase ON ghes_import_jobs(phase);
+  CREATE INDEX IF NOT EXISTS idx_migrations_owner ON migrations(owner_user_id, started_at DESC) WHERE owner_user_id IS NOT NULL;
 `;
-
-function migrateProviderSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 1) return;
-
-  db.run("PRAGMA foreign_keys = OFF");
-  try {
-    db.transaction(() => {
-      const table = db
-        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'migrations'")
-        .get() as { sql: string } | null;
-      const hasClosedProviderConstraint =
-        table?.sql != null && /CHECK\s*\([\s\S]*source_provider/i.test(table.sql);
-
-      if (hasClosedProviderConstraint) {
-        db.run(`CREATE TABLE migrations_next (
-          id TEXT PRIMARY KEY,
-          batch_id TEXT,
-          github_migration_id TEXT,
-          source_export_id TEXT,
-          source_provider TEXT NOT NULL DEFAULT 'github',
-          source_api_url TEXT NOT NULL,
-          target_profile_id TEXT NOT NULL DEFAULT 'ghec',
-          target_platform TEXT NOT NULL DEFAULT 'ghec',
-          target_api_url TEXT NOT NULL DEFAULT 'https://api.github.com',
-          source_org TEXT NOT NULL,
-          source_repo TEXT NOT NULL,
-          target_org TEXT NOT NULL,
-          target_repo TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'pending',
-          failure_reason TEXT,
-          migration_log_url TEXT,
-          warnings_count INTEGER NOT NULL DEFAULT 0,
-          source_counts TEXT,
-          target_counts TEXT,
-          started_at TEXT NOT NULL,
-          completed_at TEXT,
-          elapsed_seconds REAL,
-          pipeline_step TEXT,
-          auth_mode TEXT,
-          request_options TEXT,
-          source_size_kb INTEGER
-        )`);
-        db.run(
-          `INSERT INTO migrations_next (${MIGRATION_COLS}) SELECT ${MIGRATION_COLS} FROM migrations`,
-        );
-        db.run("DROP TABLE migrations");
-        db.run("ALTER TABLE migrations_next RENAME TO migrations");
-      }
-
-      db.prepare(
-        `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 1)
-         ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-      ).run();
-    })();
-  } finally {
-    db.run("PRAGMA foreign_keys = ON");
-  }
-
-  const violations = db.prepare("PRAGMA foreign_key_check").all();
-  if (violations.length > 0) {
-    throw new Error("Migration provider schema migration left invalid foreign keys");
-  }
-}
-
-function migrateBatchItemSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 3) return;
-
-  db.transaction(() => {
-    db.run(BATCH_ITEM_DDL);
-    db.run(`INSERT OR IGNORE INTO migration_batch_items
-      (batch_id, source_org, source_repo, target_repo, migration_id)
-      SELECT batch_id, source_org, source_repo, target_repo, id
-      FROM migrations WHERE batch_id IS NOT NULL
-      ORDER BY started_at, id`);
-    db.prepare(
-      `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 3)
-       ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-    ).run();
-  })();
-}
-
-function migrateBitbucketCheckpointSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 4) return;
-
-  db.transaction(() => {
-    addColumnIfMissing(db, "migrations", "source_export_id", "TEXT");
-    db.prepare(
-      `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 4)
-       ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-    ).run();
-  })();
-}
-
-function migrateTargetProfileSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 5) return;
-
-  db.transaction(() => {
-    addColumnIfMissing(db, "migrations", "target_profile_id", "TEXT NOT NULL DEFAULT 'ghec'");
-    addColumnIfMissing(db, "migrations", "target_platform", "TEXT NOT NULL DEFAULT 'ghec'");
-    addColumnIfMissing(
-      db,
-      "migrations",
-      "target_api_url",
-      "TEXT NOT NULL DEFAULT 'https://api.github.com'",
-    );
-    db.prepare(
-      `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 5)
-       ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-    ).run();
-  })();
-}
-
-function migrateGhesImportJobSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 6) return;
-
-  db.prepare(
-    `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 6)
-     ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-  ).run();
-}
-
-function migrateGhesSourceLockSchema(db: Database): void {
-  const row = db
-    .prepare("SELECT version FROM app_schema_versions WHERE domain = 'migrate'")
-    .get() as { version: number } | null;
-  if ((row?.version ?? 0) >= 7) return;
-
-  db.transaction(() => {
-    addColumnIfMissing(db, "ghes_import_jobs", "source_was_archived", "INTEGER");
-    db.prepare(
-      `INSERT INTO app_schema_versions (domain, version) VALUES ('migrate', 7)
-       ON CONFLICT(domain) DO UPDATE SET version = excluded.version`,
-    ).run();
-  })();
-}
 
 /**
  * On startup, fail migrations that never crossed a remote side-effect boundary
@@ -435,37 +270,7 @@ export function pruneTerminalMigrationHistory(
 /** Migrate domain store descriptor — see `$lib/server/schemas`. */
 export const migrateStore: DomainStore = {
   applySchema(db) {
-    db.run(MIGRATE_DDL);
-    // Columns added after the table's first release — upgrade older databases.
-    addColumnIfMissing(db, "migrations", "source_size_kb", "INTEGER");
-    addColumnIfMissing(db, "migrations", "source_export_id", "TEXT");
-    addColumnIfMissing(db, "migrations", "source_provider", "TEXT NOT NULL DEFAULT 'github'");
-    addColumnIfMissing(db, "migrations", "target_profile_id", "TEXT NOT NULL DEFAULT 'ghec'");
-    addColumnIfMissing(db, "migrations", "target_platform", "TEXT NOT NULL DEFAULT 'ghec'");
-    addColumnIfMissing(
-      db,
-      "migrations",
-      "target_api_url",
-      "TEXT NOT NULL DEFAULT 'https://api.github.com'",
-    );
-    migrateProviderSchema(db);
-    db.run(MIGRATE_DDL);
-    migrateBatchItemSchema(db);
-    migrateBitbucketCheckpointSchema(db);
-    migrateTargetProfileSchema(db);
-    migrateGhesImportJobSchema(db);
-    migrateGhesSourceLockSchema(db);
-    db.transaction(() => {
-      // Deliberately not ON DELETE SET NULL: removing an operator must never
-      // reclassify their pending work as an unrestricted administrator job.
-      addColumnIfMissing(db, "migrations", "owner_user_id", "TEXT");
-      db.run(
-        "CREATE INDEX IF NOT EXISTS idx_migrations_owner ON migrations(owner_user_id, started_at DESC) WHERE owner_user_id IS NOT NULL",
-      );
-      db.run("UPDATE app_schema_versions SET version = 8 WHERE domain = 'migrate' AND version < 8");
-    })();
-    invalidateLegacyNativeSourceCounts(db);
-    sanitizeLegacyLogUrls(db);
+    db.transaction(() => db.run(MIGRATE_DDL))();
   },
   onInit(db) {
     recoverInterruptedMigrations(db);
@@ -473,61 +278,3 @@ export const migrateStore: DomainStore = {
     if (pruned > 0) console.log(`[migrate] Pruned ${pruned} retained migration(s)`);
   },
 };
-
-// Older native GHEC runs sampled the source name on GitHub with target credentials.
-// Invalidate that observation, including event replay, without changing target counts or job history.
-function invalidateLegacyNativeSourceCounts(db: Database): void {
-  db.transaction(() => {
-    const upgraded = db.run(
-      "UPDATE app_schema_versions SET version = 9 WHERE domain = 'migrate' AND version < 9",
-    );
-    if (!upgraded.changes) return;
-    const native = "target_platform = 'ghec' AND source_provider IN ('gitlab', 'bitbucket-server')";
-    db.run(
-      `UPDATE migrations SET source_counts = NULL WHERE source_counts IS NOT NULL AND ${native}`,
-    );
-    db.run(`UPDATE events SET payload = json_set(payload, '$.sourceCounts', NULL)
-      WHERE migration_id IN (SELECT id FROM migrations WHERE ${native})
-        AND event_type IN ('snapshot','complete') AND json_valid(payload) AND json_type(payload,'$.sourceCounts') = 'object'`);
-    db.run(`UPDATE events SET payload = json_object('message','Source counts unavailable')
-      WHERE migration_id IN (SELECT id FROM migrations WHERE ${native})
-        AND event_type = 'step' AND json_valid(payload) AND json_extract(payload,'$.message') = 'Source counts fetched'`);
-  })();
-}
-
-function sanitizeLegacyLogUrls(db: Database): void {
-  db.transaction(() => {
-    const upgraded = db.run(
-      "UPDATE app_schema_versions SET version = 10 WHERE domain = 'migrate' AND version < 10",
-    );
-    if (!upgraded.changes) return;
-    const rows = db.query<{ id: string; target_api_url: string; migration_log_url: string }, []>(
-      "SELECT id, target_api_url, migration_log_url FROM migrations WHERE migration_log_url IS NOT NULL",
-    );
-    const update = db.prepare("UPDATE migrations SET migration_log_url = ? WHERE id = ?");
-    const migrationChanges: [string | null, string][] = [];
-    for (const row of rows.iterate()) {
-      const url = migrationLogUrl(row.migration_log_url, row.target_api_url);
-      if (url !== row.migration_log_url) migrationChanges.push([url, row.id]);
-    }
-    for (const change of migrationChanges) update.run(...change);
-    const events = db.query<{ id: number; target_api_url: string; url: string }, [string, string]>(
-      `SELECT e.id, m.target_api_url, json_extract(e.payload, ?) AS url
-       FROM events e JOIN migrations m ON m.id = e.migration_id
-       WHERE json_valid(e.payload) AND json_type(e.payload, ?) = 'text'`,
-    );
-    const redact = db.prepare("UPDATE events SET payload = json_set(payload, ?, ?) WHERE id = ?");
-    for (const path of [
-      "$.progress.current.migrationLogUrl",
-      "$.progress.previous.migrationLogUrl",
-      "$.detail.logUrl",
-    ]) {
-      const eventChanges: [string, number][] = [];
-      for (const row of events.iterate(path, path)) {
-        const url = migrationLogUrl(row.url, row.target_api_url) ?? "";
-        if (row.url !== url) eventChanges.push([url, row.id]);
-      }
-      for (const change of eventChanges) redact.run(path, ...change);
-    }
-  })();
-}
