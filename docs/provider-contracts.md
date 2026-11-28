@@ -39,6 +39,10 @@ counts: project branch rules exclude rules inherited from a group, inherited
 rules are counted once per project by merging the project's `inherited` flags
 with `GET /groups/:id/protected_branches` (read once per run, and only when the
 profiled namespace is a top-level group), and a wildcard rule counts once.
+A rule without an `inherited` flag is classified only by a complete group list;
+otherwise only flagged rules count, as a lower bound when the request budget
+cut the evidence short and as unavailable (with the group list's reason) when
+the group list is unsupported, forbidden or not reported.
 HTTP 401/403 on these lists records `forbidden`, a project 404
 `not-found-or-hidden`, and a group 404 `not-reported` (the endpoint needs
 Premium or Ultimate); the profile continues. The source profile flags the

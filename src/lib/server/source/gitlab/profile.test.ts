@@ -387,7 +387,8 @@ describe("collectGitLabProfileEnrichment", () => {
       branches: { observation: { kind: "exact", value: 2, basis: "enumerated" } },
       tags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       releases: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
-      protectedBranches: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
+      // Without group rules or inheritance flags, "main" cannot be classified as the project's.
+      protectedBranches: { observation: { kind: "unavailable", reason: "not-reported" } },
       inheritedProtectedBranches: { observation: { kind: "unavailable", reason: "not-reported" } },
       protectedTags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       ciConfiguration: { observation: { kind: "exact", value: 1, basis: "reported" } },

@@ -161,6 +161,29 @@ function countObservation(list: RuleList, count: number, scope: string): Profile
     : { kind: "unavailable", reason: "request-budget", scope };
 }
 
+/** Why some rules could not be classified as project-owned or inherited. */
+function classificationGap(group: RuleList): UnavailableReason {
+  return group.kind === "unavailable" ? group.reason : "request-budget";
+}
+
+/**
+ * Counts only rules whose ownership is known. With a classification gap the
+ * count is a lower bound, which only a budget gap can express; any other gap
+ * makes the exact value unsupported.
+ */
+function classifiedObservation(
+  list: RuleList,
+  certain: number,
+  gap: UnavailableReason | undefined,
+  scope: string,
+): ProfileNumericObservation {
+  if (gap === undefined || list.kind === "unavailable")
+    return countObservation(list, certain, scope);
+  if (gap === "request-budget")
+    return countObservation({ kind: "partial", rules: [] }, certain, scope);
+  return { kind: "unavailable", reason: gap, scope };
+}
+
 function metric(
   endpointFamily: string,
   observation: ProfileNumericObservation,
@@ -188,16 +211,20 @@ export async function collectGitLabProtectedBranchMetric(
   if (rules.kind === "unavailable")
     return metric("project-protected-branches", countObservation(rules, 0, scope), options);
   const own = rules.rules.filter((rule) => !isInherited(rule, names));
-  // A partly read group list cannot classify unflagged rules, so only flagged ones are certain.
-  if (group.kind === "partial" && own.some((rule) => rule.inherited === undefined)) {
-    const certain = own.filter((rule) => rule.inherited === false).length;
-    return metric(
-      "project-protected-branches",
-      countObservation({ kind: "partial", rules: rules.rules }, certain, scope),
-      options,
-    );
-  }
-  return metric("project-protected-branches", countObservation(rules, own.length, scope), options);
+  // Without a complete group list an unflagged rule may be the group's, so only rules flagged own are certain.
+  const unclassified =
+    group.kind !== "complete" && own.some((rule) => rule.inherited === undefined);
+  const certain = unclassified ? own.filter((rule) => rule.inherited === false).length : own.length;
+  return metric(
+    "project-protected-branches",
+    classifiedObservation(
+      rules,
+      certain,
+      unclassified ? classificationGap(group) : undefined,
+      scope,
+    ),
+    options,
+  );
 }
 
 /**
@@ -226,13 +253,16 @@ export async function collectGitLabInheritedProtectedBranchMetric(
     observation = countObservation(group, inherited.size, scope);
   } else if (rules.kind === "unavailable") {
     observation = { kind: "unavailable", reason: rules.reason, scope };
-  } else if (rules.rules.some((rule) => rule.inherited !== undefined)) {
-    observation = countObservation(rules, inherited.size, scope);
-  } else if (rules.kind === "partial") {
-    observation = { kind: "unavailable", reason: "request-budget", scope };
   } else {
-    // Neither source reports inheritance, so zero would be a guess.
-    observation = { kind: "unavailable", reason: group.reason, scope };
+    // Only flagged rules are classified; an empty or unflagged list cannot rule out inheritance.
+    const unclassified =
+      rules.rules.length === 0 || rules.rules.some((rule) => rule.inherited === undefined);
+    observation = classifiedObservation(
+      rules,
+      inherited.size,
+      unclassified ? classificationGap(group) : undefined,
+      scope,
+    );
   }
   return metric("protected-branch-inheritance", observation, options);
 }

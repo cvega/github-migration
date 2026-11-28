@@ -169,6 +169,37 @@ describe("GitLab protection rule collectors", () => {
   });
 
   test.each([
+    ["platform", 404, "not-reported"],
+    ["platform", 403, "forbidden"],
+    ["platform/services", undefined, "unsupported"],
+  ] as const)(
+    "does not classify unflagged rules in %s when group rules give %p",
+    async (namespace, code, reason) => {
+      const { client } = gitlab({
+        ...(code ? { "/groups/platform/protected_branches": status(code) } : {}),
+        "/projects/1/protected_branches": json([
+          { name: "develop", inherited: false },
+          { name: "release/*" },
+        ]),
+        "/projects/2/protected_branches": json([
+          { name: "main", inherited: true },
+          { name: "release/*" },
+        ]),
+      });
+      const options = run(namespace);
+
+      const [own, inherited] = await Promise.all([
+        collectGitLabProtectedBranchMetric(client, { sourceId: "1" }, options),
+        collectGitLabInheritedProtectedBranchMetric(client, { sourceId: "2" }, options),
+      ]);
+
+      // Unflagged "release/*" may be either, so neither count can claim to be exact.
+      expect(own.observation).toMatchObject({ kind: "unavailable", reason });
+      expect(inherited.observation).toMatchObject({ kind: "unavailable", reason });
+    },
+  );
+
+  test.each([
     [404, "not-reported"],
     [403, "forbidden"],
     [401, "forbidden"],
@@ -360,8 +391,33 @@ describe("GitLab protection rule request budget", () => {
       collectGitLabInheritedProtectedBranchMetric(client, { sourceId: "42" }, options),
     ]);
 
-    expect(own.observation).toMatchObject({ kind: "at-least", value: 100 });
-    expect(inherited.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
+    // A subgroup has no readable group list, so unflagged rules cannot be classified at all.
+    expect(own.observation).toMatchObject({ kind: "unavailable", reason: "unsupported" });
+    expect(inherited.observation).toMatchObject({ kind: "unavailable", reason: "unsupported" });
+  });
+
+  test("keeps flagged rules as lower bounds when the group list gets no budget", async () => {
+    const { client, requests } = gitlab({
+      "/projects/42/protected_branches": json([
+        { name: "main", inherited: true },
+        { name: "develop", inherited: false },
+        { name: "hotfix/*" },
+      ]),
+    });
+    const options = run("platform", client.getApiCalls() + 1);
+
+    const [own, inherited] = await Promise.all([
+      collectGitLabProtectedBranchMetric(client, { sourceId: "42" }, options),
+      collectGitLabInheritedProtectedBranchMetric(client, { sourceId: "42" }, options),
+    ]);
+
+    expect(own.observation).toMatchObject({ kind: "at-least", value: 1, reason: "request-budget" });
+    expect(inherited.observation).toMatchObject({
+      kind: "at-least",
+      value: 1,
+      reason: "request-budget",
+    });
+    expect(requests).toEqual(["/projects/42/protected_branches?page=1&per_page=100"]);
   });
 
   test("reports no certain project rules when a partly read group list cannot classify them", async () => {
