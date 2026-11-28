@@ -97,6 +97,12 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
         protectedTags: metric,
         projectWebhooks: { ...metric, eventCategories: [] },
         groupWebhooks: { ...metric, eventCategories: [] },
+        deployKeys: {
+          ...metric,
+          endpointFamily: "project-deploy-keys",
+          readOnlyCount: 2,
+          pushCapableCount: 5,
+        },
       }),
     })),
   };
@@ -156,6 +162,10 @@ test("mixed subgroup inventory is scoped before aggregation, planning limits, an
     projectsCaptured: 1,
     visibility: { private: 1 },
     metrics: { issues: { value: 7 } },
+    deployKeyAccess: {
+      readOnly: { kind: "exact", value: 2 },
+      pushCapable: { kind: "exact", value: 5 },
+    },
     storage: { storageSizeBytes: { value: 1 } },
   });
   expect(detail).toMatchObject({ scale: null, composition: null, summary: null, estimate: null });

@@ -522,10 +522,15 @@ const gitLabSummary = {
     mirrors: { kind: "exact", value: 2 },
     packageVersions: { kind: "at-least", value: 7 },
     containerRegistry: { kind: "at-least", value: 2 },
+    deployKeys: { kind: "at-least", value: 3 },
   },
   containerRegistryTags: { kind: "unavailable", reason: "not-reported" },
   approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },
   pullMirrorProjects: { kind: "at-least", value: 1 },
+  deployKeyAccess: {
+    readOnly: { kind: "at-least", value: 2 },
+    pushCapable: { kind: "at-least", value: 1 },
+  },
   webhookEvents: { projectWebhooks: [], groupWebhooks: ["deployment", "pipeline"] },
   membershipScopes: gitLabFixtureMetrics.members.scopes,
 };

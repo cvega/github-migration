@@ -34,6 +34,7 @@ describe("GitLab profile metric registry", () => {
       "mirrors",
       "containerRegistry",
       "packageVersions",
+      "deployKeys",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
@@ -63,6 +64,7 @@ describe("GitLab profile metric registry", () => {
       ["mirrors", "Enabled push mirrors"],
       ["containerRegistry", "Container repositories"],
       ["packageVersions", "Package versions to republish"],
+      ["deployKeys", "Deploy keys"],
     ]);
     expect(GITLAB_PROFILE_METRIC_CARDS).toEqual(
       [...GITLAB_PROFILE_METRICS]

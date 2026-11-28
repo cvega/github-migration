@@ -6,6 +6,7 @@ import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
 import { collectGitLabApprovalRuleMetric } from "./metrics/approval-rules.collector";
 import { collectGitLabBranchMetric, GITLAB_BRANCHES_SCOPE } from "./metrics/branches.collector";
 import { collectGitLabCommitMetric, GITLAB_COMMITS_SCOPE } from "./metrics/commits.collector";
+import { collectGitLabDeployKeyMetric } from "./metrics/deploy-keys.collector";
 import { collectGitLabIssueMetric, GITLAB_ISSUES_SCOPE } from "./metrics/issues.collector";
 import {
   collectGitLabMergeRequestMetric,
@@ -283,6 +284,7 @@ describe("collectGitLabProfileEnrichment", () => {
       "mirror/pull": jsonResponse({ enabled: false }),
       packages: jsonResponse([]),
       "registry/repositories": jsonResponse([]),
+      deploy_keys: jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -502,6 +504,130 @@ describe("GitLab registry access during a profile", () => {
       expect(JSON.stringify(projects)).not.toContain("subscription");
     },
   );
+});
+
+describe("GitLab deploy key access", () => {
+  const project = { sourceId: "platform/project" };
+
+  test.each([
+    [401, "forbidden", null],
+    [403, "forbidden", null],
+    [404, "not-reported", null],
+    [404, "not-reported", "This feature requires Premium or Ultimate"],
+  ] as const)(
+    "keeps deploy keys unavailable on HTTP %i (%s, %s) without stopping the profile",
+    async (status, reason, message) => {
+      const deployKeyPaths: string[] = [];
+      const client = new GitLabClient({
+        baseUrl: "https://gitlab.example.com",
+        token: "offline-fixture",
+        maxRetries: 0,
+        fetch: async (input) => {
+          const { pathname } = new URL(input.toString());
+          if (pathname.endsWith("/deploy_keys")) deployKeyPaths.push(pathname);
+          if (pathname === "/api/v4/projects/1/deploy_keys") {
+            return message
+              ? Response.json({ message }, { status })
+              : new Response(null, { status });
+          }
+          if (pathname.endsWith("/repository/branches/main")) {
+            return jsonResponse({ commit: { id: "fixture-head" } });
+          }
+          if (pathname.endsWith("/sequence")) return jsonResponse({ count: 6 });
+          return jsonResponse([]);
+        },
+      });
+
+      const { projects } = await collectGitLabProfileEnrichment(client, budgetInventory(2));
+      expect(projects[0]?.metrics).toMatchObject({
+        deployKeys: {
+          observation: { kind: "unavailable", reason },
+          readOnlyCount: null,
+          pushCapableCount: null,
+        },
+        commits: { observation: { kind: "exact", value: 6 } },
+      });
+      if (message) expect(JSON.stringify(projects)).not.toContain(message);
+      expect(projects[1]?.metrics).toMatchObject({
+        deployKeys: {
+          observation: { kind: "exact", value: 0 },
+          readOnlyCount: 0,
+          pushCapableCount: 0,
+        },
+      });
+      expect(deployKeyPaths.sort()).toEqual([
+        "/api/v4/projects/1/deploy_keys",
+        "/api/v4/projects/2/deploy_keys",
+      ]);
+    },
+  );
+
+  test("counts mixed deploy keys across pages without returning any key metadata", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse(
+        [{ id: 501, title: "discard-title", key: "discard-key-field", can_push: false }],
+        { "X-Next-Page": "2" },
+      ),
+      jsonResponse([{ can_push: false }, { can_push: true }]),
+    ]);
+
+    expect(await collectGitLabDeployKeyMetric(client, project)).toEqual({
+      provider: "gitlab",
+      endpointFamily: "project-deploy-keys",
+      collectedAt: expect.any(String),
+      observation: {
+        kind: "exact",
+        value: 3,
+        basis: "enumerated",
+        scope: "deploy keys visible via the project endpoint",
+      },
+      readOnlyCount: 2,
+      pushCapableCount: 1,
+    });
+    expect(calls.map(({ pathname, searchParams }) => [pathname, searchParams.get("page")])).toEqual(
+      [
+        ["/api/v4/projects/platform%2Fproject/deploy_keys", "1"],
+        ["/api/v4/projects/platform%2Fproject/deploy_keys", "2"],
+      ],
+    );
+  });
+
+  test.each([
+    [1, "request-budget", 1],
+    [2, "pagination-uncertain", 2],
+  ] as const)(
+    "keeps split counts as lower bounds after an incomplete scan with a ceiling of %i",
+    async (apiCallCeiling, reason, callsMade) => {
+      const { client, calls } = clientWithResponses([
+        jsonResponse([{ can_push: true }], { "X-Next-Page": "2" }),
+        new Response(null, { status: 403 }),
+      ]);
+      expect(await collectGitLabDeployKeyMetric(client, project, { apiCallCeiling })).toMatchObject(
+        {
+          observation: { kind: "at-least", value: 1, reason },
+          readOnlyCount: 0,
+          pushCapableCount: 1,
+        },
+      );
+      expect(calls).toHaveLength(callsMade);
+    },
+  );
+
+  test("does not interpret missing or malformed can_push as read-only", async () => {
+    const { client } = clientWithResponses([jsonResponse([{ can_push: false }, {}])]);
+    expect(await collectGitLabDeployKeyMetric(client, project)).toMatchObject({
+      observation: { kind: "unavailable", reason: "malformed" },
+      readOnlyCount: null,
+      pushCapableCount: null,
+    });
+  });
+
+  test("does not mask unexpected provider failures", async () => {
+    const { client } = clientWithResponses([new Response(null, { status: 503 })]);
+    await expect(collectGitLabDeployKeyMetric(client, project)).rejects.toMatchObject({
+      status: 503,
+    });
+  });
 });
 
 describe("GitLab merge request approval policy collection", () => {

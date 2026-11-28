@@ -372,9 +372,12 @@ describe("summarizeGitLabEnrichment", () => {
       ],
     });
     const summarize = (second: GitLabProjectMetrics) =>
-      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment(second)).metrics;
+      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment(second));
 
-    expect(summarize(spent)).toEqual(
+    const missing = { kind: "unavailable", reason: "request-budget" } as const;
+    const allSpent = summarize(spent);
+    expect(allSpent.deployKeyAccess).toEqual({ readOnly: missing, pushCapable: missing });
+    expect(allSpent.metrics).toEqual(
       Object.fromEntries(
         GITLAB_PROFILE_METRIC_KEYS.map((key) => [
           key,
@@ -383,7 +386,10 @@ describe("summarizeGitLabEnrichment", () => {
       ),
     );
     // One project still measured: its count is a lower bound, not the total.
-    expect(summarize(fixtures)).toEqual(
+    const partial = summarize(fixtures);
+    const lowerBound = { kind: "at-least", value: 0 } as const;
+    expect(partial.deployKeyAccess).toEqual({ readOnly: lowerBound, pushCapable: lowerBound });
+    expect(partial.metrics).toEqual(
       Object.fromEntries(
         GITLAB_PROFILE_METRIC_KEYS.map((key) => {
           const { observation } = fixtures[key];

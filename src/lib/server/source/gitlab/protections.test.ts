@@ -276,6 +276,7 @@ describe("GitLab protection rule collectors", () => {
       "/projects/42/mirror/pull": json({ enabled: false }),
       "/projects/42/packages": json([]),
       "/projects/42/registry/repositories": json([]),
+      "/projects/42/deploy_keys": json([]),
       "/groups/platform/hooks": json([]),
       "/projects/42/variables": json([], { "X-Total": "0" }),
       "/groups/platform/variables": json([], { "X-Total": "0" }),

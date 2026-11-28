@@ -12,6 +12,8 @@ import commitsFixture from "./commits.fixture";
 import commitsMetric from "./commits.metric";
 import containerRegistryFixture from "./container-registry.fixture";
 import containerRegistryMetric from "./container-registry.metric";
+import deployKeysFixture from "./deploy-keys.fixture";
+import deployKeysMetric from "./deploy-keys.metric";
 import groupWebhooksFixture from "./group-webhooks.fixture";
 import groupWebhooksMetric from "./group-webhooks.metric";
 import inheritedProtectedBranchesFixture from "./inherited-protected-branches.fixture";
@@ -45,6 +47,7 @@ export const GITLAB_METRIC_FIXTURES = {
   [ciVariablesMetric.key]: ciVariablesFixture,
   [commitsMetric.key]: commitsFixture,
   [containerRegistryMetric.key]: containerRegistryFixture,
+  [deployKeysMetric.key]: deployKeysFixture,
   [groupWebhooksMetric.key]: groupWebhooksFixture,
   [inheritedProtectedBranchesMetric.key]: inheritedProtectedBranchesFixture,
   [issuesMetric.key]: issuesFixture,
