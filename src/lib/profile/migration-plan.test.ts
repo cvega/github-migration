@@ -12,7 +12,12 @@ const repos = [
   { nameWithOwner: "acme/blocked", blockers: 1, warnings: 0 },
 ];
 
-function targetNamesFor(sourceProvider: SourceProvider, sourceOrg: string, paths: string[]) {
+function targetNamesFor(
+  sourceProvider: SourceProvider,
+  sourceOrg: string,
+  paths: string[],
+  selectedRepos = paths,
+) {
   return Object.fromEntries(
     buildProfileMigrationPlan({
       profileRunId: "inventory",
@@ -22,7 +27,7 @@ function targetNamesFor(sourceProvider: SourceProvider, sourceOrg: string, paths
       sourceOrg,
       targetOrg: "acme-cloud",
       repos: paths.map((nameWithOwner) => ({ nameWithOwner, blockers: 0, warnings: 0 })),
-      selectedRepos: paths,
+      selectedRepos,
     }).items.map(({ sourceRepo, targetRepo }) => [sourceRepo, targetRepo]),
   );
 }
@@ -155,13 +160,44 @@ describe("profile migration plans", () => {
       [paths[5]!]: "only-one",
     });
     expect(targetNamesFor("gitlab", "migrate", [...paths].reverse())).toEqual(names);
+    for (const [path, name] of Object.entries(names)) {
+      expect(targetNamesFor("gitlab", "migrate", paths, [path])).toEqual({ [path]: name });
+    }
+  });
+
+  test("avoids a trailing .git even after truncation and namespace qualification", () => {
+    const long = "x".repeat(96);
+    const paths = [
+      "migrate/.git",
+      "migrate/sub/service.GIT",
+      "migrate/other/service.git",
+      `migrate/${long}.gIt-extra`,
+      "migrate/keep.git-tools",
+    ];
+    const names = targetNamesFor("gitlab", "migrate", paths);
+    expect(names[paths[4]!]).toBe("keep.git-tools");
+    for (const name of Object.values(names)) {
+      expect(name).toMatch(/^[a-zA-Z0-9._-]{1,100}$/);
+      expect(name).not.toMatch(/\.git$/i);
+    }
+    expect(new Set(Object.values(names).map((name) => name.toLowerCase())).size).toBe(paths.length);
+  });
+
+  test("keeps a unique valid leaf when another leaf sanitizes to the same name", () => {
+    const paths = ["migrate/a/only+one", "migrate/b/Only-One"];
+    expect(targetNamesFor("gitlab", "migrate", paths)).toEqual({
+      [paths[0]!]: "a-only-one",
+      [paths[1]!]: "Only-One",
+    });
   });
 
   test("disambiguates Bitbucket slugs from different project keys", () => {
-    expect(
-      targetNamesFor("bitbucket-server", "PROF01", ["PROF01/service", "PROF02/service"]),
-    ).toEqual({
+    const paths = ["PROF01/service", "PROF02/service"];
+    expect(targetNamesFor("bitbucket-server", "PROF01", paths)).toEqual({
       "PROF01/service": "service",
+      "PROF02/service": "PROF02-service",
+    });
+    expect(targetNamesFor("bitbucket-server", "PROF01", paths, paths.slice(1))).toEqual({
       "PROF02/service": "PROF02-service",
     });
   });

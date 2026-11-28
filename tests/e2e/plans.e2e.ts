@@ -72,6 +72,11 @@ for (const width of [1280, 390]) {
 		const second = plan.getByLabel(`Target repository for platform/products/services/prof02/${name}`);
 		await expect(first).toHaveValue(`prof01-${name}`);
 		await expect(second).toHaveValue(`prof02-${name}`);
+		const selectFirst = plan.getByLabel(`Select platform/products/services/prof01/${name}`);
+		await selectFirst.uncheck();
+		await expect(second).toHaveValue(`prof02-${name}`);
+		await selectFirst.check();
+		await expect(first).toHaveValue(`prof01-${name}`);
 		await plan.getByRole("combobox", { name: "Destination", exact: true }).selectOption("ghec");
 		await plan.getByLabel("Target organization").fill("migration-target");
 		const launch = plan.getByRole("button", { name: "Launch batch" });
@@ -85,6 +90,9 @@ for (const width of [1280, 390]) {
 		await expect(plan.getByText(/is used more than once/)).toBeVisible();
 		await expect(launch).toBeDisabled();
 		await first.fill("payments-custom");
+		await selectFirst.uncheck();
+		await selectFirst.check();
+		await expect(first).toHaveValue("payments-custom");
 		await expect(launch).toBeEnabled();
 		await expect(second).toHaveValue(`prof02-${name}`);
 
