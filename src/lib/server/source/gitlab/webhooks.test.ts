@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { SourceNamespaceInventory } from "$lib/source/types";
 import { GitLabClient } from "./client";
 import { collectGitLabProfileEnrichment } from "./profile";
-import { collectGitLabGroupWebhookMetric, collectGitLabProjectWebhookMetric } from "./webhooks";
+import {
+  collectGitLabGroupWebhookMetric,
+  collectGitLabProjectWebhookMetric,
+  GitLabGroupHookCache,
+} from "./webhooks";
 
 const project = { sourceId: "42", path: "platform/services/nested/api" };
 const options = { namespace: "platform/services", nowMs: Date.parse("2026-11-28T08:00:00Z") };
@@ -175,6 +179,75 @@ describe("GitLab webhook dependencies", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("reads each shared ancestor once per profile run, even for concurrent projects", async () => {
+    const unavailable = { kind: "unavailable", reason: "not-reported" } as const;
+    const inventory: SourceNamespaceInventory = {
+      version: 1,
+      provider: "gitlab",
+      sourceApiUrl: "https://gitlab.invalid/api/v4",
+      namespace: "platform/services",
+      projectCount: { kind: "exact", value: 3 },
+      projects: ["41", "42", "43"].map((sourceId) => ({
+        provider: "gitlab",
+        sourceId,
+        path: `platform/services/nested/repository-${sourceId}`,
+        name: sourceId,
+        visibility: "private",
+        archived: false,
+        defaultBranch: null,
+        lastActivityAt: null,
+        repositorySizeBytes: unavailable,
+        storageSizeBytes: unavailable,
+        lfsObjectsSizeBytes: unavailable,
+        packagesSizeBytes: unavailable,
+        wikiSizeBytes: unavailable,
+        uploadsSizeBytes: unavailable,
+        jobArtifactsSizeBytes: unavailable,
+        pipelineArtifactsSizeBytes: unavailable,
+        snippetsSizeBytes: unavailable,
+        containerRegistrySizeBytes: unavailable,
+      })),
+    };
+    const run = async (requestBudget: number) => {
+      const groupReads: string[] = [];
+      const client = new GitLabClient({
+        baseUrl: "https://gitlab.invalid",
+        token: "offline-fixture",
+        maxRetries: 0,
+        fetch: async (input) => {
+          const url = new URL(input.toString());
+          if (url.pathname.includes("/groups/")) {
+            groupReads.push(`${url.pathname}?page=${url.searchParams.get("page") ?? "1"}`);
+            // Yield so concurrent projects reach the same ancestor before it settles.
+            await Bun.sleep(1);
+            return url.searchParams.get("page") === "2"
+              ? json([{ id: 2, merge_requests_events: true }])
+              : json([{ id: 1, push_events: true }], { "X-Next-Page": "2" });
+          }
+          return json([]);
+        },
+      });
+      const enrichment = await collectGitLabProfileEnrichment(client, inventory, {
+        concurrency: 3,
+        requestBudget,
+      });
+      return { enrichment, groupReads, calls: client.getApiCalls() };
+    };
+    const generous = await run(1_000);
+    // Two admitted ancestors, two pages each, regardless of how many projects inherit them.
+    expect(generous.groupReads).toHaveLength(4);
+    expect(new Set(generous.groupReads).size).toBe(4);
+    // A budget sized for one read per ancestor is enough for every project.
+    const tight = await run(generous.calls);
+    expect(tight.groupReads).toHaveLength(4);
+    for (const { metrics } of tight.enrichment.projects) {
+      expect(metrics.groupWebhooks).toMatchObject({
+        observation: { kind: "exact", value: 4 },
+        eventCategories: ["push", "merge-requests"],
+      });
+    }
+  });
+
   test("retains local evidence when access is denied on a later page", async () => {
     const { client } = fixture([
       json([{ id: 1, push_events: true }], { "X-Next-Page": "2" }),
@@ -298,5 +371,31 @@ describe("GitLab webhook dependencies", () => {
     await expect(
       collectGitLabProjectWebhookMetric(client, project, { signal: AbortSignal.abort() }),
     ).rejects.toThrow();
+  });
+
+  test("cancels every project waiting on a shared in-flight ancestor read", async () => {
+    const controller = new AbortController();
+    let reads = 0;
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.invalid",
+      token: "offline-fixture",
+      maxRetries: 0,
+      fetch: (_input, init) => {
+        reads += 1;
+        controller.abort();
+        return Promise.reject(init?.signal?.reason ?? new Error("aborted"));
+      },
+    });
+    const shared = {
+      namespace: "platform/services",
+      signal: controller.signal,
+      groupHookCache: new GitLabGroupHookCache(),
+    };
+    const waiting = ["a", "b"].map((name) =>
+      collectGitLabGroupWebhookMetric(client, { path: `platform/services/${name}` }, shared),
+    );
+    const settled = await Promise.allSettled(waiting);
+    expect(settled.map(({ status }) => status)).toEqual(["rejected", "rejected"]);
+    expect(reads).toBe(1);
   });
 });

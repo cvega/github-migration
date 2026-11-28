@@ -25,7 +25,11 @@ import {
   collectGitLabProtectedBranchMetric,
   collectGitLabProtectedTagMetric,
 } from "./protections";
-import { collectGitLabGroupWebhookMetric, collectGitLabProjectWebhookMetric } from "./webhooks";
+import {
+  collectGitLabGroupWebhookMetric,
+  collectGitLabProjectWebhookMetric,
+  GitLabGroupHookCache,
+} from "./webhooks";
 
 export const GITLAB_ISSUES_SCOPE =
   "project issues visible to the caller; all states and authors; excludes merge requests";
@@ -49,6 +53,7 @@ interface GitLabMetricOptions {
   namespace?: string;
   /** Per-run memo shared by collectors that read the same list. */
   shared?: Map<string, Promise<unknown>>;
+  groupHookCache?: GitLabGroupHookCache;
 }
 
 type GitLabMetricProject = Pick<
@@ -384,6 +389,7 @@ export async function collectGitLabProfileEnrichment(
     apiCallCeiling: options.apiCallCeiling ?? client.getApiCalls() + requestBudget,
     namespace: inventory.namespace,
     shared: new Map(),
+    groupHookCache: new GitLabGroupHookCache(),
   };
   const projects = new Array<GitLabProjectProfile>(inventory.projects.length);
   let nextProject = 0;

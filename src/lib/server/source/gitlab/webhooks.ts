@@ -20,6 +20,7 @@ interface WebhookOptions {
   nowMs?: number;
   apiCallCeiling?: number;
   namespace?: string;
+  groupHookCache?: GitLabGroupHookCache;
 }
 
 type UnavailableReason = Extract<ProfileNumericObservation, { kind: "unavailable" }>["reason"];
@@ -27,6 +28,24 @@ interface HookEvidence {
   count: number;
   events: Set<GitLabWebhookEventCategory>;
   reason?: UnavailableReason;
+}
+
+/**
+ * Shares ancestor group hook reads across the projects of one profile run, so
+ * concurrent projects under one group spend its pages once. Create one per run:
+ * entries are only valid for that run's client, credentials and signal.
+ */
+export class GitLabGroupHookCache {
+  readonly #reads = new Map<string, Promise<HookEvidence>>();
+
+  read(path: string, load: () => Promise<HookEvidence>): Promise<HookEvidence> {
+    let read = this.#reads.get(path);
+    if (!read) {
+      read = load();
+      this.#reads.set(path, read);
+    }
+    return read;
+  }
 }
 
 const PROJECT_SCOPE =
@@ -155,11 +174,9 @@ export async function collectGitLabGroupWebhookMetric(
   }
   // Only inspect admitted ancestors, never the ancestors above the selected namespace.
   for (let depth = namespace.split("/").length; depth < segments.length; depth += 1) {
-    const group = await collectHooks(
-      client,
-      `/groups/${encodeURIComponent(segments.slice(0, depth).join("/"))}/hooks`,
-      options,
-    );
+    const path = `/groups/${encodeURIComponent(segments.slice(0, depth).join("/"))}/hooks`;
+    const load = () => collectHooks(client, path, options);
+    const group = await (options.groupHookCache?.read(path, load) ?? load());
     evidence.count += group.count;
     for (const category of group.events) evidence.events.add(category);
     evidence.reason ??= group.reason;
