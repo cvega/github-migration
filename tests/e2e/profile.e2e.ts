@@ -86,7 +86,7 @@ test("reviews and filters a completed source profile", async ({ page }) => {
 	await expect(page.getByRole("button", { name: "Retry repository" })).toBeVisible();
 });
 
-for (const width of [1280, 390]) {
+for (const width of [1280, 768, 390]) {
 	test(`renders a GitLab profile whose metrics were malformed at ${width}px`, async ({ page }, testInfo) => {
 		await page.setViewportSize({ width, height: 844 });
 		const response = await page.goto("/profile/seed-e2e-gitlab-profile");
@@ -105,6 +105,11 @@ for (const width of [1280, 390]) {
 		await expect(storage.getByText("Pipeline artifacts", { exact: true }).locator("..").getByText("0 B", { exact: true })).toBeVisible();
 		await expect(storage.getByText("Snippets", { exact: true })).toBeVisible();
 		await expect(storage.getByText("Container registry", { exact: true }).locator("..").getByText("not-reported", { exact: true })).toBeVisible();
+		const finalTileTops = await storage.locator(".grid > :nth-last-child(-n+2)").evaluateAll(tiles =>
+			tiles.map(tile => tile.getBoundingClientRect().top),
+		);
+		expect(finalTileTops).toHaveLength(2);
+		expect(finalTileTops[1]).toBe(finalTileTops[0]);
 		await expect(contents.getByText("Branch protection rules", { exact: true }).locator("..").getByText("3", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Inherited branch rules", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Tag protection rules", { exact: true }).locator("..").getByText("At least 2", { exact: true })).toBeVisible();

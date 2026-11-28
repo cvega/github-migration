@@ -242,7 +242,7 @@ async function fetchProjectObservations(
       return projectObservations(null, "request-budget");
     }
     if (!(error instanceof GitLabApiError)) throw error;
-    if (error.status === 403) return projectObservations(null, "forbidden");
+    if (error.status === 401 || error.status === 403) return projectObservations(null, "forbidden");
     if (error.status === 404) return projectObservations(null, "not-found-or-hidden");
     if (error.status >= 200 && error.status < 300) return projectObservations(null, "malformed");
     return projectObservations(null, "transient-failure");
