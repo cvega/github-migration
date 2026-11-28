@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   downloadBitbucketArchive,
+  getBitbucketSftpIssues,
   type SftpArchiveClient,
 } from "$lib/server/source/bitbucket/archive";
 
@@ -122,5 +123,67 @@ describe("downloadBitbucketArchive", () => {
       downloadBitbucketArchive("../42", undefined, current.dependencies),
     ).rejects.toThrow("positive integer");
     expect(current.connect).not.toHaveBeenCalled();
+  });
+});
+
+describe("Bitbucket SFTP configuration issues", () => {
+  const keys = [
+    "BITBUCKET_SERVER_URL",
+    "BITBUCKET_SERVER_SSH_USERNAME",
+    "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
+    "BITBUCKET_SERVER_SSH_HOST_KEY_SHA256",
+    "BITBUCKET_SERVER_SSH_PORT",
+    "BITBUCKET_SERVER_SHARED_HOME",
+    "BITBUCKET_SERVER_MAX_ARCHIVE_BYTES",
+    "ARCHIVE_DIR",
+  ] as const;
+  const saved = new Map<string, string | undefined>();
+  beforeEach(() => {
+    for (const key of keys) {
+      saved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+  afterEach(() => {
+    for (const key of keys) {
+      const value = saved.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  function configure(): void {
+    process.env.BITBUCKET_SERVER_URL = "https://bitbucket.example.com";
+    process.env.BITBUCKET_SERVER_SSH_USERNAME = "migration";
+    process.env.BITBUCKET_SERVER_SSH_PRIVATE_KEY = "synthetic-key";
+    process.env.BITBUCKET_SERVER_SSH_HOST_KEY_SHA256 = "synthetic-fingerprint";
+    process.env.ARCHIVE_DIR = "/archives";
+  }
+
+  test("names each missing setting and nothing else", () => {
+    configure();
+    expect(getBitbucketSftpIssues()).toEqual([]);
+    delete process.env.BITBUCKET_SERVER_SSH_PRIVATE_KEY;
+    delete process.env.ARCHIVE_DIR;
+    expect(getBitbucketSftpIssues().map((issue) => issue.variable)).toEqual([
+      "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
+      "ARCHIVE_DIR",
+    ]);
+  });
+
+  test("states the violated rule without echoing invalid values", () => {
+    configure();
+    process.env.BITBUCKET_SERVER_URL = "https://user:synthetic-secret@";
+    process.env.ARCHIVE_DIR = "relative/synthetic-path";
+    process.env.BITBUCKET_SERVER_SHARED_HOME = "synthetic-home";
+    process.env.BITBUCKET_SERVER_SSH_PORT = "synthetic-port";
+    const issues = getBitbucketSftpIssues();
+    expect(issues.map((issue) => issue.text)).toEqual([
+      "BITBUCKET_SERVER_URL must be a valid URL",
+      "ARCHIVE_DIR must be an absolute path",
+      "BITBUCKET_SERVER_SHARED_HOME must be an absolute path",
+      "BITBUCKET_SERVER_SSH_PORT must be a positive integer",
+    ]);
+    expect(JSON.stringify(issues)).not.toContain("synthetic");
   });
 });

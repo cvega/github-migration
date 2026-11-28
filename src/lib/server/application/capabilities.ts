@@ -3,13 +3,14 @@ import {
   supportsMigrationTarget,
   type TargetPlatform,
 } from "$lib/migration-target";
-import { isBitbucketSftpConfigured } from "$lib/server/source/bitbucket/archive";
+import { getBitbucketSftpIssues } from "$lib/server/source/bitbucket/archive";
 import { getBitbucketServerSourceConfig } from "$lib/server/source/bitbucket/config";
-import { isGitLabArchiveStorageConfigured } from "$lib/server/source/gitlab/archive";
+import { getGitLabArchiveStorageIssues } from "$lib/server/source/gitlab/archive";
 import { getGitLabSourceConfig } from "$lib/server/source/gitlab/config";
 import { SOURCE_PROVIDERS, type SourceProvider } from "$lib/source-provider";
 import { isSourceAuthAvailable, isTargetAuthAvailable } from "../core/auth";
-import { isGhesTargetExecutionConfigured } from "../core/ghes-target";
+import type { ConfigIssue } from "../core/config-issue";
+import { getGhesTargetConfigIssues } from "../core/ghes-target";
 import { getMigrationTargetProfile, getMigrationTargetProfiles } from "../core/targets";
 
 type CapabilityStatus = "ready" | "blocked" | "unsupported";
@@ -27,6 +28,8 @@ interface CapabilityReason {
   code: CapabilityReasonCode;
   message: string;
   environment: string[];
+  /** Named settings and fixed rules behind the reason; never configured values. */
+  issues?: string[];
 }
 
 export interface MigrationCapability {
@@ -72,16 +75,6 @@ const TARGET_AUTH_ENV = [
   "GH_TARGET_APP_INSTALLATION_ID",
 ];
 
-const GHES_CONNECTION_ENV = [
-  "GHES_TARGET_API_URL",
-  "GHES_TARGET_ADMIN_USERNAME",
-  "GHES_TARGET_ADMIN_PAT",
-  "GHES_TARGET_SSH_PRIVATE_KEY",
-  "GHES_TARGET_SSH_HOST_KEY_SHA256",
-  "EXPORTER_ARCHIVE_VOLUME",
-  "ARCHIVE_DIR",
-];
-
 function sourceAuthReady(provider: SourceProvider, context: CapabilityContext): boolean {
   if (provider === "github") {
     return context.sourceAuthProvided === true || isSourceAuthAvailable();
@@ -95,18 +88,19 @@ function sourceDisplayName(provider: SourceProvider): string {
   return provider === "gitlab" ? "GitLab" : "GitHub";
 }
 
-function ghesExecutionReady(
-  provider: Exclude<SourceProvider, "github">,
-  targetProfileId: string,
-): boolean {
-  return isGhesTargetExecutionConfigured(targetProfileId, provider);
-}
-
-function ghesExecutionEnvironment(provider: SourceProvider): string[] {
-  if (provider === "gitlab") {
-    return [...GHES_CONNECTION_ENV, "GL_EXPORTER_IMAGE", "GITLAB_SOURCE_USERNAME"];
-  }
-  return [...GHES_CONNECTION_ENV, "BBS_EXPORTER_IMAGE"];
+function configIssueReason(
+  code: CapabilityReasonCode,
+  summary: string,
+  issues: ConfigIssue[],
+): CapabilityReason {
+  const texts = issues.map((issue) => issue.text);
+  const variables = issues.flatMap((issue) => (issue.variable ? [issue.variable] : []));
+  return {
+    code,
+    message: `${summary}: ${texts.join("; ")}`,
+    environment: [...new Set(variables)],
+    issues: texts,
+  };
 }
 
 export function getMigrationCapability(
@@ -160,24 +154,26 @@ export function getMigrationCapability(
   }
 
   if (targetProfile.platform === "ghec") {
-    if (sourceProvider === "gitlab" && !isGitLabArchiveStorageConfigured()) {
-      reasons.push({
-        code: "gitlab-archive-storage-missing",
-        message: "GitLab migration archive storage is not configured",
-        environment: ["ARCHIVE_DIR"],
-      });
-    }
-    if (sourceProvider === "bitbucket-server" && !isBitbucketSftpConfigured()) {
-      reasons.push({
-        code: "bitbucket-sftp-missing",
-        message: "Bitbucket migration SFTP is not configured",
-        environment: [
-          "BITBUCKET_SERVER_SSH_USERNAME",
-          "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
-          "BITBUCKET_SERVER_SSH_HOST_KEY_SHA256",
-          "ARCHIVE_DIR",
-        ],
-      });
+    const archiveIssues =
+      sourceProvider === "gitlab"
+        ? getGitLabArchiveStorageIssues()
+        : sourceProvider === "bitbucket-server"
+          ? getBitbucketSftpIssues()
+          : [];
+    if (archiveIssues.length > 0) {
+      reasons.push(
+        sourceProvider === "gitlab"
+          ? configIssueReason(
+              "gitlab-archive-storage-missing",
+              "GitLab migration archive storage is not configured",
+              archiveIssues,
+            )
+          : configIssueReason(
+              "bitbucket-sftp-missing",
+              "Bitbucket migration SFTP is not configured",
+              archiveIssues,
+            ),
+      );
     }
     if (context.targetAuthProvided !== true && !isTargetAuthAvailable()) {
       reasons.push({
@@ -186,14 +182,20 @@ export function getMigrationCapability(
         environment: TARGET_AUTH_ENV,
       });
     }
-  } else if (
-    !ghesExecutionReady(sourceProvider as Exclude<SourceProvider, "github">, targetProfile.id)
-  ) {
-    reasons.push({
-      code: "ghes-execution-invalid",
-      message: `GHES migration execution is not fully configured for ${sourceDisplayName(sourceProvider)}`,
-      environment: ghesExecutionEnvironment(sourceProvider),
-    });
+  } else {
+    const ghesIssues = getGhesTargetConfigIssues(
+      targetProfile.id,
+      sourceProvider as Exclude<SourceProvider, "github">,
+    );
+    if (ghesIssues.length > 0) {
+      reasons.push(
+        configIssueReason(
+          "ghes-execution-invalid",
+          `GHES migration execution is not fully configured for ${sourceDisplayName(sourceProvider)}`,
+          ghesIssues,
+        ),
+      );
+    }
   }
 
   return {
@@ -220,7 +222,11 @@ export function logCapabilityReport(
   const routes = report.migrations.map((capability) => {
     const route = `${capability.sourceProvider}->${capability.targetProfileId}`;
     if (capability.status === "ready") return `${route}=ready`;
-    const reasonCodes = capability.reasons.map((reason) => reason.code).join(",");
+    const reasonCodes = capability.reasons
+      .map((reason) =>
+        reason.issues ? `${reason.code}: ${reason.issues.join("; ")}` : reason.code,
+      )
+      .join(",");
     return `${route}=${capability.status}(${reasonCodes})`;
   });
   logger.info(`[setup] Migration capabilities: ${routes.join("; ")}`);

@@ -1,7 +1,12 @@
 import { isAbsolute, resolve } from "node:path";
 import { env } from "node:process";
 import type { MigrationTargetProfile } from "$lib/migration-target";
-import { type ExporterSandboxPolicy, getExporterSandboxPolicy } from "./exporter-sandbox";
+import { type ConfigIssue, ConfigIssueError, collectConfigIssues } from "./config-issue";
+import {
+  type ExporterSandboxPolicy,
+  exporterSandboxChecks,
+  getExporterSandboxPolicy,
+} from "./exporter-sandbox";
 import { getMigrationTargetProfile } from "./targets";
 
 export interface GhesTargetConnectionConfig {
@@ -34,86 +39,114 @@ export interface BitbucketGhesTargetExecutionConfig extends GhesExporterConfig {
   bitbucketPassword: string;
 }
 
-function positiveInteger(value: string | undefined, fallback: number): number {
-  if (!value?.trim()) return fallback;
+function required(name: string, value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new ConfigIssueError(name, "required");
+  return trimmed;
+}
+
+function remoteDirectory(): string {
+  const directory = env.GHES_TARGET_REMOTE_DIR?.trim() || "/home/admin";
+  if (!isAbsolute(directory)) throw new ConfigIssueError("GHES_TARGET_REMOTE_DIR", "absolute-path");
+  return directory.replace(/\/+$/, "");
+}
+
+function sshPort(): number {
+  const value = env.GHES_TARGET_SSH_PORT;
+  if (!value?.trim()) return 122;
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65_535) {
-    throw new TypeError("GHES_TARGET_SSH_PORT must be an integer between 1 and 65535");
+    throw new ConfigIssueError("GHES_TARGET_SSH_PORT", "port");
   }
   return parsed;
 }
 
-function decodePrivateKey(value: string): string {
-  const trimmed = value.trim();
+function sshPrivateKey(): string {
+  const trimmed = required("GHES_TARGET_SSH_PRIVATE_KEY", env.GHES_TARGET_SSH_PRIVATE_KEY);
   if (trimmed.startsWith("-----BEGIN")) return trimmed;
   const decoded = Buffer.from(trimmed, "base64").toString("utf8").trim();
   if (!decoded.startsWith("-----BEGIN")) {
-    throw new TypeError("GHES_TARGET_SSH_PRIVATE_KEY must be PEM or base64-encoded PEM");
+    throw new ConfigIssueError("GHES_TARGET_SSH_PRIVATE_KEY", "pem-private-key");
   }
   return decoded;
 }
 
-function required(name: string, value: string | undefined): string {
-  const trimmed = value?.trim();
-  if (!trimmed) throw new Error(`${name} is required for GHES migration execution`);
-  return trimmed;
+function sshHostFingerprint(): string {
+  return required("GHES_TARGET_SSH_HOST_KEY_SHA256", env.GHES_TARGET_SSH_HOST_KEY_SHA256).replace(
+    /^SHA256:/i,
+    "",
+  );
 }
 
-export function getGhesTargetConnectionConfig(profileId?: string): GhesTargetConnectionConfig {
+function ghesProfile(profileId?: string): MigrationTargetProfile & { platform: "ghes" } {
   const effectiveProfileId = profileId?.trim() || env.GHES_TARGET_ID?.trim() || "ghes";
   const profile = getMigrationTargetProfile(effectiveProfileId);
   if (profile?.platform !== "ghes") {
     throw new TypeError(`GHES target profile '${effectiveProfileId}' is not configured`);
   }
+  return profile as MigrationTargetProfile & { platform: "ghes" };
+}
 
-  const remoteDirectory = env.GHES_TARGET_REMOTE_DIR?.trim() || "/home/admin";
-  if (!isAbsolute(remoteDirectory)) {
-    throw new TypeError("GHES_TARGET_REMOTE_DIR must be an absolute path");
-  }
-
+export function getGhesTargetConnectionConfig(profileId?: string): GhesTargetConnectionConfig {
+  const profile = ghesProfile(profileId);
   return {
-    profile: profile as MigrationTargetProfile & { platform: "ghes" },
+    profile,
     siteAdminUsername: required("GHES_TARGET_ADMIN_USERNAME", env.GHES_TARGET_ADMIN_USERNAME),
     siteAdminToken: required("GHES_TARGET_ADMIN_PAT", env.GHES_TARGET_ADMIN_PAT),
     sshHost: env.GHES_TARGET_SSH_HOST?.trim() || new URL(profile.webUrl).hostname,
-    sshPort: positiveInteger(env.GHES_TARGET_SSH_PORT, 122),
+    sshPort: sshPort(),
     sshUsername: env.GHES_TARGET_SSH_USERNAME?.trim() || "admin",
-    sshPrivateKey: decodePrivateKey(
-      required("GHES_TARGET_SSH_PRIVATE_KEY", env.GHES_TARGET_SSH_PRIVATE_KEY),
-    ),
-    sshHostFingerprint: required(
-      "GHES_TARGET_SSH_HOST_KEY_SHA256",
-      env.GHES_TARGET_SSH_HOST_KEY_SHA256,
-    ).replace(/^SHA256:/i, ""),
-    remoteDirectory: remoteDirectory.replace(/\/+$/, ""),
+    sshPrivateKey: sshPrivateKey(),
+    sshHostFingerprint: sshHostFingerprint(),
+    remoteDirectory: remoteDirectory(),
   };
+}
+
+function exporterRuntime(): string {
+  const runtime = env.EXPORTER_RUNTIME?.trim() || "docker";
+  if (!/^[A-Za-z0-9._/-]+$/.test(runtime)) {
+    throw new ConfigIssueError("EXPORTER_RUNTIME", "exporter-runtime");
+  }
+  return runtime;
+}
+
+function archiveDirectory(): string {
+  const directory = required("ARCHIVE_DIR", env.ARCHIVE_DIR);
+  if (!isAbsolute(directory)) throw new ConfigIssueError("ARCHIVE_DIR", "absolute-path");
+  return resolve(directory);
 }
 
 function getExporterConfig(): Pick<
   GhesExporterConfig,
   "exporterRuntime" | "exporterArchiveVolume" | "archiveDirectory" | "sandbox"
 > {
-  const exporterRuntime = env.EXPORTER_RUNTIME?.trim() || "docker";
-  if (!/^[A-Za-z0-9._/-]+$/.test(exporterRuntime)) {
-    throw new TypeError("EXPORTER_RUNTIME is invalid");
-  }
-  const archiveDirectory = required("ARCHIVE_DIR", env.ARCHIVE_DIR);
-  if (!isAbsolute(archiveDirectory)) throw new TypeError("ARCHIVE_DIR must be an absolute path");
   return {
-    exporterRuntime,
+    exporterRuntime: exporterRuntime(),
     exporterArchiveVolume: required("EXPORTER_ARCHIVE_VOLUME", env.EXPORTER_ARCHIVE_VOLUME),
-    archiveDirectory: resolve(archiveDirectory),
+    archiveDirectory: archiveDirectory(),
     sandbox: getExporterSandboxPolicy(),
   };
 }
+
+const gitlabSettings = {
+  exporterImage: () => required("GL_EXPORTER_IMAGE", env.GL_EXPORTER_IMAGE),
+  gitlabUsername: () => required("GITLAB_SOURCE_USERNAME", env.GITLAB_SOURCE_USERNAME),
+  gitlabToken: () => required("GITLAB_SOURCE_PAT", env.GITLAB_SOURCE_PAT),
+};
+
+const bitbucketSettings = {
+  exporterImage: () => required("BBS_EXPORTER_IMAGE", env.BBS_EXPORTER_IMAGE),
+  bitbucketUsername: () => required("BITBUCKET_SERVER_USERNAME", env.BITBUCKET_SERVER_USERNAME),
+  bitbucketPassword: () => required("BITBUCKET_SERVER_PASSWORD", env.BITBUCKET_SERVER_PASSWORD),
+};
 
 export function getGhesTargetExecutionConfig(profileId?: string): GhesTargetExecutionConfig {
   return {
     ...getGhesTargetConnectionConfig(profileId),
     ...getExporterConfig(),
-    exporterImage: required("GL_EXPORTER_IMAGE", env.GL_EXPORTER_IMAGE),
-    gitlabUsername: required("GITLAB_SOURCE_USERNAME", env.GITLAB_SOURCE_USERNAME),
-    gitlabToken: required("GITLAB_SOURCE_PAT", env.GITLAB_SOURCE_PAT),
+    exporterImage: gitlabSettings.exporterImage(),
+    gitlabUsername: gitlabSettings.gitlabUsername(),
+    gitlabToken: gitlabSettings.gitlabToken(),
   };
 }
 
@@ -123,21 +156,33 @@ export function getBitbucketGhesTargetExecutionConfig(
   return {
     ...getGhesTargetConnectionConfig(profileId),
     ...getExporterConfig(),
-    exporterImage: required("BBS_EXPORTER_IMAGE", env.BBS_EXPORTER_IMAGE),
-    bitbucketUsername: required("BITBUCKET_SERVER_USERNAME", env.BITBUCKET_SERVER_USERNAME),
-    bitbucketPassword: required("BITBUCKET_SERVER_PASSWORD", env.BITBUCKET_SERVER_PASSWORD),
+    exporterImage: bitbucketSettings.exporterImage(),
+    bitbucketUsername: bitbucketSettings.bitbucketUsername(),
+    bitbucketPassword: bitbucketSettings.bitbucketPassword(),
   };
 }
 
-export function isGhesTargetExecutionConfigured(
+/**
+ * Explain why GHES execution is not configured for a source provider. Issues
+ * name settings and fixed rules only, never configured values; an empty list
+ * means the same loaders used at execution time accept the configuration.
+ */
+export function getGhesTargetConfigIssues(
   profileId?: string,
   sourceProvider: "gitlab" | "bitbucket-server" = "gitlab",
-): boolean {
-  try {
-    if (sourceProvider === "gitlab") getGhesTargetExecutionConfig(profileId);
-    else getBitbucketGhesTargetExecutionConfig(profileId);
-    return true;
-  } catch {
-    return false;
-  }
+): ConfigIssue[] {
+  return collectConfigIssues([
+    () => ghesProfile(profileId),
+    () => required("GHES_TARGET_ADMIN_USERNAME", env.GHES_TARGET_ADMIN_USERNAME),
+    () => required("GHES_TARGET_ADMIN_PAT", env.GHES_TARGET_ADMIN_PAT),
+    sshPort,
+    sshPrivateKey,
+    sshHostFingerprint,
+    remoteDirectory,
+    exporterRuntime,
+    archiveDirectory,
+    () => required("EXPORTER_ARCHIVE_VOLUME", env.EXPORTER_ARCHIVE_VOLUME),
+    ...exporterSandboxChecks,
+    ...Object.values(sourceProvider === "gitlab" ? gitlabSettings : bitbucketSettings),
+  ]);
 }

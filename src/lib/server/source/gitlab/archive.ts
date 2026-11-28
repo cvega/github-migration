@@ -1,6 +1,11 @@
 import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { env } from "node:process";
+import {
+  type ConfigIssue,
+  ConfigIssueError,
+  collectConfigIssues,
+} from "$lib/server/core/config-issue";
 import type { GitLabClient } from "./client";
 
 type GitLabArchiveClient = Pick<GitLabClient, "downloadProjectExport">;
@@ -19,42 +24,49 @@ interface GitLabArchiveDependencies {
 const DEFAULT_MAX_ARCHIVE_BYTES = 40 * 1024 * 1024 * 1024;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1_000;
 
-function positiveInteger(value: string | undefined, fallback: number): number {
+function positiveInteger(name: string, value: string | undefined, fallback: number): number {
   if (!value?.trim()) return fallback;
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw new TypeError("Expected a positive integer");
+    throw new ConfigIssueError(name, "positive-integer");
   }
   return parsed;
 }
 
+function archiveDirectory(): string {
+  const directory = env.ARCHIVE_DIR?.trim();
+  if (!directory) throw new ConfigIssueError("ARCHIVE_DIR", "required");
+  if (!isAbsolute(directory)) throw new ConfigIssueError("ARCHIVE_DIR", "absolute-path");
+  return resolve(directory);
+}
+
+const maxArchiveBytes = () =>
+  positiveInteger(
+    "GITLAB_SOURCE_MAX_ARCHIVE_BYTES",
+    env.GITLAB_SOURCE_MAX_ARCHIVE_BYTES,
+    DEFAULT_MAX_ARCHIVE_BYTES,
+  );
+const downloadTimeoutMs = () =>
+  positiveInteger(
+    "GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS",
+    env.GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS,
+    DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  );
+
 function defaultDependencies(): GitLabArchiveDependencies {
-  const archiveDirectory = env.ARCHIVE_DIR?.trim();
-  if (!archiveDirectory) throw new Error("GitLab migration requires ARCHIVE_DIR");
-  if (!isAbsolute(archiveDirectory)) throw new TypeError("ARCHIVE_DIR must be an absolute path");
   return {
     config: {
-      archiveDirectory: resolve(archiveDirectory),
-      maxArchiveBytes: positiveInteger(
-        env.GITLAB_SOURCE_MAX_ARCHIVE_BYTES,
-        DEFAULT_MAX_ARCHIVE_BYTES,
-      ),
-      downloadTimeoutMs: positiveInteger(
-        env.GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS,
-        DEFAULT_DOWNLOAD_TIMEOUT_MS,
-      ),
+      archiveDirectory: archiveDirectory(),
+      maxArchiveBytes: maxArchiveBytes(),
+      downloadTimeoutMs: downloadTimeoutMs(),
     },
     newId: () => Bun.randomUUIDv7(),
   };
 }
 
-export function isGitLabArchiveStorageConfigured(): boolean {
-  try {
-    defaultDependencies();
-    return true;
-  } catch {
-    return false;
-  }
+/** Settings and fixed rules that keep GitLab archive storage from working; never values. */
+export function getGitLabArchiveStorageIssues(): ConfigIssue[] {
+  return collectConfigIssues([archiveDirectory, maxArchiveBytes, downloadTimeoutMs]);
 }
 
 export async function downloadGitLabArchive(

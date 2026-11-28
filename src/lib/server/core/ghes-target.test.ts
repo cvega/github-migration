@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   getBitbucketGhesTargetExecutionConfig,
+  getGhesTargetConfigIssues,
   getGhesTargetExecutionConfig,
-  isGhesTargetExecutionConfigured,
 } from "./ghes-target";
 
 const KEYS = [
@@ -105,7 +105,9 @@ describe("GHES target execution configuration", () => {
     ] as const) {
       const value = process.env[key];
       delete process.env[key];
-      expect(isGhesTargetExecutionConfigured()).toBe(false);
+      expect(getGhesTargetConfigIssues(undefined, "gitlab")).toEqual([
+        { variable: key, text: `${key} is required` },
+      ]);
       process.env[key] = value;
     }
   });
@@ -123,8 +125,76 @@ describe("GHES target execution configuration", () => {
       bitbucketUsername: "bbs-admin",
       bitbucketPassword: "bbs-password",
     });
-    expect(isGhesTargetExecutionConfigured(undefined, "bitbucket-server")).toBe(true);
-    expect(isGhesTargetExecutionConfigured(undefined, "gitlab")).toBe(false);
+    expect(getGhesTargetConfigIssues(undefined, "bitbucket-server")).toEqual([]);
+    expect(getGhesTargetConfigIssues(undefined, "gitlab")).toEqual([
+      { variable: "GL_EXPORTER_IMAGE", text: "GL_EXPORTER_IMAGE is required" },
+      { variable: "GITLAB_SOURCE_USERNAME", text: "GITLAB_SOURCE_USERNAME is required" },
+      { variable: "GITLAB_SOURCE_PAT", text: "GITLAB_SOURCE_PAT is required" },
+    ]);
+  });
+
+  test("names only the missing archive volume for either source provider", () => {
+    delete process.env.EXPORTER_ARCHIVE_VOLUME;
+    const expected = [
+      { variable: "EXPORTER_ARCHIVE_VOLUME", text: "EXPORTER_ARCHIVE_VOLUME is required" },
+    ];
+    expect(getGhesTargetConfigIssues(undefined, "bitbucket-server")).toEqual(expected);
+    expect(getGhesTargetConfigIssues(undefined, "gitlab")).toEqual(expected);
+  });
+
+  test("reports each failing settings group independently", () => {
+    delete process.env.EXPORTER_ARCHIVE_VOLUME;
+    delete process.env.GHES_TARGET_ADMIN_PAT;
+    delete process.env.BBS_EXPORTER_IMAGE;
+    expect(
+      getGhesTargetConfigIssues(undefined, "bitbucket-server").map((issue) => issue.variable),
+    ).toEqual(["GHES_TARGET_ADMIN_PAT", "EXPORTER_ARCHIVE_VOLUME", "BBS_EXPORTER_IMAGE"]);
+  });
+
+  test("states the violated rule without echoing invalid values", () => {
+    const sentinel = "synthetic-invalid-value-7f3a";
+    const cases: Array<[string, string, string]> = [
+      ["ARCHIVE_DIR", `relative/${sentinel}`, "ARCHIVE_DIR must be an absolute path"],
+      [
+        "GHES_TARGET_SSH_PRIVATE_KEY",
+        sentinel,
+        "GHES_TARGET_SSH_PRIVATE_KEY must be PEM or base64-encoded PEM",
+      ],
+      [
+        "GHES_TARGET_SSH_PORT",
+        `70000${sentinel}`,
+        "GHES_TARGET_SSH_PORT must be an integer between 1 and 65535",
+      ],
+      ["GHES_TARGET_REMOTE_DIR", sentinel, "GHES_TARGET_REMOTE_DIR must be an absolute path"],
+      [
+        "EXPORTER_NETWORK",
+        "host",
+        "EXPORTER_NETWORK must be a Docker network name other than 'host'",
+      ],
+      ["EXPORTER_RUNTIME", `bad runtime ${sentinel}`, "EXPORTER_RUNTIME is invalid"],
+    ];
+    for (const provider of ["gitlab", "bitbucket-server"] as const) {
+      for (const [name, value, text] of cases) {
+        const saved = process.env[name];
+        process.env[name] = value;
+        const issues = getGhesTargetConfigIssues(undefined, provider).filter(
+          (issue) => issue.variable === name,
+        );
+        expect(issues).toEqual([{ variable: name, text }]);
+        expect(JSON.stringify(getGhesTargetConfigIssues(undefined, provider))).not.toContain(
+          sentinel,
+        );
+        if (saved === undefined) delete process.env[name];
+        else process.env[name] = saved;
+      }
+    }
+  });
+
+  test("does not leak secrets when the target URL is malformed", () => {
+    process.env.GHES_TARGET_API_URL = "https://user:synthetic-secret@";
+    const issues = getGhesTargetConfigIssues(undefined, "bitbucket-server");
+    expect(issues.length).toBeGreaterThan(0);
+    expect(JSON.stringify(issues)).not.toContain("synthetic-secret");
   });
 
   test("rejects invalid SSH and remote path settings", () => {
