@@ -51,22 +51,21 @@ function readCount(headers: Headers): Evidence {
   if (next && integer(next) !== 2) return malformed;
 
   const totalHeader = headers.get("x-total");
-  if (totalHeader === null) {
-    // Without a total only a next page proves more than one entry; otherwise 0 and 1 look alike.
-    return next
-      ? { value: 2, reason: "pagination-uncertain" as Reason }
-      : { value: 0, reason: "not-reported" };
-  }
   const total = integer(totalHeader);
-  if (total === null) return malformed;
+  if (totalHeader !== null && total === null) return malformed;
   const pagesHeader = headers.get("x-total-pages");
   const pages = integer(pagesHeader);
-  if (pagesHeader !== null && (pages === null || (total <= 1 ? pages > 1 : pages !== total))) {
+  if (pagesHeader !== null && pages === null) return malformed;
+  // At one entry per page the page count equals the total; an empty list reports 0 or 1 page.
+  if (total !== null && pages !== null && (total === 0 ? pages > 1 : pages !== total)) {
     return malformed;
   }
-  // The next-page link must agree with the total.
-  if ((total > 1 && next === "") || (total <= 1 && next)) return malformed;
-  return { value: total };
+  // Whether a second page exists must agree with whichever size evidence was sent.
+  const size = total ?? pages;
+  if (size !== null && ((size > 1 && next === "") || (size <= 1 && next))) return malformed;
+  // Without a total the entry count is unknown: a next page or page count is evidence of
+  // pagination, not a count, so it stays unavailable rather than becoming a lower bound.
+  return total === null ? { value: 0, reason: "not-reported" } : { value: total };
 }
 
 async function countEntries(

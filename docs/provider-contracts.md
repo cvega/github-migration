@@ -95,11 +95,12 @@ counted when the file probe is forbidden or refused for budget.
 CI/CD variable counts never receive a variable: the list endpoints return names
 and values and cannot be field-selected, so the collector sends only
 `HEAD /projects/:id/variables?per_page=1` and `HEAD /groups/:id/variables?per_page=1`,
-never reads a body, and uses `X-Total` (a lower bound of 2 from `X-Next-Page` when
-no total is sent). It never falls back to `GET`. The observation is the
+never reads a body, and uses `X-Total`; a missing total stays `not-reported` even when
+a next page is announced. It never falls back to `GET`. The observation is the
 project-local count; the group-local count over admitted ancestor groups (each read
 once per run) is the separate `groupLocal` field. HTTP 401/403 records `forbidden`,
-404 `not-reported`, 405/501 `unsupported`; contradictory headers are `malformed`;
+404 `not-reported`, 405/501 `unsupported`; contradictory pagination headers (for example a next page with one total page, or a
+single entry with zero total pages) are `malformed`;
 each attempt spends the shared request budget. Nothing is logged and no name, value
 or environment scope is stored.
 

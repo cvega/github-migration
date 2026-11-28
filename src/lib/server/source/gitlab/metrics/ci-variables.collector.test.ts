@@ -99,15 +99,33 @@ describe("GitLab CI/CD variable counts", () => {
     expect(metric.groupLocal.scope).toContain("group-local");
   });
 
-  test("reports a lower bound when a second page exists but no total is reported", async () => {
+  test("keeps a missing total unavailable even when a second page is announced", async () => {
     const { client } = fixture([headers(null, { "X-Next-Page": "2" }), headers(0), headers(1)]);
     const metric = await collect(client);
-    expect(metric.observation).toMatchObject({
-      kind: "at-least",
-      value: 2,
-      reason: "pagination-uncertain",
-    });
+    expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "not-reported" });
+    expect(metric.observation.scope).toContain("project-local");
     expect(metric.groupLocal).toMatchObject({ kind: "exact", value: 1 });
+  });
+
+  test.each([
+    ["zero pages", "0", "0"],
+    ["one empty page", "0", "1"],
+  ])("still reports a valid exact zero total with %s", async (_name, total, pages) => {
+    const { client } = fixture([
+      headers(0, { "X-Total": total, "X-Total-Pages": pages }),
+      headers(0),
+      headers(0),
+    ]);
+    expect((await collect(client)).observation).toMatchObject({
+      kind: "exact",
+      value: 0,
+      basis: "reported",
+    });
+  });
+
+  test("reports an exact single entry when the page count agrees", async () => {
+    const { client } = fixture([headers(1, { "X-Total-Pages": "1" }), headers(0), headers(0)]);
+    expect((await collect(client)).observation).toMatchObject({ kind: "exact", value: 1 });
   });
 
   test("a second page with a reported total is counted exactly", async () => {
@@ -126,6 +144,23 @@ describe("GitLab CI/CD variable counts", () => {
     ["a response for another page size", headers(3, { "X-Per-Page": "100" })],
     ["a next page with a single entry", headers(1, { "X-Next-Page": "2" })],
     ["an invalid next page", headers(null, { "X-Next-Page": "7" })],
+    [
+      "an absent total with a next page but one total page",
+      headers(null, { "X-Next-Page": "2", "X-Total-Pages": "1" }),
+    ],
+    [
+      "an absent total with a next page but zero total pages",
+      headers(null, { "X-Next-Page": "2", "X-Total-Pages": "0" }),
+    ],
+    [
+      "an absent total with several pages but an empty next page",
+      headers(null, { "X-Next-Page": "", "X-Total-Pages": "3" }),
+    ],
+    ["an absent total with a non-numeric page count", headers(null, { "X-Total-Pages": "few" })],
+    ["a single entry with zero total pages", headers(1, { "X-Total-Pages": "0" })],
+    ["a single entry with two total pages", headers(1, { "X-Total-Pages": "2" })],
+    ["an empty total with two total pages", headers(0, { "X-Total-Pages": "2" })],
+    ["several entries with one total page", headers(3, { "X-Total-Pages": "1" })],
   ])("never turns %s into a measured count", async (name, response) => {
     const { client } = fixture([response, headers(0), headers(0)]);
     const { observation } = await collect(client);

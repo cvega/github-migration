@@ -46,8 +46,8 @@ response, so the collector sends only `HEAD /projects/:id/variables?per_page=1`
 and `HEAD /groups/:id/variables?per_page=1`, never reads a body, and takes the
 count from `X-Total`. It never falls back to the value-returning `GET`: a server
 that refuses `HEAD` (405/501) leaves the metric `unavailable / unsupported`, and
-one that omits `X-Total` is `unavailable / not-reported` (or a lower bound of 2
-when `X-Next-Page` proves a second entry). Each environment-scoped entry counts
+one that omits `X-Total` is `unavailable / not-reported`, never a lower bound.
+Contradictory pagination headers are `unavailable / malformed`. Each environment-scoped entry counts
 once. The project-local count is the metric's observation and the card; the
 group-local count over the admitted ancestor groups (same boundary as group hooks,
 each group read once per run) is stored separately per project and is not summed
