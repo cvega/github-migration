@@ -10,6 +10,7 @@ export const OBSERVATION_UNAVAILABLE_REASONS = [
   "unsupported",
   "malformed",
   "transient-failure",
+  "request-budget",
 ] as const;
 
 type ObservationUnavailableReason = (typeof OBSERVATION_UNAVAILABLE_REASONS)[number];

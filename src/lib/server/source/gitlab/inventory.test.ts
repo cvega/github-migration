@@ -291,6 +291,63 @@ describe("discoverGitLabInventory", () => {
     });
   });
 
+  test("stops optional statistics attempts when the inventory request budget is exhausted", async () => {
+    const projects = Array.from({ length: 6 }, (_, index) =>
+      project({
+        id: index + 1,
+        path_with_namespace: `platform/products/repo-${index}`,
+        ...(index < 5 ? { statistics: null } : {}),
+      }),
+    );
+    const paths: string[] = [];
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "fixture-token",
+      maxRetries: 2,
+      sleep: async () => {},
+      fetch: async (input) => {
+        const url = new URL(input.toString());
+        const path = url.pathname;
+        paths.push(path);
+        if (path.includes("/groups/")) {
+          return url.searchParams.get("page") === "1"
+            ? jsonResponse(projects, "2")
+            : jsonResponse([
+                project({
+                  id: 7,
+                  path_with_namespace: "platform/products/repo-6",
+                  statistics: null,
+                }),
+              ]);
+        }
+        if (path.endsWith("/2"))
+          return jsonResponse({ id: 2, statistics: { repository_size: 256 } });
+        return new Response(null, { status: 503 });
+      },
+    });
+
+    const inventory = await discoverGitLabInventory(client, "platform/products", {
+      requestBudget: 3,
+    });
+
+    expect(paths).toEqual([
+      "/api/v4/groups/platform%2Fproducts/projects",
+      "/api/v4/projects/1",
+      "/api/v4/projects/2",
+      "/api/v4/groups/platform%2Fproducts/projects",
+    ]);
+    expect(client.getApiCalls()).toBe(4);
+    expect(inventory.projects.map((item) => item.repositorySizeBytes)).toEqual([
+      { kind: "unavailable", reason: "request-budget" },
+      { kind: "exact", value: 256 },
+      { kind: "unavailable", reason: "request-budget" },
+      { kind: "unavailable", reason: "request-budget" },
+      { kind: "unavailable", reason: "request-budget" },
+      { kind: "exact", value: 1024 },
+      { kind: "unavailable", reason: "request-budget" },
+    ]);
+  });
+
   test("limits concurrent statistics requests and accounts for retries", async () => {
     const projects = Array.from({ length: 10 }, (_, index) =>
       project({

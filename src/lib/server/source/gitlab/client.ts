@@ -38,6 +38,7 @@ export interface GitLabClientOptions {
 
 export interface GitLabRequestOptions {
   signal?: AbortSignal;
+  apiCallCeiling?: number;
   maxItems?: number;
   maxItemsLabel?: string;
   onPaginationComplete?: (total: number | null, itemsRead: number) => void;
@@ -69,6 +70,13 @@ export class GitLabApiError extends Error {
   ) {
     super(message, options);
     this.name = "GitLabApiError";
+  }
+}
+
+export class GitLabRequestBudgetError extends GitLabApiError {
+  constructor() {
+    super(0, "GitLab API request budget exhausted");
+    this.name = "GitLabRequestBudgetError";
   }
 }
 
@@ -604,7 +612,13 @@ export class GitLabClient {
       if (value !== undefined) url.searchParams.set(key, String(value));
     }
 
+    const assertBudget = () => {
+      if (options.apiCallCeiling !== undefined && this.#apiCalls >= options.apiCallCeiling) {
+        throw new GitLabRequestBudgetError();
+      }
+    };
     for (let attempt = 0; ; attempt += 1) {
+      assertBudget();
       let response: Response;
       try {
         if (options.signal?.aborted) {
@@ -626,6 +640,7 @@ export class GitLabClient {
           throw new GitLabApiError(0, "GitLab API request aborted", { cause });
         }
         if (attempt < this.#maxRetries) {
+          assertBudget();
           await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
           continue;
         }
@@ -638,6 +653,7 @@ export class GitLabClient {
         if (options.signal?.aborted) {
           throw new GitLabApiError(0, "GitLab API request aborted");
         }
+        assertBudget();
         const nowMs = this.#now();
         const retryAfter = retryAfterDelayMs(response.headers.get("retry-after"), nowMs);
         const throttled =
@@ -677,6 +693,7 @@ export class GitLabClient {
           throw new GitLabApiError(0, "GitLab API request aborted");
         }
         if (!(cause instanceof SyntaxError) && attempt < this.#maxRetries) {
+          assertBudget();
           await this.#waitBeforeRetry(this.#backoffDelayMs(attempt), options.signal);
           continue;
         }

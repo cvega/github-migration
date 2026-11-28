@@ -21,8 +21,11 @@ encodes project paths. Discovery traverses namespace projects with explicit
 pagination and reuses any statistics returned by the group listing. For projects
 whose listing statistics are null or missing, inventory requests
 `GET /projects/:id?statistics=true` with at most four requests in flight and the
-client's existing timeout and retry limits. A failed detail request leaves
-the project in the inventory with unavailable observations. Source storage
+client's existing timeout and retry limits. Listing calls, detail calls, and
+retries all count toward the 10,000-attempt cutoff for optional detail calls.
+Required listing pages can still finish after that cutoff. A failed detail
+request or exhausted budget leaves the project in the inventory with
+unavailable observations. Source storage
 reports job and pipeline artifacts separately, along with snippets and container
 registry storage. The project statistics commit count is retained in inventory
 alongside the default-branch commit metric collected during enrichment.

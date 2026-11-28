@@ -4,10 +4,18 @@ import type {
   SourceNamespaceInventory,
   SourceProjectInventory,
 } from "$lib/server/source/inventory";
-import { assertSourceInventoryProjectLimit } from "$lib/server/source/inventory";
+import {
+  assertSourceInventoryProjectLimit,
+  MAX_SOURCE_INVENTORY_PROJECTS,
+} from "$lib/server/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
 import { enrichmentWorkers } from "../enrichment-workers";
-import { encodeGitLabPath, GitLabApiError, type GitLabClient } from "./client";
+import {
+  encodeGitLabPath,
+  GitLabApiError,
+  type GitLabClient,
+  GitLabRequestBudgetError,
+} from "./client";
 
 export const GITLAB_PROFILE_CONCURRENCY = 4;
 
@@ -48,6 +56,7 @@ interface GitLabProjectSummary {
 
 export interface DiscoverGitLabInventoryOptions {
   signal?: AbortSignal;
+  requestBudget?: number;
   onProgress?: (progress: SourceInventoryProgress) => void;
   onPaginationComplete?: (total: number | null, itemsRead: number) => void;
 }
@@ -212,16 +221,20 @@ async function fetchProjectObservations(
   client: GitLabClient,
   sourceId: string,
   signal: AbortSignal,
+  apiCallCeiling: number,
 ): Promise<ReturnType<typeof projectObservations>> {
   let data: unknown;
   try {
     ({ data } = await client.get(
       `/projects/${encodeURIComponent(sourceId)}`,
       { statistics: true },
-      { signal },
+      { signal, apiCallCeiling },
     ));
   } catch (error) {
     throwIfAborted(signal);
+    if (error instanceof GitLabRequestBudgetError) {
+      return projectObservations(null, "request-budget");
+    }
     if (!(error instanceof GitLabApiError)) throw error;
     if (error.status === 403) return projectObservations(null, "forbidden");
     if (error.status === 404) return projectObservations(null, "not-found-or-hidden");
@@ -249,6 +262,7 @@ async function fillMissingProjectStatistics(
   client: GitLabClient,
   projects: SourceProjectInventory[],
   listing: GitLabProjectSummary[],
+  apiCallCeiling: number,
   signal?: AbortSignal,
 ): Promise<void> {
   const missing = projects.filter((_, index) => listing[index]?.statistics == null).values();
@@ -260,6 +274,7 @@ async function fillMissingProjectStatistics(
         client,
         project.sourceId,
         workers.signal,
+        apiCallCeiling,
       );
       Object.assign(project, storage);
       if (project.providerDetails?.provider === "gitlab") {
@@ -297,6 +312,12 @@ export async function* streamGitLabInventoryPages(
   options: DiscoverGitLabInventoryOptions = {},
 ): AsyncGenerator<SourceProjectInventory[]> {
   const normalizedNamespace = canonicalNamespace(namespace);
+  const requestBudget = options.requestBudget ?? MAX_SOURCE_INVENTORY_PROJECTS;
+  if (!Number.isSafeInteger(requestBudget) || requestBudget < 0) {
+    throw new RangeError("GitLab inventory request budget must be a non-negative integer");
+  }
+  // Inventory pagination is required evidence and can continue after optional requests stop.
+  const apiCallCeiling = client.getApiCalls() + requestBudget;
   const path = `/groups/${encodeGitLabPath(normalizedNamespace)}/projects`;
   const sourceIds = new Set<string>();
   const projectPaths = new Set<string>();
@@ -341,7 +362,13 @@ export async function* streamGitLabInventoryPages(
       page,
     });
     throwIfAborted(options.signal);
-    await fillMissingProjectStatistics(client, projects, projectPage, options.signal);
+    await fillMissingProjectStatistics(
+      client,
+      projects,
+      projectPage,
+      apiCallCeiling,
+      options.signal,
+    );
     throwIfAborted(options.signal);
     yield projects;
   }
