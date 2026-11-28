@@ -134,6 +134,21 @@ effective count. Other scopes continue; a partial traversal keeps a lower bound
 after budget exhaustion or a later permission failure. All pages and retries
 spend the same profile request budget.
 
+Repository mirror evidence comes from paginating `GET /projects/:id/remote_mirrors`
+and reading `GET /projects/:id/mirror/pull` for the same selected projects. The
+profile counts enabled push mirrors and records whether any returned push mirror
+was disabled. It records pull state independently: enabled, explicitly disabled,
+not mirrored (the pull GET's HTTP 400), or unavailable. The 400 means GitLab
+reported no active pull mirror, not that no saved configuration exists. HTTP
+401/403 is `forbidden` and 404 is `not-reported`, never an observed absence;
+pull mirroring requires Premium or Ultimate and can be unavailable even when push
+mirrors are readable. The shared request budget includes both reads and all push
+pages and retries. Incomplete push counts with evidence stay lower bounds.
+Only counts and state are retained, never mirror IDs, URLs, authentication fields,
+or provider error text. The profile reports enabled push mirrors and the number
+of projects with enabled pull mirroring separately; required mirrors must be
+reconfigured before cutover.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

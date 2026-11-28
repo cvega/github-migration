@@ -519,8 +519,10 @@ const gitLabSummary = {
     groupWebhooks: { kind: "at-least", value: 2 },
     ciVariables: { kind: "exact", value: 6 },
     approvalRules: { kind: "at-least", value: 3 },
+    mirrors: { kind: "exact", value: 2 },
   },
   approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },
+  pullMirrorProjects: { kind: "at-least", value: 1 },
   webhookEvents: { projectWebhooks: [], groupWebhooks: ["deployment", "pipeline"] },
   membershipScopes: gitLabFixtureMetrics.members.scopes,
 };

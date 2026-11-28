@@ -11,6 +11,7 @@ import {
   collectGitLabMergeRequestMetric,
   GITLAB_MERGE_REQUESTS_SCOPE,
 } from "./metrics/merge-requests.collector";
+import mirrorsCollector from "./metrics/mirrors.collector";
 import { collectGitLabReleaseMetric, GITLAB_RELEASES_SCOPE } from "./metrics/releases.collector";
 import { collectGitLabTagMetric, GITLAB_TAGS_SCOPE } from "./metrics/tags.collector";
 import { collectGitLabProfileEnrichment } from "./profile";
@@ -278,6 +279,8 @@ describe("collectGitLabProfileEnrichment", () => {
       approval_rules: jsonResponse([]),
       members: jsonResponse([]),
       "members/all": jsonResponse([]),
+      remote_mirrors: jsonResponse([]),
+      "mirror/pull": jsonResponse({ enabled: false }),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -625,6 +628,207 @@ describe("GitLab merge request approval policy collection", () => {
     await expect(collectGitLabApprovalRuleMetric(client, project)).rejects.toMatchObject({
       status: 503,
     });
+  });
+});
+
+describe("GitLab repository mirror inventory", () => {
+  const project = {
+    sourceId: "platform/project",
+    path: "platform/project",
+    defaultBranch: null,
+  };
+
+  async function profileWithMirrors(fixtures: Record<string, Response>) {
+    const calls: string[] = [];
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "offline-fixture",
+      maxRetries: 0,
+      fetch: async (input, init) => {
+        const { pathname } = new URL(input.toString());
+        const mirror = /^\/api\/v4\/projects\/(.+\/(?:remote_mirrors|mirror\/pull))$/.exec(
+          pathname,
+        )?.[1];
+        if (mirror) {
+          expect(init?.method).toBe("GET");
+          calls.push(mirror);
+          const response = fixtures[mirror];
+          if (!response) throw new Error(`unexpected mirror read: ${pathname}`);
+          return response;
+        }
+        if (pathname.endsWith("/sequence")) return jsonResponse({ count: 4 });
+        if (pathname.endsWith("/repository/branches/main")) {
+          return jsonResponse({ commit: { id: "abc123" } });
+        }
+        return jsonResponse([]);
+      },
+    });
+    const { projects } = await collectGitLabProfileEnrichment(client, budgetInventory(2));
+    expect(projects[0]?.metrics.commits.observation).toMatchObject({ kind: "exact", value: 4 });
+    expect(projects[1]?.metrics.commits.observation).toMatchObject({ kind: "exact", value: 4 });
+    return { mirrors: projects.map(({ metrics }) => metrics.mirrors), calls };
+  }
+
+  test("reports push-only and pull-only dependencies independently without retaining configuration", async () => {
+    const discarded = {
+      url: "https://mirror.invalid/example",
+      auth_method: "discard-auth-method",
+      last_error: "discard-provider-error",
+    };
+    const { mirrors, calls } = await profileWithMirrors({
+      "1/remote_mirrors": jsonResponse([
+        { id: 8, enabled: true, ...discarded },
+        { id: 9, enabled: false, ...discarded },
+      ]),
+      "1/mirror/pull": Response.json({ message: "The project is not mirrored" }, { status: 400 }),
+      "2/remote_mirrors": jsonResponse([]),
+      "2/mirror/pull": jsonResponse({ id: 6, enabled: true, ...discarded }),
+    });
+
+    expect(mirrors).toMatchObject([
+      {
+        observation: { kind: "exact", value: 1 },
+        hasDisabledPushMirrors: true,
+        pullMirror: { kind: "not-mirrored" },
+      },
+      {
+        observation: { kind: "exact", value: 0 },
+        hasDisabledPushMirrors: false,
+        pullMirror: { kind: "enabled" },
+      },
+    ]);
+    expect(calls.sort()).toEqual([
+      "1/mirror/pull",
+      "1/remote_mirrors",
+      "2/mirror/pull",
+      "2/remote_mirrors",
+    ]);
+    expect(JSON.stringify(mirrors)).not.toMatch(/mirror\.invalid|discard-|project is not mirrored/);
+  });
+
+  test.each([
+    [401, "forbidden"],
+    [403, "forbidden"],
+    [404, "not-reported"],
+  ] as const)(
+    "keeps the other direction and project available after HTTP %i",
+    async (status, reason) => {
+      const { mirrors } = await profileWithMirrors({
+        "1/remote_mirrors": new Response(null, { status }),
+        "1/mirror/pull": jsonResponse({ enabled: true }),
+        "2/remote_mirrors": jsonResponse([{ id: 8, enabled: false }]),
+        "2/mirror/pull": new Response(null, { status }),
+      });
+
+      expect(mirrors).toMatchObject([
+        {
+          observation: { kind: "unavailable", reason },
+          hasDisabledPushMirrors: null,
+          pullMirror: { kind: "enabled" },
+        },
+        {
+          observation: { kind: "exact", value: 0 },
+          hasDisabledPushMirrors: true,
+          pullMirror: { kind: "unavailable", reason },
+        },
+      ]);
+    },
+  );
+
+  test("does not mistake unlicensed pull mirroring for observed absence or a disabled mirror", async () => {
+    const { mirrors } = await profileWithMirrors({
+      "1/remote_mirrors": jsonResponse([]),
+      "1/mirror/pull": Response.json(
+        { message: "Pull mirroring requires Premium" },
+        { status: 403 },
+      ),
+      "2/remote_mirrors": jsonResponse([]),
+      "2/mirror/pull": jsonResponse({ enabled: false }),
+    });
+
+    expect(mirrors[0]?.pullMirror).toEqual({ kind: "unavailable", reason: "forbidden" });
+    expect(mirrors[1]?.pullMirror).toEqual({ kind: "disabled" });
+  });
+
+  test("counts enabled push mirrors across pages without going over the shared budget for pull", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{ id: 8, enabled: true }], { "X-Next-Page": "2" }),
+      jsonResponse([
+        { id: 9, enabled: false },
+        { id: 10, enabled: true },
+      ]),
+    ]);
+
+    await expect(
+      mirrorsCollector.collect(client, project, { apiCallCeiling: 2 }),
+    ).resolves.toMatchObject({
+      observation: { kind: "exact", value: 2, basis: "enumerated" },
+      hasDisabledPushMirrors: true,
+      pullMirror: { kind: "unavailable", reason: "request-budget" },
+    });
+    expect(calls.map((url) => [url.pathname, url.searchParams.get("page")])).toEqual([
+      ["/api/v4/projects/platform%2Fproject/remote_mirrors", "1"],
+      ["/api/v4/projects/platform%2Fproject/remote_mirrors", "2"],
+    ]);
+  });
+
+  test("keeps a lower bound when budget stops push enumeration before the final page", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{ id: 8, enabled: true }], { "X-Next-Page": "2" }),
+    ]);
+
+    await expect(
+      mirrorsCollector.collect(client, project, { apiCallCeiling: 1 }),
+    ).resolves.toMatchObject({
+      observation: { kind: "at-least", value: 1, reason: "request-budget" },
+      hasDisabledPushMirrors: null,
+      pullMirror: { kind: "unavailable", reason: "request-budget" },
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("preserves affirmative push evidence when a later page is forbidden", async () => {
+    const { client } = clientWithResponses([
+      jsonResponse(
+        [
+          { id: 8, enabled: true },
+          { id: 9, enabled: false },
+        ],
+        { "X-Next-Page": "2" },
+      ),
+      new Response(null, { status: 403 }),
+      jsonResponse({ enabled: true }),
+    ]);
+
+    await expect(mirrorsCollector.collect(client, project)).resolves.toMatchObject({
+      observation: {
+        kind: "at-least",
+        value: 1,
+        reason: "pagination-uncertain",
+        scope: expect.stringContaining("forbidden"),
+      },
+      hasDisabledPushMirrors: true,
+      pullMirror: { kind: "enabled" },
+    });
+  });
+
+  test("does not treat duplicate push entries or a missing pull state as measured absence", async () => {
+    const { client } = clientWithResponses([
+      jsonResponse([{ id: 8, enabled: false }], { "X-Next-Page": "2" }),
+      jsonResponse([{ id: 8, enabled: false }]),
+      jsonResponse({}),
+    ]);
+
+    await expect(mirrorsCollector.collect(client, project)).resolves.toMatchObject({
+      observation: { kind: "unavailable", reason: "malformed" },
+      hasDisabledPushMirrors: null,
+      pullMirror: { kind: "unavailable", reason: "malformed" },
+    });
+  });
+
+  test("propagates an unexpected mirror endpoint failure after the client's retries", async () => {
+    const { client } = clientWithResponses([jsonResponse([]), new Response(null, { status: 503 })]);
+    await expect(mirrorsCollector.collect(client, project)).rejects.toMatchObject({ status: 503 });
   });
 });
 

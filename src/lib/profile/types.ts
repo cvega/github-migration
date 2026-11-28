@@ -233,6 +233,7 @@ export type ProfileInventoryMetricKey = GitLabMetricKey | "pullRequests" | "fork
 export interface ProfileInventorySummary {
   approvalPolicy?: GitLabApprovalPolicy;
   membershipScopes?: GitLabMembershipScope[];
+  pullMirrorProjects?: NumericObservation;
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   lfsTracking?: { found: number; checked: number; example: string | null };
   projectCount: NumericObservation;
