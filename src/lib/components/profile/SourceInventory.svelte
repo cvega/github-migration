@@ -195,6 +195,23 @@
 						{/each}
 					</details>
 				{/if}
+				{#if summary.deployKeyAccess && summary.projectsCaptured > 0}
+					{@const { readOnly, pushCapable } = summary.deployKeyAccess}
+					{@const total = summary.metrics?.deployKeys}
+					<p class="mt-3 text-[13px] text-[var(--workbench-text-muted)]">
+						{#if readOnly.kind === "unavailable" && pushCapable.kind === "unavailable"}
+							Deploy key access could not be verified. Check GitLab before cutover.
+						{:else}
+							Read-only deploy keys: {formatObservation(readOnly)}.
+							Push-capable deploy keys: {formatObservation(pushCapable)}.
+							{#if total && total.kind !== "unavailable" && total.value > 0}
+								Set up replacement access for affected automation before cutover.
+							{:else if total?.kind !== "exact"}
+								Verify deploy key access in GitLab before cutover.
+							{/if}
+						{/if}
+					</p>
+				{/if}
 				{#if summary.webhookEvents}
 					<div class="mt-3 space-y-1 text-[13px] text-[var(--workbench-text-muted)]">
 						{#each ["projectWebhooks", "groupWebhooks"] as const as key (key)}

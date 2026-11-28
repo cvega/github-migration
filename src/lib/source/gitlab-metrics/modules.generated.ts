@@ -6,6 +6,7 @@ import ciConfigurationMetric from "./ci-configuration.metric";
 import ciVariablesMetric from "./ci-variables.metric";
 import commitsMetric from "./commits.metric";
 import containerRegistryMetric from "./container-registry.metric";
+import deployKeysMetric from "./deploy-keys.metric";
 import groupWebhooksMetric from "./group-webhooks.metric";
 import inheritedProtectedBranchesMetric from "./inherited-protected-branches.metric";
 import issuesMetric from "./issues.metric";
@@ -26,6 +27,7 @@ export const GITLAB_METRIC_DESCRIPTORS = [
   ciVariablesMetric,
   commitsMetric,
   containerRegistryMetric,
+  deployKeysMetric,
   groupWebhooksMetric,
   inheritedProtectedBranchesMetric,
   issuesMetric,

@@ -53,7 +53,7 @@ Each profile metric is a set of files that share one stem. The client-safe
 `order`, any extra stored fields and the "Repository contents" card with its
 display `position`; `<stem>.fixture.ts` holds a valid stored observation; and
 `src/lib/server/source/gitlab/metrics/<stem>.collector.ts` binds the collector to
-the same key. Adding a metric adds these three files and nothing else:
+the same key. The registry needs only these three feature files:
 `bun scripts/packaging/generate-gitlab-metrics.ts` regenerates the
 `*.generated.ts` module lists (no `import.meta.glob`, because the analysis worker
 and scripts run under Bun without Vite), the `gitlab-metrics` gate fails when they
@@ -180,6 +180,14 @@ Only aggregates are retained: no registry URLs, paths, names, tag identities or
 image contents. Images are not imported and require a separate transfer before
 cutover. The collector does not broaden project scope through group endpoints
 or fetch images or individual tag lists.
+
+Deploy key evidence comes from paginating `GET /projects/:id/deploy_keys`
+for selected projects, never the instance-wide list. The profile only counts
+visible read-only and push-capable entries using `can_push`; it does not
+retain key material, identifiers, or titles. HTTP 401/403 is `forbidden`;
+HTTP 404 is `not-reported`, not evidence of an empty list. If access or the
+shared request budget cuts pagination short, observed counts are lower bounds.
+Set up replacement access before cutover for automation that relies on deploy keys.
 
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence

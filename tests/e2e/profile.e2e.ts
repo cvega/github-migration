@@ -106,6 +106,10 @@ for (const width of [1280, 768, 390]) {
 		await expect(registry.getByText("At least 2", { exact: true })).toBeVisible();
 		await expect(registry.getByText("Container tags: Unavailable (not-reported)", { exact: true })).toBeVisible();
 		await expect(contents.getByText(/Container images are not imported/)).toContainText("separate image transfer before cutover");
+		await expect(contents.getByText("Deploy keys", { exact: true }).locator("..").getByText("At least 3", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Read-only deploy keys:")).toHaveText(
+			"Read-only deploy keys: At least 2. Push-capable deploy keys: At least 1. Set up replacement access for affected automation before cutover.",
+		);
 		await expect(contents.getByText(/Some rules specifically target protected branches/)).toContainText(
 			"Recreate approval rules on GitHub; imported review history does not enforce them.",
 		);

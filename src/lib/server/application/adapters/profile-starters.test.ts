@@ -109,6 +109,12 @@ test.each(["gitlab", "bitbucket-server"] as const)(
     await finished.promise;
     expect(pending).toBe(0);
     expect(attempts).toEqual(dispatched);
+    if (gitlab) {
+      expect(attempts.filter((path) => path.endsWith("/deploy_keys"))).toEqual([
+        "/api/v4/projects/1/deploy_keys",
+        "/api/v4/projects/2/deploy_keys",
+      ]);
+    }
     expect(attempts.some((path) => path.includes("/3/"))).toBe(false);
     expect(getProfileRun("old")).toMatchObject({ state: "failed", apiCalls: attempts.length });
     const replacement = Promise.withResolvers<void>();

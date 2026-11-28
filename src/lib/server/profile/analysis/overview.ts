@@ -36,6 +36,7 @@ export interface ProfileInventorySummary {
   membershipScopes?: GitLabMembershipScope[];
   pullMirrorProjects?: NumericObservation;
   containerRegistryTags?: NumericObservation;
+  deployKeyAccess?: { readOnly: NumericObservation; pushCapable: NumericObservation };
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
@@ -95,6 +96,10 @@ const profileInventorySummarySchema = z
     membershipScopes: z.array(gitLabMembershipScopeSchema).max(20_000).optional(),
     pullMirrorProjects: numericObservationSchema.optional(),
     containerRegistryTags: numericObservationSchema.optional(),
+    deployKeyAccess: z
+      .object({ readOnly: numericObservationSchema, pushCapable: numericObservationSchema })
+      .strict()
+      .optional(),
     webhookEvents: z
       .object({
         projectWebhooks: gitLabWebhookEventCategoriesSchema,
@@ -208,6 +213,16 @@ export function summarizeGitLabEnrichment(
     }
     return unknown ? null : false;
   }
+  function deployKeyCount(field: "readOnlyCount" | "pushCapableCount"): NumericObservation {
+    return sumObservations(
+      enrichment.projects.map(({ metrics: { deployKeys } }) => {
+        const total = toSummaryObservation(deployKeys);
+        if (total.kind === "unavailable") return total;
+        const value = deployKeys[field];
+        return value === null ? { kind: "unavailable", reason: "malformed" } : { ...total, value };
+      }),
+    );
+  }
   return {
     ...summary,
     metrics,
@@ -239,6 +254,10 @@ export function summarizeGitLabEnrichment(
             : { kind: "exact", value: Number(pullMirror.kind === "enabled") },
       ),
     ),
+    deployKeyAccess: {
+      readOnly: deployKeyCount("readOnlyCount"),
+      pushCapable: deployKeyCount("pushCapableCount"),
+    },
     webhookEvents: {
       projectWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
         enrichment.projects.some(({ metrics }) =>
