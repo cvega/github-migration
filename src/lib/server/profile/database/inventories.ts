@@ -72,7 +72,7 @@ export function saveProfileInventory(
       .run({
         $run_id: runId,
         $project_count: JSON.stringify(parsed.projectCount),
-        $summary: JSON.stringify(summarizeProfileInventory(parsed)),
+        $summary: serializeSummary(summarizeProfileInventory(parsed)),
         $fetched_at: new Date(nowMs ?? Date.now()).toISOString(),
         $id: runId,
       });
@@ -194,13 +194,18 @@ function saveSourceProfileEnrichment(runId: string, enrichment: SourceProfileEnr
       .prepare("UPDATE profile_source_inventories SET summary = $summary WHERE run_id = $run_id")
       .run({
         $run_id: runId,
-        $summary: JSON.stringify(
+        $summary: serializeSummary(
           parsed.provider === "gitlab"
             ? summarizeGitLabEnrichment(summary, parsed)
             : summarizeBitbucketEnrichment(summary, parsed),
         ),
       });
   })();
+}
+
+/** Validate before storing so an unreadable summary is never persisted. */
+function serializeSummary(summary: ProfileInventorySummary): string {
+  return JSON.stringify(parseProfileInventorySummary(summary));
 }
 
 export function getProfileInventorySummary(runId: string): ProfileInventorySummary | null {

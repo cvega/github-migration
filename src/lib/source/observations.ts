@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProfileNumericMetric } from "$lib/source/types";
+import { OBSERVATION_UNAVAILABLE_REASONS, type ProfileNumericMetric } from "$lib/source/types";
 import { SOURCE_PROVIDERS } from "$lib/source-provider";
 
 const profileNumericObservationSchema = z.discriminatedUnion("kind", [
@@ -22,14 +22,7 @@ const profileNumericObservationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("unavailable"),
-      reason: z.enum([
-        "forbidden",
-        "not-found-or-hidden",
-        "not-reported",
-        "unsupported",
-        "malformed",
-        "transient-failure",
-      ]),
+      reason: z.enum(OBSERVATION_UNAVAILABLE_REASONS),
       scope: z.string().min(1).max(1_024),
     })
     .strict(),

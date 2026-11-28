@@ -176,6 +176,88 @@ describe("profile source inventories", () => {
       pagination: { page: 1, totalPages: 1, total: 10 },
     });
   });
+  test("round-trips GitLab and Bitbucket summaries whose metrics carry profile-only unavailable reasons", () => {
+    const collectedAt = new Date(0).toISOString();
+    const metric = (reason: "malformed" | "transient-failure" | "unsupported") => ({
+      provider: "gitlab" as const,
+      endpointFamily: "project-tags",
+      collectedAt,
+      observation: { kind: "unavailable" as const, reason, scope: "visible" },
+    });
+    const exact = {
+      ...metric("malformed"),
+      observation: { kind: "exact" as const, value: 1, basis: "reported" as const, scope: "v" },
+    };
+    createRun();
+    const snapshot = inventory();
+    settleProfileInventoryRun("run", snapshot, 1, 1, {
+      version: 2,
+      provider: "gitlab",
+      sourceApiUrl: snapshot.sourceApiUrl,
+      namespace: snapshot.namespace,
+      projects: [
+        {
+          sourceId: "1",
+          path: "platform/api",
+          metrics: {
+            issues: exact,
+            mergeRequests: exact,
+            commits: metric("unsupported"),
+            branches: metric("transient-failure"),
+            tags: metric("malformed"),
+            releases: metric("malformed"),
+          },
+        },
+      ],
+    });
+    expect(getProfileInventorySummary("run")?.metrics).toMatchObject({
+      commits: { kind: "unavailable", reason: "unsupported" },
+      branches: { kind: "unavailable", reason: "transient-failure" },
+      tags: { kind: "unavailable", reason: "malformed" },
+      releases: { kind: "unavailable", reason: "malformed" },
+    });
+
+    const provider = "bitbucket-server";
+    const sourceApiUrl = "https://bb.example.com/rest/api/1.0";
+    createProfileRun({ id: "bb", org: "PC", sourceProvider: provider, sourceApiUrl });
+    const project = {
+      ...snapshot.projects[0]!,
+      provider: "bitbucket-server" as const,
+      path: "PC/repo",
+    };
+    const bbMetric = { ...metric("malformed"), provider: "bitbucket-server" as const };
+    settleProfileInventoryRun(
+      "bb",
+      { ...snapshot, provider, sourceApiUrl, namespace: "PC", projects: [project] },
+      1,
+      1,
+      {
+        version: 2,
+        provider,
+        sourceApiUrl,
+        namespace: "PC",
+        projects: [
+          {
+            sourceId: "1",
+            path: "PC/repo",
+            metrics: {
+              commits: bbMetric,
+              pullRequests: bbMetric,
+              branches: bbMetric,
+              tags: bbMetric,
+              forks: bbMetric,
+            },
+            activity: { defaultBranch: "main", tipCommittedAt: null, review: null },
+          },
+        ],
+      },
+    );
+    expect(getProfileInventorySummary("bb")?.metrics?.commits).toEqual({
+      kind: "unavailable",
+      reason: "malformed",
+    });
+  });
+
   test("rejects an invalid stored summary without rewriting it", () => {
     createRun();
     saveProfileInventory("run", inventory(), 1);
