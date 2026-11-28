@@ -37,114 +37,71 @@ describe("profile database schema", () => {
     database.close();
   });
 
-  test("widens the legacy provider CHECK and preserves dependent inventory across restart", () => {
-    const directory = mkdtempSync(join(tmpdir(), "profile-provider-upgrade-"));
-    const path = join(directory, "profile.db");
-    try {
-      {
-        using db = new Database(path, { create: true });
-        db.run(`PRAGMA foreign_keys = ON;
-          CREATE TABLE profile_runs (
-            id TEXT PRIMARY KEY,
-            source_provider TEXT NOT NULL CHECK (source_provider IN ('github', 'gitlab')),
-            source_api_url TEXT NOT NULL, org TEXT NOT NULL, state TEXT NOT NULL,
-            total_repos INTEGER NOT NULL DEFAULT 0, profiled_repos INTEGER NOT NULL DEFAULT 0,
-            blockers INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0,
-            started_at TEXT NOT NULL, completed_at TEXT, failure_reason TEXT
-          );
-          CREATE TABLE profile_source_inventories (
-            run_id TEXT PRIMARY KEY REFERENCES profile_runs(id) ON DELETE CASCADE,
-            payload TEXT NOT NULL, fetched_at TEXT NOT NULL
-          )`);
-        insertRun(db, "legacy", "completed", "2026-08-01");
-        db.run("INSERT INTO profile_source_inventories VALUES ('legacy', '{}', '2026-08-02')");
-        expect(() =>
-          db.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'"),
-        ).toThrow(/CHECK/);
-        profileStore.applySchema(db);
-        expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
-        expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-      }
-      using reopened = new Database(path);
-      reopened.run("PRAGMA foreign_keys = ON");
-      profileStore.applySchema(reopened);
-      expect(
-        reopened
-          .query(`SELECT r.id, r.source_provider, r.state, r.completed_at, i.fetched_at
-        FROM profile_runs r JOIN profile_source_inventories i ON i.run_id = r.id`)
-          .all(),
-      ).toEqual([
-        {
-          id: "legacy",
-          source_provider: "github",
-          state: "completed",
-          completed_at: "2026-08-01",
-          fetched_at: "2026-08-02",
-        },
-      ]);
-      expect(
-        reopened.run("UPDATE profile_runs SET source_provider = 'bitbucket-server'").changes,
-      ).toBe(1);
-      expect(reopened.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
-      expect(reopened.query("PRAGMA foreign_key_check").all()).toEqual([]);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+  test("creates normalized inventory for current providers with enforced foreign keys", () => {
+    using db = new Database(":memory:");
+    db.run("PRAGMA foreign_keys = ON");
+    profileStore.applySchema(db);
+    expect(
+      db.query("SELECT name FROM pragma_table_info('profile_source_inventories')").all(),
+    ).toEqual([
+      { name: "run_id" },
+      { name: "project_count" },
+      { name: "summary" },
+      { name: "fetched_at" },
+    ]);
+    const inventory = db.prepare(
+      "INSERT INTO profile_source_inventories (run_id, fetched_at) VALUES (?, '2026-08-02')",
+    );
+    expect(() => inventory.run("missing")).toThrow(/FOREIGN KEY/);
+    for (const provider of ["github", "gitlab", "bitbucket-server"]) {
+      db.prepare(
+        "INSERT INTO profile_runs (id, source_provider, source_api_url, org, started_at) VALUES (?, ?, 'https://example.com', 'acme', '2026-08-01')",
+      ).run(provider, provider);
+      inventory.run(provider);
     }
+    profileStore.applySchema(db);
+    expect(db.query("SELECT COUNT(*) AS n FROM profile_source_inventories").get()).toEqual({
+      n: 3,
+    });
+    expect(
+      db
+        .query("SELECT project_count FROM profile_source_inventories WHERE run_id = 'github'")
+        .get(),
+    ).toEqual({
+      project_count: JSON.stringify({ kind: "exact", value: 0 }),
+    });
+    expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
-  test("serializes competing legacy upgrades and retries an interrupted upgrade", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "profile-upgrade-"));
-    const path = join(directory, "profile.db");
-    const unavailable = { kind: "unavailable", reason: "not-reported" };
-    const project = {
-      provider: "gitlab",
-      sourceId: "1",
-      path: "acme/api",
-      name: "api",
-      visibility: "private",
-      archived: false,
-      defaultBranch: null,
-      lastActivityAt: null,
-      repositorySizeBytes: { kind: "exact", value: 0 },
-      storageSizeBytes: unavailable,
-      lfsObjectsSizeBytes: unavailable,
-      packagesSizeBytes: unavailable,
-      wikiSizeBytes: unavailable,
-      uploadsSizeBytes: unavailable,
-    };
-    const projectCount = { kind: "at-least", value: 1 };
-    const payload = JSON.stringify({
-      version: 1,
-      provider: "gitlab",
-      sourceApiUrl: "https://gitlab.example/api/v4",
-      namespace: "acme",
-      projectCount,
-      projects: [project],
-    });
+  test("rejects the payload inventory layout before a default zero can be read", () => {
+    using db = new Database(":memory:");
+    db.run(`CREATE TABLE profile_source_inventories (
+      run_id TEXT PRIMARY KEY, payload TEXT NOT NULL,
+      project_count TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}',
+      summary TEXT NOT NULL DEFAULT '{}', fetched_at TEXT NOT NULL
+    )`);
+    const payload = JSON.stringify({ projectCount: { kind: "exact", value: 1 } });
+    db.prepare(
+      "INSERT INTO profile_source_inventories (run_id, payload, fetched_at) VALUES ('old', ?, '2026-08-02')",
+    ).run(payload);
+    expect(() => profileStore.applySchema(db)).toThrow(/fresh data directory/);
+    expect(db.query("SELECT payload FROM profile_source_inventories").get()).toEqual({ payload });
+    expect(db.query("SELECT name FROM sqlite_master WHERE name = 'profile_runs'").get()).toBeNull();
+  });
 
+  test("rolls back incomplete DDL and serializes fresh initialization across connections", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "profile-startup-"));
+    const path = join(directory, "profile.db");
     try {
       {
         using db = new Database(path, { create: true });
         db.run("PRAGMA journal_mode = WAL");
-        profileStore.applySchema(db);
-        db.run(`ALTER TABLE profile_runs ADD COLUMN lease_managed INTEGER;
-          CREATE VIEW legacy_leases AS SELECT lease_managed FROM profile_runs;
-          INSERT INTO profile_runs (id, source_provider, source_api_url, org, started_at)
-          VALUES ('legacy', 'gitlab', 'https://gitlab.example/api/v4', 'acme', '2026-08-01');
-          INSERT INTO profile_repos (run_id, name_with_owner, created_at)
-          VALUES ('legacy', 'acme/api', '2026-08-01')`);
-        db.prepare(
-          "INSERT INTO profile_source_inventories (run_id, payload, fetched_at) VALUES ('legacy', ?, '2026-08-01')",
-        ).run(payload);
-
-        // Failure at the last DDL statement must also roll back the earlier backfill.
-        expect(() => profileStore.applySchema(db)).toThrow(/legacy_leases/);
-        expect(db.query("SELECT payload FROM profile_source_inventories").get()).toEqual({
-          payload,
-        });
-        expect(db.query("SELECT * FROM profile_source_inventory_projects").all()).toEqual([]);
-        expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
-        db.run("DROP VIEW legacy_leases");
+        db.run("CREATE TABLE idx_profile_runs_state (id INTEGER)");
+        expect(() => profileStore.applySchema(db)).toThrow(/idx_profile_runs_state/);
+        expect(
+          db.query("SELECT name FROM sqlite_master WHERE name = 'profile_runs'").get(),
+        ).toBeNull();
+        db.run("DROP TABLE idx_profile_runs_state");
         db.run("BEGIN IMMEDIATE");
 
         // Hold both startup connections at the writer lock before releasing them.
@@ -185,26 +142,8 @@ describe("profile database schema", () => {
         }
       }
       using reopened = new Database(path);
-      profileStore.applySchema(reopened);
-      expect(
-        reopened.query("SELECT payload, project_count FROM profile_source_inventories").get(),
-      ).toEqual({
-        payload: "{}",
-        project_count: JSON.stringify(projectCount),
-      });
-      expect(
-        reopened
-          .query("SELECT run_id, position, payload FROM profile_source_inventory_projects")
-          .all(),
-      ).toEqual([{ run_id: "legacy", position: 0, payload: JSON.stringify(project) }]);
-      expect(reopened.query("SELECT name_with_owner FROM profile_repos").all()).toEqual([
-        { name_with_owner: "acme/api" },
-      ]);
-      expect(
-        reopened
-          .query("SELECT name FROM pragma_table_info('profile_runs') WHERE name = 'lease_managed'")
-          .all(),
-      ).toEqual([]);
+      const tables = reopened.query("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+      for (const { name } of PROFILE_DURABLE_TABLES) expect(tables).toContainEqual({ name });
       expect(reopened.query("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -229,6 +168,7 @@ describe("profile database schema", () => {
   ])("protects analysis and its evidence with retention %o", (limits) => {
     using db = new Database(":memory:");
     profileStore.applySchema(db);
+    db.run("PRAGMA foreign_keys = ON");
     const options = { ...limits, nowMs: Date.parse("2026-08-10T12:00:00Z") };
     insertRun(db, "protected", "completed", "2026-08-02");
     db.run(`INSERT INTO profile_repos (id, run_id, name_with_owner, created_at)

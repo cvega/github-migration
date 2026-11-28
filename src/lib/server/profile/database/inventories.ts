@@ -58,14 +58,13 @@ export function saveProfileInventory(
     const result = database
       .prepare(
         `INSERT INTO profile_source_inventories
-					 (run_id, payload, project_count, summary, fetched_at)
-				 SELECT $run_id, '{}', $project_count, $summary, $fetched_at
+					 (run_id, project_count, summary, fetched_at)
+				 SELECT $run_id, $project_count, $summary, $fetched_at
 				 WHERE EXISTS (
 					 SELECT 1 FROM profile_runs
 					 WHERE profile_runs.id = $id AND profile_runs.state = 'running'
 				 )
 				 ON CONFLICT(run_id) DO UPDATE SET
-					 payload = '{}',
 					 project_count = excluded.project_count,
 					 summary = excluded.summary,
 					 fetched_at = excluded.fetched_at`,

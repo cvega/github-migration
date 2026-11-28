@@ -6,12 +6,7 @@
  * startup. The query functions live in `./store`.
  */
 import type { Database } from "bun:sqlite";
-import {
-  addColumnIfMissing,
-  type DomainStore,
-  type DurableTableContract,
-} from "$lib/server/core/db";
-import { parseConfiguredSourceInventory as parseSourceNamespaceInventory } from "$lib/server/core/source-url";
+import type { DomainStore, DurableTableContract } from "$lib/server/core/db";
 import { SOURCE_PROVIDERS } from "$lib/source-provider";
 
 export const PROFILE_DURABLE_TABLES = [
@@ -119,11 +114,8 @@ const PROFILE_DDL = `
   CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state);
 
   -- Provider-neutral source inventory metadata captured for a profiling run.
-  -- payload is retained only to backfill databases created before projects
-  -- moved to normalized rows.
   CREATE TABLE IF NOT EXISTS profile_source_inventories (
     run_id TEXT PRIMARY KEY REFERENCES profile_runs(id) ON DELETE CASCADE,
-    payload TEXT NOT NULL DEFAULT '{}',
     project_count TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}',
     summary TEXT NOT NULL DEFAULT '{}',
     fetched_at TEXT NOT NULL
@@ -223,114 +215,6 @@ const PROFILE_DDL = `
 
 `;
 
-const PROFILE_RUN_COLUMNS = [
-  "id",
-  "source_provider",
-  "source_api_url",
-  "org",
-  "state",
-  "total_repos",
-  "profiled_repos",
-  "blockers",
-  "warnings",
-  "org_ruleset_count",
-  "observed_org_ruleset_count",
-  "org_resources",
-  "api_calls",
-  "detail_rollup",
-  "started_at",
-  "completed_at",
-  "failure_reason",
-] as const;
-
-function removeProfileProviderConstraint(db: Database): void {
-  const table = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'profile_runs'")
-    .get() as { sql: string } | null;
-  if (!table?.sql.includes("source_provider IN")) return;
-
-  db.run(`CREATE TABLE profile_runs_next (
-        id TEXT PRIMARY KEY,
-        source_provider TEXT NOT NULL DEFAULT 'github',
-        source_api_url TEXT NOT NULL,
-        org TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'running',
-        total_repos INTEGER NOT NULL DEFAULT 0,
-        profiled_repos INTEGER NOT NULL DEFAULT 0,
-        blockers INTEGER NOT NULL DEFAULT 0,
-        warnings INTEGER NOT NULL DEFAULT 0,
-        org_ruleset_count INTEGER NOT NULL DEFAULT 0,
-        observed_org_ruleset_count INTEGER,
-        org_resources TEXT NOT NULL DEFAULT '{}',
-        api_calls INTEGER NOT NULL DEFAULT 0,
-        detail_rollup TEXT,
-        started_at TEXT NOT NULL,
-        completed_at TEXT,
-        failure_reason TEXT
-      )`);
-  const columns = PROFILE_RUN_COLUMNS.join(", ");
-  db.run(`INSERT INTO profile_runs_next (${columns}) SELECT ${columns} FROM profile_runs`);
-  db.run("DROP TABLE profile_runs");
-  db.run("ALTER TABLE profile_runs_next RENAME TO profile_runs");
-  db.run("CREATE INDEX IF NOT EXISTS idx_profile_runs_state ON profile_runs(state)");
-}
-
-function backfillSourceInventoryProjects(db: Database): void {
-  const rows = db
-    .prepare(
-      `SELECT inventories.run_id, inventories.payload,
-              runs.source_provider, runs.source_api_url, runs.org
-       FROM profile_source_inventories inventories
-       JOIN profile_runs runs ON runs.id = inventories.run_id
-       WHERE inventories.payload <> '{}'
-         AND NOT EXISTS (
-           SELECT 1 FROM profile_source_inventory_projects projects
-           WHERE projects.run_id = inventories.run_id
-         )`,
-    )
-    .all() as Array<{
-    run_id: string;
-    payload: string;
-    source_provider: string;
-    source_api_url: string;
-    org: string;
-  }>;
-  if (rows.length === 0) return;
-
-  const insertProject = db.prepare(
-    `INSERT INTO profile_source_inventory_projects
-       (run_id, position, source_id, path, payload)
-     VALUES ($run_id, $position, $source_id, $path, $payload)`,
-  );
-  for (const row of rows) {
-    const inventory = parseSourceNamespaceInventory(JSON.parse(row.payload));
-    if (
-      inventory.provider !== row.source_provider ||
-      inventory.sourceApiUrl !== row.source_api_url ||
-      inventory.namespace !== row.org
-    ) {
-      throw new Error(`Legacy source inventory identity does not match run '${row.run_id}'`);
-    }
-    for (const [position, project] of inventory.projects.entries()) {
-      insertProject.run({
-        $run_id: row.run_id,
-        $position: position,
-        $source_id: project.sourceId,
-        $path: project.path,
-        $payload: JSON.stringify(project),
-      });
-    }
-    db.prepare(
-      `UPDATE profile_source_inventories
-         SET payload = '{}', project_count = $project_count
-         WHERE run_id = $run_id`,
-    ).run({
-      $run_id: row.run_id,
-      $project_count: JSON.stringify(inventory.projectCount),
-    });
-  }
-}
-
 /**
  * On startup, fail any profiling run still marked `running` — its process was
  * killed by the restart. A profile crawl runs entirely in-process (there's no
@@ -416,58 +300,23 @@ export function pruneProfileHistory(
     .immediate();
 }
 
-function upgradeProfileSchema(db: Database): void {
-  db.run(PROFILE_DDL);
-  // Columns added after the table's first release — upgrade older databases.
-  addColumnIfMissing(db, "profile_runs", "source_provider", "TEXT NOT NULL DEFAULT 'github'");
-  addColumnIfMissing(db, "profile_runs", "org_ruleset_count", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "profile_runs", "observed_org_ruleset_count", "INTEGER");
-  addColumnIfMissing(db, "profile_runs", "org_resources", "TEXT NOT NULL DEFAULT '{}'");
-  addColumnIfMissing(db, "profile_runs", "api_calls", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "profile_runs", "detail_rollup", "TEXT");
-  addColumnIfMissing(
-    db,
-    "profile_repository_analysis_runs",
-    "unknown_size_repo_count",
-    "INTEGER NOT NULL DEFAULT 0",
-  );
-  addColumnIfMissing(
-    db,
-    "profile_repository_analysis_jobs",
-    "priority_reasons",
-    "TEXT NOT NULL DEFAULT '[]'",
-  );
-  addColumnIfMissing(db, "profile_source_inventories", "summary", "TEXT NOT NULL DEFAULT '{}'");
-  addColumnIfMissing(
-    db,
-    "profile_source_inventories",
-    "project_count",
-    `TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}'`,
-  );
-  removeProfileProviderConstraint(db);
-  backfillSourceInventoryProjects(db);
-  db.run("DROP TABLE IF EXISTS profile_run_leases");
-  const columns = db.prepare("PRAGMA table_info(profile_runs)").all() as Array<{ name: string }>;
-  if (columns.some((column) => column.name === "lease_managed")) {
-    db.run("ALTER TABLE profile_runs DROP COLUMN lease_managed");
-  }
-  const violations = db.prepare("PRAGMA foreign_key_check").all();
-  if (violations.length > 0) {
-    throw new Error("Profile provider schema migration left invalid foreign keys");
-  }
-}
-
 /** Profile domain store descriptor — see `$lib/server/schemas`. */
 export const profileStore: DomainStore = {
   applySchema(db) {
-    // Rebuilding profile_runs must preserve referencing rows. SQLite only
-    // accepts foreign_keys changes outside a transaction.
-    db.run("PRAGMA foreign_keys = OFF");
-    try {
-      db.transaction(upgradeProfileSchema).immediate(db);
-    } finally {
-      db.run("PRAGMA foreign_keys = ON");
-    }
+    db.transaction(() => {
+      // An inventory with a whole-payload column can have an unmeasured default zero.
+      const payloadColumn = db
+        .prepare(
+          "SELECT 1 FROM pragma_table_info('profile_source_inventories') WHERE name = 'payload'",
+        )
+        .get();
+      if (payloadColumn) {
+        throw new Error(
+          "Incompatible profile inventory schema. Start with a fresh data directory.",
+        );
+      }
+      db.run(PROFILE_DDL);
+    }).immediate();
   },
   onInit(db) {
     recoverInterruptedProfiles(db);
