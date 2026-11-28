@@ -139,40 +139,50 @@ describe("gitlab profile request budget", () => {
     }
   });
 
-  function installGitLab() {
+  /** Project 1 reports statistics in the listing; the others need a detail request. */
+  function installGitLab(
+    projectCount = 1,
+    withListingStatistics: (id: number) => boolean = (id) => id === 1,
+  ) {
     const requests: string[] = [];
+    const statistics = {
+      commit_count: 3,
+      repository_size: 1_024,
+      storage_size: 1_024,
+      lfs_objects_size: 0,
+      packages_size: 0,
+      wiki_size: 0,
+      uploads_size: 0,
+      job_artifacts_size: 0,
+      pipeline_artifacts_size: 0,
+      snippets_size: 0,
+      container_registry_size: 0,
+    };
+    const project = (id: number, listed: boolean) => ({
+      id,
+      name: `api-${id}`,
+      path_with_namespace: `platform/api-${id}`,
+      visibility: "private",
+      archived: false,
+      default_branch: "main",
+      last_activity_at: null,
+      statistics: listed ? statistics : null,
+    });
     fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
       const url = new URL(input.toString());
       requests.push(url.pathname);
+      await Bun.sleep(1);
       const json = (data: unknown, headers: Record<string, string> = {}) =>
         new Response(JSON.stringify(data), { headers });
       if (url.pathname.endsWith("/groups/platform/projects")) {
-        const bytes = 1_024;
-        return json([
-          {
-            id: 1,
-            name: "api",
-            path_with_namespace: "platform/api",
-            visibility: "private",
-            archived: false,
-            default_branch: "main",
-            last_activity_at: null,
-            statistics: {
-              commit_count: 3,
-              repository_size: bytes,
-              storage_size: bytes,
-              lfs_objects_size: 0,
-              packages_size: 0,
-              wiki_size: 0,
-              uploads_size: 0,
-              job_artifacts_size: 0,
-              pipeline_artifacts_size: 0,
-              snippets_size: 0,
-              container_registry_size: 0,
-            },
-          },
-        ]);
+        return json(
+          Array.from({ length: projectCount }, (_, index) =>
+            project(index + 1, withListingStatistics(index + 1)),
+          ),
+        );
       }
+      const detail = /\/projects\/(\d+)$/.exec(url.pathname);
+      if (detail) return json({ ...project(Number(detail[1]), true) });
       if (/\/(issues|merge_requests)$/.test(url.pathname)) return json([{}], { "X-Total": "5" });
       if (url.pathname.includes("/repository/branches/main")) {
         return json({ commit: { id: "abc123" } });
@@ -183,7 +193,7 @@ describe("gitlab profile request budget", () => {
   }
 
   async function settled(id: string) {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
       const run = getProfileRun(id);
       if (run && run.state !== "running") return run;
       await Bun.sleep(5);
@@ -191,23 +201,59 @@ describe("gitlab profile request budget", () => {
     throw new Error("profile did not settle");
   }
 
-  test("completes with the configured budget spent and the rest unavailable", async () => {
-    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "3";
+  test("keeps the last allowed request's head SHA as an at-least-one commit observation", async () => {
+    // Listing, issues, merge requests, then the default-branch lookup is the fourth and last.
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "4";
     const requests = installGitLab();
 
     const run = profileStarters.gitlab("platform");
     const finished = await settled(run.id);
 
-    expect(finished).toMatchObject({ state: "completed", apiCalls: 1 + 3 });
-    expect(requests).toHaveLength(1 + 3);
+    expect(finished).toMatchObject({ state: "completed", apiCalls: 4 });
+    expect(requests).toHaveLength(4);
+    expect(requests.at(-1)).toContain("/repository/branches/main");
     expect(getProfileInventorySummary(run.id)?.metrics).toMatchObject({
       issues: { kind: "exact", value: 5 },
       mergeRequests: { kind: "exact", value: 5 },
-      commits: { kind: "unavailable", reason: "request-budget" },
+      commits: { kind: "at-least", value: 1 },
       branches: { kind: "unavailable", reason: "request-budget" },
       tags: { kind: "unavailable", reason: "request-budget" },
       releases: { kind: "unavailable", reason: "request-budget" },
     });
+  });
+
+  test("a budget of one is spent once across discovery and enrichment for many projects", async () => {
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "1";
+    const requests = installGitLab(50, () => false);
+
+    const run = profileStarters.gitlab("platform");
+    const finished = await settled(run.id);
+
+    // The required listing page is the only request; no optional call is made on either side.
+    expect(finished).toMatchObject({ state: "completed", apiCalls: 1 });
+    expect(requests).toEqual(["/api/v4/groups/platform/projects"]);
+    const summary = getProfileInventorySummary(run.id);
+    expect(summary?.projectsCaptured).toBe(50);
+    expect(summary?.storage.repositorySizeBytes).toEqual({
+      kind: "unavailable",
+      reason: "request-budget",
+    });
+    for (const metric of Object.values(summary?.metrics ?? {})) {
+      expect(metric).toEqual({ kind: "unavailable", reason: "request-budget" });
+    }
+  });
+
+  test("statistics detail requests and metric requests draw on one allowance", async () => {
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "9";
+    const requests = installGitLab(5, () => false);
+
+    const run = profileStarters.gitlab("platform");
+    const finished = await settled(run.id);
+
+    expect(finished).toMatchObject({ state: "completed", apiCalls: 9 });
+    expect(requests).toHaveLength(9);
+    // Discovery's detail requests ran first; whatever remained went to metrics.
+    expect(requests.filter((path) => /\/projects\/\d+$/.test(path))).toHaveLength(5);
   });
 
   test("rejects an invalid budget before creating a run or calling GitLab", () => {

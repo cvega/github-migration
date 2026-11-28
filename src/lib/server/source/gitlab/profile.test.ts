@@ -514,7 +514,7 @@ describe("GitLab profile request budget", () => {
     });
   });
 
-  test("marks the commit count unavailable when the sequence request is out of budget", async () => {
+  test("keeps a valid head commit as an at-least-one count when the sequence request is out of budget", async () => {
     const { client, calls } = clientWithResponses([jsonResponse({ commit: { id: "abc123" } })]);
 
     const metric = await collectGitLabCommitMetric(
@@ -525,10 +525,24 @@ describe("GitLab profile request budget", () => {
 
     expect(calls).toHaveLength(1);
     expect(metric.observation).toEqual({
-      kind: "unavailable",
+      kind: "at-least",
+      value: 1,
       reason: "request-budget",
       scope: GITLAB_COMMITS_SCOPE,
     });
+  });
+
+  test("marks the commit count unavailable when the head lookup itself is out of budget", async () => {
+    const { client, calls } = clientWithResponses([]);
+
+    const metric = await collectGitLabCommitMetric(
+      client,
+      { sourceId: "42", defaultBranch: "main" },
+      { apiCallCeiling: client.getApiCalls() },
+    );
+
+    expect(calls).toEqual([]);
+    expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
   });
 
   test("marks counted collections unavailable when no budget remains", async () => {
@@ -574,6 +588,24 @@ describe("GitLab profile request budget", () => {
 
     expect(failure).toBeDefined();
     expect(requests).toEqual([]);
+  });
+
+  test("lets a shared absolute ceiling override the relative budget", async () => {
+    const { client, requests } = flakyGitLab();
+    await client.get("/version");
+    await client.get("/version");
+    const used = client.getApiCalls();
+
+    await collectGitLabProfileEnrichment(client, budgetInventory(2), {
+      requestBudget: 1_000,
+      apiCallCeiling: used + 2,
+    });
+
+    expect(client.getApiCalls()).toBe(used + 2);
+    expect(requests).toHaveLength(used + 2);
+    await expect(
+      collectGitLabProfileEnrichment(client, budgetInventory(1), { apiCallCeiling: -1 }),
+    ).rejects.toThrow("GitLab API call ceiling must be a non-negative integer");
   });
 
   test("rejects an invalid budget and defaults to the configured ceiling", async () => {

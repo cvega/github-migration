@@ -26,13 +26,19 @@ export const profileStarters = {
     const requestBudget = getGitLabProfileRequestBudget();
     return startGitLabProfile(namespace, {
       buildSourceClient: getGitLabSourceClient,
-      run: (client, input, onProgress) =>
-        runGitLabInventoryProfile(client, input, onProgress, {
-          discover: discoverGitLabInventory,
+      run: (client, input, onProgress) => {
+        // One allowance for the whole run: optional inventory statistics requests
+        // and metric collection spend the same ceiling on the client's call
+        // counter, retries included. Required listing pages are never refused.
+        const apiCallCeiling = client.getApiCalls() + requestBudget;
+        return runGitLabInventoryProfile(client, input, onProgress, {
+          discover: (sourceClient, requested, options) =>
+            discoverGitLabInventory(sourceClient, requested, { ...options, apiCallCeiling }),
           enrich: (sourceClient, inventory, options) =>
-            collectGitLabProfileEnrichment(sourceClient, inventory, { ...options, requestBudget }),
+            collectGitLabProfileEnrichment(sourceClient, inventory, { ...options, apiCallCeiling }),
           isApiError: (error) => error instanceof GitLabApiError,
-        }),
+        });
+      },
       newId: () => Bun.randomUUIDv7(),
     });
   },

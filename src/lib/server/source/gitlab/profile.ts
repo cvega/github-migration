@@ -255,6 +255,7 @@ export async function collectGitLabCommitMetric(
     );
   }
   const projectId = encodeURIComponent(project.sourceId);
+  let headSha: string | null = null;
   try {
     const branch = await client.get<unknown>(
       `/projects/${projectId}/repository/branches/${encodeURIComponent(project.defaultBranch)}`,
@@ -278,6 +279,7 @@ export async function collectGitLabCommitMetric(
         nowMs,
       );
     }
+    headSha = sha;
     const sequence = await client.get<unknown>(
       `/projects/${projectId}/repository/commits/${encodeURIComponent(sha)}/sequence`,
       {},
@@ -302,7 +304,8 @@ export async function collectGitLabCommitMetric(
   } catch (error) {
     const observation =
       error instanceof GitLabRequestBudgetError
-        ? budgetObservation(GITLAB_COMMITS_SCOPE)
+        ? // A valid default-branch head proves at least one commit even without its sequence.
+          budgetObservation(GITLAB_COMMITS_SCOPE, headSha ? 1 : 0)
         : unavailableObservation(error, GITLAB_COMMITS_SCOPE);
     if (!observation) throw error;
     return metric("repository-commit-sequence", observation, nowMs);
@@ -328,6 +331,11 @@ export async function collectGitLabProfileEnrichment(
     concurrency?: number;
     /** Requests this collection may issue, retries and pagination included. */
     requestBudget?: number;
+    /**
+     * Absolute limit on the client's call counter shared with earlier phases of
+     * the same profile run. Takes precedence over `requestBudget`.
+     */
+    apiCallCeiling?: number;
   } = {},
 ): Promise<GitLabProfileEnrichment> {
   if (inventory.provider !== "gitlab") {
@@ -341,6 +349,12 @@ export async function collectGitLabProfileEnrichment(
   if (!Number.isSafeInteger(requestBudget) || requestBudget < 0) {
     throw new RangeError("GitLab profile request budget must be a non-negative integer");
   }
+  if (
+    options.apiCallCeiling !== undefined &&
+    (!Number.isSafeInteger(options.apiCallCeiling) || options.apiCallCeiling < 0)
+  ) {
+    throw new RangeError("GitLab API call ceiling must be a non-negative integer");
+  }
 
   const workers = enrichmentWorkers(options.signal);
   const metricOptions: GitLabMetricOptions = {
@@ -348,7 +362,7 @@ export async function collectGitLabProfileEnrichment(
     nowMs: options.nowMs,
     // The client counts every attempt synchronously before sending it, so this
     // one ceiling cannot be overshot by concurrent workers or retries.
-    apiCallCeiling: client.getApiCalls() + requestBudget,
+    apiCallCeiling: options.apiCallCeiling ?? client.getApiCalls() + requestBudget,
   };
   const projects = new Array<GitLabProjectProfile>(inventory.projects.length);
   let nextProject = 0;

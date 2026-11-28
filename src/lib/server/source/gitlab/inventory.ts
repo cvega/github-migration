@@ -57,6 +57,11 @@ interface GitLabProjectSummary {
 export interface DiscoverGitLabInventoryOptions {
   signal?: AbortSignal;
   requestBudget?: number;
+  /**
+   * Absolute limit on the client's call counter, shared with later phases of the
+   * same profile run. Takes precedence over `requestBudget`.
+   */
+  apiCallCeiling?: number;
   onProgress?: (progress: SourceInventoryProgress) => void;
   onPaginationComplete?: (total: number | null, itemsRead: number) => void;
 }
@@ -317,7 +322,10 @@ export async function* streamGitLabInventoryPages(
     throw new RangeError("GitLab inventory request budget must be a non-negative integer");
   }
   // Inventory pagination is required evidence and can continue after optional requests stop.
-  const apiCallCeiling = client.getApiCalls() + requestBudget;
+  const apiCallCeiling = options.apiCallCeiling ?? client.getApiCalls() + requestBudget;
+  if (!Number.isSafeInteger(apiCallCeiling) || apiCallCeiling < 0) {
+    throw new RangeError("GitLab API call ceiling must be a non-negative integer");
+  }
   const path = `/groups/${encodeGitLabPath(normalizedNamespace)}/projects`;
   const sourceIds = new Set<string>();
   const projectPaths = new Set<string>();

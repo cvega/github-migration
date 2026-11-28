@@ -22,7 +22,8 @@ pagination and reuses any statistics returned by the group listing. For projects
 whose listing statistics are null or missing, inventory requests
 `GET /projects/:id?statistics=true` with at most four requests in flight and the
 client's existing timeout and retry limits. Listing calls, detail calls, and
-retries all count toward the 10,000-attempt cutoff for optional detail calls.
+retries all count toward the cutoff for optional detail calls: 10,000 attempts
+for a direct caller, or the profile request budget below for a profile run.
 Required listing pages can still finish after that cutoff. A failed detail
 request or exhausted budget leaves the project in the inventory with
 unavailable observations. Source storage
@@ -37,11 +38,13 @@ Profile metrics are declared once in a client-safe registry
 (`src/lib/source/gitlab-metrics.ts`): each key drives the stored enrichment shape,
 the summary schema and its "Repository contents" card. The server registers a
 collector for the same key in `source/gitlab/profile.ts`, and the compiler rejects
-a key without one. All collectors in a run draw on one request budget
-(`GITLAB_SOURCE_PROFILE_REQUEST_BUDGET`) that counts every attempt, including
-retries and further pages, and cannot be exceeded by concurrent workers. Once it
-is spent no further budgeted calls are made and the profile still completes:
-counts already partly enumerated stay lower bounds, and everything else is
+a key without one. A profile run has one request budget
+(`GITLAB_SOURCE_PROFILE_REQUEST_BUDGET`) shared by inventory statistics requests
+and every collector. It counts every attempt from the start of the run, including
+listing pages, retries and further pages, and concurrent workers cannot exceed it.
+Once it is spent no further budgeted calls are made and the profile still
+completes: counts already partly enumerated stay lower bounds, a commit count
+whose default-branch head was read stays at least one, and everything else is
 unavailable with reason `request-budget`. Expired authentication (HTTP 401) is
 not a budget outcome and still fails the profile.
 
