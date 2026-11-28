@@ -122,6 +122,7 @@ function parseHeaderInteger(value: string | null): number | null {
 function readPaginationLinks(
   value: string,
   currentPage: number,
+  allowZeroLastPage: boolean,
 ): { hasNext: boolean; lastPage: number | null } | null {
   let hasNext = false;
   let lastPage: number | null = null;
@@ -149,7 +150,7 @@ function readPaginationLinks(
       const page = pages?.length === 1 ? parseHeaderInteger(pages[0] ?? null) : null;
       if (
         page === null ||
-        page === 0 ||
+        (page === 0 && !(allowZeroLastPage && last && !next && !previous)) ||
         (next && page !== currentPage + 1) ||
         (previous && page !== currentPage - 1)
       ) {
@@ -164,6 +165,29 @@ function readPaginationLinks(
     if (entry[3] === "," && offset === value.length) return null;
   }
   return { hasNext, lastPage };
+}
+
+function readPaginationEvidence(
+  headers: Headers,
+  page: number,
+  itemsOnPage: number,
+  total: number | null,
+) {
+  const pagesHeader = headers.get("x-total-pages");
+  let totalPages = parseHeaderInteger(pagesHeader);
+  if (pagesHeader !== null && totalPages === null) return null;
+
+  const emptyFirstPage =
+    page === 1 && itemsOnPage === 0 && total === 0 && !headers.get("x-next-page");
+  const links = readPaginationLinks(headers.get("Link") ?? "", page, emptyFirstPage);
+  if (!links) return null;
+
+  // GitLab can describe an empty collection as zero pages or one empty page.
+  if (emptyFirstPage && !links.hasNext) {
+    if (totalPages === 1) totalPages = 0;
+    if (links.lastPage === 1) links.lastPage = 0;
+  }
+  return { totalPages, ...links };
 }
 
 function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCountObservation {
@@ -182,14 +206,12 @@ function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCount
   const total = parseHeaderInteger(totalHeader);
   if (totalHeader !== null && total === null) return malformed;
   // With per_page=1, the reported item count and page count must agree.
-  const totalPagesHeader = headers.get("x-total-pages");
-  const totalPages = parseHeaderInteger(totalPagesHeader);
-  if (totalPagesHeader !== null && totalPages === null) return malformed;
-  const links = readPaginationLinks(headers.get("Link") ?? "", 1);
-  if (!links) return malformed;
-  const reportedSize = total ?? totalPages ?? links.lastPage;
+  const pagination = readPaginationEvidence(headers, 1, itemsRead, total);
+  if (!pagination) return malformed;
+  const { totalPages, lastPage, hasNext } = pagination;
+  const reportedSize = total ?? totalPages ?? lastPage;
   if (
-    [total, totalPages, links.lastPage].some(
+    [total, totalPages, lastPage].some(
       (size) => size !== null && (size !== reportedSize || Math.min(size, 1) !== itemsRead),
     )
   ) {
@@ -198,7 +220,7 @@ function observeFirstPageCount(itemsRead: number, headers: Headers): GitLabCount
 
   const nextPage = headers.get("x-next-page");
   if (nextPage && parseHeaderInteger(nextPage) !== 2) return malformed;
-  const hasNextPage = Boolean(nextPage) || links.hasNext || (reportedSize ?? 0) > 1;
+  const hasNextPage = Boolean(nextPage) || hasNext || (reportedSize ?? 0) > 1;
   if (hasNextPage && (nextPage === "" || (reportedSize !== null && reportedSize <= 1))) {
     return malformed;
   }
@@ -219,6 +241,7 @@ function readTraversalPage(
   perPage: number,
   itemsOnPage: number,
   knownLastPage: number | null,
+  total: number | null,
 ): { lastPage: number | null; continues: boolean | null } {
   const reportedPage = headers.get("x-page");
   const reportedPerPage = headers.get("x-per-page");
@@ -227,27 +250,25 @@ function readTraversalPage(
   if (next && parseHeaderInteger(next) !== page + 1) {
     throw new GitLabPaginationError("GitLab API returned an invalid X-Next-Page header");
   }
-  const pagesHeader = headers.get("x-total-pages");
-  const totalPages = parseHeaderInteger(pagesHeader);
-  const links = readPaginationLinks(headers.get("Link") ?? "", page);
+  const pagination = readPaginationEvidence(headers, page, itemsOnPage, total);
   if (
     (reportedPage !== null && parseHeaderInteger(reportedPage) !== page) ||
     (reportedPerPage !== null && parseHeaderInteger(reportedPerPage) !== perPage) ||
     (previous !== null &&
       (page === 1 ? previous !== "" : parseHeaderInteger(previous) !== page - 1)) ||
-    (pagesHeader !== null && totalPages === null) ||
-    !links ||
+    !pagination ||
     itemsOnPage > perPage
   ) {
     throw new GitLabPaginationError("GitLab API returned malformed pagination evidence");
   }
 
-  const lastPage = knownLastPage ?? totalPages ?? links.lastPage;
-  const explicitContinuation = Boolean(next) || links.hasNext;
+  const { totalPages, lastPage: linkedLastPage, hasNext } = pagination;
+  const lastPage = knownLastPage ?? totalPages ?? linkedLastPage;
+  const explicitContinuation = Boolean(next) || hasNext;
   const pagesRemain = lastPage !== null && lastPage > page;
   if (
     (totalPages !== null && totalPages !== lastPage) ||
-    (links.lastPage !== null && links.lastPage !== lastPage) ||
+    (linkedLastPage !== null && linkedLastPage !== lastPage) ||
     (lastPage === 0 ? page !== 1 || itemsOnPage !== 0 : lastPage !== null && lastPage < page) ||
     (next === "" && (explicitContinuation || pagesRemain)) ||
     (explicitContinuation && lastPage !== null && !pagesRemain) ||
@@ -727,6 +748,7 @@ export class GitLabClient {
         perPage,
         response.data.length,
         lastPage,
+        total,
       );
       lastPage = traversal.lastPage;
       if (total !== null && lastPage !== null && Math.ceil(total / perPage) !== lastPage) {
