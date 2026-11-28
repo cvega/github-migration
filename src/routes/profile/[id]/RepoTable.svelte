@@ -46,7 +46,6 @@
 	const analysisByRepository = $derived(
 		new Map(analysis?.jobs.map((job) => [job.nameWithOwner, job]) ?? []),
 	);
-	const targetNames = $derived(planner.defaultTargetNames);
 	const planningEligible = $derived(new Set(planningEligibleNames));
 	let expanded = $derived.by(() => {
 		runId;
@@ -211,7 +210,7 @@
 					</td>
 					<td class="px-4 py-2">
 						{#if planning && !planner.scoped && planner.selectedNames.includes(repo.nameWithOwner)}
-							<input type="text" value={planner.targetNameFor(repo.nameWithOwner, targetNames)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine w-full min-w-32 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none" />
+							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine w-full min-w-32 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none" />
 						{:else}
 							<span class="text-machine text-gray-500">{shortRepoName(repo.nameWithOwner)}</span>
 						{/if}

@@ -72,6 +72,7 @@
 		getRun: () => live.run,
 		getRepos: () => live.repos,
 		getPlanningRepos: () => eligiblePlanningRepos,
+		getTargetNameExceptions: () => live.targetNameExceptions,
 		getDefaultTargetOrg: () => "",
 		getTargets: () => data.targetProfiles ?? [],
 		getAssignments: () => data.assignments,

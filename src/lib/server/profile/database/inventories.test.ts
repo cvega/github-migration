@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { MAX_PROFILE_PLAN_REPOS } from "$lib/profile/migration-plan";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import type {
   BitbucketProfileEnrichment,
   ProfileNumericMetric,
   SourceNamespaceInventory,
 } from "$lib/source/types";
+import { getProfileDetail } from "../service";
 import {
   getBitbucketActivityPage,
   getBitbucketLfsReportRows,
@@ -14,7 +16,7 @@ import {
   saveProfileInventory,
   settleProfileInventoryRun,
 } from "./inventories";
-import { createProfileRun, getProfileRun } from "./runs";
+import { completeProfileRun, createProfileRun, getProfileRun } from "./runs";
 import { profileStore } from "./schema";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
@@ -65,6 +67,30 @@ function createRun(): void {
 }
 
 describe("profile source inventories", () => {
+  test("resolves target collisions across the full inventory without expanding the planning catalog", () => {
+    createRun();
+    const base = inventory().projects[0]!;
+    const paths = [
+      "platform/a/widget",
+      ...Array.from({ length: MAX_PROFILE_PLAN_REPOS - 1 }, (_, i) => `platform/repo-${i}`),
+      "platform/z/widget",
+    ];
+    const projects = paths.map((path, i) => ({ ...base, path, sourceId: String(i) }));
+    saveProfileInventory(
+      "run",
+      inventory({ projects, projectCount: { kind: "exact", value: projects.length } }),
+    );
+    completeProfileRun("run");
+    const detail = getProfileDetail("run");
+    expect(detail?.planningRepos).toHaveLength(MAX_PROFILE_PLAN_REPOS);
+    expect(detail?.planningRepos.some((repo) => repo.nameWithOwner === "platform/z/widget")).toBe(
+      false,
+    );
+    expect(detail?.targetNameExceptions).toEqual({
+      "platform/a/widget": "a-widget",
+      "platform/z/widget": "z-widget",
+    });
+  });
   test("round-trips GitLab project statistics and preserves unknown storage in the rollup", () => {
     createRun();
     const base = inventory().projects[0]!;

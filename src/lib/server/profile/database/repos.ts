@@ -182,6 +182,19 @@ export function planningRepo(row: PlanningRow): ProfilePlanRepo {
     : { ...planning, incompleteReadinessScan: true };
 }
 
+/** Follow the same profile-first catalog as getRunRepoPlanProfiles without loading payloads. */
+export function getRunPlanPaths(runId: string): string[] {
+  const rows = getDb()
+    .query<{ path: string }, [string]>(
+      `SELECT name_with_owner AS path FROM profile_repos WHERE run_id = ?1
+       UNION ALL
+       SELECT path FROM profile_source_inventory_projects WHERE run_id = ?1
+       AND NOT EXISTS (SELECT 1 FROM profile_repos WHERE run_id = ?1)`,
+    )
+    .all(runId);
+  return rows.map(({ path }) => path);
+}
+
 export function getRunRepoPlanProfiles(
   runId: string,
   limit: number,

@@ -10,7 +10,6 @@
 		embedded = false,
 	}: { planner: ProfileMigrationPlannerController; canExport: boolean; embedded?: boolean } = $props();
 	const assignment = $derived(planner.assignment);
-	const targetNames = $derived(planner.defaultTargetNames);
 	const scoped = $derived(planner.scoped);
 	const choices = $derived(planner.assignments ?? []);
 	let interactive = $state(false);
@@ -129,7 +128,7 @@
 							{/if}
 						</div>
 						{#if !scoped}
-							<input type="text" value={planner.targetNameFor(repo.nameWithOwner, targetNames)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine col-start-2 min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40 sm:col-start-auto" />
+							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine col-start-2 min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40 sm:col-start-auto" />
 						{/if}
 					</div>
 				{/each}
