@@ -22,6 +22,12 @@ pagination and requests statistics where available. For each selected project,
 profiling collects issues, merge requests, commits, branches, tags, and releases
 under bounded concurrency and request budgets.
 
+Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
+not make them unavailable. Malformed or contradictory pagination evidence
+keeps the count unavailable rather than reporting zero or a partial count.
+The server logs the affected endpoint family and the client's validation
+failure, without response bodies, header values, project paths, or credentials.
+
 Native GHEC migration requests a project export, polls completion, downloads
 the archive with a size and timeout bound, and records a durable export
 checkpoint. GitLab-to-GHES execution is paused; configuring a GitLab exporter
