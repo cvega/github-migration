@@ -38,6 +38,14 @@ not import other providers; shared target protocols must remain provider-neutral
 Browser-capable code cannot import server modules. Do not add unclassified
 production modules directly under `src/lib/server/`.
 
+## Pre-1.0 policy
+- Until 1.0 there are no supported deployments. Do not add compatibility for
+  older databases, stored events, message strings, checkpoints, or environment
+  variables. Change the current schema directly; a release may require a fresh
+  data directory, stated in its release notes.
+- Where other sections require history-preserving upgrades or legacy handling,
+  they apply from 1.0 on.
+
 ## Contracts that matter
 
 - Determine supported routes from `src/lib/source-provider.ts`,
