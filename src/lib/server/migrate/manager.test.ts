@@ -50,6 +50,15 @@ beforeEach(() => initStore(":memory:", [authStore, migrateStore]));
 afterEach(closeStore);
 
 describe("migration manager", () => {
+  test("reports an unreadable restart candidate by ID", () => {
+    insertMigration({ ...migration("unreadable", "failed"), batchId: "batch" });
+    getDb().run("UPDATE migrations SET warnings_count='unreadable'");
+    expect(restartBatch("batch", {})).toMatchObject({
+      restarted: 0,
+      errors: [{ id: "unreadable" }],
+    });
+  });
+
   test("records system recovery of an approved checkpoint once and resumes its saved ID", async () => {
     const prior = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;
     const priorSource = process.env.GH_SOURCE_API_URL;

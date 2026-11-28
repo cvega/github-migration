@@ -6,6 +6,7 @@ import type {
   PaginatedResult,
   PaginationParams,
 } from "$lib/migrate/types";
+import { CANCELLABLE_MIGRATION_STATES, migrationStatesSql } from "$lib/migration-state";
 import { isTargetPlatform, supportsMigrationTarget } from "$lib/migration-target";
 import { getDb } from "$lib/server/core/db";
 import { getSourceProviderAdapter, isSourceProvider } from "$lib/source-provider";
@@ -63,16 +64,26 @@ export function rowToBatchListItem(row: Record<string, unknown>): BatchListItem 
 
 const RESTART_CANDIDATE = `state IN ('failed', 'cancelled') AND NOT ${MANUAL_GHES_IMPORT_SQL}`;
 
-export function getBatchMigrations(batchId: string, restartableOnly = false): Migration[] {
+export function getBatchMigrations(
+  batchId: string,
+  action?: "restart" | "cancel",
+  onUnreadable?: (id: string) => void,
+): Migration[] {
+  const filter =
+    action === "restart"
+      ? `AND ${RESTART_CANDIDATE}`
+      : action === "cancel"
+        ? `AND state IN (${migrationStatesSql(CANCELLABLE_MIGRATION_STATES)})`
+        : "";
   const rows = getDb()
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-       ${restartableOnly ? `AND ${RESTART_CANDIDATE}` : ""}
+       ${filter}
 			 ORDER BY source_repo ASC`,
     )
     .all(batchId) as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rowsToMigrations(rows, onUnreadable);
 }
 
 export function getBatchSourceProviderValues(batchId: string): string[] {
@@ -141,7 +152,7 @@ export function getBatchMigrationsPaginated(
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-			 ORDER BY source_repo ASC LIMIT ? OFFSET ?`,
+			 ORDER BY source_repo ASC, id ASC LIMIT ? OFFSET ?`,
     )
     .all(batchId, limit, offset) as Record<string, unknown>[];
   return {
@@ -151,6 +162,26 @@ export function getBatchMigrationsPaginated(
     limit,
     totalPages: Math.ceil(total / limit),
   };
+}
+
+export function getBatchItemKeys(batchId: string): Set<string> {
+  const keys = new Set<string>();
+  const rows = getDb()
+    .query<{ source_org: string; source_repo: string; target_repo: string }, [string]>(
+      `SELECT source_org, source_repo, target_repo FROM migrations
+     WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
+    )
+    .iterate(batchId);
+  for (const row of rows)
+    keys.add(`${row.source_org}/${row.source_repo}\0${row.target_repo}`.toLowerCase());
+  return keys;
+}
+
+export function batchExists(batchId: string): boolean {
+  return !!getDb()
+    .query(`SELECT 1 FROM migrations WHERE batch_id = ?
+    AND source_provider IN (${EXECUTABLE_PROVIDER_SQL}) LIMIT 1`)
+    .get(batchId);
 }
 
 export function getBatchSummary(batchId: string): BatchSummary | null {

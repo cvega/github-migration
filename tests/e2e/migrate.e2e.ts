@@ -71,7 +71,10 @@ test("opens list details from row content while preserving nested controls", asy
 	await hydrated;
 	await expect(page.getByRole("link", { name: /Finished/ })).toHaveAttribute("href", "#finished");
 
-	const batchMetadata = page.getByText("1 succeeded", { exact: true }).first();
+	const batchCard = page.locator("#batches > div > div").filter({
+		has: page.locator('a[href="/migrate/batches/seed-e2e-batch-one"]'),
+	});
+	const batchMetadata = batchCard.getByText("1 succeeded", { exact: true });
 	const batchMetadataBox = await batchMetadata.boundingBox();
 	expect(batchMetadataBox).not.toBeNull();
 	await page.mouse.click(
@@ -84,8 +87,13 @@ test("opens list details from row content while preserving nested controls", asy
 		"100",
 	);
 
+	hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate#finished");
-	const migrationRow = page.locator("#finished > div > .group").first();
+	await hydrated;
+	const finishedRows = page.locator("#finished > div > .group");
+	const migrationRow = finishedRows.filter({
+		has: page.getByRole("link", { name: "source-one/repository-one", exact: true }),
+	});
 	await migrationRow.scrollIntoViewIfNeeded();
 	const migrationRowBox = await migrationRow.boundingBox();
 	expect(migrationRowBox).not.toBeNull();
@@ -98,14 +106,17 @@ test("opens list details from row content while preserving nested controls", asy
 	hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate#finished");
 	await hydrated;
-	await page.getByRole("button", { name: "Batch" }).first().click();
+	await migrationRow.getByRole("button", { name: "Batch", exact: true }).click();
 	await expect(page).toHaveURL(/\/migrate\/batches\/seed-e2e-batch-one$/);
 
 	hydrated = page.waitForRequest((request) => request.url().endsWith("/api/rate-limits"));
 	await page.goto("/migrate#finished");
 	await hydrated;
 	const listUrl = page.url();
-	await page.getByRole("button", { name: "Copy error details" }).first().click();
+	const failedRow = finishedRows.filter({
+		has: page.locator('a[href="/migrate/seed-e2e-bitbucket-failed"]'),
+	});
+	await failedRow.getByRole("button", { name: "Copy error details" }).click();
 	expect(page.url()).toBe(listUrl);
 });
 

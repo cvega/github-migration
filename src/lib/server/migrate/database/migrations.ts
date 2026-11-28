@@ -57,7 +57,7 @@ const snapshotSchema = z
     migrationLogUrl: z.string(),
     warningsCount: z.number().int().nonnegative(),
     repoExists: z.boolean(),
-    countsAuthoritative: z.boolean().default(false),
+    countsAuthoritative: z.boolean(),
     repoSize: z.number().nonnegative(),
     commits: z.number().nonnegative(),
     branches: z.number().int().nonnegative(),
@@ -93,7 +93,7 @@ const failureDetailSchema = z
     failureReason: z.string(),
     elapsed: z.number().nonnegative(),
     logUrl: z.string(),
-    // Legacy log data is supplementary to the terminal failure.
+    // Keep terminal metadata readable when supplementary log entries are malformed.
     logEntries: z.unknown().transform((value) => {
       if (!Array.isArray(value)) return [];
       return value.flatMap((item) => {
@@ -139,7 +139,7 @@ const eventPayloadSchemas = {
     })
     .strict(),
   restart: z
-    .object({ message: z.string(), previousState: z.enum(["failed", "cancelled"]).optional() })
+    .object({ message: z.string(), previousState: z.enum(["failed", "cancelled"]) })
     .strict(),
 } satisfies Record<EventType, z.ZodType>;
 
@@ -235,6 +235,9 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
     throw new Error(`Invalid migration row ${id}: missing started_at`);
   }
 
+  if (typeof row.warnings_count !== "number") {
+    throw new Error(`Invalid migration row ${id}: invalid warnings_count`);
+  }
   return {
     id,
     ...(typeof row.owner_user_id === "string" && { ownerUserId: row.owner_user_id }),
@@ -253,7 +256,7 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
     state: state as MigrationState,
     failureReason: typeof row.failure_reason === "string" ? row.failure_reason : null,
     migrationLogUrl: typeof row.migration_log_url === "string" ? row.migration_log_url : null,
-    warningsCount: typeof row.warnings_count === "number" ? row.warnings_count : 0,
+    warningsCount: row.warnings_count,
     sourceCounts:
       typeof row.source_counts === "string"
         ? parsePersistedCounts(row.source_counts, `migration ${id} source counts`)
@@ -274,10 +277,26 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
   };
 }
 
-export function rowsToMigrations(rows: Record<string, unknown>[]): Migration[] {
-  return rows
-    .filter((row) => isSourceProvider(row.source_provider))
-    .map((row) => rowToMigration(row));
+type StoredRow = Record<string, unknown>;
+
+function* readableMigrations(rows: Iterable<StoredRow>, onUnreadable?: (id: string) => void) {
+  for (const row of rows) {
+    let migration: Migration;
+    try {
+      migration = rowToMigration(row);
+    } catch {
+      onUnreadable?.(row.id as string);
+      continue;
+    }
+    yield migration;
+  }
+}
+
+export function rowsToMigrations(
+  rows: Iterable<StoredRow>,
+  onUnreadable?: (id: string) => void,
+): Migration[] {
+  return Array.from(readableMigrations(rows, onUnreadable));
 }
 
 export function insertMigration(migration: Migration): void {
@@ -489,10 +508,32 @@ export function updateMigrationSourceSize(id: string, sizeKb: number): void {
     .run({ $id: id, $source_size_kb: sizeKb });
 }
 
+// Quarantine only the selected attempt. The job, checkpoints and original
+// unreadable data remain available for inspection.
+function readDispatchCandidate(row: StoredRow): Migration | null {
+  try {
+    return rowToMigration(row);
+  } catch {
+    getDb()
+      .query(`UPDATE migrations
+      SET state = CASE WHEN state != 'queued' OR ${UNRESOLVED_REMOTE_WORK_SQL}
+            THEN 'reconciliation_required' ELSE 'failed' END,
+          failure_reason = 'Stored migration data is unreadable', completed_at = ?
+      WHERE rowid = ? AND state = ? AND started_at IS ?`)
+      .run(
+        new Date().toISOString(),
+        row.record_id as number,
+        row.state as string,
+        row.started_at as string,
+      );
+    return null;
+  }
+}
+
 export function getRecoverableMigrations(): Migration[] {
   const rows = getDb()
     .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
+      `SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})
 				 AND auth_mode IN ('env-app', 'env-pat')
 				 AND ${RECOVERABLE_CHECKPOINT_SQL}
@@ -500,20 +541,20 @@ export function getRecoverableMigrations(): Migration[] {
 			 ORDER BY started_at ASC`,
     )
     .all() as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rows.map(readDispatchCandidate).filter((migration) => migration !== null);
 }
 
 export function getQueuedEnvMigrations(): Migration[] {
   const rows = getDb()
     .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
+      `SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state = 'queued'
 				 AND auth_mode IN ('env-app', 'env-pat')
 				 AND id NOT LIKE 'seed-%'
 			 ORDER BY started_at ASC`,
     )
     .all() as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rows.map(readDispatchCandidate).filter((migration) => migration !== null);
 }
 
 export function resetMigration(
@@ -554,6 +595,12 @@ export function getOwnedMigration(ownerUserId: string, id: string): Migration | 
   return row ? rowToMigration(row) : null;
 }
 
+export function hasMigrationHistory(): boolean {
+  return !!getDb()
+    .query(`SELECT 1 FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) LIMIT 1`)
+    .get();
+}
+
 export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {
   const offset = (params.page - 1) * params.limit;
   const { count: total } = getDb()
@@ -566,7 +613,7 @@ export function listMigrationsPaginated(params: PaginationParams): PaginatedResu
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-			 ORDER BY started_at DESC LIMIT ? OFFSET ?`,
+			 ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`,
     )
     .all(params.limit, offset) as Record<string, unknown>[];
   return {
@@ -593,7 +640,7 @@ export function searchMigrationsPaginated(
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) AND ${SEARCH_MATCH_CLAUSE}
-			 ORDER BY started_at DESC LIMIT $limit OFFSET $offset`,
+			 ORDER BY started_at DESC, id DESC LIMIT $limit OFFSET $offset`,
     )
     .all({ $q: like, $limit: params.limit, $offset: offset }) as Record<string, unknown>[];
   return {
@@ -605,21 +652,11 @@ export function searchMigrationsPaginated(
   };
 }
 
-// Older prepare failures replaced the job phase before recording a GUID.
-const LAST_GHES_STEP = `(SELECT json_extract(e.payload, '$.executorPhase') FROM events e
-  WHERE e.migration_id = job.migration_id AND e.event_type = 'step'
-    AND CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.executorPhase') IS NOT NULL END
-  ORDER BY e.id DESC LIMIT 1)`;
-
-// A GHES job identifies the appliance even when a historical GitLab migration
-// inherited cloud target defaults during upgrade.
 const UNRECONCILED_GHES_IMPORT = `SELECT m.id FROM migrations m
   JOIN ghes_import_jobs job ON job.migration_id = m.id
-  WHERE (m.target_platform = 'ghes' OR m.source_provider = 'gitlab')
-    AND m.state = 'reconciliation_required'
+  WHERE m.state = 'reconciliation_required'
     AND (job.phase IN ('mapping', 'importing', 'auditing', 'unlocking')
-      OR (job.ghes_import_id IS NULL AND (job.phase = 'preparing'
-        OR (job.phase = 'reconciliation_required' AND ${LAST_GHES_STEP} = 'preparing'))))`;
+      OR (job.ghes_import_id IS NULL AND job.phase = 'preparing'))`;
 
 export function ghesQueueBlockers(
   migration: Pick<Migration, "targetPlatform" | "state">,
@@ -646,9 +683,8 @@ export function isGhesSlotHeld(): boolean {
 
 // resetMigration refreshes started_at. Use the durable restart event rather than FIFO
 // to keep untouched siblings behind a failed row that is itself waiting for a slot.
-// Older restart events didn't record the previous state; prioritize those retries too.
 const RETRYING_FAILURE = `(SELECT CASE WHEN json_valid(e.payload)
-    THEN COALESCE(json_extract(e.payload, '$.previousState'), 'failed') = 'failed' ELSE 1 END
+    THEN json_extract(e.payload, '$.previousState') = 'failed' END
     FROM events e WHERE e.migration_id = migrations.id AND e.event_type = 'restart'
     ORDER BY e.id DESC LIMIT 1)`;
 
@@ -659,14 +695,9 @@ export function requiresManualImportReview(id: string): boolean {
 }
 
 // Confirmation releases the batch only for an attempt that cannot be restarted.
-// Older confirmation events carried the outcome in their message.
 const HAS_INACTIVE_CONFIRMATION = `EXISTS (
     SELECT 1 FROM events e WHERE ${EVENTS_THIS_ATTEMPT_SQL}
-    AND CASE WHEN json_valid(e.payload) THEN (
-      json_extract(e.payload, '$.confirmedInactive') = 1 OR json_extract(e.payload, '$.message') IN (
-        'Manual review submitted: remote migration reported inactive; migration is now eligible for restart.',
-        'Manual review submitted: remote GHES operation reported inactive. The GHES import outcome requires manual verification on the appliance. Restart is unavailable for this attempt.'
-      )) END)`;
+    AND CASE WHEN json_valid(e.payload) THEN json_type(e.payload, '$.confirmedInactive') = 'true' END)`;
 
 const BLOCKS_BATCH = `(state = 'reconciliation_required' OR (state = 'failed' AND NOT (
   ${MANUAL_GHES_IMPORT_SQL} AND ${HAS_INACTIVE_CONFIRMATION})))`;
@@ -702,14 +733,16 @@ export function isBatchAdmissionBlocked(
     });
 }
 
-export function getNextQueuedMigration(skipGhes = false): Migration | null {
+export function getNextQueuedMigration(
+  skipGhes = false,
+): { migration: Migration | null; id: string } | null {
   const row = getDb()
     .prepare(
       `WITH retries AS MATERIALIZED (
          SELECT id, batch_id FROM migrations WHERE batch_id IS NOT NULL AND state = 'queued'
            AND ${RETRYING_FAILURE}
        )
-       SELECT ${MIGRATION_COLS} FROM migrations
+       SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state = 'queued' AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
 			 ${skipGhes ? "AND target_platform != 'ghes'" : ""}
 			 AND NOT (batch_id IS NOT NULL AND source_provider = 'bitbucket-server'
@@ -719,5 +752,5 @@ export function getNextQueuedMigration(skipGhes = false): Migration | null {
 			 ORDER BY started_at ASC, id ASC LIMIT 1`,
     )
     .get() as Record<string, unknown> | undefined;
-  return row ? rowToMigration(row) : null;
+  return row ? { id: row.id as string, migration: readDispatchCandidate(row) } : null;
 }

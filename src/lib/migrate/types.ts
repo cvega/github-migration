@@ -197,7 +197,7 @@ interface MigrationEventPayloadMap {
   snapshot: SnapshotPayload;
   complete: CompletePayload;
   failure: FailurePayload;
-  restart: { message: string };
+  restart: { message: string; previousState: "failed" | "cancelled" };
 }
 
 /** Base shape shared by all migration events. */

@@ -55,6 +55,23 @@ beforeEach(() => initStore(":memory:", [migrateStore, authStore]));
 afterEach(closeStore);
 
 describe("migration recovery", () => {
+  test("settles unreadable recovery candidates and preserves their checkpoints", () => {
+    for (const state of ["running", "queued"] as const) insertMigration(migration(state, state));
+    getDb().run("UPDATE migrations SET source_counts='unreadable'");
+    recoverMigrationRuns({
+      launchRecoveredPipeline: () => {
+        throw new Error("unexpected launch");
+      },
+      drainQueue: () => {},
+    });
+    expect(
+      getDb().query("SELECT state, github_migration_id FROM migrations ORDER BY id").all(),
+    ).toEqual([
+      { state: "failed", github_migration_id: null },
+      { state: "reconciliation_required", github_migration_id: "remote-id" },
+    ]);
+  });
+
   test("revalidates stored TLS overrides before resuming queued or checkpointed jobs", () => {
     const sourceApiUrl = "https://source.example/api/v3";
     const priorPolicy = process.env.GH_ALLOW_INSECURE_SOURCE_TLS;

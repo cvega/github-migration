@@ -4,6 +4,7 @@ test("historical exporter trace is summarized and reachable at desktop and mobil
 	for (const width of [390,1280,1440]) {
 		await page.setViewportSize({width,height:900});
 		await page.goto("/migrate/stats");
+		await expect(page.getByText("Commits reflect default-branch history.", {exact:true})).toBeVisible();
 		const incident = page.locator("#attention :is(td,li):visible").filter({hasText:"Bitbucket exporter could not write the migration archive"});
 		await expect(incident).toHaveCount(1);
 		const link = incident.getByRole("link",{name:/Last failed run · \d{4}-\d{2}-\d{2}/});

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   parsePersistedRequestOptions,
   tryParsePersistedRequestOptions,
@@ -12,11 +12,13 @@ import {
   getNextQueuedMigration,
   getRecoverableMigrations,
   getResumableSourceExportId,
+  hasMigrationHistory,
   insertMigration,
   likePattern,
   listMigrationsPaginated,
   parsePersistedCounts,
   parsePersistedEventPayload,
+  rowsToMigrations,
   rowToMigration,
   searchMigrationsPaginated,
   updateMigrationState,
@@ -48,7 +50,7 @@ function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     target_org: "acme-cloud",
     target_repo: "widget",
     state: "pending",
-    warnings_count: null,
+    warnings_count: 0,
     source_counts: null,
     target_counts: null,
     started_at: "2026-08-17T12:00:00.000Z",
@@ -64,7 +66,7 @@ describe("persisted migration records", () => {
     expect(() => parsePersistedCounts(JSON.stringify({ ...counts, extra: 1 }))).toThrow();
   });
 
-  test("accepts legacy partial request options but rejects unknown fields", () => {
+  test("accepts optional nonsecret request settings but rejects unknown fields", () => {
     expect(parsePersistedRequestOptions("{}")).toEqual({});
     expect(
       parsePersistedRequestOptions(
@@ -78,10 +80,13 @@ describe("persisted migration records", () => {
     expect(parsePersistedEventPayload("step", JSON.stringify({ message: "Exporting" }))).toEqual({
       message: "Exporting",
     });
+    expect(() =>
+      parsePersistedEventPayload("restart", JSON.stringify({ message: "Restart" })),
+    ).toThrow();
     expect(() => parsePersistedEventPayload("step", JSON.stringify({ message: 1 }))).toThrow();
   });
 
-  test("normalizes durable rows with backward-compatible nullable defaults", () => {
+  test("hydrates nullable observations and requires the stored warning count", () => {
     expect(rowToMigration(row())).toMatchObject({
       id: "migration-1",
       sourceProvider: "github",
@@ -90,6 +95,10 @@ describe("persisted migration records", () => {
       sourceCounts: null,
       authMode: null,
     });
+    expect(rowsToMigrations([row({ warnings_count: null }), row()]).map(({ id }) => id)).toEqual([
+      "migration-1",
+    ]);
+    expect(() => rowToMigration(row({ warnings_count: null }))).toThrow("invalid warnings_count");
     expect(() => rowToMigration(row({ source_provider: "unknown" }))).toThrow(
       "invalid source_provider",
     );
@@ -209,6 +218,24 @@ describe("migration database lifecycle", () => {
     expect(getResumableSourceExportId("recoverable")).toBe("42");
     expect(getRecoverableMigrations().map(({ id }) => id)).toEqual(["recoverable"]);
     expect(() => updateSourceExportCheckpoint("recoverable", "source_export", "0")).toThrow();
+  });
+
+  test("hydrates only the requested page of matching count snapshots", () => {
+    for (const id of ["a", "b", "c", "d"]) insertMigration(migration({ id, sourceCounts: counts }));
+    using parse = spyOn(JSON, "parse");
+    expect(hasMigrationHistory()).toBe(true);
+    expect(parse).not.toHaveBeenCalled();
+    for (const page of [
+      listMigrationsPaginated,
+      (params: { page: number; limit: number }) =>
+        searchMigrationsPaginated({ ...params, q: "widget" }),
+    ]) {
+      parse.mockClear();
+      const result = page({ page: 2, limit: 1 });
+      expect(result.total).toBe(4);
+      expect(result.data).toHaveLength(1);
+      expect(parse.mock.calls.filter(([text]) => text === JSON.stringify(counts))).toHaveLength(1);
+    }
   });
 
   test("paginates, escapes searches, and returns the oldest queued migration", () => {

@@ -234,10 +234,10 @@ describe("migration startup recovery", () => {
         authMode: "env-pat",
         pipelineStep: "source_export",
       });
-      insert(db, "legacy-ghes-export", {
+      insert(db, "github-archive-upload", {
         state: "running",
         authMode: "env-pat",
-        pipelineStep: "archiving",
+        pipelineStep: "archive_upload",
         sourceApiUrl: "https://ghes.example/api/v3/",
       });
       insert(db, "cloud-no-export", {
@@ -310,7 +310,7 @@ describe("migration startup recovery", () => {
       expect(rows.cancelling?.state).toBe("reconciliation_required");
       expect(rows["ambiguous-start"]?.state).toBe("reconciliation_required");
       expect(rows["github-source-write"]?.state).toBe("reconciliation_required");
-      expect(rows["legacy-ghes-export"]?.state).toBe("reconciliation_required");
+      expect(rows["github-archive-upload"]?.state).toBe("reconciliation_required");
       expect(rows["cloud-no-export"]?.state).toBe("failed");
       expect(rows["request-auth"]?.state).toBe("failed");
       expect(rows["request-remote"]?.state).toBe("reconciliation_required");

@@ -2,7 +2,12 @@ import { json } from "@sveltejs/kit";
 import { parsePaginationParams } from "$lib/migrate/types";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
-import { cancelBatch, getBatch, getBatchPaginated } from "$lib/server/migrate/manager";
+import {
+  BatchCancellationConflict,
+  batchExists,
+  cancelBatch,
+  getBatchPaginated,
+} from "$lib/server/migrate/manager";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = ({ params, url, locals }) => {
@@ -13,8 +18,15 @@ export const GET: RequestHandler = ({ params, url, locals }) => {
 
 export const DELETE: RequestHandler = ({ locals, params }) => {
   requireAdminIfAuthEnabled(locals);
-  if (!getBatch(params.id)) return json({ error: "Batch not found" }, { status: 404 });
-  const cancelledCount = cancelBatch(params.id);
+  if (!batchExists(params.id)) return json({ error: "Batch not found" }, { status: 404 });
+  let cancelledCount: number;
+  try {
+    cancelledCount = cancelBatch(params.id);
+  } catch (error) {
+    if (error instanceof BatchCancellationConflict)
+      return json({ error: error.message }, { status: 409 });
+    throw error;
+  }
   recordOperatorAuditEvent(locals, {
     action: "batch.cancelled",
     resourceType: "batch",

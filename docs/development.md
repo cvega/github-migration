@@ -122,6 +122,10 @@ follows TypeScript 7 semantics while that dependency is currently TypeScript 6.
 
 Run `bun run verify boundaries` after moving server modules or changing imports.
 
+### Migration list pagination
+
+Migration history, search, and batch pages count stored rows matching the request's filters and access scope. SQLite selects the requested page before the application reads its migration records. An unreadable record occupies its original position and is omitted from the returned data. A page can therefore contain fewer items than its limit, including zero, while its total and later page offsets still include that record.
+
 ## Svelte Work
 
 Use Svelte 5 runes and the existing component conventions. Keep server-only data

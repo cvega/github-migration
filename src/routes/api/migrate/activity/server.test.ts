@@ -64,7 +64,7 @@ beforeEach(() => {
     migrationId: migration.id,
     eventType: "restart",
     phase: null,
-    payload: { message: "Restart requested" },
+    payload: { message: "Restart requested", previousState: "failed" },
     createdAt: "2026-08-17T12:00:02.000Z",
   });
 });
