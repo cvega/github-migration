@@ -31,13 +31,14 @@ mocks that hide the real behavior under test.
 | UI | Affected configured Playwright workflow plus desktop/390px inspection |
 | Supported routes, states, phases, tables | `bun run docs:sync`, then `bun run docs:check` |
 | Generated icons | `bun scripts/packaging/generate-icons.ts`, then `bun run verify icons` |
+| GitLab profile metric files | `bun scripts/packaging/generate-gitlab-metrics.ts`, then `bun run verify gitlab-metrics` |
 | Build/config/dependencies | Relevant focused gates, build and required full suite |
 | Deployment/runtime packaging | Both Docker targets and CI's container smoke path |
 
 ## Pre-submission gate
 
 Follow the pre-submission gates under Parallel Orca workers in `AGENTS.md`.
-The full gate manifest includes icons, typecheck, Svelte check, lint, format, docs, coverage,
+The full gate manifest includes icons, gitlab-metrics, typecheck, Svelte check, lint, format, docs, coverage,
 duplicate/dead code, cycles, boundaries, workflow action pins, runtime version,
 mutation configuration, E2E, build, and dependency audit.
 

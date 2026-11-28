@@ -3,21 +3,16 @@ import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import type { SourceNamespaceInventory } from "$lib/source/types";
 import { GitLabApiError, GitLabClient } from "./client";
 import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
+import { collectGitLabBranchMetric, GITLAB_BRANCHES_SCOPE } from "./metrics/branches.collector";
+import { collectGitLabCommitMetric, GITLAB_COMMITS_SCOPE } from "./metrics/commits.collector";
+import { collectGitLabIssueMetric, GITLAB_ISSUES_SCOPE } from "./metrics/issues.collector";
 import {
-  collectGitLabBranchMetric,
-  collectGitLabCommitMetric,
-  collectGitLabIssueMetric,
   collectGitLabMergeRequestMetric,
-  collectGitLabProfileEnrichment,
-  collectGitLabReleaseMetric,
-  collectGitLabTagMetric,
-  GITLAB_BRANCHES_SCOPE,
-  GITLAB_COMMITS_SCOPE,
-  GITLAB_ISSUES_SCOPE,
   GITLAB_MERGE_REQUESTS_SCOPE,
-  GITLAB_RELEASES_SCOPE,
-  GITLAB_TAGS_SCOPE,
-} from "./profile";
+} from "./metrics/merge-requests.collector";
+import { collectGitLabReleaseMetric, GITLAB_RELEASES_SCOPE } from "./metrics/releases.collector";
+import { collectGitLabTagMetric, GITLAB_TAGS_SCOPE } from "./metrics/tags.collector";
+import { collectGitLabProfileEnrichment } from "./profile";
 
 function clientWithResponses(responses: Response[]) {
   const calls: URL[] = [];

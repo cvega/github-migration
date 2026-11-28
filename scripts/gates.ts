@@ -68,6 +68,10 @@ const GATES: Gate[] = [
     cmd: ["bun", "scripts/packaging/generate-icons.ts", "--check"],
   },
   {
+    name: "gitlab-metrics",
+    cmd: ["bun", "scripts/packaging/generate-gitlab-metrics.ts", "--check"],
+  },
+  {
     name: "typecheck",
     cmd: ["bun", "run", "typecheck"],
     parse: (o) => ({ errors: (o.match(/error TS\d+/g) ?? []).length }),
