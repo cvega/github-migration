@@ -532,6 +532,26 @@ describe("GitLab profile request budget", () => {
     });
   });
 
+  test.each(["", " ", "\t\n  "])(
+    "does not treat a blank head commit id (%j) as evidence, even from the last allowed lookup",
+    async (id) => {
+      const { client, calls } = clientWithResponses([jsonResponse({ commit: { id } })]);
+
+      const metric = await collectGitLabCommitMetric(
+        client,
+        { sourceId: "42", defaultBranch: "main" },
+        { apiCallCeiling: client.getApiCalls() + 1 },
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(metric.observation).toEqual({
+        kind: "unavailable",
+        reason: "malformed",
+        scope: GITLAB_COMMITS_SCOPE,
+      });
+    },
+  );
+
   test("marks the commit count unavailable when the head lookup itself is out of budget", async () => {
     const { client, calls } = clientWithResponses([]);
 

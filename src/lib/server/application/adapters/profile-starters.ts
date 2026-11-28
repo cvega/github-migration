@@ -11,13 +11,51 @@ import { BitbucketServerApiError } from "$lib/server/source/bitbucket/client";
 import { getBitbucketServerSourceClient } from "$lib/server/source/bitbucket/config";
 import { discoverBitbucketInventory } from "$lib/server/source/bitbucket/inventory";
 import { collectBitbucketProfileEnrichment } from "$lib/server/source/bitbucket/profile";
-import { GitLabApiError } from "$lib/server/source/gitlab/client";
+import { GitLabApiError, type GitLabClient } from "$lib/server/source/gitlab/client";
 import {
   getGitLabProfileRequestBudget,
   getGitLabSourceClient,
 } from "$lib/server/source/gitlab/config";
-import { discoverGitLabInventory } from "$lib/server/source/gitlab/inventory";
+import {
+  type DiscoverGitLabInventoryOptions,
+  discoverGitLabInventory,
+} from "$lib/server/source/gitlab/inventory";
 import { collectGitLabProfileEnrichment } from "$lib/server/source/gitlab/profile";
+import type { SourceNamespaceInventory } from "$lib/source/types";
+
+/**
+ * Discovery and metric collection for one GitLab profile run. Optional
+ * statistics requests stop at the discovery cutoff (`optionalStatisticsRequests`,
+ * counted from the start of the run) or at the shared request budget, whichever
+ * is reached first; metric requests stop only at the shared budget. Both are
+ * ceilings on the client's call counter, so retries count and concurrent
+ * workers cannot overshoot. Required listing pages are never refused.
+ */
+export function gitLabProfileRunnerDeps(
+  client: GitLabClient,
+  requestBudget: number,
+  options: { optionalStatisticsRequests?: number } = {},
+) {
+  const apiCallCeiling = client.getApiCalls() + requestBudget;
+  return {
+    discover: (
+      sourceClient: GitLabClient,
+      requested: string,
+      discovery: DiscoverGitLabInventoryOptions,
+    ) =>
+      discoverGitLabInventory(sourceClient, requested, {
+        ...discovery,
+        apiCallCeiling,
+        requestBudget: options.optionalStatisticsRequests,
+      }),
+    enrich: (
+      sourceClient: GitLabClient,
+      inventory: SourceNamespaceInventory,
+      enrichment: { signal?: AbortSignal },
+    ) => collectGitLabProfileEnrichment(sourceClient, inventory, { ...enrichment, apiCallCeiling }),
+    isApiError: (error: unknown) => error instanceof GitLabApiError,
+  };
+}
 
 export const profileStarters = {
   github: startOrgProfile,
@@ -26,19 +64,13 @@ export const profileStarters = {
     const requestBudget = getGitLabProfileRequestBudget();
     return startGitLabProfile(namespace, {
       buildSourceClient: getGitLabSourceClient,
-      run: (client, input, onProgress) => {
-        // One allowance for the whole run: optional inventory statistics requests
-        // and metric collection spend the same ceiling on the client's call
-        // counter, retries included. Required listing pages are never refused.
-        const apiCallCeiling = client.getApiCalls() + requestBudget;
-        return runGitLabInventoryProfile(client, input, onProgress, {
-          discover: (sourceClient, requested, options) =>
-            discoverGitLabInventory(sourceClient, requested, { ...options, apiCallCeiling }),
-          enrich: (sourceClient, inventory, options) =>
-            collectGitLabProfileEnrichment(sourceClient, inventory, { ...options, apiCallCeiling }),
-          isApiError: (error) => error instanceof GitLabApiError,
-        });
-      },
+      run: (client, input, onProgress) =>
+        runGitLabInventoryProfile(
+          client,
+          input,
+          onProgress,
+          gitLabProfileRunnerDeps(client, requestBudget),
+        ),
       newId: () => Bun.randomUUIDv7(),
     });
   },

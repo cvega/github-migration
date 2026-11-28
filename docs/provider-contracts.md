@@ -23,7 +23,8 @@ whose listing statistics are null or missing, inventory requests
 `GET /projects/:id?statistics=true` with at most four requests in flight and the
 client's existing timeout and retry limits. Listing calls, detail calls, and
 retries all count toward the cutoff for optional detail calls: 10,000 attempts
-for a direct caller, or the profile request budget below for a profile run.
+for a direct caller, and for a profile run that cutoff or the profile request
+budget below, whichever is reached first.
 Required listing pages can still finish after that cutoff. A failed detail
 request or exhausted budget leaves the project in the inventory with
 unavailable observations. Source storage
@@ -44,7 +45,7 @@ and every collector. It counts every attempt from the start of the run, includin
 listing pages, retries and further pages, and concurrent workers cannot exceed it.
 Once it is spent no further budgeted calls are made and the profile still
 completes: counts already partly enumerated stay lower bounds, a commit count
-whose default-branch head was read stays at least one, and everything else is
+whose default-branch head id (non-blank) was read stays at least one, and everything else is
 unavailable with reason `request-budget`. Expired authentication (HTTP 401) is
 not a budget outcome and still fails the profile.
 

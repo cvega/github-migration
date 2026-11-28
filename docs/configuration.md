@@ -132,7 +132,10 @@ from the start of the run and spent by every request the run makes, including
 required project listing pages, optional statistics requests during inventory,
 metric collection, retries and further pages. Concurrent workers cannot exceed
 it. Required listing pages are never refused, but they use the allowance, so a
-small value leaves less or nothing for optional requests. When it is spent, the
+small value leaves less or nothing for optional requests. Optional per-project
+statistics requests during inventory also keep their own 10,000-attempt cutoff
+and stop at whichever limit comes first; only the shared budget stops metric
+collection. When it is spent, the
 profile still completes: projects stay in the inventory, collected evidence is
 kept, and anything not collected is recorded as unavailable with reason
 `request-budget`. A count whose pagination was cut short is kept as a lower

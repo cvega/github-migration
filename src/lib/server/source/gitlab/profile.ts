@@ -269,7 +269,9 @@ export async function collectGitLabCommitMetric(
       typeof branch.data.commit === "object" &&
       branch.data.commit !== null &&
       "id" in branch.data.commit &&
-      typeof branch.data.commit.id === "string"
+      typeof branch.data.commit.id === "string" &&
+      // Blank or padded ids are not commit evidence.
+      /^\S+$/.test(branch.data.commit.id)
         ? branch.data.commit.id
         : null;
     if (!sha) {

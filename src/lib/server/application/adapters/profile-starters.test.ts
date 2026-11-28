@@ -13,7 +13,7 @@ import { collectBitbucketProfileEnrichment } from "$lib/server/source/bitbucket/
 import { GitLabClient } from "$lib/server/source/gitlab/client";
 import { collectGitLabProfileEnrichment } from "$lib/server/source/gitlab/profile";
 import type { SourceNamespaceInventory } from "$lib/source/types";
-import { profileStarters } from "./profile-starters";
+import { gitLabProfileRunnerDeps, profileStarters } from "./profile-starters";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -265,5 +265,115 @@ describe("gitlab profile request budget", () => {
     );
     expect(requests).toEqual([]);
     expect(countProfileRuns()).toBe(0);
+  });
+});
+
+describe("gitlab optional statistics cutoff and shared budget", () => {
+  /** Listing and statistics requests fail transiently once, so retries spend the same limits. */
+  function flakyGitLabClient() {
+    const seen = new Set<string>();
+    const requests: string[] = [];
+    const statistics = {
+      commit_count: 3,
+      repository_size: 1_024,
+      storage_size: 1_024,
+      lfs_objects_size: 0,
+      packages_size: 0,
+      wiki_size: 0,
+      uploads_size: 0,
+      job_artifacts_size: 0,
+      pipeline_artifacts_size: 0,
+      snippets_size: 0,
+      container_registry_size: 0,
+    };
+    const project = (id: number, listed: boolean) => ({
+      id,
+      name: `api-${id}`,
+      path_with_namespace: `platform/api-${id}`,
+      visibility: "private",
+      archived: false,
+      default_branch: "main",
+      last_activity_at: null,
+      statistics: listed ? statistics : null,
+    });
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "fixture",
+      maxRetries: 2,
+      sleep: async () => {},
+      fetch: async (input) => {
+        const url = new URL(input.toString());
+        requests.push(`${url.pathname}${url.search}`);
+        await Bun.sleep(1);
+        if (
+          /\/(groups\/platform\/projects|projects\/\d+)$/.test(url.pathname) &&
+          !seen.has(url.href)
+        ) {
+          seen.add(url.href);
+          return new Response(null, { status: 503 });
+        }
+        const json = (data: unknown, headers: Record<string, string> = {}) =>
+          new Response(JSON.stringify(data), { headers });
+        if (url.pathname.endsWith("/groups/platform/projects")) {
+          return json([1, 2, 3, 4, 5, 6].map((id) => project(id, false)));
+        }
+        const detail = /\/projects\/(\d+)$/.exec(url.pathname);
+        if (detail) return json(project(Number(detail[1]), true));
+        if (/\/(issues|merge_requests)$/.test(url.pathname)) return json([{}], { "X-Total": "5" });
+        if (url.pathname.includes("/repository/branches/main")) {
+          return json({ commit: { id: "abc123" } });
+        }
+        if (url.pathname.endsWith("/sequence")) return json({ count: 3 });
+        return json([]);
+      },
+    });
+    return { client, requests };
+  }
+
+  function metricObservations(runId: string) {
+    return Object.values(getProfileInventorySummary(runId)?.metrics ?? {});
+  }
+
+  test("stops optional statistics at its own cutoff while metrics keep the shared budget", async () => {
+    const { client, requests } = flakyGitLabClient();
+
+    const run = await runGitLabInventoryProfile(
+      client,
+      { id: "cutoff-first", namespace: "platform" },
+      undefined,
+      gitLabProfileRunnerDeps(client, 14, { optionalStatisticsRequests: 5 }),
+    );
+
+    // Discovery stopped at its 5-attempt cutoff; metric requests then ran on to the shared 14.
+    const statisticsAttempts = requests.filter((path) => /\/projects\/\d+\?/.test(path));
+    expect(statisticsAttempts).toHaveLength(5 - 2);
+    expect(requests.slice(0, 5)).toEqual(requests.slice(0, 2).concat(statisticsAttempts));
+    expect(requests).toHaveLength(14);
+    expect(run).toMatchObject({ state: "completed", apiCalls: 14 });
+    expect(getProfileInventorySummary("cutoff-first")?.projectsCaptured).toBe(6);
+    // Collected evidence survives: projects whose metrics ran roll up as lower bounds.
+    expect(
+      metricObservations("cutoff-first").some(
+        (metric) => metric.kind === "at-least" && metric.value > 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("stops everything at the shared budget when it is reached before the cutoff", async () => {
+    const { client, requests } = flakyGitLabClient();
+
+    const run = await runGitLabInventoryProfile(
+      client,
+      { id: "shared-first", namespace: "platform" },
+      undefined,
+      gitLabProfileRunnerDeps(client, 6, { optionalStatisticsRequests: 1_000 }),
+    );
+
+    expect(requests).toHaveLength(6);
+    expect(run).toMatchObject({ state: "completed", apiCalls: 6 });
+    expect(getProfileInventorySummary("shared-first")?.projectsCaptured).toBe(6);
+    for (const metric of metricObservations("shared-first")) {
+      expect(metric).toEqual({ kind: "unavailable", reason: "request-budget" });
+    }
   });
 });
