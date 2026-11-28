@@ -2,11 +2,6 @@
 
 All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
-
-## Unreleased
-
-- Use a fresh data directory for this release. Profile storage now initializes the current schema directly.
-
 ## [0.3.0] - 2026-11-24
 
 ### ⚙️ CI/CD
