@@ -162,6 +162,9 @@ and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
 - `src/lib/server/core/github.ts`, `src/lib/server/core/credential-scope.ts`,
   `src/lib/server/core/db.ts`, `**/database/schema.ts`
 - `src/hooks.server.ts`, `src/routes/login/**`, `src/routes/account/**`
+- `src/lib/server/schemas.ts`, `src/lib/server/core/auth.ts`,
+  `src/lib/server/core/ghes-target.ts`, `src/lib/server/core/targets.ts`,
+  `src/lib/server/application/self-service/**`
 
 ### Builder, in this order
 
@@ -169,8 +172,10 @@ and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
    Stop and reroute here if the scope grows to include a sensitive path.
 2. Use Copilot for other P2–P4 docs, tests, UI copy, provider, profile, CI, and
    cleanup work, except for eligible Qwen tasks under rule 3. Use the plan's
-   unlimited model configured in Copilot. Pass `--model` only if the installed
-   Orca supports overriding the selected agent's model.
+   unlimited model configured in Copilot. At dispatch, the coordinator checks
+   Copilot's current model, records it, and selects the reviewer from that
+   model's family. Pass `--model` only if the installed Orca supports
+   overriding the selected agent's model.
 3. Use Qwen for local-only work or when asked, one bounded, non-sensitive P3
    task at a time. Give it an isolated child worktree and a narrow spec. Keep
    the model and Ollama endpoint in Qwen's local configuration. Give the
@@ -203,25 +208,30 @@ Record the effective builder and reviewer agent and model in every PR body.
 
 ## Review bar
 
-- Block only on P0–P2 findings with concrete inputs that produce a wrong
-  result. Group all remaining findings into one deferred P3 issue per PR.
-  Deferred findings never block merge.
+- Findings use the P0–P4 scale. Block only on P0–P2 findings with a concrete
+  failing scenario; unauthorized access, credential exposure, and unsafe
+  handling of uncertain remote writes count even without a reproduced wrong
+  output. The coordinator files the remaining findings as one deferred P3 issue
+  per PR; deferred findings never block merge.
 - Allow at most one re-review per PR. Skip areas that had no above-P3
   findings in their last round. The PR is ready once blockers are resolved
   and only non-blocking notes remain.
+- If a re-review finds a new P0–P2 introduced by the fix commits, stop and ask
+  the human instead of another round.
 
 ## Parallel Orca workers
 
 - Start each worktree with `bun install --frozen-lockfile`. Assign each parallel
   worker a unique `E2E_PORT` for its Playwright server.
 - Before submitting, run the shared local/CI gate manifest with `bun run verify`.
-  For docs-only changes, run `bun run verify docs format`.
+  A change is docs-only when every changed file is `*.md` or under `docs/`; for
+  those, run `bun run verify docs format`.
 
 ## Fixing review findings
 
 - Before fixing, search for the same pattern in sibling code paths (other providers,
   other routes, other transports, UI and storage layers that carry the same data).
-  Fix every occurrence in scope and record any remaining occurrences in the
-  PR's deferred issue.
+  Fix sibling occurrences of a blocking finding in the same PR, or file each as
+  its own issue at the same priority; never put them in the deferred P3 issue.
 - For behavior findings, start with a test that fails on main and make it pass.
 - In the PR description, list the sibling paths you checked.
