@@ -237,6 +237,7 @@ describe("profile source inventories", () => {
             branches: metric("transient-failure"),
             tags: metric("malformed"),
             releases: metric("malformed"),
+            ciConfiguration: metric("unsupported"),
           },
         },
       ],

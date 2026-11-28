@@ -275,11 +275,13 @@ describe("collectGitLabProfileEnrichment", () => {
       jsonResponse([]),
       jsonResponse([]),
       jsonResponse([]),
+      jsonResponse({ ci_config_path: null, auto_devops_enabled: false }),
       jsonResponse([{}], { "X-Total": "3" }),
       jsonResponse([{}], { "X-Total": "1" }),
       jsonResponse([{}, {}]),
       jsonResponse([{}]),
       jsonResponse([{}]),
+      jsonResponse({ ci_config_path: null, auto_devops_enabled: true }),
     ]);
 
     const enrichment = await collectGitLabProfileEnrichment(
@@ -368,6 +370,11 @@ describe("collectGitLabProfileEnrichment", () => {
       branches: { observation: { kind: "exact", value: 2, basis: "enumerated" } },
       tags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       releases: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
+      ciConfiguration: { observation: { kind: "exact", value: 1, basis: "reported" } },
+    });
+    expect(enrichment.projects[0]?.metrics.ciConfiguration.observation).toMatchObject({
+      kind: "exact",
+      value: 0,
     });
   });
 });
@@ -425,6 +432,9 @@ function flakyGitLab(options: { maxRetries?: number } = {}) {
       if (url.pathname.includes("/repository/branches/main")) {
         return jsonResponse({ commit: { id: "abc123" } });
       }
+      if (/\/projects\/\d+$/.test(url.pathname)) {
+        return jsonResponse({ ci_config_path: null, auto_devops_enabled: false });
+      }
       if (/\/(issues|merge_requests)$/.test(url.pathname)) {
         return jsonResponse([{}], { "X-Total": "2" });
       }
@@ -449,7 +459,7 @@ describe("GitLab profile request budget", () => {
     const observations = enrichment.projects.flatMap((project) =>
       Object.values(project.metrics).map((metric) => metric.observation),
     );
-    expect(observations).toHaveLength(24);
+    expect(observations).toHaveLength(28);
     expect(
       observations.some((o) => o.kind === "unavailable" && o.reason === "request-budget"),
     ).toBe(true);
@@ -482,7 +492,15 @@ describe("GitLab profile request budget", () => {
     expect(enrichment.projects).toHaveLength(2);
     for (const { metrics } of enrichment.projects) {
       expect(Object.keys(metrics).sort()).toEqual(
-        ["branches", "commits", "issues", "mergeRequests", "releases", "tags"].sort(),
+        [
+          "branches",
+          "ciConfiguration",
+          "commits",
+          "issues",
+          "mergeRequests",
+          "releases",
+          "tags",
+        ].sort(),
       );
       for (const metric of Object.values(metrics)) {
         expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
@@ -594,6 +612,34 @@ describe("GitLab profile request budget", () => {
 
     expect(failure).toBeInstanceOf(GitLabApiError);
     expect((failure as GitLabApiError).status).toBe(401);
+  });
+
+  test("records a 401 from the optional CI probe while required metrics still succeed", async () => {
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "secret-token",
+      maxRetries: 0,
+      fetch: async (input) => {
+        const { pathname } = new URL(input.toString());
+        if (pathname.endsWith("/projects/1")) return new Response(null, { status: 401 });
+        if (pathname.endsWith("/sequence")) return jsonResponse({ count: 4 });
+        if (pathname.endsWith("/repository/branches/main")) {
+          return jsonResponse({ commit: { id: "abc123" } });
+        }
+        return jsonResponse([], { "X-Total": "0" });
+      },
+    });
+
+    const enrichment = await collectGitLabProfileEnrichment(client, budgetInventory(1), {
+      requestBudget: 50,
+    });
+
+    const metrics = enrichment.projects[0]?.metrics;
+    expect(metrics?.ciConfiguration.observation).toMatchObject({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+    expect(metrics?.commits.observation).toMatchObject({ kind: "exact", value: 4 });
   });
 
   test("does not turn cancellation into an exhausted budget", async () => {

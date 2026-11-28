@@ -14,7 +14,15 @@ describe("GitLab profile metric registry", () => {
   test("declares each metric once with a renderable card", () => {
     const keys = GITLAB_PROFILE_METRICS.map((descriptor) => descriptor.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toEqual(["issues", "mergeRequests", "commits", "branches", "tags", "releases"]);
+    expect(keys).toEqual([
+      "issues",
+      "mergeRequests",
+      "commits",
+      "branches",
+      "tags",
+      "releases",
+      "ciConfiguration",
+    ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
       expect(Object.keys(octicons)).toContain(card.icon);
@@ -31,6 +39,7 @@ describe("GitLab profile metric registry", () => {
       ["tags", "Tags"],
       ["releases", "Releases"],
       ["issues", "Visible issues"],
+      ["ciConfiguration", "GitLab CI to convert"],
     ]);
   });
 

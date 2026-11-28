@@ -90,6 +90,7 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
         commits: metric,
         tags: metric,
         releases: metric,
+        ciConfiguration: metric,
       },
     })),
   };

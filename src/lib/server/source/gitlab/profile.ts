@@ -10,6 +10,7 @@ import type {
   SourceProjectInventory,
 } from "$lib/source/types";
 import { enrichmentWorkers } from "../enrichment-workers";
+import { collectGitLabCiConfigurationMetric } from "./ci-configuration";
 import {
   GitLabApiError,
   type GitLabClient,
@@ -322,6 +323,7 @@ const GITLAB_METRIC_COLLECTORS = {
   branches: collectGitLabBranchMetric,
   tags: collectGitLabTagMetric,
   releases: collectGitLabReleaseMetric,
+  ciConfiguration: collectGitLabCiConfigurationMetric,
 } satisfies Record<GitLabMetricKey, GitLabMetricCollector>;
 
 export async function collectGitLabProfileEnrichment(

@@ -94,6 +94,7 @@ for (const width of [1280, 390]) {
 		const contents = page.getByRole("heading", { name: "Repository contents" }).locator("..");
 		await expect(contents.getByText("Tags", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Commits", { exact: true }).locator("..").getByText("42", { exact: true })).toBeVisible();
+		await expect(contents.getByText("GitLab CI to convert", { exact: true }).locator("..").getByText("At least 1", { exact: true })).toBeVisible();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 		const storage = page.getByRole("heading", { name: "Source storage" }).locator("..");
 		await expect(storage.getByText("Job artifacts", { exact: true }).locator("..").getByText("At least 4.0 KiB", { exact: true })).toBeVisible();

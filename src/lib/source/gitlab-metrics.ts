@@ -18,6 +18,10 @@ export const GITLAB_PROFILE_METRICS = [
   { key: "branches", card: { label: "Branches", icon: "git-branch", position: 2 } },
   { key: "tags", card: { label: "Tags", icon: "tag", position: 3 } },
   { key: "releases", card: { label: "Releases", icon: "package", position: 4 } },
+  {
+    key: "ciConfiguration",
+    card: { label: "GitLab CI to convert", icon: "workflow", position: 7 },
+  },
 ] as const satisfies ReadonlyArray<{
   key: string;
   card: { label: string; icon: UsedIconName; position: number };

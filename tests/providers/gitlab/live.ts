@@ -25,7 +25,7 @@ export async function verifyGitLabContract(
     web,
   ]);
   for (const { path, metrics } of profile.projects) {
-    assertExactMetrics(path, metrics, {
+    assertExactMetrics<Exclude<keyof typeof metrics, "ciConfiguration">>(path, metrics, {
       issues: path === rich ? 1 : path === web ? 2 : 0,
       mergeRequests: path === rich ? 1 : 0,
       commits: path === rich ? 3 : 1,
@@ -33,6 +33,9 @@ export async function verifyGitLabContract(
       tags: path === rich ? 1 : 0,
       releases: path === rich ? 1 : 0,
     });
+    // Seeded projects have no CI file; the instance Auto DevOps default decides 0 or 1.
+    const ci = metrics.ciConfiguration.observation;
+    assert.ok(ci.kind === "exact" && (ci.value === 0 || ci.value === 1), `${path}: ciConfiguration`);
   }
 
   const paged = await discoverGitLabInventory(client, paginatedNamespace);

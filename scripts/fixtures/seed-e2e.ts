@@ -501,6 +501,7 @@ const gitLabSummary = {
     commits: { kind: "exact", value: 42 },
     tags: { kind: "unavailable", reason: "malformed" },
     releases: { kind: "unavailable", reason: "malformed" },
+    ciConfiguration: { kind: "at-least", value: 1 },
   },
 };
 db.prepare(
