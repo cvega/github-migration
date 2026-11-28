@@ -179,8 +179,8 @@ and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
    OrcaCompass. If Compass shows Codex or Claude Code near its usage limit,
    use Copilot for non-sensitive P2–P4 critical-path work.
 3. Use Copilot for remaining work unless rule 4 applies. GitHub managed policy
-   may set its model. Treat every Copilot build as mixed-family (Fusion/Auto),
-   record the models Copilot reports, and use Codex as reviewer. Run up to six
+   may set its model. Record the models Copilot reports and select a reviewer
+   according to the reviewer selection rules. Run up to six
    Copilot builders concurrently. Pass `--model` only if the installed Orca
    supports overriding the selected agent's model.
 4. Use Qwen only when the user asks, for one bounded, non-sensitive P3 task at
@@ -194,13 +194,14 @@ three full `bun run verify` runs concurrently.
 
 ### Reviewer selection
 
-Claude Code builds go to GPT (Codex or Copilot GPT), and Codex builds go to
-Claude (Claude Code or Copilot Claude). Treat every Copilot build as mixed-family
-and use Codex as reviewer. Third-family builds (such as Gemini or MAI) may be
-reviewed by Codex or Claude Code. Qwen-built work goes to Claude or GPT, with
-Claude preferred. For sensitive changes, use Claude Code or Codex directly with
-its strongest model at high effort. If an eligible reviewer is unavailable,
-wait or ask.
+Claude Code builds go to Codex, and Codex builds go to Claude Code. For Copilot
+builds whose reported models are all from one family, use the other family
+(Codex or Claude Code) as reviewer. If the models are mixed-family or unreported,
+use Codex or Claude Code, whichever has more headroom per OrcaCompass.
+Third-family builds (such as Gemini or MAI) may be reviewed by Codex or Claude
+Code. Qwen-built work goes to Claude Code or Codex, with Claude Code preferred.
+For sensitive changes, use Claude Code or Codex directly with its strongest
+model at high effort. If an eligible reviewer is unavailable, wait or ask.
 
 ### How reviews run
 
