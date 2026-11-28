@@ -157,7 +157,15 @@ export class ProfileMigrationPlannerController {
 
   get defaultTargetNames(): ReadonlyMap<string, string> {
     const run = this.options.getRun();
-    return defaultProfileTargetNames(run.sourceProvider, run.org, this.selectedNames);
+    return defaultProfileTargetNames(
+      run.sourceProvider,
+      run.org,
+      this.planCatalog.map((repo) => repo.nameWithOwner),
+    );
+  }
+
+  private get planCatalog(): ProfilePlanRepo[] {
+    return [...this.planningRepos, ...Object.values(this.currentRepoOverrides)];
   }
 
   get targetNameError(): string {
@@ -239,17 +247,15 @@ export class ProfileMigrationPlannerController {
   }
 
   selectFiltered(includeBlockers: boolean): void {
-    const repos = this.options.getRepos();
+    const repos = this.options
+      .getRepos()
+      .filter((repo) => this.options.isRepoEligible?.(repo.nameWithOwner) ?? true);
     this.setError("");
     this.setBlockersAccepted(false);
     this.selection = {
       runId: this.runId,
       value: repos
-        .filter(
-          (repo) =>
-            (this.options.isRepoEligible?.(repo.nameWithOwner) ?? true) &&
-            (includeBlockers || repo.blockers === 0),
-        )
+        .filter((repo) => includeBlockers || repo.blockers === 0)
         .slice(0, MAX_PROFILE_PLAN_REPOS)
         .map((repo) => repo.nameWithOwner),
     };
@@ -348,9 +354,11 @@ export class ProfileMigrationPlannerController {
       sourceApiUrl: run.sourceApiUrl,
       sourceOrg: run.org,
       targetOrg: this.targetOrg,
-      repos: [...this.options.getPlanningRepos(), ...Object.values(this.currentRepoOverrides)],
+      repos: this.planCatalog,
       selectedRepos: this.selectedNames,
-      targetNames: this.currentTargetNames,
+      targetNames: this.scoped
+        ? Object.fromEntries(this.selectedNames.map((name) => [name, projectName(name)]))
+        : this.currentTargetNames,
       acceptBlockers: this.blockersAccepted,
     });
   }

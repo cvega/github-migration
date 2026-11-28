@@ -15,32 +15,42 @@ export function defaultProfilePlanSelection(repos: ProfilePlanRepo[]): string[] 
 }
 
 function sanitizeTargetName(name: string): string {
-  const sanitized = name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, MAX_TARGET_REPO_LENGTH);
-  return sanitized === "." || sanitized === ".." ? "repository" : sanitized;
+  const sanitized = name
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .slice(0, MAX_TARGET_REPO_LENGTH)
+    .replace(/(?:\.git)+$/i, "");
+  return sanitized === "." || sanitized === ".." || (name && !sanitized) ? "repository" : sanitized;
 }
 
 export function defaultProfileTargetNames(
   sourceProvider: SourceProvider,
   sourceOrg: string,
-  selectedRepos: readonly string[],
+  catalog: Iterable<string>,
 ): ReadonlyMap<string, string> {
   const adapter = getSourceProviderAdapter(sourceProvider);
   const defaults = new Map<string, string>();
   const counts = new Map<string, number>();
-  for (const path of new Set(selectedRepos)) {
-    const name = sanitizeTargetName(adapter.projectName(path));
+  const validCounts = new Map<string, number>();
+  for (const path of new Set(catalog)) {
+    const leaf = adapter.projectName(path);
+    const name = sanitizeTargetName(leaf);
     defaults.set(path, name);
     const key = name.toLowerCase();
     counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (leaf === name) validCounts.set(key, (validCounts.get(key) ?? 0) + 1);
   }
 
   // Reserve unique leaves first, then resolve collisions in source-path order.
-  const used = new Set([...counts].filter(([, count]) => count === 1).map(([name]) => name));
+  const used = new Set<string>();
+  const collisions: string[] = [];
+  for (const [path, name] of defaults) {
+    const key = name.toLowerCase();
+    if (counts.get(key) === 1 || (validCounts.get(key) === 1 && adapter.projectName(path) === name))
+      used.add(key);
+    else if (name) collisions.push(path);
+  }
   const namespacePrefix = `${sourceOrg}/`;
-  for (const path of [...defaults.keys()].sort()) {
-    const leaf = defaults.get(path)!;
-    if (!leaf || counts.get(leaf.toLowerCase()) === 1) continue;
-
+  for (const path of collisions.sort()) {
     const relativePath = path.startsWith(namespacePrefix)
       ? path.slice(namespacePrefix.length)
       : path;
@@ -87,7 +97,7 @@ export function buildProfileMigrationPlan(input: {
     if (!repo) throw new TypeError(`Repository '${name}' is not part of this profile run`);
     return repo;
   });
-  const defaults = defaultProfileTargetNames(sourceProvider, input.sourceOrg, selected);
+  const defaults = defaultProfileTargetNames(sourceProvider, input.sourceOrg, byName.keys());
   const items = repos.map((repo) => ({
     sourceRepo: repo.nameWithOwner,
     targetRepo:

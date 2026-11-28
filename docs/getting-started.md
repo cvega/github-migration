@@ -95,7 +95,11 @@ start the run. The detail page streams discovery progress and records provider
 coverage, repository metrics, warnings, blockers, and planning candidates.
 
 Completed profiles can produce a bounded batch plan. Review each source and
-target mapping before opening the migration workflow. A GitHub batch launched
+target mapping before opening the migration workflow. For editable mappings,
+the planner keeps unique, valid repository names and uses the source path to
+distinguish collisions across the planning catalog. Selecting a different
+batch from that catalog does not rename its targets or discard your edits.
+A GitHub batch launched
 from a profile requires successful repository analysis for selected
 repositories with warnings or blockers. Start that analysis from the completed
 profile page and wait for the analyzer service to finish, or retry failed
