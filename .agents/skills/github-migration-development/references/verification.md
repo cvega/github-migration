@@ -9,12 +9,14 @@ parallel gate runner in this skill.
 ```sh
 bun install --frozen-lockfile
 bunx --bun svelte-kit sync
-bun test src/lib/server/migrate/runs/recovery.test.ts
+bun test --no-env-file src/lib/server/migrate/runs/recovery.test.ts
 bun run verify boundaries
 ```
 
 Replace the example test with the affected suite. `bun run verify` prepares
 SvelteKit itself; direct `bun test` in a fresh checkout needs the sync above.
+Keep `--no-env-file` on direct runs so a local `.env` cannot leak operator
+configuration into deterministic tests.
 Follow existing explicit dependency hooks for network/time, restore overrides,
 and use real in-memory SQLite. From 1.0 on, test persistence upgrades with an
 old store that can be reopened. Before 1.0, see Pre-1.0 policy in `AGENTS.md`.
@@ -44,7 +46,7 @@ mutation configuration, E2E, build, and dependency audit.
 Important distinctions:
 
 - `coverage` runs the tests and enforces 90% function and line coverage.
-  `bun test` alone is not the enforced coverage gate.
+  `bun run test` alone is not the enforced coverage gate.
 - `mutation-config` validates configuration; it does not run mutation testing.
   `bun run mutation --force` is a separate, more expensive suite.
 - `bun run typecheck` uses Bun's native checker for app and scripts. There is no

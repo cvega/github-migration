@@ -17,8 +17,8 @@
     "preview": "bunx --bun vite preview",
     "release:prep": "bun scripts/release/release-prep.ts",
     "seed": "bun scripts/fixtures/seed.ts",
-    "test": "bun test",
-    "test:changed": "bun test --changed",
+    "test": "bun test --no-env-file",
+    "test:changed": "bun test --no-env-file --changed",
     "test:e2e": "bun --no-env-file run --bun playwright test",
     "typecheck": "bunx --bun svelte-kit sync && bun check --no-script --threads=2 -p tsconfig.json && bun check --no-script --threads=2 -p scripts/tsconfig.json",
     "verify": "bun --no-env-file scripts/gates.ts --verbose --fail-fast"
