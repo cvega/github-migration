@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { RepoSignals } from "$lib/profile/types";
 import { initStore } from "$lib/server/core/db";
-import { saveProfileInventory } from "$lib/server/profile/database/inventories";
+import {
+  saveProfileInventory,
+  settleProfileInventoryRun,
+} from "$lib/server/profile/database/inventories";
 import { recordRepoProfile } from "$lib/server/profile/database/repos";
 import { startRepositoryAnalysis } from "$lib/server/profile/database/repository-analysis-runs";
 import { completeProfileRun, createProfileRun } from "$lib/server/profile/database/runs";
@@ -62,10 +65,116 @@ describe("GET /api/profile/[id]", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(body.scale).toMatchObject({ repos: 0 });
     expect(body.inventorySummary.projectCount).toEqual({ kind: "at-least", value: 0 });
     expect(body).not.toHaveProperty("inventory");
     expect(JSON.stringify(body)).not.toContain('"projects"');
   });
+
+  test.each([
+    ["gitlab", "https://gitlab.example.com/api/v4"],
+    ["bitbucket-server", "https://bb.example.com/rest/api/1.0"],
+  ] as const)(
+    "returns unavailable rollup fields for completed %s inventories",
+    async (provider, sourceApiUrl) => {
+      const id = "inventory-detail";
+      const namespace = "TEAM";
+      const unavailable = { kind: "unavailable", reason: "not-reported" } as const;
+      createProfileRun({ id, sourceProvider: provider, sourceApiUrl, org: namespace });
+      settleProfileInventoryRun(
+        id,
+        {
+          version: 1,
+          provider,
+          sourceApiUrl,
+          namespace,
+          projectCount: { kind: "exact", value: 1 },
+          projects: [
+            {
+              provider,
+              sourceId: "1",
+              path: "TEAM/widget",
+              name: "widget",
+              visibility: "private",
+              archived: false,
+              defaultBranch: "main",
+              lastActivityAt: null,
+              repositorySizeBytes: unavailable,
+              storageSizeBytes: unavailable,
+              lfsObjectsSizeBytes: { kind: "exact", value: 0 },
+              packagesSizeBytes: unavailable,
+              wikiSizeBytes: unavailable,
+              uploadsSizeBytes: unavailable,
+            },
+          ],
+        },
+        1,
+      );
+
+      const response = await GET({
+        params: { id },
+        url: new URL(`https://example.test/api/profile/${id}`),
+      } as GetArgs);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        run: { state: "completed" },
+        scale: null,
+        composition: null,
+        summary: null,
+        estimate: null,
+        inventorySummary: {
+          projectsCaptured: 1,
+          projectCount: { kind: "exact", value: 1 },
+          storage: {
+            storageSizeBytes: unavailable,
+            lfsObjectsSizeBytes: { kind: "exact", value: 0 },
+          },
+        },
+      });
+    },
+  );
+
+  test.each([
+    ["gitlab", "https://gitlab.example.com/api/v4"],
+    ["bitbucket-server", "https://bb.example.com/rest/api/1.0"],
+  ] as const)(
+    "returns unavailable rollup fields for failed %s inventories",
+    async (provider, sourceApiUrl) => {
+      const id = "failed-inventory";
+      const namespace = "TEAM";
+      const unavailable = { kind: "unavailable", reason: "forbidden" } as const;
+      createProfileRun({ id, sourceProvider: provider, sourceApiUrl, org: namespace });
+      settleProfileInventoryRun(
+        id,
+        {
+          version: 1,
+          provider,
+          sourceApiUrl,
+          namespace,
+          projectCount: unavailable,
+          projects: [],
+        },
+        1,
+      );
+
+      const response = await GET({
+        params: { id },
+        url: new URL(`https://example.test/api/profile/${id}`),
+      } as GetArgs);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        run: { state: "failed" },
+        scale: null,
+        composition: null,
+        summary: null,
+        estimate: null,
+        inventorySummary: {
+          projectCount: unavailable,
+          storage: { storageSizeBytes: unavailable },
+        },
+      });
+    },
+  );
 
   test("returns only run status and inventory summary for status polling", async () => {
     createProfileRun({
@@ -114,6 +223,8 @@ describe("GET /api/profile/[id]", () => {
       projectsV2Count: 0,
       environmentsCount: 0,
       releaseAssetBytes: 0,
+      releaseAssetScanComplete: true,
+      branchRuleScanComplete: true,
       stargazerCount: 0,
       watcherCount: 0,
       forkCount: 0,
@@ -207,6 +318,8 @@ describe("GET /api/profile/[id]", () => {
       projectsV2Count: 0,
       environmentsCount: 0,
       releaseAssetBytes: 0,
+      releaseAssetScanComplete: true,
+      branchRuleScanComplete: true,
       stargazerCount: 0,
       watcherCount: 0,
       forkCount: 0,

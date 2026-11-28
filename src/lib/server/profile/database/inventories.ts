@@ -85,6 +85,15 @@ export function saveProfileInventory(
 			 VALUES ($run_id, $position, $source_id, $path, $payload)`,
     );
     for (const [position, project] of parsed.projects.entries()) {
+      const details = project.providerDetails;
+      if (project.provider === "bitbucket-server") {
+        const bitbucket = details?.provider === "bitbucket-server" ? details : undefined;
+        project.providerDetails = {
+          ...bitbucket,
+          provider: "bitbucket-server",
+          rootLfsRules: bitbucket?.rootLfsRules ?? "unknown",
+        };
+      }
       insertProject.run({
         $run_id: runId,
         $position: position,
@@ -199,17 +208,7 @@ export function getProfileInventorySummary(runId: string): ProfileInventorySumma
     .prepare("SELECT summary FROM profile_source_inventories WHERE run_id = $run_id")
     .get({ $run_id: runId }) as ProfileInventorySummaryRow | null;
   if (!row) return null;
-  try {
-    return parseProfileInventorySummary(JSON.parse(row.summary));
-  } catch {
-    const inventory = getProfileInventory(runId);
-    if (!inventory) return null;
-    const summary = summarizeProfileInventory(inventory);
-    getDb()
-      .prepare("UPDATE profile_source_inventories SET summary = $summary WHERE run_id = $run_id")
-      .run({ $summary: JSON.stringify(summary), $run_id: runId });
-    return summary;
-  }
+  return parseProfileInventorySummary(JSON.parse(row.summary));
 }
 
 /** Stored summaries may include GitLab descendants; aggregate only direct projects. */
@@ -265,7 +264,7 @@ export function getBitbucketLfsReportRows(runId: string, namespace?: string) {
       Record<string, string>
     >(
       `SELECT path AS repository, json_extract(payload, '$.defaultBranch') AS defaultBranch,
-        coalesce(json_extract(payload, '$.providerDetails.rootLfsRules'), 'unknown') AS rootLfsRules
+        json_extract(payload, '$.providerDetails.rootLfsRules') AS rootLfsRules
        FROM profile_source_inventory_projects WHERE run_id = $id${scope.sql} ORDER BY position`,
     )
     .all({ $id: runId, ...scope.params });
@@ -282,7 +281,7 @@ export function getBitbucketActivityPage(runId: string, requested: number, names
       { total: number; collected: number; covered: number; open: number | null; withOpen: number },
       Record<string, string>
     >(`SELECT count(*) AS total,
-      count(json_extract(p.payload,'$.activity')) AS collected,
+      count(p.source_id) AS collected,
       count(json_extract(p.payload,'$.activity.review.open')) AS covered,
       sum(json_extract(p.payload,'$.activity.review.open')) AS open,
       count(*) FILTER (WHERE json_extract(p.payload,'$.activity.review.open')>0) AS withOpen ${from}`)

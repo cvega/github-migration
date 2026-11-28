@@ -147,6 +147,7 @@ test("mixed subgroup inventory is scoped before aggregation, planning limits, an
     metrics: { issues: { value: 7 } },
     storage: { storageSizeBytes: { value: 1 } },
   });
+  expect(detail).toMatchObject({ scale: null, composition: null, summary: null, estimate: null });
   expect(detail.planningRepos.map((r: { nameWithOwner: string }) => r.nameWithOwner)).toEqual([
     `${grant.namespace}/direct`,
   ]);

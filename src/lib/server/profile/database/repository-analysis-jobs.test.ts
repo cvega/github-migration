@@ -43,6 +43,8 @@ function repo(name: string): RepoSignals {
     projectsV2Count: 0,
     environmentsCount: 0,
     releaseAssetBytes: 0,
+    releaseAssetScanComplete: true,
+    branchRuleScanComplete: true,
     stargazerCount: 0,
     watcherCount: 0,
     forkCount: 0,

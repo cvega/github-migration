@@ -1,6 +1,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import type { Progress } from "../../src/lib/migrate/types";
+import { buildProfileDetailRollup } from "../../src/lib/server/profile/analysis/rollup";
+import {
+  parsePersistedCatalogMatches,
+  parsePersistedRepoSignals,
+} from "../../src/lib/server/profile/database/results";
 import type { RepoSignals } from "../../src/lib/server/profile/types";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 
@@ -189,6 +194,8 @@ function profileSignals(name: string): RepoSignals {
     projectsV2Count: 0,
     environmentsCount: 0,
     releaseAssetBytes: 0,
+    releaseAssetScanComplete: true,
+    branchRuleScanComplete: true,
     stargazerCount: 0,
     watcherCount: 0,
     forkCount: 0,
@@ -221,7 +228,7 @@ const readyProfileRepo = insertProfileRepo.run(
   JSON.stringify(profileSignals("ready-repo")),
   0,
   0,
-  JSON.stringify([{ considerationId: "actions-run-history", evidence: "1 workflow" }]),
+  JSON.stringify([{ catalogEntryId: "actions-run-history", evidence: "1 workflow" }]),
   startedAt,
 );
 const blockedProfileRepo = insertProfileRepo.run(
@@ -230,7 +237,7 @@ const blockedProfileRepo = insertProfileRepo.run(
   JSON.stringify(profileSignals("blocked-repo")),
   1,
   0,
-  JSON.stringify([{ considerationId: "release-size-limit", evidence: "Estimated over limit" }]),
+  JSON.stringify([{ catalogEntryId: "release-size-limit", evidence: "Estimated over limit" }]),
   startedAt,
 );
 
@@ -289,6 +296,29 @@ for (const { name, signals, blockers } of readinessFixtureRepos) {
     "[]",
     startedAt,
   );
+}
+
+const loadRollupRepos = db.query<
+  {
+    nameWithOwner: string;
+    signals: string;
+    blockers: number;
+    warnings: number;
+    infos: number;
+    matches: string;
+  },
+  [string]
+>(`SELECT name_with_owner AS nameWithOwner, signals, blockers, warnings, infos,
+          applying_considerations AS matches
+   FROM profile_repos WHERE run_id = ? ORDER BY name_with_owner`);
+const storeRollup = db.prepare("UPDATE profile_runs SET detail_rollup = ? WHERE id = ?");
+for (const id of ["seed-e2e-profile", readinessFixtureId]) {
+  const repos = loadRollupRepos.all(id).map(({ signals, matches, ...repo }) => ({
+    ...repo,
+    signals: parsePersistedRepoSignals(signals),
+    catalogMatches: parsePersistedCatalogMatches(matches),
+  }));
+  storeRollup.run(JSON.stringify(buildProfileDetailRollup(repos)), id);
 }
 
 db.prepare(
@@ -512,6 +542,7 @@ const bitbucketProjects = [
       description: "Payments API",
       scmId: "git",
       forkable: true,
+      rootLfsRules: "unknown",
       state: "AVAILABLE",
     },
   },
@@ -535,6 +566,7 @@ const bitbucketProjects = [
       webUrl: "https://bitbucket.example.com/projects/PLATFORM/repos/legacy-web/browse",
       scmId: "git",
       forkable: false,
+      rootLfsRules: "unknown",
       state: "ARCHIVED",
     },
   },

@@ -50,13 +50,19 @@ describe("profile database schema", () => {
       { name: "fetched_at" },
     ]);
     const inventory = db.prepare(
-      "INSERT INTO profile_source_inventories (run_id, fetched_at) VALUES (?, '2026-08-02')",
+      `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)
+      VALUES (?, '{"kind":"unavailable","reason":"not-reported"}', '{}', '2026-08-02')`,
     );
     expect(() => inventory.run("missing")).toThrow(/FOREIGN KEY/);
     for (const provider of ["github", "gitlab", "bitbucket-server"]) {
       db.prepare(
         "INSERT INTO profile_runs (id, source_provider, source_api_url, org, started_at) VALUES (?, ?, 'https://example.com', 'acme', '2026-08-01')",
       ).run(provider, provider);
+      expect(() =>
+        db.run("INSERT INTO profile_source_inventories (run_id, fetched_at) VALUES (?, 'now')", [
+          provider,
+        ]),
+      ).toThrow(/NOT NULL/);
       inventory.run(provider);
     }
     profileStore.applySchema(db);
@@ -68,7 +74,7 @@ describe("profile database schema", () => {
         .query("SELECT project_count FROM profile_source_inventories WHERE run_id = 'github'")
         .get(),
     ).toEqual({
-      project_count: JSON.stringify({ kind: "exact", value: 0 }),
+      project_count: JSON.stringify({ kind: "unavailable", reason: "not-reported" }),
     });
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   });

@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { RepoSignals, StoredCatalogMatch, StoredRepoProfile } from "../types";
 import { buildPreparationSummary } from "./plan";
 
-const STUB_SIGNALS = { releasesCount: 0, branchProtectionRuleCount: 0 } as RepoSignals;
+const STUB_SIGNALS = {
+  releaseAssetScanComplete: true,
+  branchRuleScanComplete: true,
+} as RepoSignals;
 
 function match(catalogEntryId: string): StoredCatalogMatch {
   return { catalogEntryId, evidence: "x" };

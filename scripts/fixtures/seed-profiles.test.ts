@@ -14,7 +14,7 @@ interface StoredRepoRow {
 }
 
 interface PersistedCatalogMatch {
-  considerationId: string;
+  catalogEntryId: string;
   evidence: string;
 }
 
@@ -79,7 +79,7 @@ describe("seedProfiles", () => {
     const expectedFindings = analyzed.findings
       .filter((finding) => finding.status === "applies")
       .map((finding) => ({
-        considerationId: finding.entry.id,
+        catalogEntryId: finding.entry.id,
         evidence: finding.evidence ?? "",
       }));
 

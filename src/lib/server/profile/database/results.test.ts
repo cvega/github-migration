@@ -30,6 +30,8 @@ function signals(): RepoSignals {
     projectsV2Count: 0,
     environmentsCount: 0,
     releaseAssetBytes: 0,
+    releaseAssetScanComplete: true,
+    branchRuleScanComplete: true,
     stargazerCount: 0,
     watcherCount: 0,
     forkCount: 0,
@@ -52,9 +54,11 @@ function signals(): RepoSignals {
 }
 
 describe("persisted profile results", () => {
-  test("fills missing legacy organization resources with unavailable", () => {
-    expect(parsePersistedOrgResources(JSON.stringify({ teams: 3, actionsSecrets: 0 }))).toEqual({
-      actionsSecrets: null,
+  test("preserves observed zero and fills missing organization resources with unavailable", () => {
+    expect(
+      parsePersistedOrgResources(JSON.stringify({ counts: { teams: 3, actionsSecrets: 0 } })),
+    ).toEqual({
+      actionsSecrets: 0,
       actionsVariables: null,
       dependabotSecrets: null,
       codespacesSecrets: null,
@@ -65,20 +69,20 @@ describe("persisted profile results", () => {
     });
   });
 
-  test("parses complete signals and normalizes legacy catalog matches", () => {
+  test("parses complete signals and reads current catalog matches", () => {
     expect(parsePersistedRepoSignals(JSON.stringify(signals()))).toEqual(signals());
     expect(
       parsePersistedCatalogMatches(
-        JSON.stringify([{ considerationId: "discussions", evidence: "3 discussions" }]),
+        JSON.stringify([{ catalogEntryId: "discussions", evidence: "3 discussions" }]),
       ),
     ).toEqual([{ catalogEntryId: "discussions", evidence: "3 discussions" }]);
-    expect(() => parsePersistedOrgResources(JSON.stringify({ teams: "3" }))).toThrow();
+    expect(() => parsePersistedOrgResources(JSON.stringify({ counts: { teams: "3" } }))).toThrow();
   });
 
-  test("round-trips valid rollups and rejects malformed optional cache data", () => {
+  test("round-trips valid rollups and rejects malformed rollups", () => {
     const rollup = buildProfileDetailRollup([]);
     expect(parsePersistedProfileRollup(JSON.stringify(rollup))).toEqual(rollup);
-    expect(parsePersistedProfileRollup("not-json")).toBeNull();
-    expect(parsePersistedProfileRollup(JSON.stringify({ scale: {} }))).toBeNull();
+    expect(() => parsePersistedProfileRollup("not-json")).toThrow();
+    expect(() => parsePersistedProfileRollup(JSON.stringify({ scale: {} }))).toThrow();
   });
 });

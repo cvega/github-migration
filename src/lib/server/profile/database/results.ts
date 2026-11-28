@@ -44,8 +44,8 @@ const repoSignalsSchema = z
     projectsV2Count: count,
     environmentsCount: count,
     releaseAssetBytes: count,
-    releaseAssetScanComplete: z.boolean().optional(),
-    branchRuleScanComplete: z.boolean().optional(),
+    releaseAssetScanComplete: z.boolean(),
+    branchRuleScanComplete: z.boolean(),
     stargazerCount: count,
     watcherCount: count,
     forkCount: count,
@@ -69,7 +69,7 @@ const repoSignalsSchema = z
 
 const persistedCatalogMatchSchema = z
   .object({
-    considerationId: z.string(),
+    catalogEntryId: z.string(),
     evidence: z.string(),
   })
   .strict();
@@ -168,17 +168,11 @@ function parseRequired<S extends z.ZodType>(
 
 export function parsePersistedOrgResources(json: string): OrgResources {
   const stored = parseRequired(
-    z.union([z.object({ counts: orgResourcesSchema }).strict(), orgResourcesSchema]),
+    z.object({ counts: orgResourcesSchema }).strict(),
     json,
     "profile organization resources",
   );
-  if ("counts" in stored) return { ...UNKNOWN_ORG_RESOURCES, ...stored.counts };
-  // Older collectors also wrote zero when observation failed.
-  const resources = { ...UNKNOWN_ORG_RESOURCES };
-  for (const key of Object.keys(resources) as Array<keyof OrgResources>) {
-    resources[key] = stored[key] || null;
-  }
-  return resources;
+  return { ...UNKNOWN_ORG_RESOURCES, ...stored.counts };
 }
 
 export function parsePersistedRepoSignals(json: string): RepoSignals {
@@ -190,13 +184,9 @@ export function parsePersistedCatalogMatches(json: string): StoredCatalogMatch[]
     z.array(persistedCatalogMatchSchema),
     json,
     "repository profile catalog matches",
-  ).map(({ considerationId, evidence }) => ({ catalogEntryId: considerationId, evidence }));
+  );
 }
 
-export function parsePersistedProfileRollup(json: string): ProfileDetailRollup | null {
-  try {
-    return parseRequired(profileDetailRollupSchema, json, "profile detail rollup");
-  } catch {
-    return null;
-  }
+export function parsePersistedProfileRollup(json: string): ProfileDetailRollup {
+  return parseRequired(profileDetailRollupSchema, json, "profile detail rollup");
 }

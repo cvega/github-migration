@@ -22,7 +22,6 @@ interface ProfileRunRow {
   profiled_repos: number;
   blockers: number;
   warnings: number;
-  org_ruleset_count: number;
   observed_org_ruleset_count: number | null;
   org_resources: string;
   api_calls: number;
@@ -32,7 +31,7 @@ interface ProfileRunRow {
 }
 
 const RUN_COLS =
-  "id, source_provider, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, org_ruleset_count, observed_org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
+  "id, source_provider, source_api_url, org, state, total_repos, profiled_repos, blockers, warnings, observed_org_ruleset_count, org_resources, api_calls, started_at, completed_at, failure_reason";
 const SUPPORTED_PROVIDER_SQL = SOURCE_PROVIDERS.map((provider) => `'${provider}'`).join(", ");
 
 type SourceScope = { sourceProvider: SourceProvider; sourceApiUrl: string; namespace: string };
@@ -81,10 +80,7 @@ function rowToRun(row: ProfileRunRow): ProfileRun {
     profiledRepos: row.profiled_repos,
     blockers: row.blockers,
     warnings: row.warnings,
-    // The old collector returned zero on failure and stopped at its 100-item page limit.
-    orgRulesetCount:
-      row.observed_org_ruleset_count ??
-      (row.org_ruleset_count > 0 && row.org_ruleset_count < 100 ? row.org_ruleset_count : null),
+    orgRulesetCount: row.observed_org_ruleset_count,
     orgResources: parsePersistedOrgResources(row.org_resources),
     apiCalls: row.api_calls,
     startedAt: row.started_at,
@@ -152,7 +148,7 @@ export function setProfileRunTotal(runId: string, total: number): void {
 export function setProfileRunRulesets(runId: string, count: number | null): void {
   getDb()
     .prepare(
-      "UPDATE profile_runs SET observed_org_ruleset_count = $count, org_ruleset_count = 0 WHERE id = $id AND state = 'running'",
+      "UPDATE profile_runs SET observed_org_ruleset_count = $count WHERE id = $id AND state = 'running'",
     )
     .run({ $id: runId, $count: count });
 }
@@ -196,21 +192,8 @@ export function getProfileRunRollup(runId: string): ProfileDetailRollup | null {
   const row = getDb().prepare("SELECT detail_rollup FROM profile_runs WHERE id = ?").get(runId) as {
     detail_rollup: string | null;
   } | null;
-  if (!row?.detail_rollup) return null;
+  if (!row || row.detail_rollup === null) return null;
   return parsePersistedProfileRollup(row.detail_rollup);
-}
-
-export function backfillProfileRunRollup(runId: string, rollup: ProfileDetailRollup): void {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT detail_rollup FROM profile_runs WHERE id = ? AND state = 'completed'")
-    .get(runId) as { detail_rollup: string | null } | null;
-  if (!row || (row.detail_rollup !== null && parsePersistedProfileRollup(row.detail_rollup)))
-    return;
-  db.prepare(
-    `UPDATE profile_runs SET detail_rollup = $rollup
-     WHERE id = $id AND state = 'completed' AND detail_rollup IS $previous`,
-  ).run({ $id: runId, $rollup: JSON.stringify(rollup), $previous: row.detail_rollup });
 }
 
 export function failProfileRun(runId: string, reason: string, nowMs?: number): void {

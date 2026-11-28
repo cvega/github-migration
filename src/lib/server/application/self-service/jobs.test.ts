@@ -101,11 +101,12 @@ function fixture(sourceProvider: SourceProvider = "github", targetProfileId = "g
   );
   if (sourceProvider === "github") {
     getDb().run(
-      `INSERT INTO profile_repos(run_id,name_with_owner,signals,created_at) VALUES ('profile','SRC/repo','{"releasesCount":0,"branchProtectionRuleCount":0}','now')`,
+      `INSERT INTO profile_repos(run_id,name_with_owner,signals,created_at) VALUES ('profile','SRC/repo','{"isEmpty":false,"releaseAssetScanComplete":true,"branchRuleScanComplete":true}','now')`,
     );
   } else {
     getDb().run(
-      `INSERT INTO profile_source_inventories(run_id,fetched_at) VALUES ('profile','now')`,
+      `INSERT INTO profile_source_inventories(run_id, project_count, summary, fetched_at)
+       VALUES ('profile', '{"kind":"exact","value":1}', '{}', 'now')`,
     );
     getDb().run(`INSERT INTO profile_source_inventory_projects(run_id,position,source_id,path,payload)
       VALUES ('profile',0,'1','SRC/repo','{}')`);

@@ -91,7 +91,7 @@ const bitbucketProjectProfileSchema = z
   .object({
     sourceId: z.string().min(1).max(255),
     path: z.string().min(1).max(2_048),
-    activity: bitbucketActivitySchema.optional(),
+    activity: bitbucketActivitySchema,
     metrics: z
       .object({
         commits: profileNumericMetricSchema,

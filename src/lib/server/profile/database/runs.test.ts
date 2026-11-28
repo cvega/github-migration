@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { closeStore, getDb, initStore } from "$lib/server/core/db";
+import { closeStore, initStore } from "$lib/server/core/db";
 import { buildProfileDetailRollup } from "../analysis/rollup";
 import {
-  backfillProfileRunRollup,
   countProfileRuns,
   createProfileRun,
   failProfileRun,
@@ -52,9 +51,7 @@ describe("profile runs", () => {
     });
 
     expect(run.orgRulesetCount).toBeNull();
-    getDb().run("UPDATE profile_runs SET org_ruleset_count = 100 WHERE id = ?", [run.id]);
-    expect(getProfileRun(run.id)?.orgRulesetCount).toBeNull();
-    getDb().run("UPDATE profile_runs SET org_ruleset_count = 5 WHERE id = ?", [run.id]);
+    setProfileRunRulesets(run.id, 5);
     expect(getProfileRun(run.id)?.orgRulesetCount).toBe(5);
     setProfileRunRulesets(run.id, null);
     expect(getProfileRun(run.id)?.orgRulesetCount).toBeNull();
@@ -124,18 +121,19 @@ describe("profile runs", () => {
     expect(countProfileRuns()).toBe(2);
   });
 
-  test("writes active rollups and backfills only missing completed caches", () => {
+  test("writes rollups only while the run is active", () => {
     createProfileRun({
       id: "rollup",
       sourceApiUrl: "https://api.github.com",
       org: "acme",
     });
     const rollup = buildProfileDetailRollup([]);
+    expect(getProfileRunRollup("rollup")).toBeNull();
     saveProfileRunRollup("rollup", rollup);
     expect(getProfileRunRollup("rollup")).toEqual(rollup);
 
     failProfileRun("rollup", "failed");
-    backfillProfileRunRollup("rollup", { ...rollup, scale: { ...rollup.scale, repos: 1 } });
+    saveProfileRunRollup("rollup", { ...rollup, scale: { ...rollup.scale, repos: 1 } });
     expect(getProfileRunRollup("rollup")).toEqual(rollup);
   });
 });

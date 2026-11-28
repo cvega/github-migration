@@ -84,9 +84,8 @@ const PROFILE_DDL = `
     profiled_repos INTEGER NOT NULL DEFAULT 0,
     blockers INTEGER NOT NULL DEFAULT 0,
     warnings INTEGER NOT NULL DEFAULT 0,
-    org_ruleset_count INTEGER NOT NULL DEFAULT 0,
     observed_org_ruleset_count INTEGER,
-    org_resources TEXT NOT NULL DEFAULT '{}',
+    org_resources TEXT NOT NULL DEFAULT '{"counts":{}}',
     api_calls INTEGER NOT NULL DEFAULT 0,
     detail_rollup TEXT,
     started_at TEXT NOT NULL,
@@ -116,8 +115,8 @@ const PROFILE_DDL = `
   -- Provider-neutral source inventory metadata captured for a profiling run.
   CREATE TABLE IF NOT EXISTS profile_source_inventories (
     run_id TEXT PRIMARY KEY REFERENCES profile_runs(id) ON DELETE CASCADE,
-    project_count TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}',
-    summary TEXT NOT NULL DEFAULT '{}',
+    project_count TEXT NOT NULL,
+    summary TEXT NOT NULL,
     fetched_at TEXT NOT NULL
   );
 

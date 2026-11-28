@@ -50,6 +50,8 @@ function cleanSignals(over: Partial<RepoSignals> = {}): RepoSignals {
     packagesCount: 0,
     usesLfs: false,
     releaseAssetBytes: 0,
+    releaseAssetScanComplete: true,
+    branchRuleScanComplete: true,
     workflowFileCount: 0,
     webhooksCount: 0,
     hasCodeScanningAlerts: false,
