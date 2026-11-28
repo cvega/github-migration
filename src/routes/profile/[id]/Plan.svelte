@@ -10,6 +10,7 @@
 		embedded = false,
 	}: { planner: ProfileMigrationPlannerController; canExport: boolean; embedded?: boolean } = $props();
 	const assignment = $derived(planner.assignment);
+	const targetNames = $derived(planner.defaultTargetNames);
 	const scoped = $derived(planner.scoped);
 	const choices = $derived(planner.assignments ?? []);
 	let interactive = $state(false);
@@ -117,7 +118,7 @@
 			</div>
 			<div class="max-h-80 divide-y divide-gray-800 overflow-y-auto">
 				{#each planner.planningRepos as repo (repo.nameWithOwner)}
-					<div class="grid min-h-12 items-center gap-3 px-3 py-2 {scoped ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(12rem,1fr)_minmax(10rem,16rem)]'}">
+					<div class="grid min-h-12 grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 px-3 py-2 {scoped ? '' : 'sm:grid-cols-[1.5rem_minmax(0,1fr)_minmax(10rem,16rem)]'}">
 						<input type="checkbox" disabled={!interactive} checked={planner.selectedNames.includes(repo.nameWithOwner)} onchange={() => planner.toggleSelection(repo.nameWithOwner)} aria-label={`Select ${repo.nameWithOwner}`} class="h-4 w-4 accent-blue-500" />
 						<div class="min-w-0 break-all">
 							<span class="text-machine text-gray-300">{repo.nameWithOwner}</span>
@@ -128,7 +129,7 @@
 							{/if}
 						</div>
 						{#if !scoped}
-							<input type="text" value={planner.targetNameFor(repo.nameWithOwner)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40" />
+							<input type="text" value={planner.targetNameFor(repo.nameWithOwner, targetNames)} disabled={!planner.selectedNames.includes(repo.nameWithOwner)} oninput={(event) => planner.setTargetName(repo.nameWithOwner, event.currentTarget.value)} aria-label={`Target repository for ${repo.nameWithOwner}`} class="text-machine col-start-2 min-w-0 rounded-md border border-gray-700 bg-gray-900 px-2 py-1 text-gray-100 focus:border-blue-500 focus:outline-none disabled:opacity-40 sm:col-start-auto" />
 						{/if}
 					</div>
 				{/each}
