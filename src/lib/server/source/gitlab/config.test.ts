@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET,
   GitLabSourceConfigurationError,
+  getGitLabProfileRequestBudget,
   getGitLabSourceClient,
   getGitLabSourceConfig,
 } from "./config";
@@ -10,6 +12,7 @@ const ENV_KEYS = [
   "GITLAB_SOURCE_PAT",
   "GH_SOURCE_API_URL",
   "GH_SOURCE_PAT",
+  "GITLAB_SOURCE_PROFILE_REQUEST_BUDGET",
 ] as const;
 const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
@@ -86,5 +89,30 @@ describe("GitLab source credentials", () => {
 
     process.env.GITLAB_SOURCE_API_URL = "https://secret@gitlab.example.com";
     expect(getGitLabSourceConfig()).toEqual({ apiUrl: "", authAvailable: false });
+  });
+});
+
+describe("GitLab profile request budget", () => {
+  test("defaults when unset or blank and accepts a positive integer", () => {
+    delete process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET;
+    expect(getGitLabProfileRequestBudget()).toBe(DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET);
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "   ";
+    expect(getGitLabProfileRequestBudget()).toBe(DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET);
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = " 2500 ";
+    expect(getGitLabProfileRequestBudget()).toBe(2_500);
+  });
+
+  test("rejects invalid values with a safe issue that never echoes the value", () => {
+    for (const value of ["0", "-5", "1.5", "ten", "9007199254740993"]) {
+      process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = value;
+      try {
+        getGitLabProfileRequestBudget();
+        throw new Error(`expected ${value} to be rejected`);
+      } catch (error) {
+        expect((error as Error).message).toBe(
+          "GITLAB_SOURCE_PROFILE_REQUEST_BUDGET must be a positive integer",
+        );
+      }
+    }
   });
 });

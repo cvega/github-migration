@@ -1,15 +1,7 @@
 import { z } from "zod";
+import { GITLAB_PROFILE_METRIC_KEYS, type GitLabMetricKey } from "$lib/source/gitlab-metrics";
 import { profileNumericMetricSchema } from "$lib/source/observations";
 import type { BitbucketProfileEnrichment, GitLabProfileEnrichment } from "$lib/source/types";
-
-const GITLAB_PROFILE_METRIC_KEYS = [
-  "issues",
-  "mergeRequests",
-  "commits",
-  "branches",
-  "tags",
-  "releases",
-] as const;
 
 const BITBUCKET_PROFILE_METRIC_KEYS = [
   "commits",
@@ -24,14 +16,11 @@ const gitLabProjectProfileSchema = z
     sourceId: z.string().min(1).max(255),
     path: z.string().min(1).max(2_048),
     metrics: z
-      .object({
-        issues: profileNumericMetricSchema,
-        mergeRequests: profileNumericMetricSchema,
-        commits: profileNumericMetricSchema,
-        branches: profileNumericMetricSchema,
-        tags: profileNumericMetricSchema,
-        releases: profileNumericMetricSchema,
-      })
+      .object(
+        Object.fromEntries(
+          GITLAB_PROFILE_METRIC_KEYS.map((key) => [key, profileNumericMetricSchema]),
+        ) as Record<GitLabMetricKey, typeof profileNumericMetricSchema>,
+      )
       .strict(),
   })
   .strict();

@@ -33,6 +33,18 @@ alongside the default-branch commit metric collected during enrichment.
 For each selected project, profiling collects issues, merge requests, commits,
 branches, tags, and releases under bounded concurrency and request budgets.
 
+Profile metrics are declared once in a client-safe registry
+(`src/lib/source/gitlab-metrics.ts`): each key drives the stored enrichment shape,
+the summary schema and its "Repository contents" card. The server registers a
+collector for the same key in `source/gitlab/profile.ts`, and the compiler rejects
+a key without one. All collectors in a run draw on one request budget
+(`GITLAB_SOURCE_PROFILE_REQUEST_BUDGET`) that counts every attempt, including
+retries and further pages, and cannot be exceeded by concurrent workers. Once it
+is spent no further budgeted calls are made and the profile still completes:
+counts already partly enumerated stay lower bounds, and everything else is
+unavailable with reason `request-budget`. Expired authentication (HTTP 401) is
+not a budget outcome and still fails the profile.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

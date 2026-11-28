@@ -16,6 +16,7 @@ import type {
   MigrationCatalogSeverity,
 } from "$lib/profile/migration-catalog";
 import type { RepositorySizeBand } from "$lib/repository-size";
+import type { GitLabMetricKey } from "$lib/source/gitlab-metrics";
 import type {
   NumericObservation,
   SourceProjectInventory,
@@ -224,15 +225,7 @@ export interface ProfileRun {
  *   - `details` — the expensive per-repo pass (LFS, workflows, release assets).
  *   - `signals` — the per-repo REST pass (commits, webhooks, collaborators…).
  */
-export type ProfileInventoryMetricKey =
-  | "issues"
-  | "mergeRequests"
-  | "pullRequests"
-  | "commits"
-  | "branches"
-  | "tags"
-  | "releases"
-  | "forks";
+export type ProfileInventoryMetricKey = GitLabMetricKey | "pullRequests" | "forks";
 
 export interface ProfileInventorySummary {
   lfsTracking?: { found: number; checked: number; example: string | null };

@@ -1,3 +1,5 @@
+import type { GitLabMetricKey } from "$lib/source/gitlab-metrics";
+
 export const SOURCE_PROVIDERS = ["github", "gitlab", "bitbucket-server"] as const;
 
 export type SourceProvider = (typeof SOURCE_PROVIDERS)[number];
@@ -114,14 +116,7 @@ export interface ProfileNumericMetric {
   observation: ProfileNumericObservation;
 }
 
-export interface GitLabProjectMetrics {
-  issues: ProfileNumericMetric;
-  mergeRequests: ProfileNumericMetric;
-  commits: ProfileNumericMetric;
-  branches: ProfileNumericMetric;
-  tags: ProfileNumericMetric;
-  releases: ProfileNumericMetric;
-}
+export type GitLabProjectMetrics = Record<GitLabMetricKey, ProfileNumericMetric>;
 
 export interface GitLabProfileEnrichment {
   version: 2;

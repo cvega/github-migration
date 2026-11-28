@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { closeStore, initStore } from "$lib/server/core/db";
-import { getProfileRun } from "$lib/server/profile/database/runs";
+import { getProfileInventorySummary } from "$lib/server/profile/database/inventories";
+import { countProfileRuns, getProfileRun } from "$lib/server/profile/database/runs";
 import { profileStore } from "$lib/server/profile/database/schema";
 import {
   runBitbucketInventoryProfile,
@@ -12,6 +13,7 @@ import { collectBitbucketProfileEnrichment } from "$lib/server/source/bitbucket/
 import { GitLabClient } from "$lib/server/source/gitlab/client";
 import { collectGitLabProfileEnrichment } from "$lib/server/source/gitlab/profile";
 import type { SourceNamespaceInventory } from "$lib/source/types";
+import { profileStarters } from "./profile-starters";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -114,3 +116,108 @@ test.each(["gitlab", "bitbucket-server"] as const)(
     expect(getProfileRun("replacement")?.state).toBe("failed");
   },
 );
+
+describe("gitlab profile request budget", () => {
+  const ENV_KEYS = [
+    "GITLAB_SOURCE_API_URL",
+    "GITLAB_SOURCE_PAT",
+    "GITLAB_SOURCE_PROFILE_REQUEST_BUDGET",
+  ] as const;
+  const original = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined;
+
+  beforeEach(() => {
+    process.env.GITLAB_SOURCE_API_URL = "https://gitlab.example.com";
+    process.env.GITLAB_SOURCE_PAT = "secret-token";
+  });
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+    fetchSpy = undefined;
+    for (const key of ENV_KEYS) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  });
+
+  function installGitLab() {
+    const requests: string[] = [];
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (input: RequestInfo | URL) => {
+      const url = new URL(input.toString());
+      requests.push(url.pathname);
+      const json = (data: unknown, headers: Record<string, string> = {}) =>
+        new Response(JSON.stringify(data), { headers });
+      if (url.pathname.endsWith("/groups/platform/projects")) {
+        const bytes = 1_024;
+        return json([
+          {
+            id: 1,
+            name: "api",
+            path_with_namespace: "platform/api",
+            visibility: "private",
+            archived: false,
+            default_branch: "main",
+            last_activity_at: null,
+            statistics: {
+              commit_count: 3,
+              repository_size: bytes,
+              storage_size: bytes,
+              lfs_objects_size: 0,
+              packages_size: 0,
+              wiki_size: 0,
+              uploads_size: 0,
+              job_artifacts_size: 0,
+              pipeline_artifacts_size: 0,
+              snippets_size: 0,
+              container_registry_size: 0,
+            },
+          },
+        ]);
+      }
+      if (/\/(issues|merge_requests)$/.test(url.pathname)) return json([{}], { "X-Total": "5" });
+      if (url.pathname.includes("/repository/branches/main")) {
+        return json({ commit: { id: "abc123" } });
+      }
+      return json([]);
+    }) as typeof fetch);
+    return requests;
+  }
+
+  async function settled(id: string) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const run = getProfileRun(id);
+      if (run && run.state !== "running") return run;
+      await Bun.sleep(5);
+    }
+    throw new Error("profile did not settle");
+  }
+
+  test("completes with the configured budget spent and the rest unavailable", async () => {
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "3";
+    const requests = installGitLab();
+
+    const run = profileStarters.gitlab("platform");
+    const finished = await settled(run.id);
+
+    expect(finished).toMatchObject({ state: "completed", apiCalls: 1 + 3 });
+    expect(requests).toHaveLength(1 + 3);
+    expect(getProfileInventorySummary(run.id)?.metrics).toMatchObject({
+      issues: { kind: "exact", value: 5 },
+      mergeRequests: { kind: "exact", value: 5 },
+      commits: { kind: "unavailable", reason: "request-budget" },
+      branches: { kind: "unavailable", reason: "request-budget" },
+      tags: { kind: "unavailable", reason: "request-budget" },
+      releases: { kind: "unavailable", reason: "request-budget" },
+    });
+  });
+
+  test("rejects an invalid budget before creating a run or calling GitLab", () => {
+    process.env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET = "lots";
+    const requests = installGitLab();
+
+    expect(() => profileStarters.gitlab("platform")).toThrow(
+      "GITLAB_SOURCE_PROFILE_REQUEST_BUDGET must be a positive integer",
+    );
+    expect(requests).toEqual([]);
+    expect(countProfileRuns()).toBe(0);
+  });
+});

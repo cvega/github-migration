@@ -55,3 +55,17 @@ export function collectConfigIssues(checks: ReadonlyArray<() => unknown>): Confi
   }
   return issues;
 }
+
+/** Read an optional positive-integer setting; blank means the fallback. */
+export function readPositiveIntegerSetting(
+  variable: string,
+  value: string | undefined,
+  fallback: number,
+): number {
+  if (!value?.trim()) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new ConfigIssueError(variable, "positive-integer");
+  }
+  return parsed;
+}

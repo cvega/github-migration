@@ -1,4 +1,5 @@
 import { env } from "node:process";
+import { readPositiveIntegerSetting } from "$lib/server/core/config-issue";
 import { GitLabClient, normalizeGitLabApiUrl } from "./client";
 
 export interface GitLabSourceConfig {
@@ -35,4 +36,20 @@ export function getGitLabSourceClient(): GitLabClient {
     throw new GitLabSourceConfigurationError();
   }
   return new GitLabClient({ baseUrl, token });
+}
+
+/**
+ * Upper bound on GitLab API requests (retries and pagination included) that one
+ * profile run's metric collection may issue. Sized for roughly ten requests per
+ * project at the 10,000-project inventory limit.
+ */
+export const DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET = 100_000;
+
+/** Read the per-profile metric request budget; throws a value-free config issue when invalid. */
+export function getGitLabProfileRequestBudget(): number {
+  return readPositiveIntegerSetting(
+    "GITLAB_SOURCE_PROFILE_REQUEST_BUDGET",
+    env.GITLAB_SOURCE_PROFILE_REQUEST_BUDGET,
+    DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET,
+  );
 }

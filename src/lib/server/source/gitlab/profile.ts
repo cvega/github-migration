@@ -1,3 +1,4 @@
+import { GITLAB_PROFILE_METRIC_KEYS, type GitLabMetricKey } from "$lib/source/gitlab-metrics";
 import { parseProfileNumericMetric } from "$lib/source/observations";
 import { parseGitLabProfileEnrichment } from "$lib/source/profile";
 import type {
@@ -14,8 +15,9 @@ import {
   type GitLabClient,
   type GitLabCountObservation,
   GitLabPaginationError,
+  GitLabRequestBudgetError,
 } from "./client";
-
+import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
 import { GITLAB_PROFILE_CONCURRENCY } from "./inventory";
 
 export const GITLAB_ISSUES_SCOPE =
@@ -26,6 +28,28 @@ export const GITLAB_BRANCHES_SCOPE = "all repository branches visible to the cal
 export const GITLAB_TAGS_SCOPE = "all repository tags visible to the caller";
 export const GITLAB_RELEASES_SCOPE = "all GitLab releases visible to the caller";
 export const GITLAB_COMMITS_SCOPE = "commits reachable from the default-branch head SHA";
+
+/**
+ * Shared by every collector in one profile run. `apiCallCeiling` is an absolute
+ * limit on the client's call counter, so retries and pagination of concurrent
+ * collectors all spend the same budget.
+ */
+interface GitLabMetricOptions {
+  signal?: AbortSignal;
+  nowMs?: number;
+  apiCallCeiling?: number;
+}
+
+type GitLabMetricProject = Pick<
+  SourceProjectInventory,
+  "sourceId" | "defaultBranch" | "providerDetails"
+>;
+
+type GitLabMetricCollector = (
+  client: GitLabClient,
+  project: GitLabMetricProject,
+  options?: GitLabMetricOptions,
+) => Promise<ProfileNumericMetric>;
 
 interface GitLabProjectProfile {
   sourceId: string;
@@ -41,6 +65,13 @@ function scopedCountObservation(
     return { ...count, reason: "request-budget", scope };
   }
   return { ...count, scope };
+}
+
+/** Counts already read are a lower bound; with nothing read the metric is unavailable. */
+function budgetObservation(scope: string, itemsRead = 0): ProfileNumericObservation {
+  return itemsRead > 0
+    ? { kind: "at-least", value: itemsRead, reason: "request-budget", scope }
+    : { kind: "unavailable", reason: "request-budget", scope };
 }
 
 function unavailableObservation(error: unknown, scope: string): ProfileNumericObservation | null {
@@ -75,14 +106,20 @@ async function collectFirstPageCountMetric(
   endpointFamily: string,
   scope: string,
   query: Record<string, string>,
-  options: { signal?: AbortSignal; nowMs?: number },
+  options: GitLabMetricOptions,
 ): Promise<ProfileNumericMetric> {
-  const count = await client.count(
-    `/projects/${encodeURIComponent(projectId)}/${collection}`,
-    query,
-    { signal: options.signal },
-  );
-  return metric(endpointFamily, scopedCountObservation(count, scope), options.nowMs ?? Date.now());
+  const nowMs = options.nowMs ?? Date.now();
+  try {
+    const count = await client.count(
+      `/projects/${encodeURIComponent(projectId)}/${collection}`,
+      query,
+      { signal: options.signal, apiCallCeiling: options.apiCallCeiling },
+    );
+    return metric(endpointFamily, scopedCountObservation(count, scope), nowMs);
+  } catch (error) {
+    if (!(error instanceof GitLabRequestBudgetError)) throw error;
+    return metric(endpointFamily, budgetObservation(scope), nowMs);
+  }
 }
 
 async function collectEnumeratedCountMetric(
@@ -91,14 +128,14 @@ async function collectEnumeratedCountMetric(
   collection: string,
   endpointFamily: string,
   scope: string,
-  options: { signal?: AbortSignal; nowMs?: number },
+  options: GitLabMetricOptions,
 ): Promise<ProfileNumericMetric> {
+  let value = 0;
   try {
-    let value = 0;
     for await (const page of client.paginatePages<unknown>(
       `/projects/${encodeURIComponent(projectId)}/${collection}`,
       {},
-      { signal: options.signal },
+      { signal: options.signal, apiCallCeiling: options.apiCallCeiling },
     )) {
       value += page.length;
     }
@@ -108,6 +145,9 @@ async function collectEnumeratedCountMetric(
       options.nowMs ?? Date.now(),
     );
   } catch (error) {
+    if (error instanceof GitLabRequestBudgetError) {
+      return metric(endpointFamily, budgetObservation(scope, value), options.nowMs ?? Date.now());
+    }
     const observation = unavailableObservation(error, scope);
     if (!observation) throw error;
     if (error instanceof GitLabPaginationError) {
@@ -120,7 +160,7 @@ async function collectEnumeratedCountMetric(
 export async function collectGitLabIssueMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   return collectFirstPageCountMetric(
     client,
@@ -136,7 +176,7 @@ export async function collectGitLabIssueMetric(
 export async function collectGitLabMergeRequestMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   return collectFirstPageCountMetric(
     client,
@@ -152,7 +192,7 @@ export async function collectGitLabMergeRequestMetric(
 export async function collectGitLabBranchMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   return collectEnumeratedCountMetric(
     client,
@@ -167,7 +207,7 @@ export async function collectGitLabBranchMetric(
 export async function collectGitLabTagMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   return collectEnumeratedCountMetric(
     client,
@@ -182,7 +222,7 @@ export async function collectGitLabTagMetric(
 export async function collectGitLabReleaseMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   return collectEnumeratedCountMetric(
     client,
@@ -197,7 +237,7 @@ export async function collectGitLabReleaseMetric(
 export async function collectGitLabCommitMetric(
   client: GitLabClient,
   project: Pick<SourceProjectInventory, "sourceId" | "defaultBranch" | "providerDetails">,
-  options: { signal?: AbortSignal; nowMs?: number } = {},
+  options: GitLabMetricOptions = {},
 ): Promise<ProfileNumericMetric> {
   const nowMs = options.nowMs ?? Date.now();
   if (project.providerDetails?.provider === "gitlab" && project.providerDetails.emptyRepository) {
@@ -219,7 +259,7 @@ export async function collectGitLabCommitMetric(
     const branch = await client.get<unknown>(
       `/projects/${projectId}/repository/branches/${encodeURIComponent(project.defaultBranch)}`,
       {},
-      { signal: options.signal },
+      { signal: options.signal, apiCallCeiling: options.apiCallCeiling },
     );
     const sha =
       typeof branch.data === "object" &&
@@ -241,7 +281,7 @@ export async function collectGitLabCommitMetric(
     const sequence = await client.get<unknown>(
       `/projects/${projectId}/repository/commits/${encodeURIComponent(sha)}/sequence`,
       {},
-      { signal: options.signal },
+      { signal: options.signal, apiCallCeiling: options.apiCallCeiling },
     );
     const count =
       typeof sequence.data === "object" &&
@@ -260,16 +300,35 @@ export async function collectGitLabCommitMetric(
       nowMs,
     );
   } catch (error) {
-    const observation = unavailableObservation(error, GITLAB_COMMITS_SCOPE);
+    const observation =
+      error instanceof GitLabRequestBudgetError
+        ? budgetObservation(GITLAB_COMMITS_SCOPE)
+        : unavailableObservation(error, GITLAB_COMMITS_SCOPE);
     if (!observation) throw error;
     return metric("repository-commit-sequence", observation, nowMs);
   }
 }
 
+/** Every registry key must have exactly one collector; the compiler enforces it. */
+const GITLAB_METRIC_COLLECTORS = {
+  issues: collectGitLabIssueMetric,
+  mergeRequests: collectGitLabMergeRequestMetric,
+  commits: collectGitLabCommitMetric,
+  branches: collectGitLabBranchMetric,
+  tags: collectGitLabTagMetric,
+  releases: collectGitLabReleaseMetric,
+} satisfies Record<GitLabMetricKey, GitLabMetricCollector>;
+
 export async function collectGitLabProfileEnrichment(
   client: GitLabClient,
   inventory: SourceNamespaceInventory,
-  options: { signal?: AbortSignal; nowMs?: number; concurrency?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    nowMs?: number;
+    concurrency?: number;
+    /** Requests this collection may issue, retries and pagination included. */
+    requestBudget?: number;
+  } = {},
 ): Promise<GitLabProfileEnrichment> {
   if (inventory.provider !== "gitlab") {
     throw new TypeError("GitLab enrichment requires a GitLab inventory");
@@ -278,9 +337,19 @@ export async function collectGitLabProfileEnrichment(
   if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) {
     throw new TypeError("GitLab profile concurrency must be an integer between 1 and 16");
   }
+  const requestBudget = options.requestBudget ?? DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET;
+  if (!Number.isSafeInteger(requestBudget) || requestBudget < 0) {
+    throw new RangeError("GitLab profile request budget must be a non-negative integer");
+  }
 
   const workers = enrichmentWorkers(options.signal);
-  const metricOptions = { ...options, signal: workers.signal };
+  const metricOptions: GitLabMetricOptions = {
+    signal: workers.signal,
+    nowMs: options.nowMs,
+    // The client counts every attempt synchronously before sending it, so this
+    // one ceiling cannot be overshot by concurrent workers or retries.
+    apiCallCeiling: client.getApiCalls() + requestBudget,
+  };
   const projects = new Array<GitLabProjectProfile>(inventory.projects.length);
   let nextProject = 0;
   const worker = async (): Promise<void> => {
@@ -289,18 +358,17 @@ export async function collectGitLabProfileEnrichment(
       const position = nextProject++;
       const project = inventory.projects[position];
       if (!project) return;
-      const [issues, mergeRequests, commits, branches, tags, releases] = await workers.join([
-        collectGitLabIssueMetric(client, project, metricOptions),
-        collectGitLabMergeRequestMetric(client, project, metricOptions),
-        collectGitLabCommitMetric(client, project, metricOptions),
-        collectGitLabBranchMetric(client, project, metricOptions),
-        collectGitLabTagMetric(client, project, metricOptions),
-        collectGitLabReleaseMetric(client, project, metricOptions),
-      ]);
+      const collected = await workers.join(
+        GITLAB_PROFILE_METRIC_KEYS.map((key) =>
+          GITLAB_METRIC_COLLECTORS[key](client, project, metricOptions),
+        ),
+      );
       projects[position] = {
         sourceId: project.sourceId,
         path: project.path,
-        metrics: { issues, mergeRequests, commits, branches, tags, releases },
+        metrics: Object.fromEntries(
+          GITLAB_PROFILE_METRIC_KEYS.map((key, index) => [key, collected[index]]),
+        ) as GitLabProjectMetrics,
       };
     }
   };

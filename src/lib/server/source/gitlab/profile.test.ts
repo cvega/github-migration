@@ -1,5 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { GitLabClient } from "./client";
+import type { SourceNamespaceInventory } from "$lib/source/types";
+import { GitLabApiError, GitLabClient } from "./client";
+import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
 import {
   collectGitLabBranchMetric,
   collectGitLabCommitMetric,
@@ -367,5 +369,220 @@ describe("collectGitLabProfileEnrichment", () => {
       tags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       releases: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
     });
+  });
+});
+
+function budgetInventory(projectCount: number): SourceNamespaceInventory {
+  const unavailable = { kind: "unavailable", reason: "not-reported" } as const;
+  return {
+    version: 1,
+    provider: "gitlab",
+    sourceApiUrl: "https://gitlab.example.com/api/v4",
+    namespace: "platform",
+    projectCount: { kind: "exact", value: projectCount },
+    projects: Array.from({ length: projectCount }, (_, index) => ({
+      provider: "gitlab" as const,
+      sourceId: String(index + 1),
+      path: `platform/project-${index + 1}`,
+      name: `project-${index + 1}`,
+      visibility: "private" as const,
+      archived: false,
+      defaultBranch: "main",
+      lastActivityAt: null,
+      repositorySizeBytes: unavailable,
+      storageSizeBytes: unavailable,
+      lfsObjectsSizeBytes: unavailable,
+      packagesSizeBytes: unavailable,
+      wikiSizeBytes: unavailable,
+      uploadsSizeBytes: unavailable,
+      jobArtifactsSizeBytes: unavailable,
+      pipelineArtifactsSizeBytes: unavailable,
+      snippetsSizeBytes: unavailable,
+      containerRegistrySizeBytes: unavailable,
+      providerDetails: { provider: "gitlab" as const },
+    })),
+  };
+}
+
+/** A GitLab whose first attempt at every URL fails transiently, so retries are exercised. */
+function flakyGitLab(options: { maxRetries?: number } = {}) {
+  const seen = new Set<string>();
+  const requests: string[] = [];
+  const client = new GitLabClient({
+    baseUrl: "https://gitlab.example.com",
+    token: "secret-token",
+    maxRetries: options.maxRetries ?? 2,
+    sleep: async () => {},
+    fetch: async (input) => {
+      const url = new URL(input.toString());
+      requests.push(url.pathname + url.search);
+      await Bun.sleep(1);
+      if (!seen.has(url.href)) {
+        seen.add(url.href);
+        return new Response(null, { status: 503 });
+      }
+      if (url.pathname.endsWith("/sequence")) return jsonResponse({ count: 7 });
+      if (url.pathname.includes("/repository/branches/main")) {
+        return jsonResponse({ commit: { id: "abc123" } });
+      }
+      if (/\/(issues|merge_requests)$/.test(url.pathname)) {
+        return jsonResponse([{}], { "X-Total": "2" });
+      }
+      return jsonResponse([{}]);
+    },
+  });
+  return { client, requests };
+}
+
+describe("GitLab profile request budget", () => {
+  test("shares one budget across workers, metrics and retries without overshooting", async () => {
+    const { client, requests } = flakyGitLab();
+    const budget = 11;
+
+    const enrichment = await collectGitLabProfileEnrichment(client, budgetInventory(4), {
+      concurrency: 4,
+      requestBudget: budget,
+    });
+
+    expect(requests).toHaveLength(budget);
+    expect(client.getApiCalls()).toBe(budget);
+    const observations = enrichment.projects.flatMap((project) =>
+      Object.values(project.metrics).map((metric) => metric.observation),
+    );
+    expect(observations).toHaveLength(24);
+    expect(
+      observations.some((o) => o.kind === "unavailable" && o.reason === "request-budget"),
+    ).toBe(true);
+    for (const observation of observations) {
+      if (observation.kind === "unavailable") expect(observation.reason).toBe("request-budget");
+    }
+  });
+
+  test("counts the budget from the call counter at the start of enrichment", async () => {
+    const { client, requests } = flakyGitLab();
+    await client.get("/version");
+    await client.get("/version");
+    expect(client.getApiCalls()).toBe(3); // one transient retry plus the success
+
+    await collectGitLabProfileEnrichment(client, budgetInventory(2), { requestBudget: 5 });
+
+    expect(requests).toHaveLength(3 + 5);
+    expect(client.getApiCalls()).toBe(3 + 5);
+  });
+
+  test("records every metric unavailable for request-budget when the budget is zero", async () => {
+    const { client, requests } = flakyGitLab();
+
+    const enrichment = await collectGitLabProfileEnrichment(client, budgetInventory(2), {
+      requestBudget: 0,
+      nowMs: Date.parse("2026-08-10T12:00:00Z"),
+    });
+
+    expect(requests).toEqual([]);
+    expect(enrichment.projects).toHaveLength(2);
+    for (const { metrics } of enrichment.projects) {
+      expect(Object.keys(metrics).sort()).toEqual(
+        ["branches", "commits", "issues", "mergeRequests", "releases", "tags"].sort(),
+      );
+      for (const metric of Object.values(metrics)) {
+        expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
+        expect(metric.collectedAt).toBe("2026-08-10T12:00:00.000Z");
+      }
+    }
+  });
+
+  test("keeps the items already counted as a lower bound when pagination runs out of budget", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse(
+        Array.from({ length: 100 }, () => ({})),
+        { "X-Next-Page": "2" },
+      ),
+    ]);
+
+    const metric = await collectGitLabBranchMetric(
+      client,
+      { sourceId: "42" },
+      { apiCallCeiling: client.getApiCalls() + 1 },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(metric.observation).toEqual({
+      kind: "at-least",
+      value: 100,
+      reason: "request-budget",
+      scope: GITLAB_BRANCHES_SCOPE,
+    });
+  });
+
+  test("marks the commit count unavailable when the sequence request is out of budget", async () => {
+    const { client, calls } = clientWithResponses([jsonResponse({ commit: { id: "abc123" } })]);
+
+    const metric = await collectGitLabCommitMetric(
+      client,
+      { sourceId: "42", defaultBranch: "main" },
+      { apiCallCeiling: client.getApiCalls() + 1 },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(metric.observation).toEqual({
+      kind: "unavailable",
+      reason: "request-budget",
+      scope: GITLAB_COMMITS_SCOPE,
+    });
+  });
+
+  test("marks counted collections unavailable when no budget remains", async () => {
+    const { client, calls } = clientWithResponses([]);
+    const options = { apiCallCeiling: client.getApiCalls() };
+
+    for (const metric of await Promise.all([
+      collectGitLabIssueMetric(client, { sourceId: "42" }, options),
+      collectGitLabMergeRequestMetric(client, { sourceId: "42" }, options),
+      collectGitLabTagMetric(client, { sourceId: "42" }, options),
+      collectGitLabReleaseMetric(client, { sourceId: "42" }, options),
+    ])) {
+      expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("still fails the profile on expired authentication instead of hiding it as unavailable", async () => {
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "secret-token",
+      maxRetries: 0,
+      fetch: async () => new Response(null, { status: 401 }),
+    });
+
+    const failure = await collectGitLabProfileEnrichment(client, budgetInventory(1), {
+      requestBudget: 50,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GitLabApiError);
+    expect((failure as GitLabApiError).status).toBe(401);
+  });
+
+  test("does not turn cancellation into an exhausted budget", async () => {
+    const { client, requests } = flakyGitLab();
+    const controller = new AbortController();
+    controller.abort();
+
+    const failure = await collectGitLabProfileEnrichment(client, budgetInventory(1), {
+      signal: controller.signal,
+      requestBudget: 50,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeDefined();
+    expect(requests).toEqual([]);
+  });
+
+  test("rejects an invalid budget and defaults to the configured ceiling", async () => {
+    const { client } = flakyGitLab();
+    for (const requestBudget of [-1, 1.5, Number.NaN]) {
+      await expect(
+        collectGitLabProfileEnrichment(client, budgetInventory(1), { requestBudget }),
+      ).rejects.toThrow("GitLab profile request budget must be a non-negative integer");
+    }
+    expect(DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET).toBeGreaterThan(0);
   });
 });
