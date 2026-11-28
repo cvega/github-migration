@@ -99,9 +99,7 @@ const AUTH_DDL = `
   CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_audit_events_resource
     ON audit_events(resource_type, resource_id, created_at DESC);
-`;
 
-const ROUTES_DDL = `
   CREATE TABLE IF NOT EXISTS target_organizations (
     target_profile_id TEXT NOT NULL,
     target_api_url TEXT NOT NULL,
@@ -138,24 +136,9 @@ export const authStore: DomainStore = {
             "SELECT version FROM app_schema_versions WHERE domain='auth'",
           )
           .get()?.version;
-        if (version !== undefined && version > 4)
-          throw new Error("Unsupported dashboard auth schema");
-        if (version === 2) {
-          // Rebuild both sides of the foreign key with enforcement still enabled.
-          database.run(`ALTER TABLE self_service_routes RENAME TO self_service_routes_v2;
-          ALTER TABLE self_service_grants RENAME TO self_service_grants_v2;`);
-        }
-        database.run(ROUTES_DDL);
-        if (version === 2) {
-          database.run(`INSERT INTO self_service_routes
-            SELECT id,source_provider,source_api_url,namespace,target_profile_id,target_api_url,target_org FROM self_service_routes_v2;
-          INSERT INTO self_service_grants SELECT id,route_id,user_id,can_migrate FROM self_service_grants_v2;
-          DROP TABLE self_service_grants_v2;
-          DROP TABLE self_service_routes_v2;`);
-        }
-        if (version !== 4)
-          database.run(`INSERT INTO app_schema_versions (domain,version) VALUES ('auth',4)
-          ON CONFLICT(domain) DO UPDATE SET version=excluded.version`);
+        if (version === undefined)
+          database.run("INSERT INTO app_schema_versions (domain,version) VALUES ('auth',4)");
+        else if (version !== 4) throw new Error("Unsupported dashboard auth schema");
       })
       .immediate();
   },

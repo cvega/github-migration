@@ -47,19 +47,13 @@ describe("login throttling", () => {
     );
   });
 
-  test("legacy rows match trimmed submissions using SQLite's ASCII case folding", async () => {
-    const insert = database.prepare(
-      "INSERT INTO auth_login_attempts (username, ip_address, attempted_at) VALUES (?, ?, ?)",
-    );
-    for (let i = 0; i < 5; i++) insert.run("Équipe", ip, now.toISOString());
-
-    expect(await verifyLoginAttempt("  ÉQUIPE  ", ip, failed, database, now)).toEqual({
+  test("uses one bounded key for trimmed, case-normalized usernames", async () => {
+    for (let i = 0; i < 5; i++) {
+      expect((await verifyLoginAttempt("Équipe", ip, failed, database, now)).throttled).toBe(false);
+    }
+    expect(await verifyLoginAttempt("  équipe  ", ip, failed, database, now)).toEqual({
       throttled: true,
       reason: "window",
-    });
-    expect(await verifyLoginAttempt("équipe", ip, failed, database, now)).toEqual({
-      throttled: false,
-      user: null,
     });
     const row = database
       .query<{ username: string }, []>(

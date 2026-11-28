@@ -27,12 +27,11 @@ export async function verifyLoginAttempt<T>(
   const trimmedUsername = username.trim();
   const digest = createHash("sha256").update(trimmedUsername.toLowerCase()).digest("hex");
   const usernameKey = `!${digest.slice(0, USERNAME_MAX_LENGTH - 1)}`;
-  // Let SQLite apply its original ASCII-only NOCASE comparison to legacy entries.
   const reservation = database
     .prepare(
       `INSERT INTO auth_login_attempts (username, ip_address, attempted_at)
      SELECT ?, ?, ?
-     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username IN (?, ?)) AS pair_count
+     FROM (SELECT COUNT(*) AS address_count, COUNT(*) FILTER (WHERE username = ?) AS pair_count
            FROM auth_login_attempts WHERE ip_address = ? AND attempted_at >= ?)
      WHERE address_count < ? AND pair_count < ?`,
     )
@@ -41,7 +40,6 @@ export async function verifyLoginAttempt<T>(
       ipAddress,
       now.toISOString(),
       usernameKey,
-      trimmedUsername,
       ipAddress,
       cutoff,
       IP_LIMIT,
