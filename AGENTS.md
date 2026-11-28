@@ -156,14 +156,14 @@ agents with `orcacompass agents --json`, use a covering route's `launchArgs`,
 and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
 `--no-downgrade` when the task requires the requested capability.
 
-Sensitive paths:
+### Sensitive paths
 
 - `src/lib/server/migrate/**`, `src/lib/server/core/auth/**`
 - `src/lib/server/core/github.ts`, `src/lib/server/core/credential-scope.ts`,
   `src/lib/server/core/db.ts`, `**/database/schema.ts`
 - `src/hooks.server.ts`, `src/routes/login/**`, `src/routes/account/**`
 
-Apply the builder rules in order.
+### Builder, in this order
 
 1. Use Codex or Claude through Compass for P0–P1 work or any sensitive path.
    Stop and reroute here if the scope grows to include a sensitive path.
@@ -176,21 +176,30 @@ Apply the builder rules in order.
    the model and Ollama endpoint in Qwen's local configuration. Give the
    worker no credentials or production data.
 
-Retry mechanical format, lint, and type failures with the same agent without
-counting them as stops. After two design-level failures, or if Copilot is
-unavailable, reroute to Codex and record why.
+### Reviewer: always the other model family
 
 Choose a reviewer from a different model family. Claude-built work (Claude Code
 or Copilot Claude) goes to GPT (Codex or Copilot GPT). GPT-built work goes to
 Claude (Claude Code or Copilot Claude). Qwen-built work goes to Claude or GPT,
 with Claude preferred. For sensitive changes, use Claude Code or Codex directly
 with its strongest model at high effort. If the other family is unavailable,
-wait or ask. Record the effective builder and reviewer agent and model in every
-PR body.
+wait or ask.
+
+### How reviews run
 
 Use one review worker per wave. Review only `git diff main...HEAD` and report
 at most five findings per PR with `file:line`, or report “sound.” After fixes,
 the same reviewer confirms that blockers are resolved, subject to the review bar.
+
+### Fallback
+
+Retry mechanical format, lint, and type failures with the same agent without
+counting them as stops. After two design-level failures, or if Copilot is
+unavailable, reroute to Codex and record why.
+
+### Record it
+
+Record the effective builder and reviewer agent and model in every PR body.
 
 ## Review bar
 
