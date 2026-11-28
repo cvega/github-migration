@@ -32,10 +32,18 @@ the Bun runtime and analyzer rather than SvelteKit's deprecated `$env` modules.
 ## Tests
 
 ```bash
-bun test
+bun run test
 bun run test:changed
 bun run test:e2e
 ```
+
+The package test commands, coverage gate, and mutation runner disable automatic
+dotenv loading with `--no-env-file`, so local operator configuration does not
+leak into deterministic tests. For a direct focused run, use
+`bun test --no-env-file path/to/module.test.ts`; plain `bun test` loads local
+dotenv files. Explicitly exported environment variables are still inherited.
+Development and deliberately configured live provider contracts retain their
+environment loading behavior.
 
 Unit and route integration tests are colocated with production modules under
 `src/`. Browser tests live under `tests/e2e`, and provider contract tests live

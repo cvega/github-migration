@@ -78,8 +78,11 @@ and `run`; omitting a subcommand selects `run`.
 - Keep executable orchestration in a small entry point and reusable policy or
   data in an importable helper module.
 - Use deterministic inputs and explicit exit codes for verification scripts.
-- Avoid reading ambient credentials in tests. Mutation commands intentionally
-  use `--env-file=/dev/null`.
+- Avoid loading local dotenv credentials in deterministic tests. Package test
+  commands, the coverage gate, and both mutation process layers use
+  `--no-env-file`; for direct tests, use `bun test --no-env-file <test-path>`.
+  This does not clear explicitly exported variables or change development and
+  opt-in live provider configuration.
 - Add release-critical checks to `gates.ts` and expose useful metrics when their
   output is stable enough to parse.
 - Update the owning workflow when a script changes CI, image, mutation, or
