@@ -140,6 +140,8 @@ migration, identity invitation, deployment, or production data reset.
 - Use Conventional Commits for commit subjects, PR titles, and Beads issue
   titles. Use the types in `cliff.toml`. Put issue IDs only in the
   `Refs: <issue-id>` footers of commit messages and PR bodies, one per issue.
+- Do not include `Co-authored-by`, `Generated with`, or other tool-attribution
+  trailers in commits or PR bodies.
 - For breaking changes, add `!` before the colon in the subject or title and
   include a `BREAKING CHANGE:` footer. Keep that footer as the last paragraph
   of the squash commit.
@@ -176,11 +178,11 @@ and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
    waiting for it. Route critical-path work to Codex or Claude Code through
    OrcaCompass. If Compass shows Codex or Claude Code near its usage limit,
    use Copilot for non-sensitive P2–P4 critical-path work.
-3. Use Copilot for remaining work unless rule 4 applies. For every Copilot
-   dispatch, pin the plan's unlimited model, record the effective model at
-   dispatch, and select the reviewer from the other model family. Run up to
-   six Copilot builders concurrently. Pass `--model` only if the installed
-   Orca supports overriding the selected agent's model.
+3. Use Copilot for remaining work unless rule 4 applies. GitHub managed policy
+   may set its model. Record the models Copilot reports and select a reviewer
+   according to the reviewer selection rules. Run up to six
+   Copilot builders concurrently. Pass `--model` only if the installed Orca
+   supports overriding the selected agent's model.
 4. Use Qwen only when the user asks, for one bounded, non-sensitive P3 task at
    a time. Give it an isolated child worktree and a narrow spec. Keep the model
    and Ollama endpoint in Qwen's local configuration. Give the worker no
@@ -190,14 +192,16 @@ Run at most two Codex builders and two Claude Code builders concurrently.
 Prioritize reviews over starting Codex or Claude Code builders. Run at most
 three full `bun run verify` runs concurrently.
 
-### Reviewer: always the other model family
+### Reviewer selection
 
-Choose a reviewer from a different model family. Claude-built work (Claude Code
-or Copilot Claude) goes to GPT (Codex or Copilot GPT). GPT-built work goes to
-Claude (Claude Code or Copilot Claude). Qwen-built work goes to Claude or GPT,
-with Claude preferred. For sensitive changes, use Claude Code or Codex directly
-with its strongest model at high effort. If the other family is unavailable,
-wait or ask.
+Claude Code builds go to Codex, and Codex builds go to Claude Code. For Copilot
+builds whose reported models are all from one family, use the other family
+(Codex or Claude Code) as reviewer. If the models are mixed-family or unreported,
+use Codex or Claude Code, whichever has more headroom per OrcaCompass.
+Third-family builds (such as Gemini or MAI) may be reviewed by Codex or Claude
+Code. Qwen-built work goes to Claude Code or Codex, with Claude Code preferred.
+For sensitive changes, use Claude Code or Codex directly with its strongest
+model at high effort. If an eligible reviewer is unavailable, wait or ask.
 
 ### How reviews run
 
@@ -214,7 +218,8 @@ limits and review priority, and record why.
 
 ### Record it
 
-Record the effective builder and reviewer agent and model in every PR body.
+Record the effective builder and reviewer agent and model in every PR body;
+for Copilot builds, record the models Copilot reports.
 At each dispatch, record the builder choice and reason in a Beads comment on
 the issue. On merge, add a Beads comment with the time to PR readiness and the
 number of blocking review findings.
