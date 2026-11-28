@@ -32,6 +32,7 @@ describe("GitLab profile metric registry", () => {
       "approvalRules",
       "members",
       "mirrors",
+      "containerRegistry",
       "packageVersions",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
@@ -60,6 +61,7 @@ describe("GitLab profile metric registry", () => {
       ["approvalRules", "Approval rules"],
       ["members", "Scoped membership"],
       ["mirrors", "Enabled push mirrors"],
+      ["containerRegistry", "Container repositories"],
       ["packageVersions", "Package versions to republish"],
     ]);
     expect(GITLAB_PROFILE_METRIC_CARDS).toEqual(

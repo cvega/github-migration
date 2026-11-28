@@ -204,6 +204,78 @@ describe("summarizeProfileInventory", () => {
 });
 
 describe("summarizeGitLabEnrichment", () => {
+  test.each([
+    ["exact", 3, { kind: "exact", value: 3 }],
+    ["at-least", 2, { kind: "at-least", value: 2 }],
+    ["unavailable", 0, { kind: "unavailable", reason: "not-reported" }],
+  ] as const)(
+    "preserves independently %s registry tags through the public summary",
+    (kind, value, expected) => {
+      const base = gitLabMetricFixtures().containerRegistry;
+      const tags =
+        kind === "unavailable"
+          ? { kind, reason: "not-reported" as const, scope: "visible tags" }
+          : kind === "at-least"
+            ? { kind, value, reason: "request-budget" as const, scope: "visible tags" }
+            : { kind, value, basis: "reported" as const, scope: "visible tags" };
+      const summary = summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), {
+        version: 2,
+        provider: "gitlab",
+        sourceApiUrl: "https://gitlab.example.com/api/v4",
+        namespace: "platform/products",
+        projects: [
+          {
+            sourceId: "1",
+            path: "platform/products/api",
+            metrics: gitLabMetricFixtures({
+              containerRegistry: {
+                ...base,
+                observation: { ...base.observation, kind: "exact", value: 2, basis: "enumerated" },
+                tags,
+              },
+            }),
+          },
+        ],
+      });
+      expect(summary.metrics?.containerRegistry).toEqual({ kind: "exact", value: 2 });
+      expect(summary.containerRegistryTags).toEqual(expected);
+      expect(parseProfileInventorySummary(summary)).toEqual(summary);
+    },
+  );
+
+  test("keeps known registry tags as a lower bound when another project is forbidden", () => {
+    const base = gitLabMetricFixtures().containerRegistry;
+    const summary = summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), {
+      version: 2,
+      provider: "gitlab",
+      sourceApiUrl: "https://gitlab.example.com/api/v4",
+      namespace: "platform/products",
+      projects: [
+        {
+          sourceId: "1",
+          path: "platform/products/api",
+          metrics: gitLabMetricFixtures({
+            containerRegistry: {
+              ...base,
+              tags: { kind: "exact", value: 5, basis: "reported", scope: "visible tags" },
+            },
+          }),
+        },
+        {
+          sourceId: "2",
+          path: "platform/products/web",
+          metrics: gitLabMetricFixtures({
+            containerRegistry: {
+              ...base,
+              tags: { kind: "unavailable", reason: "forbidden", scope: "visible tags" },
+            },
+          }),
+        },
+      ],
+    });
+    expect(summary.containerRegistryTags).toEqual({ kind: "at-least", value: 5 });
+  });
+
   test("sums exact issue observations across inventory projects", () => {
     const enrichment: GitLabProfileEnrichment = {
       version: 2,

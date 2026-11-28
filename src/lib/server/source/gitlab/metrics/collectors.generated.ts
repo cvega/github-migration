@@ -5,6 +5,7 @@ import branchesCollector from "./branches.collector";
 import ciConfigurationCollector from "./ci-configuration.collector";
 import ciVariablesCollector from "./ci-variables.collector";
 import commitsCollector from "./commits.collector";
+import containerRegistryCollector from "./container-registry.collector";
 import groupWebhooksCollector from "./group-webhooks.collector";
 import inheritedProtectedBranchesCollector from "./inherited-protected-branches.collector";
 import issuesCollector from "./issues.collector";
@@ -24,6 +25,7 @@ export const GITLAB_METRIC_COLLECTORS = [
   ciConfigurationCollector,
   ciVariablesCollector,
   commitsCollector,
+  containerRegistryCollector,
   groupWebhooksCollector,
   inheritedProtectedBranchesCollector,
   issuesCollector,
