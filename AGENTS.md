@@ -168,18 +168,27 @@ and verify with `orcacompass verify --dispatch <dispatch-id>`. Use
 
 ### Builder, in this order
 
-1. Use Codex or Claude through Compass for P0–P1 work or any sensitive path.
-   Stop and reroute here if the scope grows to include a sensitive path.
-2. Use Copilot for other P2–P4 docs, tests, UI copy, provider, profile, CI, and
-   cleanup work, except for eligible Qwen tasks under rule 3. Use the plan's
-   unlimited model configured in Copilot. At dispatch, the coordinator checks
-   Copilot's current model, records it, and selects the reviewer from that
-   model's family. Pass `--model` only if the installed Orca supports
-   overriding the selected agent's model.
-3. Use Qwen for local-only work or when asked, one bounded, non-sensitive P3
-   task at a time. Give it an isolated child worktree and a narrow spec. Keep
-   the model and Ollama endpoint in Qwen's local configuration. Give the
-   worker no credentials or production data.
+1. Route P0–P1 work and work touching any sensitive path to Codex or Claude
+   Code through OrcaCompass. Stop and reroute here if the scope grows to
+   include a sensitive path. Wait for Compass capacity when needed. Copilot
+   and Qwen are ineligible for this work.
+2. Work is on the critical path if it blocks other ready work or the user is
+   waiting for it. Route critical-path work to Codex or Claude Code through
+   OrcaCompass. If Compass shows Codex or Claude Code near its usage limit,
+   use Copilot for non-sensitive P2–P4 critical-path work.
+3. Use Copilot for remaining work unless rule 4 applies. For every Copilot
+   dispatch, pin the plan's unlimited model, record the effective model at
+   dispatch, and select the reviewer from the other model family. Run up to
+   six Copilot builders concurrently. Pass `--model` only if the installed
+   Orca supports overriding the selected agent's model.
+4. Use Qwen only when the user asks, for one bounded, non-sensitive P3 task at
+   a time. Give it an isolated child worktree and a narrow spec. Keep the model
+   and Ollama endpoint in Qwen's local configuration. Give the worker no
+   credentials or production data.
+
+Run at most two Codex builders and two Claude Code builders concurrently.
+Prioritize reviews over starting Codex or Claude Code builders. Run at most
+three full `bun run verify` runs concurrently.
 
 ### Reviewer: always the other model family
 
@@ -200,11 +209,15 @@ the same reviewer confirms that blockers are resolved, subject to the review bar
 
 Retry mechanical format, lint, and type failures with the same agent without
 counting them as stops. After two design-level failures, or if Copilot is
-unavailable, reroute to Codex and record why.
+unavailable, reroute to Codex through OrcaCompass, subject to the builder
+limits and review priority, and record why.
 
 ### Record it
 
 Record the effective builder and reviewer agent and model in every PR body.
+At each dispatch, record the builder choice and reason in a Beads comment on
+the issue. On merge, add a Beads comment with the time to PR readiness and the
+number of blocking review findings.
 
 ## Review bar
 
