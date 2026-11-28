@@ -39,7 +39,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `bun scripts/fixtures/seed-e2e.ts && exec ./node_modules/.bin/vite dev --host ::1 --port ${port}`,
+    command: `bun --no-env-file scripts/fixtures/seed-e2e.ts && exec bun --no-env-file ./node_modules/.bin/vite dev --host ::1 --port ${port}`,
     env: {
       DATA_DIR: ".e2e-data",
       GH_MIGRATE_USER: "e2e-admin",

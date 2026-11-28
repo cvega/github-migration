@@ -101,7 +101,7 @@ jobs:
 
       - name: Run browser gate
         if: steps.paths.outputs.docs_only != 'true'
-        run: bun scripts/gates.ts e2e
+        run: bun --no-env-file scripts/gates.ts e2e
 
       - name: Upload browser failure traces
         if: failure() && steps.paths.outputs.docs_only != 'true'
