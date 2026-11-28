@@ -284,6 +284,15 @@ describe("collectGitLabProfileEnrichment", () => {
       fetch: async (input) => {
         const { pathname } = new URL(input.toString());
         if (pathname === "/api/v4/groups/platform/hooks") return jsonResponse([]);
+        // Variables are counted from the pagination headers of metadata-only requests.
+        if (pathname === "/api/v4/groups/platform/variables") {
+          return new Response(null, { headers: { "X-Total": "4" } });
+        }
+        if (/^\/api\/v4\/projects\/\d+\/variables$/.test(pathname)) {
+          return new Response(null, {
+            headers: { "X-Total": pathname.includes("/2/") ? "2" : "0" },
+          });
+        }
         if (pathname === "/api/v4/groups/platform/protected_branches") {
           return new Response(null, { status: 404 });
         }
@@ -392,6 +401,10 @@ describe("collectGitLabProfileEnrichment", () => {
       inheritedProtectedBranches: { observation: { kind: "unavailable", reason: "not-reported" } },
       protectedTags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       ciConfiguration: { observation: { kind: "exact", value: 1, basis: "reported" } },
+      ciVariables: {
+        observation: { kind: "exact", value: 2, basis: "reported" },
+        groupLocal: { kind: "exact", value: 4, basis: "reported" },
+      },
     });
     expect(enrichment.projects[0]?.metrics.ciConfiguration.observation).toMatchObject({
       kind: "exact",

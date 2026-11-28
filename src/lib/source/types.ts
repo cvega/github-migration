@@ -1,20 +1,12 @@
 import type { GitLabMetricFields, GitLabMetricKey } from "$lib/source/gitlab-metrics";
 import type { GitLabWebhookEventCategory } from "$lib/source/gitlab-webhooks";
+import type { OBSERVATION_UNAVAILABLE_REASONS } from "./numeric-observation";
 
 export const SOURCE_PROVIDERS = ["github", "gitlab", "bitbucket-server"] as const;
 
 export type SourceProvider = (typeof SOURCE_PROVIDERS)[number];
 
-/** Every reason a collector or profile writer may record for a missing observation. */
-export const OBSERVATION_UNAVAILABLE_REASONS = [
-  "forbidden",
-  "not-found-or-hidden",
-  "not-reported",
-  "unsupported",
-  "malformed",
-  "transient-failure",
-  "request-budget",
-] as const;
+export { OBSERVATION_UNAVAILABLE_REASONS } from "./numeric-observation";
 
 type ObservationUnavailableReason = (typeof OBSERVATION_UNAVAILABLE_REASONS)[number];
 

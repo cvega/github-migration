@@ -3,6 +3,7 @@
 import approvalRulesCollector from "./approval-rules.collector";
 import branchesCollector from "./branches.collector";
 import ciConfigurationCollector from "./ci-configuration.collector";
+import ciVariablesCollector from "./ci-variables.collector";
 import commitsCollector from "./commits.collector";
 import groupWebhooksCollector from "./group-webhooks.collector";
 import inheritedProtectedBranchesCollector from "./inherited-protected-branches.collector";
@@ -18,6 +19,7 @@ export const GITLAB_METRIC_COLLECTORS = [
   approvalRulesCollector,
   branchesCollector,
   ciConfigurationCollector,
+  ciVariablesCollector,
   commitsCollector,
   groupWebhooksCollector,
   inheritedProtectedBranchesCollector,

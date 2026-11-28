@@ -45,6 +45,9 @@ export async function verifyGitLabContract(
     assert.equal(metrics.projectWebhooks.observation.value, 0);
     // The Community Edition fixture has no licensed group hook API.
     assert.deepEqual(metrics.groupWebhooks.observation.kind, "unavailable");
+    // Counted from HEAD pagination headers only; the seeded projects define no variables.
+    assert.deepEqual(metrics.ciVariables.observation.kind, "exact");
+    assert.equal(metrics.ciVariables.observation.value, 0);
   }
 
   const paged = await discoverGitLabInventory(client, paginatedNamespace);

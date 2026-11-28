@@ -40,6 +40,22 @@ selected namespace through the project's immediate group are inspected; ancestor
 above that authorization boundary remain uninspected, even when the scoped count
 is exact. GitHub Enterprise Importer does not recreate either kind of webhook.
 
+CI/CD variable enrichment counts entries without ever receiving one. GitLab's
+variable lists return names and values and offer no field selection or count-only
+response, so the collector sends only `HEAD /projects/:id/variables?per_page=1`
+and `HEAD /groups/:id/variables?per_page=1`, never reads a body, and takes the
+count from `X-Total`. It never falls back to the value-returning `GET`: a server
+that refuses `HEAD` (405/501) leaves the metric `unavailable / unsupported`, and
+one that omits `X-Total` is `unavailable / not-reported`, never a lower bound.
+Contradictory pagination headers are `unavailable / malformed`. Each environment-scoped entry counts
+once. The project-local count is the metric's observation and the card; the
+group-local count over the admitted ancestor groups (same boundary as group hooks,
+each group read once per run) is stored separately per project and is not summed
+across projects, because every project under a group would repeat it. Names,
+values, scopes and raw responses are neither stored nor logged. Whether a given
+GitLab release answers `HEAD` with pagination headers is checked only by the
+disposable-instance contract test, not by offline fixtures.
+
 Permission failures (`401`/`403`) are `unavailable / forbidden`; hidden or
 unlicensed endpoints (`404`, including Premium/Ultimate-only group hooks) are
 `unavailable / not-reported`, never zero. Collection continues for other scopes.
@@ -113,7 +129,7 @@ size.
 | Data and endpoint | GitLab access beyond the PAT scope | Profile on main | GitHub Enterprise Importer |
 | --- | --- | --- | --- |
 | **CI/CD configuration**: [`GET /projects/:id`][projects] for `builds_access_level`, `ci_config_path`, and `auto_devops_enabled`; [`HEAD /projects/:id/repository/files/:file_path?ref=HEAD`][files] for metadata-only presence of the local config (default `.gitlab-ci.yml`). | Project visibility for the builds setting, repository read access for the path/file, and Maintainer or Owner for the Auto DevOps field. [Custom config][ci-config] may be in a different project or on an external host. | Yes, since this audit: classifies a found local file, an external or cross-project reference (never fetched), enabled Auto DevOps, absence, or unknown; no path or content is retained. | Git-tracked YAML migrates as a file, not as an Actions workflow. Pipelines, schedules, and triggers don't migrate. |
-| **CI/CD variable count**: [`GET /projects/:id/variables`][project-variables], paginated. Count entries, not distinct keys (environment scopes can differ). | Project Maintainer or Owner. The list returns values, including data that must not enter the profile; there is no documented count-only response. | No. | No; CI/CD variables are not exported. |
+| **CI/CD variable count**: [`GET /projects/:id/variables`][project-variables], paginated. Count entries, not distinct keys (environment scopes can differ). | Project Maintainer or Owner. The list returns values, including data that must not enter the profile; there is no documented count-only response, so the profile sends only `HEAD ...?per_page=1` and reads `X-Total`. | Yes: project-local entry count; 401/403 `forbidden`, 404 `not-reported`, a refused `HEAD` `unsupported`. | No; CI/CD variables are not exported. |
 | **Protected branch and tag rules**: [`GET /projects/:id/protected_branches`][protected-branches] and [`GET /projects/:id/protected_tags`][protected-tags]; names/patterns, access levels, and applicable branch inheritance and force-push settings. | Branch listing requires [repository read access][branch-read]; tag rule listing is [available to Maintainers and Owners][tag-read], not a Guest read. Some rule details require Premium or Ultimate. | Yes; counts project branch rules (excluding group-inherited ones), inherited branch rules, and tag rules separately from refs, each wildcard pattern once. 401/403 records `forbidden`, 404 `not-found-or-hidden`; access levels are not retained. | No; Git refs are not the same as protection policy. Recreate policy on the target. |
 | **Webhooks**: [`GET /projects/:id/hooks`][project-hooks]; count and event types. | Project Maintainer, Owner, or instance administrator. Don't retain hook destinations, headers, or other configuration containing secrets. | No. | No; webhooks are not in the archive. |
 | **Deploy keys**: [`GET /projects/:id/deploy_keys`][deploy-keys]; presence and `can_push` per project. | Project administration permission (Maintainer or Owner for standard roles); the instance-wide list is admin-only and not needed. | No. | Not documented; GitLab explicitly excludes deploy keys allowed to push to protected branches. Plan to set up replacement access. |
@@ -138,7 +154,7 @@ outside the authorized namespace to fill a missing result.
 | Data and endpoint | GitLab access beyond the PAT scope | GitHub Enterprise Importer |
 | --- | --- | --- |
 | **Group storage**: [`GET /groups?statistics=true`][group-statistics] returns `statistics` and top-level `root_storage_statistics`. Includes repository, total, wiki, LFS, package, upload, snippet and artifact sizes. Root storage includes dependency proxy and, with registry metadata enabled, `container_registry_size` and `container_registry_size_is_estimated`. | Instance administrator; group Owner alone is insufficient for this API. Don't equate estimated registry bytes with an exact number or sum root storage on top of project totals. | No group storage counter migrates. Eligible project content migrates separately. |
-| **Group variables**: [`GET /groups/:id/variables`][group-variables]; count locally configured entries separately from inherited variables. | Group Owner; paginated list also returns values. | No. |
+| **Group variables**: [`GET /groups/:id/variables`][group-variables]; count locally configured entries separately from inherited variables. | Group Owner; paginated list also returns values. | Collected per project as a separate group-local count over admitted ancestor groups, from `HEAD` headers only (see above). |
 | **Protected branch rules**: [`GET /groups/:id/protected_branches`][group-branches]; inherited by projects. Tag rule reads are project-level. | Top-level group only, Premium/Ultimate and group administration permission (Owner under standard roles). The profile reads it once per run, only when the profiled namespace is itself a top-level group, and merges it by rule name with project rules flagged `inherited`. A 404 records `not-reported` (tier), 401/403 `forbidden`; rules without a project `inherited` flag then stay unclassified, so both branch rule counts are unavailable unless every project rule is flagged. | No; group settings and repository policies don't migrate. |
 | **Group webhooks**: [`GET /groups/:id/hooks`][group-hooks]; may fire for projects and subgroups. | Group Owner or instance administrator; Premium/Ultimate. | No. |
 | **Group members**: [`GET /groups/:id/members` and `GET /groups/:id/members/all`][group-members]; direct and effective member observations. | Authenticated caller with group member-list access (membership for private groups); invited/private group visibility applies. | No group membership transfer. Some inherited members can appear as project mannequins if in the project archive. |
@@ -159,8 +175,8 @@ group-wide enumeration where scoped project reads suffice.
 
 Collect counts and nonsecret presence signals, not values, member identities,
 keys, URLs or raw responses. In particular, variable-list responses can contain
-secret values: don't enable collection until a field-selective approach or
-an approved count-only handling path has been established.
+secret values: the only enabled path is the header-only `HEAD` count described
+above, and any other variable read needs a new approved path first.
 
 [scopes]: https://docs.gitlab.com/security/tokens/access_token_scopes/
 [migration-access]: https://docs.github.com/en/migrations/using-github-enterprise-importer/migrate-from-gitlab/manage-access
