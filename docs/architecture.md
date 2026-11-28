@@ -336,7 +336,9 @@ not serialized to unauthenticated clients.
 
 SQLite runs in WAL mode with foreign keys enabled. Startup applies the domain
 schemas in the order declared in `src/lib/server/schemas.ts`. Migration storage
-creates its current tables and indexes in one immediate transaction. Startup
+rejects databases with an existing `migrate` schema version marker, which require
+a fresh data directory. It creates the current tables and indexes in the same
+immediate transaction as the marker check. Startup
 hooks then recover interrupted work and prune retained history.
 
 <!-- BEGIN GENERATED: durable-tables -->

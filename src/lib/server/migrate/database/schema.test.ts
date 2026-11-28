@@ -57,6 +57,10 @@ describe("migration schema", () => {
     try {
       {
         using db = new Database(path, { create: true });
+        db.run(
+          "CREATE TABLE app_schema_versions (domain TEXT PRIMARY KEY, version INTEGER NOT NULL)",
+        );
+        db.run("INSERT INTO app_schema_versions VALUES ('auth', 4)");
         migrateStore.applySchema(db);
         insertMigration(db, "job");
         db.run(`UPDATE migrations SET owner_user_id='operator', source_provider='bitbucket-server',
@@ -105,6 +109,24 @@ describe("migration schema", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test.each([8, 9, 10])("rejects migrate version %i even with current tables", (version) => {
+    using db = new Database(":memory:");
+    migrateStore.applySchema(db);
+    insertMigration(db, "job");
+    db.run(`UPDATE migrations SET source_provider='gitlab', source_counts='{"issues":5}',
+      migration_log_url='https://github.com/migrations/log' WHERE id='job'`);
+    db.run("CREATE TABLE app_schema_versions (domain TEXT PRIMARY KEY, version INTEGER NOT NULL)");
+    db.run("INSERT INTO app_schema_versions VALUES ('migrate', ?)", [version]);
+
+    expect(() => migrateStore.applySchema(db)).toThrow(/fresh data directory/);
+    expect(
+      db.query("SELECT source_counts, migration_log_url FROM migrations WHERE id='job'").get(),
+    ).toEqual({
+      source_counts: '{"issues":5}',
+      migration_log_url: "https://github.com/migrations/log",
+    });
   });
 
   test("acquires the startup writer lock even when all tables already exist", () => {
