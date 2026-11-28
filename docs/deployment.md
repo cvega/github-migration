@@ -91,8 +91,7 @@ Configure either explicit unauthenticated mode on a trusted network or
 `GH_MIGRATE_USER` and `GH_MIGRATE_PASS` for the first authenticated startup.
 Those values create the first administrator only while the user table is empty;
 remove them after confirming that administrator can sign in.
-`GH_MIGRATE_SESSION_SECRET` is deprecated and no longer signs sessions. Compose
-publishes to loopback by default; set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only when
+Compose publishes to loopback by default; set `GH_MIGRATE_PUBLISH_HOST=0.0.0.0` only when
 a firewall or reverse proxy provides the intended boundary.
 
 Containers default `ORIGIN` to `http://localhost:3000`. Set it to the exact

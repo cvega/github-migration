@@ -16,7 +16,7 @@ services:
     environment:
       - DATA_DIR=/data
       - ARCHIVE_DIR=/archives
-      - EXPORTER_ARCHIVE_VOLUME=${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}
+      - EXPORTER_ARCHIVE_VOLUME=${EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}
       - BBS_EXPORTER_IMAGE=${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
       - PORT=3000
       - ORIGIN=${ORIGIN:-http://localhost:3000}
@@ -62,4 +62,4 @@ volumes:
   gh-migrate-analysis-workspaces:
     name: ${GH_MIGRATE_ANALYSIS_VOLUME:-${COMPOSE_PROJECT_NAME}_gh-migrate-analysis-workspaces}
   gh-migrate-archives:
-    name: ${EXPORTER_ARCHIVE_VOLUME:-${GL_EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}}
+    name: ${EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}

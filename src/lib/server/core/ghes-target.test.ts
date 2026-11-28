@@ -47,7 +47,7 @@ beforeEach(() => {
   process.env.GHES_TARGET_SSH_PRIVATE_KEY = Buffer.from(PEM).toString("base64");
   process.env.GHES_TARGET_SSH_HOST_KEY_SHA256 = "SHA256:pinned-fingerprint";
   process.env.GL_EXPORTER_IMAGE = "github/gl-exporter:latest";
-  process.env.GL_EXPORTER_ARCHIVE_VOLUME = "gh-migrate-archives";
+  process.env.EXPORTER_ARCHIVE_VOLUME = "gh-migrate-archives";
   process.env.BBS_EXPORTER_IMAGE = "github/bbs-exporter:latest";
   process.env.ARCHIVE_DIR = "/archives";
   process.env.GITLAB_SOURCE_USERNAME = "gitlab-admin";
@@ -67,6 +67,7 @@ afterEach(() => {
 
 describe("GHES target execution configuration", () => {
   test("normalizes defaults and decodes the SSH private key", () => {
+    process.env.GL_EXPORTER_RUNTIME = "podman";
     expect(getGhesTargetExecutionConfig()).toMatchObject({
       siteAdminUsername: "site-admin",
       siteAdminToken: "secret-token",
@@ -92,13 +93,14 @@ describe("GHES target execution configuration", () => {
     });
   });
 
-  test("fails closed when any execution secret is missing", () => {
+  test("fails closed when required execution settings are missing", () => {
+    process.env.GL_EXPORTER_ARCHIVE_VOLUME = "old-archives";
     for (const key of [
       "GHES_TARGET_ADMIN_PAT",
       "GHES_TARGET_SSH_PRIVATE_KEY",
       "GHES_TARGET_SSH_HOST_KEY_SHA256",
       "GL_EXPORTER_IMAGE",
-      "GL_EXPORTER_ARCHIVE_VOLUME",
+      "EXPORTER_ARCHIVE_VOLUME",
       "GITLAB_SOURCE_USERNAME",
     ] as const) {
       const value = process.env[key];
@@ -109,11 +111,13 @@ describe("GHES target execution configuration", () => {
   });
 
   test("loads Bitbucket exporter settings independently from GitLab", () => {
+    process.env.EXPORTER_RUNTIME = " podman ";
     delete process.env.GL_EXPORTER_IMAGE;
     delete process.env.GITLAB_SOURCE_USERNAME;
     delete process.env.GITLAB_SOURCE_PAT;
 
     expect(getBitbucketGhesTargetExecutionConfig()).toMatchObject({
+      exporterRuntime: "podman",
       exporterImage: "github/bbs-exporter:latest",
       exporterArchiveVolume: "gh-migrate-archives",
       bitbucketUsername: "bbs-admin",
