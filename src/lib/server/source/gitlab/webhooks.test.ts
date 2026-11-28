@@ -216,7 +216,7 @@ describe("GitLab webhook dependencies", () => {
         maxRetries: 0,
         fetch: async (input) => {
           const url = new URL(input.toString());
-          if (url.pathname.includes("/groups/")) {
+          if (url.pathname.includes("/groups/") && url.pathname.endsWith("/hooks")) {
             groupReads.push(`${url.pathname}?page=${url.searchParams.get("page") ?? "1"}`);
             // Yield so concurrent projects reach the same ancestor before it settles.
             await Bun.sleep(1);

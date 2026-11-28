@@ -28,6 +28,7 @@ describe("GitLab profile metric registry", () => {
       "protectedTags",
       "projectWebhooks",
       "groupWebhooks",
+      "ciVariables",
       "approvalRules",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
@@ -52,6 +53,7 @@ describe("GitLab profile metric registry", () => {
       ["protectedTags", "Tag protection rules"],
       ["projectWebhooks", "Project webhooks"],
       ["groupWebhooks", "Group hooks"],
+      ["ciVariables", "Project CI/CD variables"],
       ["approvalRules", "Approval rules"],
     ]);
   });

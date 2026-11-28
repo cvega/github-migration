@@ -92,6 +92,17 @@ On these optional requests HTTP 401 or 403 records `forbidden`, 404 records
 through the required metrics. Enabled Auto DevOps keeps a project
 counted when the file probe is forbidden or refused for budget.
 
+CI/CD variable counts never receive a variable: the list endpoints return names
+and values and cannot be field-selected, so the collector sends only
+`HEAD /projects/:id/variables?per_page=1` and `HEAD /groups/:id/variables?per_page=1`,
+never reads a body, and uses `X-Total` (a lower bound of 2 from `X-Next-Page` when
+no total is sent). It never falls back to `GET`. The observation is the
+project-local count; the group-local count over admitted ancestor groups (each read
+once per run) is the separate `groupLocal` field. HTTP 401/403 records `forbidden`,
+404 `not-reported`, 405/501 `unsupported`; contradictory headers are `malformed`;
+each attempt spends the shared request budget. Nothing is logged and no name, value
+or environment scope is stored.
+
 Merge request approval evidence comes from paginating
 `GET /projects/:id/approval_rules` for selected projects. The profile stores a
 visible rule count and whether a rule requires approvals, including whether

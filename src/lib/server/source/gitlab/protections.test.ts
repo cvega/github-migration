@@ -273,6 +273,8 @@ describe("GitLab protection rule collectors", () => {
       "/projects/42/hooks": json([]),
       "/projects/42/approval_rules": json([]),
       "/groups/platform/hooks": json([]),
+      "/projects/42/variables": json([], { "X-Total": "0" }),
+      "/groups/platform/variables": json([], { "X-Total": "0" }),
     });
 
     const enrichment = await collectGitLabProfileEnrichment(client, inventory, { nowMs });

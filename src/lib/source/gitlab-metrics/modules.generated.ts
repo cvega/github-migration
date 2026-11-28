@@ -3,6 +3,7 @@
 import approvalRulesMetric from "./approval-rules.metric";
 import branchesMetric from "./branches.metric";
 import ciConfigurationMetric from "./ci-configuration.metric";
+import ciVariablesMetric from "./ci-variables.metric";
 import commitsMetric from "./commits.metric";
 import groupWebhooksMetric from "./group-webhooks.metric";
 import inheritedProtectedBranchesMetric from "./inherited-protected-branches.metric";
@@ -18,6 +19,7 @@ export const GITLAB_METRIC_DESCRIPTORS = [
   approvalRulesMetric,
   branchesMetric,
   ciConfigurationMetric,
+  ciVariablesMetric,
   commitsMetric,
   groupWebhooksMetric,
   inheritedProtectedBranchesMetric,

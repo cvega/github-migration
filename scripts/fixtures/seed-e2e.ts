@@ -507,6 +507,7 @@ const gitLabSummary = {
     protectedTags: { kind: "at-least", value: 2 },
     projectWebhooks: { kind: "exact", value: 0 },
     groupWebhooks: { kind: "at-least", value: 2 },
+    ciVariables: { kind: "exact", value: 6 },
     approvalRules: { kind: "at-least", value: 3 },
   },
   approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },

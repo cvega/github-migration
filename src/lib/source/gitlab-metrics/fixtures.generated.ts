@@ -6,6 +6,8 @@ import branchesFixture from "./branches.fixture";
 import branchesMetric from "./branches.metric";
 import ciConfigurationFixture from "./ci-configuration.fixture";
 import ciConfigurationMetric from "./ci-configuration.metric";
+import ciVariablesFixture from "./ci-variables.fixture";
+import ciVariablesMetric from "./ci-variables.metric";
 import commitsFixture from "./commits.fixture";
 import commitsMetric from "./commits.metric";
 import groupWebhooksFixture from "./group-webhooks.fixture";
@@ -32,6 +34,7 @@ export const GITLAB_METRIC_FIXTURES = {
   [approvalRulesMetric.key]: approvalRulesFixture,
   [branchesMetric.key]: branchesFixture,
   [ciConfigurationMetric.key]: ciConfigurationFixture,
+  [ciVariablesMetric.key]: ciVariablesFixture,
   [commitsMetric.key]: commitsFixture,
   [groupWebhooksMetric.key]: groupWebhooksFixture,
   [inheritedProtectedBranchesMetric.key]: inheritedProtectedBranchesFixture,
