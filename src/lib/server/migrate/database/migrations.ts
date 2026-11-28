@@ -277,16 +277,40 @@ export function rowToMigration(row: Record<string, unknown>): Migration {
   };
 }
 
-export function rowsToMigrations(rows: Record<string, unknown>[]): Migration[] {
-  const migrations: Migration[] = [];
+type StoredRow = Record<string, unknown>;
+
+function* readableMigrations(rows: Iterable<StoredRow>, onUnreadable?: (id: string) => void) {
   for (const row of rows) {
+    let migration: Migration;
     try {
-      migrations.push(rowToMigration(row));
+      migration = rowToMigration(row);
     } catch {
-      // One unreadable row must not prevent listing or recovering its siblings.
+      onUnreadable?.(row.id as string);
+      continue;
     }
+    yield migration;
   }
-  return migrations;
+}
+
+export function rowsToMigrations(
+  rows: Iterable<StoredRow>,
+  onUnreadable?: (id: string) => void,
+): Migration[] {
+  return Array.from(readableMigrations(rows, onUnreadable));
+}
+
+export function paginateMigrationRows(
+  rows: Iterable<StoredRow>,
+  { page, limit }: PaginationParams,
+): PaginatedResult<Migration> {
+  const offset = (page - 1) * limit;
+  const data: Migration[] = [];
+  let total = 0;
+  for (const migration of readableMigrations(rows)) {
+    if (total >= offset && data.length < limit) data.push(migration);
+    total++;
+  }
+  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
 }
 
 export function insertMigration(migration: Migration): void {
@@ -498,10 +522,32 @@ export function updateMigrationSourceSize(id: string, sizeKb: number): void {
     .run({ $id: id, $source_size_kb: sizeKb });
 }
 
+// Quarantine only the selected attempt. The job, checkpoints and original
+// unreadable data remain available for inspection.
+function readDispatchCandidate(row: StoredRow): Migration | null {
+  try {
+    return rowToMigration(row);
+  } catch {
+    getDb()
+      .query(`UPDATE migrations
+      SET state = CASE WHEN state != 'queued' OR ${UNRESOLVED_REMOTE_WORK_SQL}
+            THEN 'reconciliation_required' ELSE 'failed' END,
+          failure_reason = 'Stored migration data is unreadable', completed_at = ?
+      WHERE rowid = ? AND state = ? AND started_at IS ?`)
+      .run(
+        new Date().toISOString(),
+        row.record_id as number,
+        row.state as string,
+        row.started_at as string,
+      );
+    return null;
+  }
+}
+
 export function getRecoverableMigrations(): Migration[] {
   const rows = getDb()
     .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
+      `SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state IN (${migrationStatesSql(EXECUTING_MIGRATION_STATES)})
 				 AND auth_mode IN ('env-app', 'env-pat')
 				 AND ${RECOVERABLE_CHECKPOINT_SQL}
@@ -509,20 +555,20 @@ export function getRecoverableMigrations(): Migration[] {
 			 ORDER BY started_at ASC`,
     )
     .all() as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rows.map(readDispatchCandidate).filter((migration) => migration !== null);
 }
 
 export function getQueuedEnvMigrations(): Migration[] {
   const rows = getDb()
     .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
+      `SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state = 'queued'
 				 AND auth_mode IN ('env-app', 'env-pat')
 				 AND id NOT LIKE 'seed-%'
 			 ORDER BY started_at ASC`,
     )
     .all() as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rows.map(readDispatchCandidate).filter((migration) => migration !== null);
 }
 
 export function resetMigration(
@@ -564,54 +610,29 @@ export function getOwnedMigration(ownerUserId: string, id: string): Migration | 
 }
 
 export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {
-  const offset = (params.page - 1) * params.limit;
-  const { count: total } = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS count FROM migrations
-			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
-    )
-    .get() as { count: number };
-  const rows = getDb()
-    .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
-			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-			 ORDER BY started_at DESC LIMIT ? OFFSET ?`,
-    )
-    .all(params.limit, offset) as Record<string, unknown>[];
-  return {
-    data: rowsToMigrations(rows),
-    total,
-    page: params.page,
-    limit: params.limit,
-    totalPages: Math.ceil(total / params.limit),
-  };
+  return paginateMigrationRows(
+    getDb()
+      .query<StoredRow, []>(
+        `SELECT ${MIGRATION_COLS} FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+     ORDER BY started_at DESC, id DESC`,
+      )
+      .iterate(),
+    params,
+  );
 }
 
 export function searchMigrationsPaginated(
   params: PaginationParams & { q: string },
 ): PaginatedResult<Migration> {
-  const offset = (params.page - 1) * params.limit;
-  const like = likePattern(params.q);
-  const { count: total } = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS count FROM migrations
-			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) AND ${SEARCH_MATCH_CLAUSE}`,
-    )
-    .get({ $q: like }) as { count: number };
-  const rows = getDb()
-    .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
-			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) AND ${SEARCH_MATCH_CLAUSE}
-			 ORDER BY started_at DESC LIMIT $limit OFFSET $offset`,
-    )
-    .all({ $q: like, $limit: params.limit, $offset: offset }) as Record<string, unknown>[];
-  return {
-    data: rowsToMigrations(rows),
-    total,
-    page: params.page,
-    limit: params.limit,
-    totalPages: Math.ceil(total / params.limit),
-  };
+  return paginateMigrationRows(
+    getDb()
+      .query<StoredRow, { $q: string }>(
+        `SELECT ${MIGRATION_COLS} FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+     AND ${SEARCH_MATCH_CLAUSE} ORDER BY started_at DESC, id DESC`,
+      )
+      .iterate({ $q: likePattern(params.q) }),
+    params,
+  );
 }
 
 const UNRECONCILED_GHES_IMPORT = `SELECT m.id FROM migrations m
@@ -695,14 +716,16 @@ export function isBatchAdmissionBlocked(
     });
 }
 
-export function getNextQueuedMigration(skipGhes = false): Migration | null {
+export function getNextQueuedMigration(
+  skipGhes = false,
+): { migration: Migration | null; id: string } | null {
   const row = getDb()
     .prepare(
       `WITH retries AS MATERIALIZED (
          SELECT id, batch_id FROM migrations WHERE batch_id IS NOT NULL AND state = 'queued'
            AND ${RETRYING_FAILURE}
        )
-       SELECT ${MIGRATION_COLS} FROM migrations
+       SELECT rowid AS record_id, ${MIGRATION_COLS} FROM migrations
 			 WHERE state = 'queued' AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
 			 ${skipGhes ? "AND target_platform != 'ghes'" : ""}
 			 AND NOT (batch_id IS NOT NULL AND source_provider = 'bitbucket-server'
@@ -712,5 +735,5 @@ export function getNextQueuedMigration(skipGhes = false): Migration | null {
 			 ORDER BY started_at ASC, id ASC LIMIT 1`,
     )
     .get() as Record<string, unknown> | undefined;
-  return row ? rowToMigration(row) : null;
+  return row ? { id: row.id as string, migration: readDispatchCandidate(row) } : null;
 }

@@ -6,6 +6,7 @@ import type {
   PaginatedResult,
   PaginationParams,
 } from "$lib/migrate/types";
+import { CANCELLABLE_MIGRATION_STATES, migrationStatesSql } from "$lib/migration-state";
 import { isTargetPlatform, supportsMigrationTarget } from "$lib/migration-target";
 import { getDb } from "$lib/server/core/db";
 import { getSourceProviderAdapter, isSourceProvider } from "$lib/source-provider";
@@ -14,6 +15,7 @@ import {
   EXECUTABLE_PROVIDER_SQL,
   likePattern,
   MIGRATION_COLS,
+  paginateMigrationRows,
   rowsToMigrations,
   SEARCH_MATCH_CLAUSE,
 } from "./migrations";
@@ -63,16 +65,26 @@ export function rowToBatchListItem(row: Record<string, unknown>): BatchListItem 
 
 const RESTART_CANDIDATE = `state IN ('failed', 'cancelled') AND NOT ${MANUAL_GHES_IMPORT_SQL}`;
 
-export function getBatchMigrations(batchId: string, restartableOnly = false): Migration[] {
+export function getBatchMigrations(
+  batchId: string,
+  action?: "restart" | "cancel",
+  onUnreadable?: (id: string) => void,
+): Migration[] {
+  const filter =
+    action === "restart"
+      ? `AND ${RESTART_CANDIDATE}`
+      : action === "cancel"
+        ? `AND state IN (${migrationStatesSql(CANCELLABLE_MIGRATION_STATES)})`
+        : "";
   const rows = getDb()
     .prepare(
       `SELECT ${MIGRATION_COLS} FROM migrations
 			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-       ${restartableOnly ? `AND ${RESTART_CANDIDATE}` : ""}
+       ${filter}
 			 ORDER BY source_repo ASC`,
     )
     .all(batchId) as Record<string, unknown>[];
-  return rowsToMigrations(rows);
+  return rowsToMigrations(rows, onUnreadable);
 }
 
 export function getBatchSourceProviderValues(batchId: string): string[] {
@@ -129,28 +141,22 @@ export function getBatchMigrationsPaginated(
   batchId: string,
   params: PaginationParams,
 ): PaginatedResult<Migration> {
-  const { page, limit } = params;
-  const offset = (page - 1) * limit;
-  const { count: total } = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS count FROM migrations
-			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
-    )
-    .get(batchId) as { count: number };
-  const rows = getDb()
-    .prepare(
-      `SELECT ${MIGRATION_COLS} FROM migrations
-			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-			 ORDER BY source_repo ASC LIMIT ? OFFSET ?`,
-    )
-    .all(batchId, limit, offset) as Record<string, unknown>[];
-  return {
-    data: rowsToMigrations(rows),
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
+  return paginateMigrationRows(
+    getDb()
+      .query<Record<string, unknown>, [string]>(
+        `SELECT ${MIGRATION_COLS} FROM migrations WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+     ORDER BY source_repo ASC, id ASC`,
+      )
+      .iterate(batchId),
+    params,
+  );
+}
+
+export function batchExists(batchId: string): boolean {
+  return !!getDb()
+    .query(`SELECT 1 FROM migrations WHERE batch_id = ?
+    AND source_provider IN (${EXECUTABLE_PROVIDER_SQL}) LIMIT 1`)
+    .get(batchId);
 }
 
 export function getBatchSummary(batchId: string): BatchSummary | null {

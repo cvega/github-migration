@@ -56,7 +56,11 @@ function present(event: MigrationEvent): MigrationEvent {
       };
     }
     case "restart":
-      return { ...common, eventType: "restart", payload: { message: "Migration restarted" } };
+      return {
+        ...common,
+        eventType: "restart",
+        payload: { message: "Migration restarted", previousState: event.payload.previousState },
+      };
     case "banner":
       return { ...common, eventType: "banner", payload: { message: "Migration update" } };
     case "milestone":

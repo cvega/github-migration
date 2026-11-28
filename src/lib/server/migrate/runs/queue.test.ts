@@ -238,13 +238,10 @@ describe("migration queue", () => {
     insertMigration(queued);
     const sibling = enterprise("earlier", "batch", "pending");
     for (const previousState of [undefined, "cancelled", "failed"] as const) {
-      insertEvent({
-        migrationId: queued.id,
-        eventType: "restart",
-        phase: null,
-        payload: { message: "Restart", previousState },
-        createdAt: queued.startedAt,
-      });
+      getDb().run(
+        "INSERT INTO events (migration_id, event_type, payload, created_at) VALUES (?, 'restart', ?, ?)",
+        [queued.id, JSON.stringify({ message: "Restart", previousState }), queued.startedAt],
+      );
       expect(shouldQueueMigration(sibling)).toBe(previousState === "failed");
     }
   });
@@ -582,6 +579,45 @@ describe("migration queue", () => {
     } finally {
       activeMigrationRuns.finish("settling", registration.token);
       activeMigrationRuns.dropQueued("queued");
+    }
+  });
+
+  test("preserves settling capacity and GHES serialization with unreadable active run metadata", () => {
+    const settling = enterprise("settling", null, "failed");
+    insertMigration(settling);
+    const registration = activeMigrationRuns.claim(settling.id)!;
+    activeMigrationRuns.attach(settling.id, registration.token, Promise.resolve());
+    try {
+      getDb().run("UPDATE migrations SET source_counts='unreadable'");
+      expect(getCapacityUsage()).toBe(1);
+      expect(shouldQueueMigration(enterprise("next", null, "pending"))).toBe(true);
+      expect(shouldQueueMigration(migration("cloud", "pending"))).toBe(false);
+    } finally {
+      activeMigrationRuns.finish(settling.id, registration.token);
+    }
+  });
+
+  test("drains past an unreadable queued row while preserving its remote evidence", () => {
+    for (const id of ["01", "02"]) {
+      insertMigration(migration(id, "queued"));
+      activeMigrationRuns.enqueue(id, request(`acme/${id}`));
+    }
+    getDb().run(
+      "UPDATE migrations SET target_counts='unreadable', github_migration_id='saved' WHERE id='01'",
+    );
+    const launched: string[] = [];
+    try {
+      drainMigrationQueue((id) => {
+        launched.push(id);
+        return true;
+      });
+      expect(launched).toEqual(["02"]);
+      expect(
+        getDb().query("SELECT state, github_migration_id FROM migrations WHERE id='01'").get(),
+      ).toEqual({ state: "reconciliation_required", github_migration_id: "saved" });
+      expect(activeMigrationRuns.takeQueued("01")).toBeUndefined();
+    } finally {
+      for (const id of ["01", "02"]) activeMigrationRuns.dropQueued(id);
     }
   });
 

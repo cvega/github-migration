@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getMigration, insertMigration } from "$lib/server/migrate/database/migrations";
 import { migrateStore } from "$lib/server/migrate/database/schema";
 import { DELETE, GET } from "./+server";
@@ -54,6 +54,23 @@ describe("batch endpoint", () => {
     expect(result.migrations.data).toHaveLength(1);
     expect(result.migrations.total).toBe(2);
     expect((await GET(request("missing"))).status).toBe(404);
+  });
+
+  test("reports unreadable cancellation candidates before cancelling siblings", async () => {
+    insertMigration(migration("a", "queued"));
+    insertMigration(migration("b", "queued"));
+    getDb().run("UPDATE migrations SET target_platform='damaged' WHERE id='b'");
+    const response = await DELETE(request("batch-one"));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("b");
+    expect(getMigration("a")?.state).toBe("queued");
+  });
+
+  test("paginates readable batch members across unreadable rows", async () => {
+    for (const id of ["a", "b", "c"]) insertMigration(migration(id, "succeeded"));
+    getDb().run("UPDATE migrations SET warnings_count='unreadable' WHERE id='a'");
+    const result = await (await GET(request("batch-one", "?page=2&limit=1"))).json();
+    expect(result.migrations).toMatchObject({ total: 2, totalPages: 2, data: [{ id: "c" }] });
   });
 
   test("cancels queued batch migrations", async () => {

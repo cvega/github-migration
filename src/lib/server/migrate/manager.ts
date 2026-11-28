@@ -12,7 +12,7 @@ import type {
   PaginationParams,
   RestartMigrationRequest,
 } from "$lib/migrate/types";
-import { isCancellableMigrationState, isExecutingMigrationState } from "$lib/migration-state";
+import { isExecutingMigrationState } from "$lib/migration-state";
 import {
   GITLAB_GHES_PAUSE_REASON,
   isPausedPersistedRoute,
@@ -480,10 +480,16 @@ export function startBatch(
   return summary;
 }
 
+export class BatchCancellationConflict extends Error {}
+
 export function cancelBatch(batchId: string): number {
   let count = 0;
-  for (const migration of getBatchMigrations(batchId)) {
-    if (isCancellableMigrationState(migration.state) && cancel(migration.id)) count += 1;
+  for (const migration of getBatchMigrations(batchId, "cancel", (id) => {
+    throw new BatchCancellationConflict(
+      `Batch cancellation stopped: stored migration ${id} is unreadable`,
+    );
+  })) {
+    if (cancel(migration.id)) count += 1;
   }
   return count;
 }
@@ -500,7 +506,9 @@ export function restartBatch(
     }
   }
   const results = { restarted: 0, errors: [] as Array<{ id: string; error: string }> };
-  for (const migration of getBatchMigrations(batchId, true)) {
+  for (const migration of getBatchMigrations(batchId, "restart", (id) => {
+    results.errors.push({ id, error: "Stored migration data is unreadable" });
+  })) {
     try {
       const authError = validate?.(restartRequest(migration, credentials));
       if (authError) {
@@ -527,8 +535,7 @@ export function restartBatch(
 export const get = getMigration;
 export const listPaginated = listMigrationsPaginated;
 export const searchPaginated = searchMigrationsPaginated;
-export const getBatch = getBatchSummary;
-export { getRestartableBatchCount } from "./database/batches";
+export { batchExists, getRestartableBatchCount } from "./database/batches";
 export const listBatchesPaginated = listBatchItemsPaginated;
 export const searchBatchesPaginated = searchBatchItemsPaginated;
 export const recentActivity = getRecentActivity;

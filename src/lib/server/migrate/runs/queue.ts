@@ -1,9 +1,13 @@
-import type { CreateMigrationRequest, Migration, MigrationEvent } from "$lib/migrate/types";
+import type {
+  CreateMigrationRequest,
+  Migration,
+  MigrationEvent,
+  MigrationState,
+} from "$lib/migrate/types";
 import { isTerminalMigrationState } from "$lib/migration-state";
 import { getDb } from "$lib/server/core/db";
 import { hasStepSinceRestart, insertEvent, insertQueuedGhesWaitSteps } from "../database/events";
 import {
-  getMigration,
   getNextQueuedMigration,
   hasUnreconciledGhesImport,
   isBatchAdmissionBlocked,
@@ -18,12 +22,23 @@ export const MAX_CONCURRENT_MIGRATIONS = 10;
 
 export type PipelineLauncher = (id: string, request: CreateMigrationRequest) => boolean;
 
+// Slot accounting needs only execution state and destination. An unreadable
+// counts snapshot must not stop other jobs while an owned run is settling.
+function registeredRunStates() {
+  const ids = [...activeMigrationRuns.activeIds()];
+  if (ids.length === 0) return [];
+  return getDb()
+    .query<{ state: MigrationState; appliance: number }, [string]>(
+      `SELECT state, (target_platform != 'ghec' OR EXISTS (
+       SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id)) AS appliance
+     FROM migrations WHERE id IN (SELECT value FROM json_each(?))`,
+    )
+    .all(JSON.stringify(ids));
+}
+
 // The configured GHES appliance has one ghe-migrator lock, shared across batches.
 function ghesBusy(): boolean {
-  return (
-    isGhesSlotHeld() ||
-    [...activeMigrationRuns.activeIds()].some((id) => getMigration(id)?.targetPlatform === "ghes")
-  );
+  return isGhesSlotHeld() || registeredRunStates().some((row) => row.appliance === 1);
 }
 
 export function shouldQueueMigration(migration: Migration): boolean {
@@ -46,11 +61,9 @@ export function recordExistingGhesQueueHold(blockerId?: string): void {
 }
 
 export function getCapacityUsage(): number {
-  let settling = 0;
-  for (const id of activeMigrationRuns.activeIds()) {
-    const migration = getMigration(id);
-    if (migration && isTerminalMigrationState(migration.state)) settling += 1;
-  }
+  const settling = registeredRunStates().filter((row) =>
+    isTerminalMigrationState(row.state),
+  ).length;
   return getActiveMigrationCount() + settling;
 }
 
@@ -94,13 +107,16 @@ export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
   while (true) {
     const claimed = getDb().transaction(() => {
       if (getCapacityUsage() >= MAX_CONCURRENT_MIGRATIONS) return null;
-      const queued = getNextQueuedMigration(ghesBusy());
-      if (!queued) return null;
-      updateMigrationState(queued.id, "pending");
-      return queued;
+      const candidate = getNextQueuedMigration(ghesBusy());
+      if (candidate?.migration) updateMigrationState(candidate.id, "pending");
+      return candidate;
     })();
 
     if (!claimed) break;
+    if (!claimed.migration) {
+      activeMigrationRuns.dropQueued(claimed.id);
+      continue;
+    }
     const request = activeMigrationRuns.takeQueued(claimed.id);
     if (!request) {
       console.error(`[manager] No queued request for migration ${claimed.id} - marking failed`);
@@ -112,7 +128,7 @@ export function drainMigrationQueue(launchPipeline: PipelineLauncher): void {
     }
     if (
       launchClaimedMigration(claimed.id, request, launchPipeline) &&
-      claimed.targetPlatform === "ghes" &&
+      claimed.migration.targetPlatform === "ghes" &&
       hasStepSinceRestart(claimed.id, WAITING_FOR_REVIEW)
     ) {
       broadcastMigrationEvent(
