@@ -9,35 +9,6 @@ import {
   recoverInterruptedMigrations,
 } from "./schema";
 
-function createCheckedMigrations(db: Database): void {
-  db.run(`CREATE TABLE migrations (
-    id TEXT PRIMARY KEY,
-    batch_id TEXT,
-    github_migration_id TEXT,
-    source_provider TEXT NOT NULL DEFAULT 'github' CHECK ( source_provider IN ('github', 'gitlab') ),
-    source_api_url TEXT NOT NULL,
-    source_org TEXT NOT NULL,
-    source_repo TEXT NOT NULL,
-    target_org TEXT NOT NULL,
-    target_repo TEXT NOT NULL,
-    state TEXT NOT NULL DEFAULT 'pending',
-    failure_reason TEXT,
-    migration_log_url TEXT,
-    warnings_count INTEGER NOT NULL DEFAULT 0,
-    source_counts TEXT,
-    target_counts TEXT,
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    elapsed_seconds REAL,
-    pipeline_step TEXT,
-    auth_mode TEXT,
-    request_options TEXT,
-    source_size_kb INTEGER,
-    target_preexisted INTEGER,
-    target_repo_node_id TEXT
-  )`);
-}
-
 function insertMigration(db: Database, id: string): void {
   db.prepare(
     `INSERT INTO migrations
@@ -79,207 +50,134 @@ test("prunes only terminal migrations beyond the retention limit", () => {
   db.close();
 });
 
-describe("migration provider schema upgrade", () => {
-  test("invalidates only legacy GitHub-derived native source observations, including event replay", () => {
-    const db = new Database(":memory:");
-    try {
-      migrateStore.applySchema(db);
-      db.run("UPDATE app_schema_versions SET version=8 WHERE domain='migrate'");
-      for (const provider of ["gitlab", "bitbucket-server", "github"]) {
-        insertMigration(db, provider);
-        db.run(
-          `UPDATE migrations SET source_provider=?, source_counts='{"issues":42}', target_counts='{"issues":5}' WHERE id=?`,
-          [provider, provider],
-        );
-        for (const [type, payload] of [
-          ["snapshot", '{"sourceCounts":{"issues":42}}'],
-          ["complete", '{"sourceCounts":{"issues":42},"elapsed":4}'],
-          ["step", '{"message":"Source counts fetched","counts":{"issues":42}}'],
-        ]) {
-          db.run(
-            "INSERT INTO events(migration_id,event_type,payload,created_at) VALUES(?,?,?,'now')",
-            [provider, type!, payload!],
-          );
-        }
-      }
-      migrateStore.applySchema(db);
-      for (const provider of ["gitlab", "bitbucket-server", "github"]) {
-        expect(
-          db.query("SELECT source_counts, target_counts FROM migrations WHERE id=?").get(provider),
-        ).toEqual({
-          source_counts: provider === "github" ? '{"issues":42}' : null,
-          target_counts: '{"issues":5}',
-        });
-        const events = db.query("SELECT payload FROM events WHERE migration_id=?").all(provider);
-        expect(events).toHaveLength(3);
-        expect(JSON.stringify(events).includes("42")).toBe(provider === "github");
-      }
-    } finally {
-      db.close();
-    }
-  });
-  test("backfills legacy rows to GitHub across a file-backed reopen", () => {
-    const directory = mkdtempSync(join(tmpdir(), "migration-provider-upgrade-"));
+describe("migration schema", () => {
+  test("preserves admitted identity, checkpoints and observations across reopen", () => {
+    const directory = mkdtempSync(join(tmpdir(), "migration-schema-"));
     const path = join(directory, "migrate.db");
     try {
-      let db = new Database(path, { create: true });
-      db.run(`CREATE TABLE migrations (
-        id TEXT PRIMARY KEY,
-        batch_id TEXT,
-        github_migration_id TEXT,
-        source_api_url TEXT NOT NULL,
-        source_org TEXT NOT NULL,
-        source_repo TEXT NOT NULL,
-        target_org TEXT NOT NULL,
-        target_repo TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'pending',
-        failure_reason TEXT,
-        migration_log_url TEXT,
-        warnings_count INTEGER NOT NULL DEFAULT 0,
-        source_counts TEXT,
-        target_counts TEXT,
-        started_at TEXT NOT NULL,
-        completed_at TEXT,
-        elapsed_seconds REAL,
-        pipeline_step TEXT,
-        auth_mode TEXT,
-        request_options TEXT,
-        source_size_kb INTEGER,
-        target_preexisted INTEGER,
-        target_repo_node_id TEXT
-      )`);
-      db.prepare(
-        `INSERT INTO migrations
-           (id, source_api_url, source_org, source_repo, target_org, target_repo, started_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        "legacy",
-        "https://api.github.com",
-        "acme",
-        "widget",
-        "acme-cloud",
-        "widget",
-        "2026-08-08T12:00:00.000Z",
-      );
-
-      migrateStore.applySchema(db);
-      migrateStore.applySchema(db);
-      db.close();
-
-      db = new Database(path);
-      expect(db.query("SELECT source_provider FROM migrations WHERE id = 'legacy'").get()).toEqual({
-        source_provider: "github",
-      });
-      expect(db.run("UPDATE migrations SET source_provider = 'gitlab'").changes).toBe(1);
-      db.close();
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  test("widens a checked schema while preserving children and indexes across reopen", () => {
-    const directory = mkdtempSync(join(tmpdir(), "migration-provider-widen-"));
-    const path = join(directory, "migrate.db");
-    try {
-      let db = new Database(path, { create: true });
-      db.run("PRAGMA foreign_keys = ON");
-      createCheckedMigrations(db);
-      db.run(`CREATE TABLE events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        migration_id TEXT NOT NULL REFERENCES migrations(id),
-        event_type TEXT NOT NULL,
-        phase TEXT,
-        payload TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL
-      )`);
-      const fixtures = [
-        ["checked", "https://github.com/log?sample=1", null],
-        ["retained", "https://github.com/log", "https://github.com/log"],
-        ["redacted", "https://github.com/log#sample", null],
-      ] as const;
-      const payload = (url: string) =>
-        JSON.stringify({
-          progress: { current: { migrationLogUrl: url }, previous: { migrationLogUrl: url } },
-          detail: { logUrl: url },
-        });
-      for (const [id, link] of fixtures) {
-        insertMigration(db, id);
-        db.run("UPDATE migrations SET migration_log_url = ? WHERE id = ?", [link, id]);
+      {
+        using db = new Database(path, { create: true });
         db.run(
-          "INSERT INTO events (migration_id, event_type, payload, created_at) VALUES (?, 'failure', ?, '2026-08-08T12:01:00Z')",
-          [id, payload(link)],
+          "CREATE TABLE app_schema_versions (domain TEXT PRIMARY KEY, version INTEGER NOT NULL)",
         );
+        db.run("INSERT INTO app_schema_versions VALUES ('auth', 4)");
+        migrateStore.applySchema(db);
+        insertMigration(db, "job");
+        db.run(`UPDATE migrations SET owner_user_id='operator', source_provider='bitbucket-server',
+          batch_id='batch', source_export_id='42', github_migration_id='RM_fixture',
+          target_counts='{"issues":5}', migration_log_url='https://github.com/migrations/log'`);
+        db.run(`INSERT INTO migration_batch_items
+          (batch_id,source_org,source_repo,target_repo,migration_id)
+          VALUES ('batch','acme','widget','widget','job')`);
+        db.run(`INSERT INTO events (migration_id,event_type,payload,created_at)
+          VALUES ('job','complete','{"sourceCounts":null}','2026-08-08T12:01:00Z')`);
       }
+      using db = new Database(path);
       migrateStore.applySchema(db);
-      for (const [id, , expected] of fixtures) {
-        expect(db.query("SELECT migration_log_url FROM migrations WHERE id = ?").get(id)).toEqual({
-          migration_log_url: expected,
-        });
-        expect(db.query("SELECT payload FROM events WHERE migration_id = ?").get(id)).toEqual({
-          payload: payload(expected ?? ""),
-        });
-      }
-      expect(
-        db.run("UPDATE migrations SET source_provider = 'bitbucket-server' WHERE id = 'checked'")
-          .changes,
-      ).toBe(1);
-      expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-      expect(
-        db.query("SELECT COUNT(*) AS count FROM events WHERE migration_id = 'checked'").get(),
-      ).toEqual({ count: 1 });
-      expect(
-        (db.query("PRAGMA index_list(migrations)").all() as Array<{ name: string }>).map(
-          (row) => row.name,
-        ),
-      ).toContain("idx_migrations_state");
-      db.close();
-
-      db = new Database(path);
-      expect(db.query("SELECT source_provider FROM migrations WHERE id = 'checked'").get()).toEqual(
-        { source_provider: "bitbucket-server" },
-      );
-      expect(
-        db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
-      ).toEqual({ version: 10 });
-      expect(
-        (db.query("PRAGMA table_info(migrations)").all() as Array<{ name: string }>).map(
-          (column) => column.name,
-        ),
-      ).toContain("source_export_id");
       expect(
         db
-          .query(
-            "SELECT target_profile_id, target_platform, target_api_url FROM migrations WHERE id = 'checked'",
-          )
+          .query(`SELECT owner_user_id, source_provider, source_export_id, github_migration_id,
+        target_profile_id, target_platform, target_api_url, source_counts, target_counts,
+        migration_log_url FROM migrations WHERE id='job'`)
           .get(),
       ).toEqual({
+        owner_user_id: "operator",
+        source_provider: "bitbucket-server",
+        source_export_id: "42",
+        github_migration_id: "RM_fixture",
         target_profile_id: "ghec",
         target_platform: "ghec",
         target_api_url: "https://api.github.com",
+        source_counts: null,
+        target_counts: '{"issues":5}',
+        migration_log_url: "https://github.com/migrations/log",
       });
-      db.close();
+      expect(db.query("SELECT payload FROM events WHERE migration_id='job'").get()).toEqual({
+        payload: '{"sourceCounts":null}',
+      });
+      expect(
+        db.query("SELECT migration_id FROM migration_batch_items WHERE batch_id='batch'").all(),
+      ).toEqual([{ migration_id: "job" }]);
+      expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(
+        db
+          .query(
+            "SELECT partial FROM pragma_index_list('migrations') WHERE name='idx_migrations_owner'",
+          )
+          .get(),
+      ).toEqual({ partial: 1 });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  test("rolls back the widening transaction when the replacement table cannot be created", () => {
-    const db = new Database(":memory:");
-    createCheckedMigrations(db);
-    insertMigration(db, "rollback");
-    db.run("CREATE TABLE migrations_next (id TEXT PRIMARY KEY)");
+  test.each([8, 9, 10])("rejects migrate version %i even with current tables", (version) => {
+    using db = new Database(":memory:");
+    migrateStore.applySchema(db);
+    insertMigration(db, "job");
+    db.run(`UPDATE migrations SET source_provider='gitlab', source_counts='{"issues":5}',
+      migration_log_url='https://github.com/migrations/log' WHERE id='job'`);
+    db.run("CREATE TABLE app_schema_versions (domain TEXT PRIMARY KEY, version INTEGER NOT NULL)");
+    db.run("INSERT INTO app_schema_versions VALUES ('migrate', ?)", [version]);
 
+    expect(() => migrateStore.applySchema(db)).toThrow(/fresh data directory/);
+    expect(
+      db.query("SELECT source_counts, migration_log_url FROM migrations WHERE id='job'").get(),
+    ).toEqual({
+      source_counts: '{"issues":5}',
+      migration_log_url: "https://github.com/migrations/log",
+    });
+  });
+
+  test("acquires the startup writer lock even when all tables already exist", () => {
+    const directory = mkdtempSync(join(tmpdir(), "migration-startup-lock-"));
+    try {
+      const path = join(directory, "migrate.db");
+      using writer = new Database(path, { create: true });
+      writer.run("PRAGMA journal_mode = WAL");
+      migrateStore.applySchema(writer);
+      using startup = new Database(path);
+      startup.run("PRAGMA busy_timeout = 0");
+      writer.run("BEGIN IMMEDIATE");
+      expect(() => migrateStore.applySchema(startup)).toThrow(/locked/);
+      writer.run("ROLLBACK");
+      migrateStore.applySchema(startup);
+      insertMigration(startup, "job");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("retries a failed schema initialization atomically", () => {
+    using db = new Database(":memory:");
+    db.run("CREATE TABLE idx_migrations_owner (id TEXT)");
     expect(() => migrateStore.applySchema(db)).toThrow();
-    expect(db.query("SELECT source_provider FROM migrations WHERE id = 'rollback'").get()).toEqual({
+    expect(db.query("SELECT name FROM sqlite_schema WHERE name='migrations'").get()).toBeNull();
+    db.run("DROP TABLE idx_migrations_owner");
+    migrateStore.applySchema(db);
+    insertMigration(db, "job");
+    expect(db.query("SELECT source_provider FROM migrations WHERE id='job'").get()).toEqual({
       source_provider: "github",
     });
-    expect(() =>
-      db.run("UPDATE migrations SET source_provider = 'bitbucket-server' WHERE id = 'rollback'"),
-    ).toThrow();
     expect(
-      db.query("SELECT version FROM app_schema_versions WHERE domain = 'migrate'").get(),
+      db.query("SELECT name FROM sqlite_schema WHERE name='app_schema_versions'").get(),
     ).toBeNull();
-    db.close();
+  });
+
+  test("enforces batch membership constraints on a fresh store", () => {
+    using db = new Database(":memory:");
+    db.run("PRAGMA foreign_keys = ON");
+    migrateStore.applySchema(db);
+    insertMigration(db, "first");
+    insertMigration(db, "second");
+    const add = db.prepare(`INSERT INTO migration_batch_items
+      (batch_id,source_org,source_repo,target_repo,migration_id) VALUES ('batch','acme',?,'widget',?)`);
+    add.run("widget", "first");
+    expect(() => add.run("WIDGET", "second")).toThrow();
+    expect(() => add.run("other", "first")).toThrow();
+    expect(() => add.run("other", "missing")).toThrow();
+    db.run("DELETE FROM migrations WHERE id='first'");
+    expect(db.query("SELECT migration_id FROM migration_batch_items").all()).toEqual([]);
   });
 });
 
