@@ -233,6 +233,14 @@ export function getProfileRun(id: string): ProfileRun | null {
   return row && isSourceProvider(row.source_provider) ? rowToRun(row) : null;
 }
 
+export function hasProfileHistory(): boolean {
+  return !!getDb()
+    .query(
+      `SELECT 1 FROM profile_runs WHERE source_provider IN (${SUPPORTED_PROVIDER_SQL}) LIMIT 1`,
+    )
+    .get();
+}
+
 export function listProfileRuns(limit = 50, offset = 0): ProfileRun[] {
   const rows = getDb()
     .prepare(

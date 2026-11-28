@@ -485,7 +485,7 @@ test("current pairs, not ownership, bound search, logs, counts and mixed-batch p
   ]);
   getDb().run("UPDATE migrations SET warnings_count='unreadable' WHERE id=?", [admin.id]);
   for (const view of [visibleBatch("bob", batchId, paging), visibleDashboard("bob", "", paging, 1)])
-    expect(view?.migrations).toMatchObject({ total: 1, totalPages: 1, data: [{ id }] });
+    expect(view?.migrations).toMatchObject({ total: 2, totalPages: 1, data: [{ id }] });
   getDb().run("DELETE FROM self_service_grants WHERE user_id='bob'");
   expect(getVisibleDetail("bob", admin.id)).toBeNull();
   expect(listVisibleJobs("bob")).toHaveLength(0);

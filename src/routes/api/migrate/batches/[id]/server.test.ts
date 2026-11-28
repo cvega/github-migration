@@ -66,11 +66,13 @@ describe("batch endpoint", () => {
     expect(getMigration("a")?.state).toBe("queued");
   });
 
-  test("paginates readable batch members across unreadable rows", async () => {
+  test("counts durable members and omits unreadable rows from their assigned page", async () => {
     for (const id of ["a", "b", "c"]) insertMigration(migration(id, "succeeded"));
     getDb().run("UPDATE migrations SET warnings_count='unreadable' WHERE id='a'");
-    const result = await (await GET(request("batch-one", "?page=2&limit=1"))).json();
-    expect(result.migrations).toMatchObject({ total: 2, totalPages: 2, data: [{ id: "c" }] });
+    const first = await (await GET(request("batch-one", "?page=1&limit=1"))).json();
+    expect(first.migrations).toMatchObject({ total: 3, totalPages: 3, data: [] });
+    const second = await (await GET(request("batch-one", "?page=2&limit=1"))).json();
+    expect(second.migrations).toMatchObject({ total: 3, totalPages: 3, data: [{ id: "b" }] });
   });
 
   test("cancels queued batch migrations", async () => {

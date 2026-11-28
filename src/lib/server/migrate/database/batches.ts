@@ -15,7 +15,6 @@ import {
   EXECUTABLE_PROVIDER_SQL,
   likePattern,
   MIGRATION_COLS,
-  paginateMigrationRows,
   rowsToMigrations,
   SEARCH_MATCH_CLAUSE,
 } from "./migrations";
@@ -141,15 +140,41 @@ export function getBatchMigrationsPaginated(
   batchId: string,
   params: PaginationParams,
 ): PaginatedResult<Migration> {
-  return paginateMigrationRows(
-    getDb()
-      .query<Record<string, unknown>, [string]>(
-        `SELECT ${MIGRATION_COLS} FROM migrations WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-     ORDER BY source_repo ASC, id ASC`,
-      )
-      .iterate(batchId),
-    params,
-  );
+  const { page, limit } = params;
+  const offset = (page - 1) * limit;
+  const { count: total } = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM migrations
+			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
+    )
+    .get(batchId) as { count: number };
+  const rows = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations
+			 WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+			 ORDER BY source_repo ASC, id ASC LIMIT ? OFFSET ?`,
+    )
+    .all(batchId, limit, offset) as Record<string, unknown>[];
+  return {
+    data: rowsToMigrations(rows),
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+export function getBatchItemKeys(batchId: string): Set<string> {
+  const keys = new Set<string>();
+  const rows = getDb()
+    .query<{ source_org: string; source_repo: string; target_repo: string }, [string]>(
+      `SELECT source_org, source_repo, target_repo FROM migrations
+     WHERE batch_id = ? AND source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
+    )
+    .iterate(batchId);
+  for (const row of rows)
+    keys.add(`${row.source_org}/${row.source_repo}\0${row.target_repo}`.toLowerCase());
+  return keys;
 }
 
 export function batchExists(batchId: string): boolean {

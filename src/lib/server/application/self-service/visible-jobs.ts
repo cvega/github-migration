@@ -9,11 +9,7 @@ import { getDb } from "$lib/server/core/db";
 import { getMigrationTargetProfile } from "$lib/server/core/targets";
 import { BATCH_AGG_COLS, rowToBatchListItem } from "$lib/server/migrate/database/batches";
 import { PAUSED_GITLAB_ROUTE_SQL } from "$lib/server/migrate/database/columns";
-import {
-  likePattern,
-  paginateMigrationRows,
-  rowsToMigrations,
-} from "$lib/server/migrate/database/migrations";
+import { likePattern, rowsToMigrations } from "$lib/server/migrate/database/migrations";
 import { listGrants } from "./grants";
 
 type Row = Record<string, unknown>;
@@ -81,10 +77,15 @@ export function visibleDashboard(
     OR target_org LIKE $q ESCAPE '\\' OR target_repo LIKE $q ESCAPE '\\'`;
   const query = { ...bindings, $q: likePattern(q) };
   const count = (sql: string) => db.query<{ n: number }, typeof query>(sql).get(query)!.n;
-  const migrations = paginateMigrationRows(
-    db
-      .query<Row, Bindings>(`${visible} SELECT * ${match} ORDER BY started_at DESC, id DESC`)
-      .iterate(query),
+  const migrations = paginate(
+    rowsToMigrations(
+      db
+        .query<Row, Bindings>(
+          `${visible} SELECT * ${match} ORDER BY started_at DESC, id DESC LIMIT $limit OFFSET $offset`,
+        )
+        .all({ ...query, $limit: params.limit, $offset: (params.page - 1) * params.limit }),
+    ),
+    count(`${visible} SELECT COUNT(*) AS n ${match}`),
     params,
   );
   const batchesFrom = ` FROM visible WHERE batch_id IN (SELECT batch_id ${match}) GROUP BY batch_id`;
@@ -121,10 +122,18 @@ export function visibleBatch(userId: string, id: string, params: PaginationParam
     .get(bindings);
   if (!row) return null;
   const summary = rowToBatchListItem(row);
-  const migrations = paginateMigrationRows(
-    db
-      .query<Row, Bindings>(`${visible} SELECT * ${from} ORDER BY source_repo, id`)
-      .iterate(bindings),
+  const migrations = paginate(
+    rowsToMigrations(
+      db
+        .query<Row, Bindings>(`${visible} SELECT * ${from}
+    ORDER BY source_repo, id LIMIT $limit OFFSET $offset`)
+        .all({
+          ...bindings,
+          $limit: params.limit,
+          $offset: (params.page - 1) * params.limit,
+        }),
+    ),
+    summary.totalCount,
     params,
   );
   return { summary, migrations };

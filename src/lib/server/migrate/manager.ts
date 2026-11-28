@@ -24,6 +24,7 @@ import { safeErrorReason } from "$lib/server/core/safe-error";
 import { getMigrationTargetProfile, requireMigrationTargetProfile } from "$lib/server/core/targets";
 import { getSourceProjectIdentity, getSourceProviderAdapter } from "$lib/source-provider";
 import {
+  getBatchItemKeys,
   getBatchListItem,
   getBatchMigrations,
   getBatchMigrationsPaginated,
@@ -461,11 +462,7 @@ export function startBatch(
     request.items ??
     request.repos?.map((sourceRepo) => ({ sourceRepo, targetRepo: undefined })) ??
     [];
-  const existingItems = new Set(
-    (getBatchSummary(batchId)?.migrations ?? []).map((migration) =>
-      `${migration.sourceOrg}/${migration.sourceRepo}\0${migration.targetRepo}`.toLowerCase(),
-    ),
-  );
+  const existingItems = getBatchItemKeys(batchId);
   for (const item of items) {
     const sourceRepo = item.sourceRepo.trim();
     if (!sourceRepo) continue;

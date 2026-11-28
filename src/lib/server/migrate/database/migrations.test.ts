@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   parsePersistedRequestOptions,
   tryParsePersistedRequestOptions,
@@ -12,6 +12,7 @@ import {
   getNextQueuedMigration,
   getRecoverableMigrations,
   getResumableSourceExportId,
+  hasMigrationHistory,
   insertMigration,
   likePattern,
   listMigrationsPaginated,
@@ -217,6 +218,24 @@ describe("migration database lifecycle", () => {
     expect(getResumableSourceExportId("recoverable")).toBe("42");
     expect(getRecoverableMigrations().map(({ id }) => id)).toEqual(["recoverable"]);
     expect(() => updateSourceExportCheckpoint("recoverable", "source_export", "0")).toThrow();
+  });
+
+  test("hydrates only the requested page of matching count snapshots", () => {
+    for (const id of ["a", "b", "c", "d"]) insertMigration(migration({ id, sourceCounts: counts }));
+    using parse = spyOn(JSON, "parse");
+    expect(hasMigrationHistory()).toBe(true);
+    expect(parse).not.toHaveBeenCalled();
+    for (const page of [
+      listMigrationsPaginated,
+      (params: { page: number; limit: number }) =>
+        searchMigrationsPaginated({ ...params, q: "widget" }),
+    ]) {
+      parse.mockClear();
+      const result = page({ page: 2, limit: 1 });
+      expect(result.total).toBe(4);
+      expect(result.data).toHaveLength(1);
+      expect(parse.mock.calls.filter(([text]) => text === JSON.stringify(counts))).toHaveLength(1);
+    }
   });
 
   test("paginates, escapes searches, and returns the oldest queued migration", () => {

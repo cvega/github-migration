@@ -299,20 +299,6 @@ export function rowsToMigrations(
   return Array.from(readableMigrations(rows, onUnreadable));
 }
 
-export function paginateMigrationRows(
-  rows: Iterable<StoredRow>,
-  { page, limit }: PaginationParams,
-): PaginatedResult<Migration> {
-  const offset = (page - 1) * limit;
-  const data: Migration[] = [];
-  let total = 0;
-  for (const migration of readableMigrations(rows)) {
-    if (total >= offset && data.length < limit) data.push(migration);
-    total++;
-  }
-  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
-}
-
 export function insertMigration(migration: Migration): void {
   assertMigrationSourceApiUrl(migration.sourceApiUrl, migration.sourceProvider);
   const targetProfileId = migration.targetProfileId || "ghec";
@@ -609,30 +595,61 @@ export function getOwnedMigration(ownerUserId: string, id: string): Migration | 
   return row ? rowToMigration(row) : null;
 }
 
+export function hasMigrationHistory(): boolean {
+  return !!getDb()
+    .query(`SELECT 1 FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) LIMIT 1`)
+    .get();
+}
+
 export function listMigrationsPaginated(params: PaginationParams): PaginatedResult<Migration> {
-  return paginateMigrationRows(
-    getDb()
-      .query<StoredRow, []>(
-        `SELECT ${MIGRATION_COLS} FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-     ORDER BY started_at DESC, id DESC`,
-      )
-      .iterate(),
-    params,
-  );
+  const offset = (params.page - 1) * params.limit;
+  const { count: total } = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM migrations
+			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})`,
+    )
+    .get() as { count: number };
+  const rows = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations
+			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
+			 ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`,
+    )
+    .all(params.limit, offset) as Record<string, unknown>[];
+  return {
+    data: rowsToMigrations(rows),
+    total,
+    page: params.page,
+    limit: params.limit,
+    totalPages: Math.ceil(total / params.limit),
+  };
 }
 
 export function searchMigrationsPaginated(
   params: PaginationParams & { q: string },
 ): PaginatedResult<Migration> {
-  return paginateMigrationRows(
-    getDb()
-      .query<StoredRow, { $q: string }>(
-        `SELECT ${MIGRATION_COLS} FROM migrations WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL})
-     AND ${SEARCH_MATCH_CLAUSE} ORDER BY started_at DESC, id DESC`,
-      )
-      .iterate({ $q: likePattern(params.q) }),
-    params,
-  );
+  const offset = (params.page - 1) * params.limit;
+  const like = likePattern(params.q);
+  const { count: total } = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS count FROM migrations
+			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) AND ${SEARCH_MATCH_CLAUSE}`,
+    )
+    .get({ $q: like }) as { count: number };
+  const rows = getDb()
+    .prepare(
+      `SELECT ${MIGRATION_COLS} FROM migrations
+			 WHERE source_provider IN (${EXECUTABLE_PROVIDER_SQL}) AND ${SEARCH_MATCH_CLAUSE}
+			 ORDER BY started_at DESC, id DESC LIMIT $limit OFFSET $offset`,
+    )
+    .all({ $q: like, $limit: params.limit, $offset: offset }) as Record<string, unknown>[];
+  return {
+    data: rowsToMigrations(rows),
+    total,
+    page: params.page,
+    limit: params.limit,
+    totalPages: Math.ceil(total / params.limit),
+  };
 }
 
 const UNRECONCILED_GHES_IMPORT = `SELECT m.id FROM migrations m
