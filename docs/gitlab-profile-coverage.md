@@ -13,7 +13,8 @@ The GitLab profile uses the server-configured GitLab personal access token
 projects under the selected namespace, up to 10,000 projects. It records
 project ID, path, name, visibility, archive state, default branch, last
 activity, six storage sizes when reported, and optional project metadata.
-**It does not collect native group-level metrics or settings.** The
+**It does not collect general native group-level metrics or settings.** Webhook
+dependency enrichment now inspects group hooks inside the selected namespace. The
 [namespace summary](../src/lib/server/profile/analysis/overview.ts) rolls up
 the captured projects, not the entire GitLab group.
 
@@ -27,6 +28,27 @@ and tag totals say nothing about protection rules, which are counted separately
 (see the protected branch and tag rules rows below). A GitLab project
 statistics `commit_count` is a separate observation and is not the source of
 the current Commits tile.
+
+Webhook enrichment enumerates `GET /projects/:id/hooks` and
+`GET /groups/:id/hooks`, including pages and retries in the shared profile
+request budget. It stores only counts and allowlisted enabled event categories,
+never destinations, header values, secrets, or raw hook payloads. Project hooks
+and inherited group hooks are reported separately, so zero project hooks do not
+hide a group-triggered deployment dependency. Group counts represent project-hook
+relationships, not distinct hooks across the profile. Only ancestors from the
+selected namespace through the project's immediate group are inspected; ancestors
+above that authorization boundary remain uninspected, even when the scoped count
+is exact. GitHub Enterprise Importer does not recreate either kind of webhook.
+
+Permission failures (`401`/`403`) are `unavailable / forbidden`; hidden or
+unlicensed endpoints (`404`, including Premium/Ultimate-only group hooks) are
+`unavailable / not-reported`, never zero. Collection continues for other scopes.
+Budget exhaustion preserves observed hooks as a lower bound, or records
+`unavailable / request-budget` before any evidence. Partial group access also
+preserves a lower bound and identifies the limiting reason in its scope. Event
+categories describe affirmative observations, not proof that other events are
+disabled. The Repository contents cards expose separate counts and observed
+project/group event categories.
 
 On this revision, no per-project statistics fallback is made. If the group
 listing omits `statistics` or returns `null`, the six stored sizes are

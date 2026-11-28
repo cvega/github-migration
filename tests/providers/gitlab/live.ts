@@ -41,6 +41,10 @@ export async function verifyGitLabContract(
     // Seeded projects have no CI file; the instance Auto DevOps default decides 0 or 1.
     const ci = metrics.ciConfiguration.observation;
     assert.ok(ci.kind === "exact" && (ci.value === 0 || ci.value === 1), `${path}: ciConfiguration`);
+    assert.deepEqual(metrics.projectWebhooks.observation.kind, "exact");
+    assert.equal(metrics.projectWebhooks.observation.value, 0);
+    // The Community Edition fixture has no licensed group hook API.
+    assert.deepEqual(metrics.groupWebhooks.observation.kind, "unavailable");
   }
 
   const paged = await discoverGitLabInventory(client, paginatedNamespace);

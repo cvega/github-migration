@@ -107,8 +107,9 @@ test.each(["gitlab", "bitbucket-server"] as const)(
     release.resolve();
     await finished.promise;
     expect(pending).toBe(0);
-    // Five GitLab collections, CI settings and two protection rule lists per project, plus one group rule list.
-    expect(attempts).toHaveLength(gitlab ? 17 : 2);
+    // Per project: five GitLab collections, CI settings, two protection rule lists and local
+    // webhooks; plus one group rule list and one namespace group-hook read both projects share.
+    expect(attempts).toHaveLength(gitlab ? 20 : 2);
     expect(attempts.some((path) => path.includes("/3/"))).toBe(false);
     expect(getProfileRun("old")).toMatchObject({ state: "failed", apiCalls: attempts.length });
     const replacement = Promise.withResolvers<void>();

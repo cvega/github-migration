@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import type { SourceNamespaceInventory } from "$lib/source/types";
 import { GitLabApiError, GitLabClient } from "./client";
 import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
@@ -277,6 +278,7 @@ describe("collectGitLabProfileEnrichment", () => {
       releases: jsonResponse([{}]),
       protected_branches: jsonResponse([{ name: "main" }]),
       protected_tags: jsonResponse([{ name: "v*" }]),
+      hooks: jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -284,6 +286,7 @@ describe("collectGitLabProfileEnrichment", () => {
       maxRetries: 0,
       fetch: async (input) => {
         const { pathname } = new URL(input.toString());
+        if (pathname === "/api/v4/groups/platform/hooks") return jsonResponse([]);
         if (pathname === "/api/v4/groups/platform/protected_branches") {
           return new Response(null, { status: 404 });
         }
@@ -483,7 +486,7 @@ describe("GitLab profile request budget", () => {
     const observations = enrichment.projects.flatMap((project) =>
       Object.values(project.metrics).map((metric) => metric.observation),
     );
-    expect(observations).toHaveLength(40);
+    expect(observations).toHaveLength(4 * GITLAB_PROFILE_METRIC_KEYS.length);
     expect(
       observations.some((o) => o.kind === "unavailable" && o.reason === "request-budget"),
     ).toBe(true);
@@ -515,20 +518,7 @@ describe("GitLab profile request budget", () => {
     expect(requests).toEqual([]);
     expect(enrichment.projects).toHaveLength(2);
     for (const { metrics } of enrichment.projects) {
-      expect(Object.keys(metrics).sort()).toEqual(
-        [
-          "branches",
-          "ciConfiguration",
-          "commits",
-          "inheritedProtectedBranches",
-          "issues",
-          "mergeRequests",
-          "protectedBranches",
-          "protectedTags",
-          "releases",
-          "tags",
-        ].sort(),
-      );
+      expect(Object.keys(metrics).sort()).toEqual([...GITLAB_PROFILE_METRIC_KEYS].sort());
       for (const metric of Object.values(metrics)) {
         expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
         expect(metric.collectedAt).toBe("2026-08-10T12:00:00.000Z");

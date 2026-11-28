@@ -25,6 +25,8 @@ describe("GitLab profile metric registry", () => {
       "protectedBranches",
       "inheritedProtectedBranches",
       "protectedTags",
+      "projectWebhooks",
+      "groupWebhooks",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
@@ -46,11 +48,20 @@ describe("GitLab profile metric registry", () => {
       ["protectedBranches", "Branch protection rules"],
       ["inheritedProtectedBranches", "Inherited branch rules"],
       ["protectedTags", "Tag protection rules"],
+      ["projectWebhooks", "Project webhooks"],
+      ["groupWebhooks", "Group hooks"],
     ]);
   });
 
   test("keeps the stored enrichment schema in step with the registry keys", () => {
-    const metrics = Object.fromEntries(GITLAB_PROFILE_METRICS.map(({ key }) => [key, metric]));
+    const metrics = Object.fromEntries(
+      GITLAB_PROFILE_METRICS.map(({ key }) => [
+        key,
+        key === "projectWebhooks" || key === "groupWebhooks"
+          ? { ...metric, eventCategories: [] }
+          : metric,
+      ]),
+    );
     const enrichment = (projectMetrics: unknown) => ({
       version: 2,
       provider: "gitlab",
@@ -62,5 +73,21 @@ describe("GitLab profile metric registry", () => {
     const { issues: _issues, ...missing } = metrics;
     expect(() => parseGitLabProfileEnrichment(enrichment(missing))).toThrow();
     expect(() => parseGitLabProfileEnrichment(enrichment({ ...metrics, extra: metric }))).toThrow();
+    expect(() =>
+      parseGitLabProfileEnrichment(
+        enrichment({
+          ...metrics,
+          projectWebhooks: { ...metric, eventCategories: ["destination"] },
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      parseGitLabProfileEnrichment(
+        enrichment({
+          ...metrics,
+          groupWebhooks: { ...metric, eventCategories: [], url: "discard-destination" },
+        }),
+      ),
+    ).toThrow();
   });
 });

@@ -1,4 +1,5 @@
 import type { GitLabMetricKey } from "$lib/source/gitlab-metrics";
+import type { GitLabWebhookEventCategory } from "$lib/source/gitlab-webhooks";
 
 export const SOURCE_PROVIDERS = ["github", "gitlab", "bitbucket-server"] as const;
 
@@ -116,7 +117,14 @@ export interface ProfileNumericMetric {
   observation: ProfileNumericObservation;
 }
 
-export type GitLabProjectMetrics = Record<GitLabMetricKey, ProfileNumericMetric>;
+export interface GitLabWebhookMetric extends ProfileNumericMetric {
+  eventCategories: GitLabWebhookEventCategory[];
+}
+
+export type GitLabProjectMetrics = Record<GitLabMetricKey, ProfileNumericMetric> & {
+  projectWebhooks: GitLabWebhookMetric;
+  groupWebhooks: GitLabWebhookMetric;
+};
 
 export interface GitLabProfileEnrichment {
   version: 2;

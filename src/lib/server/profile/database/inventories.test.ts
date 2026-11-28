@@ -243,6 +243,8 @@ describe("profile source inventories", () => {
             protectedBranches: exact,
             inheritedProtectedBranches: metric("not-reported"),
             protectedTags: metric("forbidden"),
+            projectWebhooks: { ...exact, eventCategories: ["push"] },
+            groupWebhooks: { ...metric("unsupported"), eventCategories: [] },
           },
         },
       ],
@@ -254,6 +256,10 @@ describe("profile source inventories", () => {
       releases: { kind: "unavailable", reason: "malformed" },
       inheritedProtectedBranches: { kind: "unavailable", reason: "not-reported" },
       protectedTags: { kind: "unavailable", reason: "forbidden" },
+    });
+    expect(getProfileInventorySummary("run")?.webhookEvents).toEqual({
+      projectWebhooks: ["push"],
+      groupWebhooks: [],
     });
 
     const provider = "bitbucket-server";
