@@ -520,6 +520,7 @@ const gitLabSummary = {
     ciVariables: { kind: "exact", value: 6 },
     approvalRules: { kind: "at-least", value: 3 },
     mirrors: { kind: "exact", value: 2 },
+    packageVersions: { kind: "at-least", value: 7 },
   },
   approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },
   pullMirrorProjects: { kind: "at-least", value: 1 },

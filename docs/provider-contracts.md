@@ -149,6 +149,24 @@ or provider error text. The profile reports enabled push mirrors and the number
 of projects with enabled pull mirroring separately; required mirrors must be
 reconfigured before cutover.
 
+Package version inventory paginates `GET /projects/:id/packages` for each
+selected project with `status=default`. Counts represent visible package entries
+by ecosystem, not unique names, files, downloads, or byte totals. Hidden,
+processing, error, pending-destruction, and deprecated entries are outside this
+filter. Selected projects may include subgroups discovered within the authorized
+namespace; collection never calls the optional group-wide packages endpoint or
+widens the selected project scope. Package files are not downloaded, and package
+names, versions, URLs, and raw responses are not stored. Only aggregate counts
+for known ecosystems (and an `other` bucket for unknown types) are retained.
+HTTP 401/403 is `forbidden`; 404, including a hidden, disabled or tier-unavailable
+registry endpoint, is `not-reported`, not an empty registry. Collection continues
+for the other projects. The shared request budget includes all package pages and
+retries: interrupted counts and their ecosystem breakdown remain lower bounds,
+while no evidence is unavailable with a null breakdown. Only a completed empty
+list establishes zero; an absent ecosystem in an incomplete breakdown does not.
+Packages need separate publishing and consumer reconfiguration after migration;
+the project export does not supply these package versions.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

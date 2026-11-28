@@ -11,6 +11,7 @@ import issuesCollector from "./issues.collector";
 import membersCollector from "./members.collector";
 import mergeRequestsCollector from "./merge-requests.collector";
 import mirrorsCollector from "./mirrors.collector";
+import packageVersionsCollector from "./package-versions.collector";
 import projectWebhooksCollector from "./project-webhooks.collector";
 import protectedBranchesCollector from "./protected-branches.collector";
 import protectedTagsCollector from "./protected-tags.collector";
@@ -29,6 +30,7 @@ export const GITLAB_METRIC_COLLECTORS = [
   membersCollector,
   mergeRequestsCollector,
   mirrorsCollector,
+  packageVersionsCollector,
   projectWebhooksCollector,
   protectedBranchesCollector,
   protectedTagsCollector,

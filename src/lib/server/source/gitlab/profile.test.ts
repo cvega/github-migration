@@ -281,6 +281,7 @@ describe("collectGitLabProfileEnrichment", () => {
       "members/all": jsonResponse([]),
       remote_mirrors: jsonResponse([]),
       "mirror/pull": jsonResponse({ enabled: false }),
+      packages: jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",

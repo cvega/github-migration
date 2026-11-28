@@ -11,6 +11,7 @@ import issuesMetric from "./issues.metric";
 import membersMetric from "./members.metric";
 import mergeRequestsMetric from "./merge-requests.metric";
 import mirrorsMetric from "./mirrors.metric";
+import packageVersionsMetric from "./package-versions.metric";
 import projectWebhooksMetric from "./project-webhooks.metric";
 import protectedBranchesMetric from "./protected-branches.metric";
 import protectedTagsMetric from "./protected-tags.metric";
@@ -29,6 +30,7 @@ export const GITLAB_METRIC_DESCRIPTORS = [
   membersMetric,
   mergeRequestsMetric,
   mirrorsMetric,
+  packageVersionsMetric,
   projectWebhooksMetric,
   protectedBranchesMetric,
   protectedTagsMetric,
