@@ -34,6 +34,7 @@ const BITBUCKET_PROFILE_METRIC_KEYS = [
 export interface ProfileInventorySummary {
   approvalPolicy?: GitLabApprovalPolicy;
   membershipScopes?: GitLabMembershipScope[];
+  pullMirrorProjects?: NumericObservation;
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
@@ -91,6 +92,7 @@ const profileInventorySummarySchema = z
     projectCount: numericObservationSchema,
     approvalPolicy: gitLabApprovalPolicySchema.optional(),
     membershipScopes: z.array(gitLabMembershipScopeSchema).max(20_000).optional(),
+    pullMirrorProjects: numericObservationSchema.optional(),
     webhookEvents: z
       .object({
         projectWebhooks: gitLabWebhookEventCategoriesSchema,
@@ -216,6 +218,18 @@ export function summarizeGitLabEnrichment(
         ),
       ).values(),
     ],
+    pullMirrorProjects: sumObservations(
+      enrichment.projects.map(
+        ({
+          metrics: {
+            mirrors: { pullMirror },
+          },
+        }) =>
+          pullMirror.kind === "unavailable"
+            ? pullMirror
+            : { kind: "exact", value: Number(pullMirror.kind === "enabled") },
+      ),
+    ),
     webhookEvents: {
       projectWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
         enrichment.projects.some(({ metrics }) =>

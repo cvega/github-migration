@@ -99,6 +99,8 @@ for (const width of [1280, 768, 390]) {
 		await expect(contents.getByText("Group hooks", { exact: true }).locator("..").getByText("At least 2", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Project CI/CD variables", { exact: true }).locator("..").getByText("6", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Approval rules", { exact: true }).locator("..").getByText("At least 3", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Enabled push mirrors", { exact: true }).locator("..").getByText("2", { exact: true })).toBeVisible();
+		await expect(contents.getByText(/Projects with an enabled pull mirror: At least 1/)).toBeVisible();
 		await expect(contents.getByText(/Some rules specifically target protected branches/)).toContainText(
 			"Recreate approval rules on GitHub; imported review history does not enforce them.",
 		);

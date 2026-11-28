@@ -373,6 +373,36 @@ describe("summarizeGitLabEnrichment", () => {
     });
   });
 
+  test("rolls up enabled pull projects independently of push mirror counts", () => {
+    const { mirrors } = gitLabMetricFixtures();
+    const discovered = inventory();
+    const summarize = (left: typeof mirrors.pullMirror, right: typeof mirrors.pullMirror) =>
+      summarizeGitLabEnrichment(summarizeProfileInventory(discovered), {
+        version: 2,
+        provider: "gitlab",
+        sourceApiUrl: discovered.sourceApiUrl,
+        namespace: discovered.namespace,
+        projects: discovered.projects.map(({ sourceId, path }, index) => ({
+          sourceId,
+          path,
+          metrics: gitLabMetricFixtures({
+            mirrors: { ...mirrors, pullMirror: index === 0 ? left : right },
+          }),
+        })),
+      });
+
+    const unavailable = { kind: "unavailable", reason: "forbidden" } as const;
+    expect(summarize({ kind: "enabled" }, unavailable)).toMatchObject({
+      metrics: { mirrors: { kind: "exact", value: 0 } },
+      pullMirrorProjects: { kind: "at-least", value: 1 },
+    });
+    expect(summarize(unavailable, unavailable).pullMirrorProjects).toEqual(unavailable);
+    expect(summarize({ kind: "disabled" }, { kind: "not-mirrored" }).pullMirrorProjects).toEqual({
+      kind: "exact",
+      value: 0,
+    });
+  });
+
   test("keeps known issue counts as a lower bound when one project is unavailable", () => {
     const exact = {
       provider: "gitlab" as const,

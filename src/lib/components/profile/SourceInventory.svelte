@@ -141,6 +141,12 @@
 						</div>
 					{/each}
 				</div>
+				{#if summary.pullMirrorProjects && summary.projectsCaptured > 0}
+					<p class="mt-3 text-[13px] text-[var(--workbench-text-muted)]">
+						Projects with an enabled pull mirror: {formatObservation(summary.pullMirrorProjects)}.
+						Reconfigure required mirrors before cutover; mirror settings do not migrate.
+					</p>
+				{/if}
 				{#if summary.approvalPolicy && summary.projectsCaptured > 0}
 					{@const policy = summary.approvalPolicy}
 					<p class="mt-3 text-[13px] text-[var(--workbench-text-muted)]">
