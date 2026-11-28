@@ -34,7 +34,7 @@ interface CiMetricOptions {
 
 type CiProject = Pick<SourceProjectInventory, "sourceId" | "defaultBranch" | "providerDetails">;
 
-type LocalFile = "found" | "absent" | "forbidden" | "request-budget";
+type LocalFile = "found" | "absent" | "forbidden" | "not-found-or-hidden" | "request-budget";
 
 function metric(observation: ProfileNumericObservation, nowMs: number): ProfileNumericMetric {
   return parseProfileNumericMetric({
@@ -79,25 +79,46 @@ function isSafeLocalPath(path: string): boolean {
   );
 }
 
+function probeFailure(error: unknown): Exclude<LocalFile, "found" | "absent"> {
+  if (error instanceof GitLabRequestBudgetError) return "request-budget";
+  if (!(error instanceof GitLabApiError)) throw error;
+  if (error.status === 404) return "not-found-or-hidden";
+  if (error.status === 401 || error.status === 403) return "forbidden";
+  throw error;
+}
+
+/**
+ * A file 404 is also how GitLab answers when the repository is hidden from the
+ * caller, so absence counts only after the default branch is confirmed readable.
+ */
 async function probeLocalFile(
   client: GitLabClient,
   projectId: string,
   path: string,
+  defaultBranch: string,
   options: CiMetricOptions,
 ): Promise<LocalFile> {
+  const requestOptions = { signal: options.signal, apiCallCeiling: options.apiCallCeiling };
   try {
     await client.head(
       `/projects/${projectId}/repository/files/${encodeURIComponent(path)}`,
       { ref: "HEAD" },
-      { signal: options.signal, apiCallCeiling: options.apiCallCeiling },
+      requestOptions,
     );
     return "found";
   } catch (error) {
-    if (error instanceof GitLabRequestBudgetError) return "request-budget";
-    if (!(error instanceof GitLabApiError)) throw error;
-    if (error.status === 404) return "absent";
-    if (error.status === 401 || error.status === 403) return "forbidden";
-    throw error;
+    const failure = probeFailure(error);
+    if (failure !== "not-found-or-hidden") return failure;
+  }
+  try {
+    await client.head(
+      `/projects/${projectId}/repository/branches/${encodeURIComponent(defaultBranch)}`,
+      {},
+      requestOptions,
+    );
+    return "absent";
+  } catch (error) {
+    return probeFailure(error);
   }
 }
 
@@ -160,10 +181,18 @@ export async function collectGitLabCiConfigurationMetric(
 
   const emptyRepository =
     project.providerDetails?.provider === "gitlab" && project.providerDetails.emptyRepository;
-  const localFile: LocalFile =
-    emptyRepository || !project.defaultBranch
-      ? "absent"
-      : await probeLocalFile(client, projectId, customPath ?? DEFAULT_CI_CONFIG_PATH, options);
+  const localFile: LocalFile = emptyRepository
+    ? "absent"
+    : project.defaultBranch
+      ? await probeLocalFile(
+          client,
+          projectId,
+          customPath ?? DEFAULT_CI_CONFIG_PATH,
+          project.defaultBranch,
+          options,
+        )
+      : // Without a default branch on a non-empty repository, absence is unprovable.
+        "not-found-or-hidden";
 
   if (localFile === "found") {
     return metric(

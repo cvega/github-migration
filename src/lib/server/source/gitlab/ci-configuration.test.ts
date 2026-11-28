@@ -118,12 +118,58 @@ describe("collectGitLabCiConfigurationMetric", () => {
       // Below Maintainer, or where the setting isn't exposed, GitLab omits the field.
       [undefined, unavailable("not-reported")],
     ] as const) {
-      const { client } = gitlab([
+      const { client, requests } = gitlab([
         settings({ ci_config_path: "", auto_devops_enabled: autoDevOps }),
         status(404),
+        status(204),
       ]);
       expect(await collect(client)).toEqual(expected);
+      expect(requests.map(({ method, url }) => `${method} ${url.pathname}`)).toEqual([
+        "GET /api/v4/projects/42",
+        "HEAD /api/v4/projects/42/repository/files/.gitlab-ci.yml",
+        "HEAD /api/v4/projects/42/repository/branches/main",
+      ]);
     }
+  });
+
+  test("does not treat a file 404 as absence when the repository may be hidden", async () => {
+    for (const code of [401, 403, 404]) {
+      const { client, requests } = gitlab([
+        settings({ ci_config_path: null, auto_devops_enabled: false }),
+        status(404),
+        status(code),
+      ]);
+      expect(await collect(client)).toEqual(
+        unavailable(code === 404 ? "not-found-or-hidden" : "forbidden"),
+      );
+      expect(requests).toHaveLength(3);
+    }
+  });
+
+  test("keeps enabled Auto DevOps evidence when absence cannot be confirmed", async () => {
+    const { client } = gitlab([
+      settings({ ci_config_path: null, auto_devops_enabled: true }),
+      status(404),
+      status(404),
+    ]);
+    expect(await collect(client)).toEqual(
+      found(GITLAB_CI_CONFIGURATION_SCOPES.autoDevOpsUnreadFile),
+    );
+  });
+
+  test("does not infer absence from a missing default branch on a non-empty repository", async () => {
+    const { client, requests } = gitlab([
+      settings({ ci_config_path: null, auto_devops_enabled: false }),
+    ]);
+
+    const metric = await collectGitLabCiConfigurationMetric(
+      client,
+      { sourceId: "42", defaultBranch: null, providerDetails: { provider: "gitlab" } },
+      { nowMs: NOW },
+    );
+
+    expect(metric.observation).toEqual(unavailable("not-found-or-hidden"));
+    expect(requests).toHaveLength(1);
   });
 
   test("records disabled CI/CD without probing the repository", async () => {
@@ -220,6 +266,15 @@ describe("collectGitLabCiConfigurationMetric", () => {
         scope: GITLAB_CI_CONFIGURATION_SCOPES.autoDevOpsUnreadFile,
       });
       expect(requests).toHaveLength(1);
+    });
+
+    test("does not record absence when the confirming request is refused", async () => {
+      const { client, requests } = gitlab([
+        settings({ ci_config_path: null, auto_devops_enabled: false }),
+        status(404),
+      ]);
+      expect(await collect(client, { apiCallCeiling: 2 })).toEqual(unavailable("request-budget"));
+      expect(requests).toHaveLength(2);
     });
 
     test("counts retries toward the budget", async () => {

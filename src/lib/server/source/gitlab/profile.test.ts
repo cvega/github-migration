@@ -614,6 +614,34 @@ describe("GitLab profile request budget", () => {
     expect((failure as GitLabApiError).status).toBe(401);
   });
 
+  test("records a 401 from the optional CI probe while required metrics still succeed", async () => {
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "secret-token",
+      maxRetries: 0,
+      fetch: async (input) => {
+        const { pathname } = new URL(input.toString());
+        if (pathname.endsWith("/projects/1")) return new Response(null, { status: 401 });
+        if (pathname.endsWith("/sequence")) return jsonResponse({ count: 4 });
+        if (pathname.endsWith("/repository/branches/main")) {
+          return jsonResponse({ commit: { id: "abc123" } });
+        }
+        return jsonResponse([], { "X-Total": "0" });
+      },
+    });
+
+    const enrichment = await collectGitLabProfileEnrichment(client, budgetInventory(1), {
+      requestBudget: 50,
+    });
+
+    const metrics = enrichment.projects[0]?.metrics;
+    expect(metrics?.ciConfiguration.observation).toMatchObject({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+    expect(metrics?.commits.observation).toMatchObject({ kind: "exact", value: 4 });
+  });
+
   test("does not turn cancellation into an exhausted budget", async () => {
     const { client, requests } = flakyGitLab();
     const controller = new AbortController();
