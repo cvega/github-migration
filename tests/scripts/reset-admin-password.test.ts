@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyPassword } from "../../src/lib/server/core/auth/passwords";
@@ -47,9 +47,11 @@ test("the password reset CLI records only the target and CLI source", async () =
   }
 });
 
-test("resetting an administrator requires an existing dashboard database", () => {
+test.each(["missing", "zero-byte"])("reset leaves a %s dashboard database untouched", (fixture) => {
   const directory = mkdtempSync(join(tmpdir(), "admin-reset-empty-"));
   try {
+    const path = join(directory, "gh-migrate.db");
+    if (fixture === "zero-byte") writeFileSync(path, "");
     const script = new URL("../../scripts/auth/reset-admin-password.ts", import.meta.url);
     const result = Bun.spawnSync(
       [process.execPath, script.pathname, "--username", "fixture-admin"],
@@ -58,7 +60,12 @@ test("resetting an administrator requires an existing dashboard database", () =>
       },
     );
     expect(result.exitCode).not.toBe(0);
-    expect(existsSync(join(directory, "gh-migrate.db"))).toBe(false);
+    if (fixture === "zero-byte") {
+      expect(statSync(path).size).toBe(0);
+      expect(result.stderr.toString()).toContain("Start with a fresh data directory");
+    } else {
+      expect(existsSync(path)).toBe(false);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

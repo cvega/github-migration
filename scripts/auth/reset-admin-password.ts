@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { recordAuditEvent } from "../../src/lib/server/core/auth/audit";
 import { findUserByUsername, resetUserPassword } from "../../src/lib/server/core/auth/users";
-import { initializeSchema } from "../../src/lib/server/core/db";
+import { validateSchema } from "../../src/lib/server/core/db";
 import { acquireInstanceLock } from "../../src/lib/server/core/instance-lock";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 
@@ -16,18 +16,18 @@ if (!username) {
 
 const dataDirectory = process.env.DATA_DIR || "./data";
 const lock = acquireInstanceLock(dataDirectory);
-const database = new Database(join(dataDirectory, "gh-migrate.db"), {
-  readwrite: true,
-  create: false,
-});
 try {
+  using database = new Database(join(dataDirectory, "gh-migrate.db"), {
+    readwrite: true,
+    create: false,
+  });
   database.run("PRAGMA foreign_keys = ON");
-  initializeSchema(database, DOMAIN_STORES);
+  database.run("BEGIN IMMEDIATE");
+  validateSchema(database, DOMAIN_STORES);
   const user = findUserByUsername(username, database);
   if (user?.role !== "admin" || !user.isActive) {
     throw new Error(`Active administrator '${username}' was not found.`);
   }
-  database.run("BEGIN IMMEDIATE");
   const temporaryPassword = await resetUserPassword(user.id, database);
   recordAuditEvent(
     {
@@ -42,6 +42,5 @@ try {
   console.log(`Temporary password for ${user.username}: ${temporaryPassword}`);
   console.log("The administrator must change this password after signing in.");
 } finally {
-  database.close();
   lock.release();
 }

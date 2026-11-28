@@ -24,15 +24,42 @@ export const VERSION_TABLE = {
   notes: "Startup requires exactly the current auth, migrate, and profile baselines",
 } as const;
 
+export function validateSchema(database: Database, domains: readonly DomainStore[]): void {
+  const tables = new Set(
+    database
+      .query<{ name: string }, []>("SELECT name FROM sqlite_schema WHERE type = 'table'")
+      .all()
+      .map((row) => row.name),
+  );
+  const incompatible = "Unsupported database schema. Start with a fresh data directory.";
+  if (!tables.has(VERSION_TABLE.name)) throw new Error(incompatible);
+  let rows: { domain: string; version: number }[];
+  try {
+    rows = database
+      .query<{ domain: string; version: number }, []>(
+        "SELECT domain, version FROM app_schema_versions",
+      )
+      .all();
+  } catch (cause) {
+    throw new Error(incompatible, { cause });
+  }
+  if (
+    rows.length !== domains.length ||
+    !domains.every(
+      (store) =>
+        rows.some((row) => row.domain === store.domain && row.version === store.version) &&
+        store.tables.every((table) => tables.has(table.name)),
+    )
+  )
+    throw new Error(incompatible);
+}
+
 export function initializeSchema(database: Database, domains: readonly DomainStore[]): void {
   database
     .transaction(() => {
-      const objects = database
-        .query<{ name: string; type: string }, []>(
-          "SELECT name, type FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
-        )
-        .all();
-      if (objects.length === 0) {
+      if (
+        !database.query("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
+      ) {
         database.run(
           "CREATE TABLE IF NOT EXISTS app_schema_versions (domain TEXT PRIMARY KEY NOT NULL, version INTEGER NOT NULL)",
         );
@@ -46,28 +73,7 @@ export function initializeSchema(database: Database, domains: readonly DomainSto
         return;
       }
 
-      const tables = new Set(objects.filter((row) => row.type === "table").map((row) => row.name));
-      const incompatible = "Unsupported database schema. Start with a fresh data directory.";
-      if (!tables.has(VERSION_TABLE.name)) throw new Error(incompatible);
-      let rows: { domain: string; version: number }[];
-      try {
-        rows = database
-          .query<{ domain: string; version: number }, []>(
-            "SELECT domain, version FROM app_schema_versions",
-          )
-          .all();
-      } catch (cause) {
-        throw new Error(incompatible, { cause });
-      }
-      if (
-        rows.length !== domains.length ||
-        !domains.every(
-          (store) =>
-            rows.some((row) => row.domain === store.domain && row.version === store.version) &&
-            store.tables.every((table) => tables.has(table.name)),
-        )
-      )
-        throw new Error(incompatible);
+      validateSchema(database, domains);
     })
     .immediate();
 }
@@ -75,7 +81,7 @@ export function initializeSchema(database: Database, domains: readonly DomainSto
 export function initStore(
   dbPath: string,
   domains: readonly DomainStore[],
-  options = { runStartupHooks: true },
+  { runStartupHooks = true }: { runStartupHooks?: boolean } = {},
 ): void {
   mkdirSync(dirname(dbPath), { recursive: true });
   const database = new Database(dbPath, { create: true });
@@ -84,12 +90,16 @@ export function initStore(
     database.run("PRAGMA foreign_keys = ON");
     initializeSchema(database, domains);
     database.run("PRAGMA journal_mode = WAL");
-    if (options.runStartupHooks) {
+    if (runStartupHooks) {
       for (const domain of domains) domain.onInit?.(database);
     }
     db = database;
   } catch (error) {
-    database.close();
+    try {
+      if (database.inTransaction) database.run("ROLLBACK");
+    } finally {
+      database.close();
+    }
     throw error;
   }
 }

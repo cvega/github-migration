@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +49,66 @@ describe("database lifecycle", () => {
 
     expect(calls).toEqual(["schema-a", "schema-b", "init-a", "init-b"]);
     expect(getDb().query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+  });
+
+  test("rolls back every fresh schema and baseline when a later domain fails", () => {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-db-"));
+    const path = join(directory, "store.sqlite");
+    closeStore();
+    expect(() =>
+      initStore(path, [
+        {
+          domain: "first",
+          version: 1,
+          tables: [],
+          applySchema(database) {
+            database.run("CREATE TABLE first_table (id INTEGER)");
+          },
+        },
+        {
+          domain: "second",
+          version: 1,
+          tables: [],
+          applySchema() {
+            throw new Error("DDL failed");
+          },
+        },
+      ]),
+    ).toThrow("DDL failed");
+    expect(() => getDb()).toThrow("Store not initialized");
+    using reopened = new Database(path);
+    expect(reopened.query("SELECT name FROM sqlite_schema").all()).toEqual([]);
+    initStore(path, []);
+    checkStoreReady();
+  });
+
+  test("a failed startup hook releases its connection and preserves the active handle", () => {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-db-"));
+    initStore(":memory:", []);
+    const active = getDb();
+    const path = join(directory, "store.sqlite");
+    expect(() =>
+      initStore(
+        path,
+        [
+          {
+            domain: "fixture",
+            version: 1,
+            tables: [],
+            applySchema() {},
+            onInit(database) {
+              database.run("BEGIN IMMEDIATE");
+              throw new Error("startup failed");
+            },
+          },
+        ],
+        {},
+      ),
+    ).toThrow("startup failed");
+    expect(getDb()).toBe(active);
+    using reopened = new Database(path);
+    reopened.run("BEGIN IMMEDIATE");
+    reopened.run("ROLLBACK");
   });
 
   test("checks write readiness without persisting the probe table", () => {
