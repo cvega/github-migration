@@ -362,6 +362,72 @@ describe("GitLabClient", () => {
     expect(completed).toEqual([]);
   });
 
+  test.each([
+    { collection: "repository/tags", lastPage: "0" },
+    { collection: "releases", lastPage: "1" },
+  ])("accepts GitLab's empty $collection pagination", async ({ collection, lastPage }) => {
+    const path = `/projects/1/${collection}`;
+    const response = (perPage: number) =>
+      jsonResponse([], {
+        headers: {
+          "X-Page": "1",
+          "X-Per-Page": String(perPage),
+          "X-Prev-Page": "",
+          "X-Next-Page": "",
+          "X-Total": "0",
+          "X-Total-Pages": lastPage,
+          Link: `<https://gitlab.com/api/v4${path}?page=${lastPage}&per_page=${perPage}>; rel="last"`,
+        },
+      });
+    const count = new GitLabClient({
+      baseUrl: "https://gitlab.com",
+      token: "token",
+      fetch: mockFetch([response(1)]).fetch,
+    });
+    const { fetch, calls } = mockFetch([response(100)]);
+    const traversal = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+
+    const completed: [number | null, number][] = [];
+    const pages = traversal.paginatePages(
+      path,
+      {},
+      {
+        onPaginationComplete: (total, itemsRead) => completed.push([total, itemsRead]),
+      },
+    );
+    const results = await Promise.allSettled([count.count(path), pages.next()]);
+    expect(results).toEqual([
+      { status: "fulfilled", value: { kind: "exact", value: 0, basis: "reported" } },
+      { status: "fulfilled", value: { done: false, value: [] } },
+    ]);
+    expect((await pages.next()).done).toBe(true);
+    expect(completed).toEqual([[0, 0]]);
+    expect(calls).toHaveLength(1);
+  });
+
+  test.each<{ data: unknown[]; headers: Record<string, string> }>([
+    { data: [{}], headers: { "X-Total": "1", Link: '<?page=0>; rel="last"' } },
+    { data: [], headers: { "X-Total": "1", Link: '<?page=1>; rel="last"' } },
+    { data: [], headers: { "X-Total": "0", "X-Total-Pages": "2" } },
+    { data: [], headers: { "X-Total": "0", "X-Total-Pages": "invalid" } },
+    { data: [], headers: { "X-Total": "0", Link: '<?page=2>; rel="last"' } },
+    { data: [], headers: { "X-Total": "0", "X-Total-Pages": "1", "X-Next-Page": "2" } },
+    { data: [], headers: { "X-Total": "0", Link: '<?page=2>; rel="next"' } },
+    { data: [], headers: { "X-Total": "0", Link: '<?page=0>; rel="prev last"' } },
+    { data: [], headers: { Link: '<?page=0>; rel="last"' } },
+  ])("rejects contradictory empty-collection evidence (%j)", async ({ data, headers }) => {
+    const { fetch } = mockFetch([jsonResponse(data, { headers }), jsonResponse(data, { headers })]);
+    const client = new GitLabClient({ baseUrl: "https://gitlab.com", token: "token", fetch });
+
+    expect(await client.count("/projects/1/repository/tags")).toEqual({
+      kind: "unavailable",
+      reason: "malformed",
+    });
+    await expect(client.paginate("/projects/1/repository/tags")).rejects.toBeInstanceOf(
+      GitLabApiError,
+    );
+  });
+
   test("accepts a reconciled zero total and page count", async () => {
     const { fetch } = mockFetch([
       jsonResponse([], { headers: { "X-Total": "0", "X-Total-Pages": "0", "X-Next-Page": "" } }),
