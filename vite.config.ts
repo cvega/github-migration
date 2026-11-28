@@ -28,6 +28,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: {
     alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },
   },
+  envDir: process.env.PLAYWRIGHT_TEST ? false : undefined,
   build: {
     // @primer/octicons bundles all icon SVGs (~900kB); not tree-shakeable.
     chunkSizeWarningLimit: 1000,

@@ -8,7 +8,7 @@
     "auth:reset": "bun scripts/auth/reset-admin-password.ts",
     "build": "bun scripts/packaging/build.ts",
     "check": "bunx --bun svelte-kit sync && bunx --bun svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
-    "dev": "bunx --bun vite dev",
+    "dev": "bun --env-file=.env run --bun vite dev",
     "docs:check": "bun scripts/docs/semantic-docs.ts --check && bun scripts/docs/docs-check.ts",
     "docs:sync": "bun scripts/docs/semantic-docs.ts --write",
     "format": "bunx --bun biome format --write .",
@@ -19,9 +19,9 @@
     "seed": "bun scripts/fixtures/seed.ts",
     "test": "bun test",
     "test:changed": "bun test --changed",
-    "test:e2e": "bunx --bun playwright test",
+    "test:e2e": "bun --no-env-file run --bun playwright test",
     "typecheck": "bunx --bun svelte-kit sync && bun check --no-script --threads=2 -p tsconfig.json && bun check --no-script --threads=2 -p scripts/tsconfig.json",
-    "verify": "bun scripts/gates.ts --verbose --fail-fast"
+    "verify": "bun --no-env-file scripts/gates.ts --verbose --fail-fast"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.3.1",

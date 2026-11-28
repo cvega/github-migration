@@ -13,7 +13,8 @@ bun run dev
 The development server listens on port 5173 on all interfaces. Use
 `http://localhost:5173` on the development host or the host's LAN address from
 another device. Server code uses `bun:sqlite`, so run all scripts and tests with
-Bun.
+Bun. `bun run dev` explicitly loads the root `.env` into the development server
+when the file exists; it is optional.
 
 SvelteKit configuration lives in `vite.config.ts`. The existing `$lib` import
 convention is retained through an explicit alias; `tsconfig.json` extends
@@ -61,9 +62,9 @@ coverage, generated icons, TypeScript/Svelte diagnostics, formatting, lint,
 documentation, duplicate/dead code, architecture boundaries, cycles, build,
 mutation configuration integrity, Playwright E2E workflows, bundle checks,
 dependency audit, and packaging checks. Playwright uses its seeded `.e2e-data`
-store and starts an isolated development server for the browser run. Fixture
-timestamps are relative to seed time so startup retention remains enabled
-without aging out the test records.
+store and starts an isolated development server without loading local dotenv
+files. Fixture timestamps are relative to seed time so startup retention remains
+enabled without aging out the test records.
 
 For a six-month synthetic migration history without changing profile fixtures,
 run `bun run seed --migrations-only`. This replaces migration fixtures with
