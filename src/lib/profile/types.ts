@@ -17,6 +17,7 @@ import type {
 } from "$lib/profile/migration-catalog";
 import type { RepositorySizeBand } from "$lib/repository-size";
 import type { GitLabMetricKey } from "$lib/source/gitlab-metrics";
+import type { GitLabApprovalPolicy } from "$lib/source/gitlab-metrics/approval-rules.metric";
 import type { GitLabWebhookEventCategory } from "$lib/source/gitlab-webhooks";
 import type {
   NumericObservation,
@@ -229,6 +230,7 @@ export interface ProfileRun {
 export type ProfileInventoryMetricKey = GitLabMetricKey | "pullRequests" | "forks";
 
 export interface ProfileInventorySummary {
+  approvalPolicy?: GitLabApprovalPolicy;
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   lfsTracking?: { found: number; checked: number; example: string | null };
   projectCount: NumericObservation;

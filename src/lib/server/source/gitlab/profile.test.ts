@@ -3,6 +3,7 @@ import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import type { SourceNamespaceInventory } from "$lib/source/types";
 import { GitLabApiError, GitLabClient } from "./client";
 import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
+import { collectGitLabApprovalRuleMetric } from "./metrics/approval-rules.collector";
 import { collectGitLabBranchMetric, GITLAB_BRANCHES_SCOPE } from "./metrics/branches.collector";
 import { collectGitLabCommitMetric, GITLAB_COMMITS_SCOPE } from "./metrics/commits.collector";
 import { collectGitLabIssueMetric, GITLAB_ISSUES_SCOPE } from "./metrics/issues.collector";
@@ -274,6 +275,7 @@ describe("collectGitLabProfileEnrichment", () => {
       protected_branches: jsonResponse([{ name: "main" }]),
       protected_tags: jsonResponse([{ name: "v*" }]),
       hooks: jsonResponse([]),
+      approval_rules: jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -429,6 +431,185 @@ function budgetInventory(projectCount: number): SourceNamespaceInventory {
     })),
   };
 }
+
+describe("GitLab merge request approval policy collection", () => {
+  const project = { sourceId: "platform/project" };
+
+  async function profileWithRestrictedApprovalRules(restriction: Response) {
+    const approvalPaths: string[] = [];
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "offline-fixture",
+      maxRetries: 0,
+      fetch: async (input) => {
+        const { pathname } = new URL(input.toString());
+        if (pathname.endsWith("/approval_rules")) {
+          approvalPaths.push(pathname);
+          if (pathname === "/api/v4/projects/1/approval_rules") return restriction;
+        }
+        if (pathname.endsWith("/sequence")) return jsonResponse({ count: 4 });
+        if (pathname.endsWith("/repository/branches/main")) {
+          return jsonResponse({ commit: { id: "abc123" } });
+        }
+        return jsonResponse([]);
+      },
+    });
+    const { projects } = await collectGitLabProfileEnrichment(client, budgetInventory(2));
+    expect(approvalPaths.sort()).toEqual([
+      "/api/v4/projects/1/approval_rules",
+      "/api/v4/projects/2/approval_rules",
+    ]);
+    expect(projects[1]?.metrics.approvalRules).toMatchObject({
+      observation: { kind: "exact", value: 0 },
+      requiresApprovals: false,
+      hasRequiredProtectedBranchRules: false,
+    });
+    for (const { metrics } of projects) {
+      expect(metrics.commits.observation).toMatchObject({ kind: "exact", value: 4 });
+    }
+    return projects[0]?.metrics.approvalRules;
+  }
+
+  test.each([
+    [401, "forbidden"],
+    [403, "forbidden"],
+    [404, "not-reported"],
+  ] as const)("continues after approval-rule HTTP %i with %s", async (status, reason) => {
+    const rules = await profileWithRestrictedApprovalRules(new Response(null, { status }));
+    expect(rules).toMatchObject({
+      observation: { kind: "unavailable", reason },
+      requiresApprovals: null,
+      hasRequiredProtectedBranchRules: null,
+    });
+  });
+
+  test("does not mistake the paid-tier-only approval rules endpoint for a project with no policy", async () => {
+    const rules = await profileWithRestrictedApprovalRules(
+      Response.json({ message: "Approval rules require Premium or Ultimate" }, { status: 404 }),
+    );
+    expect(rules).toMatchObject({
+      observation: { kind: "unavailable", reason: "not-reported" },
+      requiresApprovals: null,
+      hasRequiredProtectedBranchRules: null,
+    });
+    expect(JSON.stringify(rules)).not.toContain("Premium");
+  });
+
+  test("counts every visible rule but stores only the presence of requirements and protected scope", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{ id: 8, approvals_required: 0 }], { "X-Next-Page": "2" }),
+      jsonResponse([
+        {
+          id: 9,
+          name: "discard-rule-name",
+          approvals_required: 2,
+          applies_to_all_protected_branches: false,
+          protected_branches: [{ id: 3, name: "discard-branch-name" }],
+          eligible_approvers: [{ username: "discard-identity" }],
+          users: [{ username: "discard-user" }],
+          groups: [{ name: "discard-group" }],
+        },
+      ]),
+    ]);
+
+    const rules = await collectGitLabApprovalRuleMetric(client, project, {
+      nowMs: Date.parse("2026-08-10T12:00:00Z"),
+    });
+
+    expect(rules).toEqual({
+      provider: "gitlab",
+      endpointFamily: "project-approval-rules",
+      collectedAt: "2026-08-10T12:00:00.000Z",
+      observation: {
+        kind: "exact",
+        value: 2,
+        basis: "enumerated",
+        scope: expect.stringContaining("visible via the project endpoint"),
+      },
+      requiresApprovals: true,
+      hasRequiredProtectedBranchRules: true,
+    });
+    expect(calls.map(({ pathname, searchParams }) => [pathname, searchParams.get("page")])).toEqual(
+      [
+        ["/api/v4/projects/platform%2Fproject/approval_rules", "1"],
+        ["/api/v4/projects/platform%2Fproject/approval_rules", "2"],
+      ],
+    );
+  });
+
+  test.each([
+    [{ approvals_required: 0, applies_to_all_protected_branches: true }, false, false],
+    [{ approvals_required: 2, applies_to_all_protected_branches: true }, true, true],
+    [
+      { approvals_required: 2, applies_to_all_protected_branches: false, protected_branches: [] },
+      true,
+      false,
+    ],
+    [{ approvals_required: 2 }, true, null],
+  ] as const)(
+    "keeps explicit protected branch scope separate from a positive approval threshold (%j)",
+    async (rule, requiresApprovals, hasRequiredProtectedBranchRules) => {
+      const { client } = clientWithResponses([jsonResponse([{ id: 1, ...rule }])]);
+      expect(await collectGitLabApprovalRuleMetric(client, project)).toMatchObject({
+        observation: { kind: "exact", value: 1 },
+        requiresApprovals,
+        hasRequiredProtectedBranchRules,
+      });
+    },
+  );
+
+  test("keeps a budget-bounded count without inferring the remaining rules are optional", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{ id: 1, approvals_required: 0 }], { "X-Next-Page": "2" }),
+    ]);
+    const result = await collectGitLabApprovalRuleMetric(client, project, { apiCallCeiling: 1 });
+    expect(result).toMatchObject({
+      observation: { kind: "at-least", value: 1, reason: "request-budget" },
+      requiresApprovals: null,
+      hasRequiredProtectedBranchRules: null,
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("retains affirmative evidence when access is denied on a later page", async () => {
+    const { client } = clientWithResponses([
+      jsonResponse([{ id: 1, approvals_required: 2, applies_to_all_protected_branches: true }], {
+        "X-Next-Page": "2",
+      }),
+      new Response(null, { status: 403 }),
+    ]);
+    expect(await collectGitLabApprovalRuleMetric(client, project)).toMatchObject({
+      observation: {
+        kind: "at-least",
+        value: 1,
+        reason: "pagination-uncertain",
+        scope: expect.stringContaining("forbidden"),
+      },
+      requiresApprovals: true,
+      hasRequiredProtectedBranchRules: true,
+    });
+  });
+
+  test("does not treat contradictory rule identities as an exact or partial observation", async () => {
+    const repeatedRule = { id: 1, approvals_required: 2, applies_to_all_protected_branches: true };
+    const { client } = clientWithResponses([
+      jsonResponse([repeatedRule], { "X-Next-Page": "2" }),
+      jsonResponse([repeatedRule]),
+    ]);
+    expect(await collectGitLabApprovalRuleMetric(client, project)).toMatchObject({
+      observation: { kind: "unavailable", reason: "malformed" },
+      requiresApprovals: null,
+      hasRequiredProtectedBranchRules: null,
+    });
+  });
+
+  test("propagates an unexpected server failure rather than treating it as missing policy", async () => {
+    const { client } = clientWithResponses([new Response(null, { status: 503 })]);
+    await expect(collectGitLabApprovalRuleMetric(client, project)).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+});
 
 /** A GitLab whose first attempt at every URL fails transiently, so retries are exercised. */
 function flakyGitLab(options: { maxRetries?: number } = {}) {

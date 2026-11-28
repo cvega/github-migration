@@ -92,6 +92,18 @@ On these optional requests HTTP 401 or 403 records `forbidden`, 404 records
 through the required metrics. Enabled Auto DevOps keeps a project
 counted when the file probe is forbidden or refused for budget.
 
+Merge request approval evidence comes from paginating
+`GET /projects/:id/approval_rules` for selected projects. The profile stores a
+visible rule count and whether a rule requires approvals, including whether
+any required rule explicitly targets protected branches. Approvers, rule
+names, branch names, and raw responses are not stored. It does not read
+experimental group rules or per-merge-request overrides. HTTP 401/403 is
+`forbidden`; a hidden or unlicensed endpoint (404) is `not-reported`. The
+profile continues and preserves counts already observed as lower bounds when
+access or budget cuts pagination short. Missing evidence does not establish
+that approvals are optional. Recreate required approval policies on GitHub;
+imported review history does not enforce them.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

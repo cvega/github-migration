@@ -28,6 +28,7 @@ describe("GitLab profile metric registry", () => {
       "protectedTags",
       "projectWebhooks",
       "groupWebhooks",
+      "approvalRules",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
@@ -51,6 +52,7 @@ describe("GitLab profile metric registry", () => {
       ["protectedTags", "Tag protection rules"],
       ["projectWebhooks", "Project webhooks"],
       ["groupWebhooks", "Group hooks"],
+      ["approvalRules", "Approval rules"],
     ]);
   });
 

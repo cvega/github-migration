@@ -141,6 +141,26 @@
 						</div>
 					{/each}
 				</div>
+				{#if summary.approvalPolicy && summary.projectsCaptured > 0}
+					{@const policy = summary.approvalPolicy}
+					<p class="mt-3 text-[13px] text-[var(--workbench-text-muted)]">
+						{#if policy.requiresApprovals === true}
+							Required approvals were found in visible project rules.
+							{#if policy.hasRequiredProtectedBranchRules === true}
+								Some rules specifically target protected branches.
+							{:else if policy.hasRequiredProtectedBranchRules === false}
+								None specifically target protected branches.
+							{:else}
+								Protected-branch scope could not be verified.
+							{/if}
+							Recreate approval rules on GitHub; imported review history does not enforce them.
+						{:else if policy.requiresApprovals === false}
+							No required approvals were found in visible project rules.
+						{:else}
+							Project approval requirements could not be verified. Check GitLab before cutover.
+						{/if}
+					</p>
+				{/if}
 				{#if summary.webhookEvents}
 					<div class="mt-3 space-y-1 text-[13px] text-[var(--workbench-text-muted)]">
 						{#each ["projectWebhooks", "groupWebhooks"] as const as key (key)}
