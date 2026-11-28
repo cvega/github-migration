@@ -47,6 +47,8 @@ production modules directly under `src/lib/server/`.
 - Any DDL change bumps that domain’s `version` in its DomainStore, so older
   databases are rejected with the fresh-directory message instead of failing
   later on a missing column.
+- This policy takes precedence over the history-preserving upgrade and legacy
+  compatibility requirements elsewhere in the guidance.
 
 ## Contracts that matter
 
@@ -68,9 +70,10 @@ production modules directly under `src/lib/server/`.
   permission. Revalidate current authorization at dispatch and recovery.
 - Preserve exact, lower-bound, and unavailable observations. Missing provider
   data must not silently become a measured zero.
-- Prefer real in-memory SQLite tests. From 1.0 on; before 1.0 see Pre-1.0 policy.
-  Keep schema upgrades idempotent and history-preserving, and use file-backed
-  fixtures to test reopening an upgraded store.
+- Prefer real in-memory SQLite tests.
+- From 1.0 on, keep schema upgrades idempotent and history-preserving, and use
+  file-backed fixtures to test reopening an upgraded store. Before 1.0, see
+  Pre-1.0 policy.
 
 ## Task-specific guidance
 
@@ -101,10 +104,6 @@ including long repository names, keyboard use, and relevant error/empty states.
 
 - During development, run the nearest behavior tests and relevant gates, e.g.
   `bun run verify boundaries` after changing server imports.
-- Start each worktree with `bun install --frozen-lockfile`. Assign each parallel
-  worker a unique `E2E_PORT` for its Playwright server.
-- Before submitting, run the shared local/CI gate manifest with `bun run verify`.
-  For docs-only changes, run `bun run verify docs format`.
 - Use existing dependency-injection test hooks for external I/O/time. Restore
   overrides and environment changes. Keep provider tests deterministic and offline.
 - Do not lower coverage thresholds, weaken architecture checks, or skip tests
@@ -201,6 +200,13 @@ the same reviewer confirms that blockers are resolved, subject to the review bar
 - Allow at most one re-review per PR. Skip areas that had no above-P3
   findings in their last round. The PR is ready once blockers are resolved
   and only non-blocking notes remain.
+
+## Parallel Orca workers
+
+- Start each worktree with `bun install --frozen-lockfile`. Assign each parallel
+  worker a unique `E2E_PORT` for its Playwright server.
+- Before submitting, run the shared local/CI gate manifest with `bun run verify`.
+  For docs-only changes, run `bun run verify docs format`.
 
 ## Fixing review findings
 
