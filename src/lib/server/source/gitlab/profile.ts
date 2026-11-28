@@ -20,6 +20,11 @@ import {
 } from "./client";
 import { DEFAULT_GITLAB_PROFILE_REQUEST_BUDGET } from "./config";
 import { GITLAB_PROFILE_CONCURRENCY } from "./inventory";
+import {
+  collectGitLabInheritedProtectedBranchMetric,
+  collectGitLabProtectedBranchMetric,
+  collectGitLabProtectedTagMetric,
+} from "./protections";
 
 export const GITLAB_ISSUES_SCOPE =
   "project issues visible to the caller; all states and authors; excludes merge requests";
@@ -39,6 +44,10 @@ interface GitLabMetricOptions {
   signal?: AbortSignal;
   nowMs?: number;
   apiCallCeiling?: number;
+  /** Authorized profile namespace, for collectors that read group-level settings. */
+  namespace?: string;
+  /** Per-run memo shared by collectors that read the same list. */
+  shared?: Map<string, Promise<unknown>>;
 }
 
 type GitLabMetricProject = Pick<
@@ -324,6 +333,9 @@ const GITLAB_METRIC_COLLECTORS = {
   tags: collectGitLabTagMetric,
   releases: collectGitLabReleaseMetric,
   ciConfiguration: collectGitLabCiConfigurationMetric,
+  protectedBranches: collectGitLabProtectedBranchMetric,
+  inheritedProtectedBranches: collectGitLabInheritedProtectedBranchMetric,
+  protectedTags: collectGitLabProtectedTagMetric,
 } satisfies Record<GitLabMetricKey, GitLabMetricCollector>;
 
 export async function collectGitLabProfileEnrichment(
@@ -367,6 +379,8 @@ export async function collectGitLabProfileEnrichment(
     // The client counts every attempt synchronously before sending it, so this
     // one ceiling cannot be overshot by concurrent workers or retries.
     apiCallCeiling: options.apiCallCeiling ?? client.getApiCalls() + requestBudget,
+    namespace: inventory.namespace,
+    shared: new Map(),
   };
   const projects = new Array<GitLabProjectProfile>(inventory.projects.length);
   let nextProject = 0;

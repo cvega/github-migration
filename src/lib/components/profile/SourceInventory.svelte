@@ -2,7 +2,7 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import type { UsedIconName } from "$lib/icons.generated";
 	import type { ProfileInventoryMetricKey, ProfileInventorySummary } from "$lib/profile/types";
-	import { GITLAB_PROFILE_METRIC_CARDS } from "$lib/source/gitlab-metrics";
+	import { GITLAB_PROFILE_METRIC_CARDS, GITLAB_PROTECTION_RULE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 	import type { NumericObservation } from "$lib/source/types";
 
 	const VISIBILITIES = ["private", "internal", "public"] as const;
@@ -83,6 +83,16 @@
 				})
 			: [],
 	);
+	// GitHub does not import GitLab protection rules, so every counted rule must be recreated.
+	const protectionRulesToRecreate = $derived.by((): NumericObservation | null => {
+		const observations = GITLAB_PROTECTION_RULE_METRIC_KEYS.map((key) => summary?.metrics?.[key]);
+		if (!observations.every((observation) => observation !== undefined)) return null;
+		const known = observations.filter((observation) => observation.kind !== "unavailable");
+		if (known.length === 0) return observations[0] ?? null;
+		const value = known.reduce((total, observation) => total + observation.value, 0);
+		const exact = known.length === observations.length && known.every((observation) => observation.kind === "exact");
+		return { kind: exact ? "exact" : "at-least", value };
+	});
 </script>
 
 <section class="space-y-6" aria-label={`${providerName} source profile`}>
@@ -168,10 +178,14 @@
 		{#if !bitbucket}
 			<section>
 				<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="alert" size={16} />Migration risks and coverage</h2>
-				<div class="grid gap-px overflow-hidden rounded-lg border border-gray-700 bg-gray-700 sm:grid-cols-3">
+				<div class="grid gap-px overflow-hidden rounded-lg border border-gray-700 bg-gray-700 {protectionRulesToRecreate ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}">
 					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.archivedProjects.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Archived projects to review</div></div>
 					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold text-amber-400">{summary.projectsWithoutDefaultBranch.toLocaleString()}</div><div class="mt-1 text-xs text-gray-400">Without a default branch</div></div>
 					<div class="bg-gray-900 p-4"><div class="text-xl font-semibold {unavailableStorageMetrics > 0 ? 'text-amber-400' : 'text-green-400'}">{unavailableStorageMetrics}</div><div class="mt-1 text-xs text-gray-400">Unavailable storage metrics</div></div>
+					{#if protectionRulesToRecreate}
+						{@const rules = protectionRulesToRecreate}
+						<div class="bg-gray-900 p-4"><div class="text-xl font-semibold {rules.kind === 'exact' && rules.value === 0 ? 'text-green-400' : 'text-amber-400'}">{formatObservation(rules)}</div><div class="mt-1 text-xs text-gray-400">Protection rules to recreate</div>{#if rules.kind === "unavailable"}<div class="mt-1 text-xs text-gray-500">{rules.reason}</div>{/if}</div>
+					{/if}
 				</div>
 			</section>
 		{/if}

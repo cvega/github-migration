@@ -502,6 +502,9 @@ const gitLabSummary = {
     tags: { kind: "unavailable", reason: "malformed" },
     releases: { kind: "unavailable", reason: "malformed" },
     ciConfiguration: { kind: "at-least", value: 1 },
+    protectedBranches: { kind: "exact", value: 3 },
+    inheritedProtectedBranches: { kind: "unavailable", reason: "not-reported" },
+    protectedTags: { kind: "at-least", value: 2 },
   },
 };
 db.prepare(

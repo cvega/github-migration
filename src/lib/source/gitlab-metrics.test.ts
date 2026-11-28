@@ -22,6 +22,9 @@ describe("GitLab profile metric registry", () => {
       "tags",
       "releases",
       "ciConfiguration",
+      "protectedBranches",
+      "inheritedProtectedBranches",
+      "protectedTags",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
@@ -40,6 +43,9 @@ describe("GitLab profile metric registry", () => {
       ["releases", "Releases"],
       ["issues", "Visible issues"],
       ["ciConfiguration", "GitLab CI to convert"],
+      ["protectedBranches", "Branch protection rules"],
+      ["inheritedProtectedBranches", "Inherited branch rules"],
+      ["protectedTags", "Tag protection rules"],
     ]);
   });
 

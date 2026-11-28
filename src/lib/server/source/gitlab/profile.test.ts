@@ -269,20 +269,37 @@ describe("GitLab repository metric collectors", () => {
 
 describe("collectGitLabProfileEnrichment", () => {
   test("collects all repository metrics for every inventory project in stable order", async () => {
-    const { client } = clientWithResponses([
-      jsonResponse([], { "X-Total": "0" }),
-      jsonResponse([], { "X-Total": "0" }),
-      jsonResponse([]),
-      jsonResponse([]),
-      jsonResponse([]),
-      jsonResponse({ ci_config_path: null, auto_devops_enabled: false }),
-      jsonResponse([{}], { "X-Total": "3" }),
-      jsonResponse([{}], { "X-Total": "1" }),
-      jsonResponse([{}, {}]),
-      jsonResponse([{}]),
-      jsonResponse([{}]),
-      jsonResponse({ ci_config_path: null, auto_devops_enabled: true }),
-    ]);
+    const web: Record<string, Response> = {
+      issues: jsonResponse([{}], { "X-Total": "3" }),
+      merge_requests: jsonResponse([{}], { "X-Total": "1" }),
+      "repository/branches": jsonResponse([{}, {}]),
+      "repository/tags": jsonResponse([{}]),
+      releases: jsonResponse([{}]),
+      protected_branches: jsonResponse([{ name: "main" }]),
+      protected_tags: jsonResponse([{ name: "v*" }]),
+    };
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "secret-token",
+      maxRetries: 0,
+      fetch: async (input) => {
+        const { pathname } = new URL(input.toString());
+        if (pathname === "/api/v4/groups/platform/protected_branches") {
+          return new Response(null, { status: 404 });
+        }
+        const ci = /^\/api\/v4\/projects\/(\d+)$/.exec(pathname)?.[1];
+        if (ci) return jsonResponse({ ci_config_path: null, auto_devops_enabled: ci === "2" });
+        const [, project, collection] = /^\/api\/v4\/projects\/(\d+)\/(.+)$/.exec(pathname) ?? [];
+        if (project === "1") {
+          return /^(issues|merge_requests)$/.test(collection ?? "")
+            ? jsonResponse([], { "X-Total": "0" })
+            : jsonResponse([]);
+        }
+        const response = project === "2" && collection ? web[collection] : undefined;
+        if (!response) throw new Error(`unexpected fetch ${pathname}`);
+        return response;
+      },
+    });
 
     const enrichment = await collectGitLabProfileEnrichment(
       client,
@@ -370,6 +387,10 @@ describe("collectGitLabProfileEnrichment", () => {
       branches: { observation: { kind: "exact", value: 2, basis: "enumerated" } },
       tags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       releases: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
+      // Without group rules or inheritance flags, "main" cannot be classified as the project's.
+      protectedBranches: { observation: { kind: "unavailable", reason: "not-reported" } },
+      inheritedProtectedBranches: { observation: { kind: "unavailable", reason: "not-reported" } },
+      protectedTags: { observation: { kind: "exact", value: 1, basis: "enumerated" } },
       ciConfiguration: { observation: { kind: "exact", value: 1, basis: "reported" } },
     });
     expect(enrichment.projects[0]?.metrics.ciConfiguration.observation).toMatchObject({
@@ -438,6 +459,9 @@ function flakyGitLab(options: { maxRetries?: number } = {}) {
       if (/\/(issues|merge_requests)$/.test(url.pathname)) {
         return jsonResponse([{}], { "X-Total": "2" });
       }
+      if (/\/protected_(branches|tags)$/.test(url.pathname)) {
+        return jsonResponse([{ name: "main" }]);
+      }
       return jsonResponse([{}]);
     },
   });
@@ -459,7 +483,7 @@ describe("GitLab profile request budget", () => {
     const observations = enrichment.projects.flatMap((project) =>
       Object.values(project.metrics).map((metric) => metric.observation),
     );
-    expect(observations).toHaveLength(28);
+    expect(observations).toHaveLength(40);
     expect(
       observations.some((o) => o.kind === "unavailable" && o.reason === "request-budget"),
     ).toBe(true);
@@ -496,8 +520,11 @@ describe("GitLab profile request budget", () => {
           "branches",
           "ciConfiguration",
           "commits",
+          "inheritedProtectedBranches",
           "issues",
           "mergeRequests",
+          "protectedBranches",
+          "protectedTags",
           "releases",
           "tags",
         ].sort(),

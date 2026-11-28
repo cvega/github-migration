@@ -91,6 +91,9 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
         tags: metric,
         releases: metric,
         ciConfiguration: metric,
+        protectedBranches: metric,
+        inheritedProtectedBranches: metric,
+        protectedTags: metric,
       },
     })),
   };
