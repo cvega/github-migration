@@ -54,7 +54,7 @@ test.each(["missing", "corrupt"] as const)(
     expect(snapshot("restore", "fresh-data", "fresh-archives")).not.toBe("ok");
     expect(Bun.file(dir("fresh-data/gh-migrate.db")).size).toBe(0);
     expect(readFileSync(dir("archives/export"), "utf8")).toBe("matching archive");
-    initStore(dir("current/gh-migrate.db"), []);
+    initStore(dir("current/gh-migrate.db"), [migrateStore], { runStartupHooks: false });
     expect(getDb().query("SELECT state FROM migrations").all()).toEqual([{ state: "succeeded" }]);
   },
 );
@@ -67,7 +67,7 @@ test("refuses unresolved and post-snapshot work before the switch", () => {
 });
 test("a failed parent does not conceal an outstanding GHES checkpoint", () => {
   record("failed");
-  initStore(dir("current/gh-migrate.db"), []);
+  initStore(dir("current/gh-migrate.db"), [migrateStore], { runStartupHooks: false });
   getDb().run(`INSERT INTO ghes_import_jobs(id,migration_id,phase,ghes_import_id,created_at,updated_at)
     VALUES('job','failed','auditing','retained-guid','now','now')`);
   closeStore();

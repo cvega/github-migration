@@ -2,9 +2,10 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { recordAuditEvent } from "../../src/lib/server/core/auth/audit";
-import { authStore } from "../../src/lib/server/core/auth/schema";
 import { findUserByUsername, resetUserPassword } from "../../src/lib/server/core/auth/users";
+import { initializeSchema } from "../../src/lib/server/core/db";
 import { acquireInstanceLock } from "../../src/lib/server/core/instance-lock";
+import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 
 const usernameIndex = process.argv.indexOf("--username");
 const username = usernameIndex >= 0 ? process.argv[usernameIndex + 1]?.trim() : undefined;
@@ -15,10 +16,13 @@ if (!username) {
 
 const dataDirectory = process.env.DATA_DIR || "./data";
 const lock = acquireInstanceLock(dataDirectory);
-const database = new Database(join(dataDirectory, "gh-migrate.db"));
+const database = new Database(join(dataDirectory, "gh-migrate.db"), {
+  readwrite: true,
+  create: false,
+});
 try {
   database.run("PRAGMA foreign_keys = ON");
-  authStore.applySchema(database);
+  initializeSchema(database, DOMAIN_STORES);
   const user = findUserByUsername(username, database);
   if (user?.role !== "admin" || !user.isActive) {
     throw new Error(`Active administrator '${username}' was not found.`);

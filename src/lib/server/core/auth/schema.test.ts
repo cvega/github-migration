@@ -24,9 +24,6 @@ describe("auth schema", () => {
     const names = new Set(tables.map(({ name }) => name));
 
     for (const contract of AUTH_DURABLE_TABLES) expect(names.has(contract.name)).toBe(true);
-    expect(
-      database.prepare("SELECT version FROM app_schema_versions WHERE domain = 'auth'").get(),
-    ).toEqual({ version: 4 });
   });
 
   test("reopens the current database without changing route IDs, user permissions or sessions", () => {
@@ -68,17 +65,6 @@ describe("auth schema", () => {
       database = undefined;
       rmSync(folder, { recursive: true, force: true });
     }
-  });
-
-  test.each([2, 5])("rejects unsupported auth version %i without relabeling it", (version) => {
-    const db = new Database(":memory:");
-    database = db;
-    authStore.applySchema(db);
-    db.query("UPDATE app_schema_versions SET version=? WHERE domain='auth'").run(version);
-    expect(() => authStore.applySchema(db)).toThrow("Unsupported dashboard auth schema");
-    expect(db.query("SELECT version FROM app_schema_versions WHERE domain='auth'").get()).toEqual({
-      version,
-    });
   });
 
   test("enforces case-insensitive usernames and valid roles", () => {

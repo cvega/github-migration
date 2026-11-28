@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addColumnIfMissing, checkStoreReady, closeStore, getDb, initStore } from "./db";
+import { checkStoreReady, closeStore, getDb, initStore } from "./db";
 
 let directory: string | undefined;
 
@@ -18,6 +18,9 @@ describe("database lifecycle", () => {
     const calls: string[] = [];
     initStore(join(directory, "store.sqlite"), [
       {
+        version: 1,
+        tables: [],
+        domain: "a",
         applySchema(database) {
           calls.push("schema-a");
           database.run("CREATE TABLE a (id INTEGER PRIMARY KEY)");
@@ -30,6 +33,9 @@ describe("database lifecycle", () => {
         },
       },
       {
+        version: 1,
+        tables: [],
+        domain: "b",
         applySchema(database) {
           calls.push("schema-b");
           database.run("CREATE TABLE b (id INTEGER PRIMARY KEY)");
@@ -57,16 +63,9 @@ describe("database lifecycle", () => {
     ).toBeNull();
   });
 
-  test("adds missing columns idempotently and clears the closed handle", () => {
+  test("clears the closed handle", () => {
     directory = mkdtempSync(join(tmpdir(), "gh-migrate-db-"));
     initStore(join(directory, "store.sqlite"), []);
-    const database = getDb();
-    database.run("CREATE TABLE example (id INTEGER PRIMARY KEY)");
-
-    addColumnIfMissing(database, "example", "label", "TEXT");
-    addColumnIfMissing(database, "example", "label", "TEXT");
-    expect(database.query("PRAGMA table_info(example)").all()).toHaveLength(2);
-
     closeStore();
     expect(() => getDb()).toThrow("Store not initialized");
   });

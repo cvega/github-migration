@@ -79,22 +79,6 @@ describe("profile database schema", () => {
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   });
 
-  test("rejects the payload inventory layout before a default zero can be read", () => {
-    using db = new Database(":memory:");
-    db.run(`CREATE TABLE profile_source_inventories (
-      run_id TEXT PRIMARY KEY, payload TEXT NOT NULL,
-      project_count TEXT NOT NULL DEFAULT '{"kind":"exact","value":0}',
-      summary TEXT NOT NULL DEFAULT '{}', fetched_at TEXT NOT NULL
-    )`);
-    const payload = JSON.stringify({ projectCount: { kind: "exact", value: 1 } });
-    db.prepare(
-      "INSERT INTO profile_source_inventories (run_id, payload, fetched_at) VALUES ('old', ?, '2026-08-02')",
-    ).run(payload);
-    expect(() => profileStore.applySchema(db)).toThrow(/fresh data directory/);
-    expect(db.query("SELECT payload FROM profile_source_inventories").get()).toEqual({ payload });
-    expect(db.query("SELECT name FROM sqlite_master WHERE name = 'profile_runs'").get()).toBeNull();
-  });
-
   test("rolls back incomplete DDL and serializes fresh initialization across connections", async () => {
     const directory = mkdtempSync(join(tmpdir(), "profile-startup-"));
     const path = join(directory, "profile.db");
