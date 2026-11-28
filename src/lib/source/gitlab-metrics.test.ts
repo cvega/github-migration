@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import octicons from "@primer/octicons";
 import { GITLAB_PROFILE_METRIC_CARDS, GITLAB_PROFILE_METRICS } from "./gitlab-metrics";
+import { gitLabMetricFixtures } from "./gitlab-metrics/fixtures";
 import { parseGitLabProfileEnrichment } from "./profile";
 
 const metric = {
@@ -54,14 +55,7 @@ describe("GitLab profile metric registry", () => {
   });
 
   test("keeps the stored enrichment schema in step with the registry keys", () => {
-    const metrics = Object.fromEntries(
-      GITLAB_PROFILE_METRICS.map(({ key }) => [
-        key,
-        key === "projectWebhooks" || key === "groupWebhooks"
-          ? { ...metric, eventCategories: [] }
-          : metric,
-      ]),
-    );
+    const metrics = gitLabMetricFixtures();
     const enrichment = (projectMetrics: unknown) => ({
       version: 2,
       provider: "gitlab",

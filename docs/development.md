@@ -69,7 +69,7 @@ bun run verify
 ```
 
 `bun run verify` is the release go/no-go manifest. It covers tests and enforced
-coverage, generated icons, TypeScript/Svelte diagnostics, formatting, lint,
+coverage, generated icons and GitLab metric lists, TypeScript/Svelte diagnostics, formatting, lint,
 documentation, duplicate/dead code, architecture boundaries, cycles, build,
 mutation configuration integrity, Playwright E2E workflows, bundle checks,
 dependency audit, and packaging checks. Playwright uses its seeded `.e2e-data`
@@ -150,7 +150,9 @@ component states, responsive behavior, and visual review requirements.
 
 Generated icons are updated with
 `bun scripts/packaging/generate-icons.ts`; CI checks that the generated output
-and client bundle remain current.
+and client bundle remain current. After adding or removing a GitLab profile
+metric file, run `bun scripts/packaging/generate-gitlab-metrics.ts`; the
+`gitlab-metrics` gate checks the generated module lists.
 
 ## Documentation
 

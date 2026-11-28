@@ -48,11 +48,22 @@ HTTP 401/403 on these lists records `forbidden`, a project 404
 Premium or Ultimate); the profile continues. The source profile flags the
 total as protection rules to recreate, because the importer does not migrate them.
 
-Profile metrics are declared once in a client-safe registry
-(`src/lib/source/gitlab-metrics.ts`): each key drives the stored enrichment shape,
-the summary schema and its "Repository contents" card. The server registers a
-collector for the same key in `source/gitlab/profile.ts`, and the compiler rejects
-a key without one. A profile run has one request budget
+Each profile metric is a set of files that share one stem. The client-safe
+`src/lib/source/gitlab-metrics/<stem>.metric.ts` declares the key, collection
+`order`, any extra stored fields and the "Repository contents" card with its
+display `position`; `<stem>.fixture.ts` holds a valid stored observation; and
+`src/lib/server/source/gitlab/metrics/<stem>.collector.ts` binds the collector to
+the same key. Adding a metric adds these three files and nothing else:
+`bun scripts/packaging/generate-gitlab-metrics.ts` regenerates the
+`*.generated.ts` module lists (no `import.meta.glob`, because the analysis worker
+and scripts run under Bun without Vite), the `gitlab-metrics` gate fails when they
+are stale, and a missing or mismatched file is rejected at generation, compile
+and load time. Keys, `order` and card `position` must each be unique. Tests and seeds that need
+complete stored metrics call `gitLabMetricFixtures(overrides)` from
+`src/lib/source/gitlab-metrics/fixtures.ts` and override only the metrics their
+scenario is about, so a new metric never edits them;
+`tests/scripts/gitlab-metric-extension.test.ts` proves it by adding a probe metric
+to an isolated copy of the tree and running the affected tests and type check. A profile run has one request budget
 (`GITLAB_SOURCE_PROFILE_REQUEST_BUDGET`) shared by inventory statistics requests
 and every collector. It counts every attempt from the start of the run, including
 listing pages, retries and further pages, and concurrent workers cannot exceed it.

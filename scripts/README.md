@@ -59,6 +59,7 @@ Review these commands before running them:
 | `bun run seed` | Adds or replaces development fixture records in `data/gh-migrate.db`. |
 | `bun scripts/fixtures/seed-e2e.ts` | Deletes and recreates the `.e2e-data` directory. |
 | `bun scripts/packaging/generate-icons.ts` | Rewrites `src/lib/icons.generated.ts`. |
+| `bun scripts/packaging/generate-gitlab-metrics.ts` | Rewrites the `*.generated.ts` GitLab metric module lists. |
 | `bun run docs:sync` | Rewrites generated sections in `docs/architecture.md`. |
 | `bun run release:prep` | Updates the package version and `CHANGELOG.md`; it does not commit, tag, or push. |
 | `bun run auth:reset --username <name>` | Resets an administrator password and revokes that user's sessions. |
