@@ -43,9 +43,6 @@ try {
     if (authStartup.bootstrappedUser) {
       console.log("[auth] Created the first administrator from bootstrap credentials");
     }
-    if (env.GH_MIGRATE_SESSION_SECRET) {
-      console.warn("[auth] GH_MIGRATE_SESSION_SECRET is deprecated and no longer used");
-    }
   }
   logCapabilityReport(getCapabilityReport());
   recoverOrphans();

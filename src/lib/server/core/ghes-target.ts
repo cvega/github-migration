@@ -93,8 +93,7 @@ function getExporterConfig(): Pick<
   GhesExporterConfig,
   "exporterRuntime" | "exporterArchiveVolume" | "archiveDirectory" | "sandbox"
 > {
-  const exporterRuntime =
-    env.EXPORTER_RUNTIME?.trim() || env.GL_EXPORTER_RUNTIME?.trim() || "docker";
+  const exporterRuntime = env.EXPORTER_RUNTIME?.trim() || "docker";
   if (!/^[A-Za-z0-9._/-]+$/.test(exporterRuntime)) {
     throw new TypeError("EXPORTER_RUNTIME is invalid");
   }
@@ -102,10 +101,7 @@ function getExporterConfig(): Pick<
   if (!isAbsolute(archiveDirectory)) throw new TypeError("ARCHIVE_DIR must be an absolute path");
   return {
     exporterRuntime,
-    exporterArchiveVolume: required(
-      "EXPORTER_ARCHIVE_VOLUME",
-      env.EXPORTER_ARCHIVE_VOLUME ?? env.GL_EXPORTER_ARCHIVE_VOLUME,
-    ),
+    exporterArchiveVolume: required("EXPORTER_ARCHIVE_VOLUME", env.EXPORTER_ARCHIVE_VOLUME),
     archiveDirectory: resolve(archiveDirectory),
     sandbox: getExporterSandboxPolicy(),
   };

@@ -5,9 +5,6 @@
 	let { data } = $props();
 	const setup = $derived(data.setup);
 	const targetProfiles = $derived(data.targetProfiles ?? []);
-	const deprecatedAliases = $derived(
-		setup.capabilityReport?.deprecatedEnvironmentAliases ?? [],
-	);
 </script>
 
 <svelte:head><title>Setup - GitHub Migration Toolkit</title></svelte:head>
@@ -39,22 +36,6 @@
 			</span>
 		</div>
 	</header>
-
-	{#if deprecatedAliases.length > 0}
-		<div class="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
-			<div class="flex items-start gap-2">
-				<Octicon name="alert" size={16} class="mt-0.5 shrink-0" />
-				<div>
-					<p class="font-medium">Legacy export settings are active</p>
-					<ul class="mt-1 space-y-1 text-xs text-yellow-100/80">
-						{#each deprecatedAliases as alias (alias.alias)}
-							<li><code>{alias.alias}</code> is supplying <code>{alias.canonical}</code>.</li>
-						{/each}
-					</ul>
-				</div>
-			</div>
-		</div>
-	{/if}
 
 	<div class="grid gap-8 lg:grid-cols-[12rem_minmax(0,1fr)]">
 		<aside>

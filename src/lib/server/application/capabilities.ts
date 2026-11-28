@@ -37,14 +37,8 @@ export interface MigrationCapability {
   reasons: CapabilityReason[];
 }
 
-interface DeprecatedEnvironmentAlias {
-  alias: string;
-  canonical: string;
-}
-
 export interface CapabilityReport {
   migrations: MigrationCapability[];
-  deprecatedEnvironmentAliases: DeprecatedEnvironmentAlias[];
 }
 
 export interface CapabilityContext {
@@ -54,7 +48,6 @@ export interface CapabilityContext {
 
 interface CapabilityLogger {
   info(message: string): void;
-  warn(message: string): void;
 }
 
 const SOURCE_AUTH_ENV: Record<SourceProvider, string[]> = {
@@ -212,25 +205,11 @@ export function getMigrationCapability(
   };
 }
 
-function deprecatedEnvironmentAliases(): DeprecatedEnvironmentAlias[] {
-  const aliases = [
-    ["GL_EXPORTER_RUNTIME", "EXPORTER_RUNTIME"],
-    ["GL_EXPORTER_ARCHIVE_VOLUME", "EXPORTER_ARCHIVE_VOLUME"],
-  ] as const;
-  return aliases
-    .filter(
-      ([alias, canonical]) =>
-        Boolean(process.env[alias]?.trim()) && !process.env[canonical]?.trim(),
-    )
-    .map(([alias, canonical]) => ({ alias, canonical }));
-}
-
 export function getCapabilityReport(): CapabilityReport {
   return {
     migrations: getMigrationTargetProfiles().flatMap((target) =>
       SOURCE_PROVIDERS.map((provider) => getMigrationCapability(provider, target.id)),
     ),
-    deprecatedEnvironmentAliases: deprecatedEnvironmentAliases(),
   };
 }
 
@@ -245,8 +224,4 @@ export function logCapabilityReport(
     return `${route}=${capability.status}(${reasonCodes})`;
   });
   logger.info(`[setup] Migration capabilities: ${routes.join("; ")}`);
-
-  for (const { alias, canonical } of report.deprecatedEnvironmentAliases) {
-    logger.warn(`[setup] ${alias} is deprecated; configure ${canonical} instead`);
-  }
 }

@@ -253,48 +253,34 @@ describe("migration capability report", () => {
     ]);
   });
 
-  test("reports only aliases that supply a missing canonical setting", () => {
-    process.env.GL_EXPORTER_RUNTIME = "docker";
-    process.env.GL_EXPORTER_ARCHIVE_VOLUME = "legacy-archives";
-    expect(getCapabilityReport().deprecatedEnvironmentAliases).toEqual([
-      { alias: "GL_EXPORTER_RUNTIME", canonical: "EXPORTER_RUNTIME" },
-      { alias: "GL_EXPORTER_ARCHIVE_VOLUME", canonical: "EXPORTER_ARCHIVE_VOLUME" },
-    ]);
+  test("reports migration capabilities with obsolete environment settings present", () => {
+    process.env.GL_EXPORTER_RUNTIME = "podman";
+    process.env.GL_EXPORTER_ARCHIVE_VOLUME = "old-archives";
 
-    process.env.EXPORTER_ARCHIVE_VOLUME = "canonical-archives";
-    expect(getCapabilityReport().deprecatedEnvironmentAliases).toEqual([
-      { alias: "GL_EXPORTER_RUNTIME", canonical: "EXPORTER_RUNTIME" },
-    ]);
-
-    process.env.GL_EXPORTER_RUNTIME = "   ";
-    process.env.EXPORTER_ARCHIVE_VOLUME = "   ";
-    expect(getCapabilityReport().deprecatedEnvironmentAliases).toEqual([
-      { alias: "GL_EXPORTER_ARCHIVE_VOLUME", canonical: "EXPORTER_ARCHIVE_VOLUME" },
-    ]);
+    const report = getCapabilityReport();
+    expect(Object.keys(report)).toEqual(["migrations"]);
+    expect(report.migrations).toHaveLength(3);
   });
 
-  test("logs route reason codes and aliases without credential values", () => {
+  test("logs route reason codes without credential values or alias warnings", () => {
     process.env.GH_SOURCE_PAT = "source-secret";
     process.env.GL_EXPORTER_RUNTIME = "legacy-runtime";
     const messages: string[] = [];
-    logCapabilityReport(getCapabilityReport(), {
-      info: (message) => messages.push(message),
-      warn: (message) => messages.push(message),
-    });
+    const logger = {
+      info: (message: string) => messages.push(message),
+      warn: (message: string) => messages.push(message),
+    };
+    logCapabilityReport(getCapabilityReport(), logger);
 
     expect(messages.join("\n")).toContain("github->ghec=blocked(target-auth-missing)");
-    expect(messages.join("\n")).toContain(
-      "GL_EXPORTER_RUNTIME is deprecated; configure EXPORTER_RUNTIME instead",
-    );
+    expect(messages).toHaveLength(1);
     expect(messages.join("\n")).not.toContain("source-secret");
     expect(messages.join("\n")).not.toContain("legacy-runtime");
 
     process.env.GH_TARGET_PAT = "target-secret";
     messages.length = 0;
-    logCapabilityReport(getCapabilityReport(), {
-      info: (message) => messages.push(message),
-      warn: (message) => messages.push(message),
-    });
+    logCapabilityReport(getCapabilityReport(), logger);
+    expect(messages.join("\n")).not.toContain("target-secret");
     expect(messages[0]).toBe(
       "[setup] Migration capabilities: github->ghec=ready; gitlab->ghec=blocked(source-auth-missing,gitlab-archive-storage-missing); bitbucket-server->ghec=blocked(source-auth-missing,bitbucket-sftp-missing)",
     );

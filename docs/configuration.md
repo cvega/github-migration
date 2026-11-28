@@ -14,7 +14,6 @@ integers unless noted otherwise.
 | `DATA_DIR` | Directory containing SQLite data and the exclusive instance lock |
 | `GH_MIGRATE_USER` | Username used to create the first administrator when no users exist |
 | `GH_MIGRATE_PASS` | Password used to create the first administrator when no users exist |
-| `GH_MIGRATE_SESSION_SECRET` | Deprecated compatibility setting; accepted but no longer used |
 | `GH_MIGRATE_ALLOW_UNAUTHENTICATED` | Explicitly permit operation without dashboard login |
 | `GH_MIGRATE_METRICS_TOKEN` | Optional bearer token enabling the Prometheus metrics endpoint; must contain no whitespace |
 | `GH_ALLOW_CREDENTIAL_OVERRIDE` | Permit request-scoped GitHub credentials and source URL overrides |
@@ -191,8 +190,6 @@ exporter containers.
 | `EXPORTER_PIDS_LIMIT` | Exporter process-count limit |
 | `EXPORTER_TMPFS_SIZE` | Exporter temporary-filesystem size |
 | `EXPORTER_ARCHIVE_VOLUME` | Shared archive volume mounted into exporters |
-| `GL_EXPORTER_RUNTIME` | Optional GitLab-specific runtime override |
-| `GL_EXPORTER_ARCHIVE_VOLUME` | GitLab exporter archive volume |
 | `GL_EXPORTER_IMAGE` | GitLab exporter image |
 | `BBS_EXPORTER_IMAGE` | Bitbucket exporter image |
 
