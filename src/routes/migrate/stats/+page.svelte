@@ -726,7 +726,7 @@
 							</div>
 						{/each}
 					</dl>
-					<p class="mt-2 text-xs text-gray-500">Commits reflect default-branch history. Older recorded counts may include zeros from unavailable API data.</p>
+					<p class="mt-2 text-xs text-gray-500">Commits reflect default-branch history.</p>
 				</section>
 				<section class="flex min-h-0 flex-col">
 					<div class="mb-3 flex items-start justify-between gap-3">

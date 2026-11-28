@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Migration, MigrationEvent, Progress } from "$lib/migrate/types";
-import { closeStore, initStore } from "$lib/server/core/db";
+import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { getEvents } from "../database/events";
 import { getMigration, insertMigration, updateMigrationState } from "../database/migrations";
 import { migrateStore } from "../database/schema";
@@ -161,6 +161,12 @@ describe("migration event projection", () => {
         createdAt: current.timestamp,
       });
       expect(getMigration("migration-1")).toMatchObject({ state: "succeeded", targetCounts: null });
+      expect(getEvents("migration-1")).toContainEqual(
+        expect.objectContaining({ eventType: "complete" }),
+      );
+      getDb().run(`UPDATE events SET payload = json_remove(payload, '$.progress.current.countsAuthoritative')
+        WHERE migration_id = 'migration-1' AND event_type = 'complete'`);
+      expect(getEvents("migration-1").some((event) => event.eventType === "complete")).toBe(false);
     } finally {
       activeMigrationRuns.finish("migration-1", registration.token);
     }

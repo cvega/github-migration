@@ -49,7 +49,7 @@ export const UNRESOLVED_REMOTE_WORK_SQL = `(state = 'cancelling' OR github_migra
   OR (source_provider = 'github' AND pipeline_step = 'archive_upload')
   OR EXISTS (SELECT 1 FROM ghes_import_jobs WHERE migration_id = migrations.id))`;
 
-/** A legacy checkpoint or serialized target can contradict the migrated column defaults. */
+/** Fail closed when admitted target identity conflicts with saved options or an appliance checkpoint. */
 export const PAUSED_GITLAB_ROUTE_SQL = `(source_provider = 'gitlab' AND (
   target_platform != 'ghec' OR target_profile_id != 'ghec' OR target_api_url != 'https://api.github.com'
   OR CASE WHEN json_valid(request_options)

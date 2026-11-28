@@ -17,6 +17,7 @@ import {
   listMigrationsPaginated,
   parsePersistedCounts,
   parsePersistedEventPayload,
+  rowsToMigrations,
   rowToMigration,
   searchMigrationsPaginated,
   updateMigrationState,
@@ -48,7 +49,7 @@ function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     target_org: "acme-cloud",
     target_repo: "widget",
     state: "pending",
-    warnings_count: null,
+    warnings_count: 0,
     source_counts: null,
     target_counts: null,
     started_at: "2026-08-17T12:00:00.000Z",
@@ -64,7 +65,7 @@ describe("persisted migration records", () => {
     expect(() => parsePersistedCounts(JSON.stringify({ ...counts, extra: 1 }))).toThrow();
   });
 
-  test("accepts legacy partial request options but rejects unknown fields", () => {
+  test("accepts optional nonsecret request settings but rejects unknown fields", () => {
     expect(parsePersistedRequestOptions("{}")).toEqual({});
     expect(
       parsePersistedRequestOptions(
@@ -78,10 +79,13 @@ describe("persisted migration records", () => {
     expect(parsePersistedEventPayload("step", JSON.stringify({ message: "Exporting" }))).toEqual({
       message: "Exporting",
     });
+    expect(() =>
+      parsePersistedEventPayload("restart", JSON.stringify({ message: "Restart" })),
+    ).toThrow();
     expect(() => parsePersistedEventPayload("step", JSON.stringify({ message: 1 }))).toThrow();
   });
 
-  test("normalizes durable rows with backward-compatible nullable defaults", () => {
+  test("hydrates nullable observations and requires the stored warning count", () => {
     expect(rowToMigration(row())).toMatchObject({
       id: "migration-1",
       sourceProvider: "github",
@@ -90,6 +94,10 @@ describe("persisted migration records", () => {
       sourceCounts: null,
       authMode: null,
     });
+    expect(rowsToMigrations([row({ warnings_count: null }), row()]).map(({ id }) => id)).toEqual([
+      "migration-1",
+    ]);
+    expect(() => rowToMigration(row({ warnings_count: null }))).toThrow("invalid warnings_count");
     expect(() => rowToMigration(row({ source_provider: "unknown" }))).toThrow(
       "invalid source_provider",
     );

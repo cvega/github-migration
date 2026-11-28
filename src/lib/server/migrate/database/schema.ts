@@ -16,7 +16,7 @@ import {
 } from "$lib/migration-state";
 import { GITLAB_GHES_PAUSE_REASON } from "$lib/migration-target";
 import type { DomainStore, DurableTableContract } from "$lib/server/core/db";
-import { getGitHubSourcePlatform, SOURCE_PROVIDERS } from "$lib/source-provider";
+import { SOURCE_PROVIDERS } from "$lib/source-provider";
 import {
   PAUSED_GITLAB_ROUTE_SQL,
   RECOVERABLE_CHECKPOINT_SQL,
@@ -161,21 +161,7 @@ export function recoverInterruptedMigrations(db: Database, nowMs: number = Date.
      WHERE state IN (${migrationStatesSql(ACTIVE_MIGRATION_STATES)})
        AND id NOT LIKE 'seed-%' AND ${PAUSED_GITLAB_ROUTE_SQL}`,
   ).run(GITLAB_GHES_PAUSE_REASON, now);
-  // Older GitHub runs used "archiving" for both real GHES exports and the cloud no-op.
-  const legacyExportSources = db
-    .query<{ source_api_url: string }, []>(
-      `SELECT DISTINCT source_api_url FROM migrations WHERE source_provider = 'github'
-       AND pipeline_step = 'archiving' AND state IN (${migrationStatesSql(ACTIVE_MIGRATION_STATES)})`,
-    )
-    .all()
-    .map((row) => row.source_api_url)
-    .filter((url) => getGitHubSourcePlatform(url) === "ghes");
-  const unresolved = `(${UNRESOLVED_REMOTE_WORK_SQL} OR (source_provider = 'github'
-    AND pipeline_step = 'archiving' AND source_api_url IN (SELECT value FROM json_each($legacy))))`;
-  const providerBindings: Record<string, string> = {
-    $now: now,
-    $legacy: JSON.stringify(legacyExportSources),
-  };
+  const providerBindings: Record<string, string> = { $now: now };
   const providerPlaceholders = SOURCE_PROVIDERS.map((provider, index) => {
     const name = `$provider_${index}`;
     providerBindings[name] = provider;
@@ -185,12 +171,12 @@ export function recoverInterruptedMigrations(db: Database, nowMs: number = Date.
     .prepare(
       `UPDATE migrations
        SET state = CASE
-             WHEN ${unresolved}
+             WHEN ${UNRESOLVED_REMOTE_WORK_SQL}
                THEN 'reconciliation_required'
              ELSE 'failed'
            END,
            failure_reason = CASE
-             WHEN ${unresolved}
+             WHEN ${UNRESOLVED_REMOTE_WORK_SQL}
                THEN 'Server restarted with an unresolved remote migration outcome'
              ELSE 'Server restarted during migration'
            END,

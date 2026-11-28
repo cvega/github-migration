@@ -614,6 +614,7 @@ for (const [type, message] of [
   ["restart", "Migration restarted"],
   ["step", "Starting Bitbucket Server export"],
 ] as const) {
-  importStep.run(type, JSON.stringify({ message }), startedAt);
+  const payload = type === "restart" ? { message, previousState: "failed" } : { message };
+  importStep.run(type, JSON.stringify(payload), startedAt);
 }
 db.close();

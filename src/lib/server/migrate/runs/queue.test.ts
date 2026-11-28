@@ -153,7 +153,7 @@ describe("migration queue", () => {
     expect(shouldQueueMigration(enterprise("02", "batch", "pending"))).toBe(true);
   });
 
-  test("honors earlier confirmation messages only within the reviewed attempt", () => {
+  test("requires structured confirmation within the reviewed attempt", () => {
     const blocker = enterprise("01", "batch", "failed");
     insertMigration(blocker);
     seedJob(blocker, "importing", "saved-guid");
@@ -168,12 +168,20 @@ describe("migration queue", () => {
       },
       createdAt: blocker.startedAt,
     });
+    expect(shouldQueueMigration(sibling)).toBe(true);
+    insertEvent({
+      migrationId: blocker.id,
+      eventType: "step",
+      phase: null,
+      payload: { message: "Reviewed", confirmedInactive: true },
+      createdAt: blocker.startedAt,
+    });
     expect(shouldQueueMigration(sibling)).toBe(false);
     insertEvent({
       migrationId: blocker.id,
       eventType: "restart",
       phase: null,
-      payload: { message: "Restart" },
+      payload: { message: "Restart", previousState: "failed" },
       createdAt: blocker.startedAt,
     });
     expect(shouldQueueMigration(sibling)).toBe(true);
@@ -222,6 +230,22 @@ describe("migration queue", () => {
     } finally {
       run.mockRestore();
       activeMigrationRuns.dropQueued(sibling.id);
+    }
+  });
+
+  test("gives a queued restart priority only for an explicit failed attempt", () => {
+    const queued = enterprise("later", "batch", "queued");
+    insertMigration(queued);
+    const sibling = enterprise("earlier", "batch", "pending");
+    for (const previousState of [undefined, "cancelled", "failed"] as const) {
+      insertEvent({
+        migrationId: queued.id,
+        eventType: "restart",
+        phase: null,
+        payload: { message: "Restart", previousState },
+        createdAt: queued.startedAt,
+      });
+      expect(shouldQueueMigration(sibling)).toBe(previousState === "failed");
     }
   });
 
@@ -284,31 +308,12 @@ describe("migration queue", () => {
     },
   );
 
-  test.each([
-    "preparing",
-    "mapping",
-    "importing",
-    "auditing",
-    "unlocking",
-    "reconciliation_required",
-  ] as const)(
+  test.each(["preparing", "mapping", "importing", "auditing", "unlocking"] as const)(
     "blocks GHES starts, restarts and other batches until confirmation at %s",
     async (phase) => {
       const blocker = enterprise("01", "held", "reconciliation_required");
       insertMigration(blocker);
-      seedJob(
-        blocker,
-        phase,
-        phase === "preparing" || phase === "reconciliation_required" ? null : "saved-guid",
-      );
-      if (phase === "reconciliation_required")
-        insertEvent({
-          migrationId: blocker.id,
-          eventType: "step",
-          phase: null,
-          payload: { message: "Preparing", executorPhase: "preparing" },
-          createdAt: blocker.startedAt,
-        });
+      seedJob(blocker, phase, phase === "preparing" ? null : "saved-guid");
       insertMigration(enterprise("02", "other", "queued"));
       activeMigrationRuns.enqueue("02", request("acme/02"));
       insertMigration(enterprise("03", null, "failed"));
@@ -375,7 +380,7 @@ describe("migration queue", () => {
       const blocker = enterprise("01", "held", "reconciliation_required");
       insertMigration(blocker);
       seedJob(blocker, phase, phase === "preparing" ? "saved-guid" : null);
-      for (const executorPhase of ["preparing", "exporting"])
+      for (const executorPhase of ["exporting", "preparing"])
         insertEvent({
           migrationId: blocker.id,
           eventType: "step",

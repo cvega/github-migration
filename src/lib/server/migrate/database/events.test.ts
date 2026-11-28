@@ -92,7 +92,7 @@ describe("migration event persistence", () => {
     expect(replay.replayFrom).toBe(2);
   });
 
-  test("skips a legacy failure with malformed terminal metadata across history readers", () => {
+  test("skips a failure with malformed terminal metadata across history readers", () => {
     insertOwner();
     const first = insertEvent(banner("migration-1", "first", "2026-08-17T12:00:01Z"));
     getDb().run(
@@ -181,7 +181,7 @@ describe("migration event persistence", () => {
       migrationId: "migration-1",
       eventType: "restart",
       phase: null,
-      payload: { message: "Restart requested" },
+      payload: { message: "Restart requested", previousState: "failed" },
       createdAt: "2026-08-17T12:00:02Z",
     });
     expect(getRecentActivity()).toMatchObject([

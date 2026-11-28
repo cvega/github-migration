@@ -20,7 +20,7 @@ function readEventPayload(row: Record<string, unknown>): MigrationEvent["payload
   try {
     return parsePersistedEventPayload(row.event_type as EventType, row.payload as string);
   } catch {
-    // A malformed legacy row must not prevent reading the rest of the history.
+    // A malformed row must not prevent reading the rest of the history.
     return null;
   }
 }

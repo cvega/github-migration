@@ -35,7 +35,7 @@ export const exporterFailures = {
   archive: "Exporter archive is not a regular file",
 } as const;
 
-// Both provider replies and older checkpoint rows can contain arbitrary diagnostics.
+// Only approved exporter diagnostics can be shown to operators.
 export function exporterFailureReason(reason: string | null): string {
   return Object.values(exporterFailures).find((known) => known === reason) ?? "Exporter job failed";
 }

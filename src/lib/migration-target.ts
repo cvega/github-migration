@@ -25,7 +25,7 @@ const TARGET_PLATFORM_PRESENTATION: Record<
 
 export const GITLAB_GHES_PAUSE_REASON = "GitLab-to-GHES migration execution is paused";
 
-/** GHEC has one built-in profile. Never dispatch a conflicting historical row as cloud work. */
+/** GHEC has one built-in profile. Never dispatch a conflicting target identity as cloud work. */
 export function isPausedPersistedRoute(route: {
   routeExecutionPaused?: true;
   sourceProvider: SourceProvider;
