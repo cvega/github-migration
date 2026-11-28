@@ -9,10 +9,13 @@ export interface AuthStartupInput {
   development?: boolean;
 }
 
-export interface AuthStartupResult {
-  authEnabled: boolean;
-  bootstrappedUser: boolean;
-}
+export type AuthStartupResult =
+  | { authEnabled: true; bootstrappedUser: boolean }
+  | {
+      authEnabled: false;
+      bootstrappedUser: false;
+      unauthenticatedReason: "explicit" | "development-fallback";
+    };
 
 export async function initializeAuthentication(
   input: AuthStartupInput,
@@ -64,7 +67,11 @@ export async function initializeAuthentication(
   }
 
   if (openValue === "true" || (input.development && openValue === undefined)) {
-    return { authEnabled: false, bootstrappedUser: false };
+    return {
+      authEnabled: false,
+      bootstrappedUser: false,
+      unauthenticatedReason: openValue === "true" ? "explicit" : "development-fallback",
+    };
   }
   throw new Error(
     "Set GH_MIGRATE_USER and GH_MIGRATE_PASS to create the first administrator, or explicitly set GH_MIGRATE_ALLOW_UNAUTHENTICATED=true.",

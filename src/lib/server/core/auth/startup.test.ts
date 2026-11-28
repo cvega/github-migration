@@ -47,7 +47,31 @@ describe("authentication startup", () => {
     expect(await initializeAuthentication({ allowUnauthenticated: "true" }, database)).toEqual({
       authEnabled: false,
       bootstrappedUser: false,
+      unauthenticatedReason: "explicit",
     });
+  });
+
+  test("identifies the implicit development fallback", async () => {
+    expect(await initializeAuthentication({ development: true }, database)).toEqual({
+      authEnabled: false,
+      bootstrappedUser: false,
+      unauthenticatedReason: "development-fallback",
+    });
+  });
+
+  test("identifies an explicit opt-in in development", async () => {
+    expect(
+      await initializeAuthentication(
+        { development: true, allowUnauthenticated: " TRUE " },
+        database,
+      ),
+    ).toMatchObject({ authEnabled: false, unauthenticatedReason: "explicit" });
+  });
+
+  test("does not fall back when unauthenticated mode is disabled in development", async () => {
+    await expect(
+      initializeAuthentication({ development: true, allowUnauthenticated: "false" }, database),
+    ).rejects.toThrow(/create the first administrator/);
   });
 
   test("rejects unauthenticated mode once users exist", async () => {
