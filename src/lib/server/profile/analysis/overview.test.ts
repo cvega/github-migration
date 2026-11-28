@@ -8,7 +8,11 @@ import type {
   ProfileNumericMetric,
   SourceNamespaceInventory,
 } from "$lib/source/types";
-import { summarizeGitLabEnrichment, summarizeProfileInventory } from "./overview";
+import {
+  parseProfileInventorySummary,
+  summarizeGitLabEnrichment,
+  summarizeProfileInventory,
+} from "./overview";
 
 function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
   const exact = (endpointFamily: string, value: number, basis: "reported" | "enumerated") => ({
@@ -98,6 +102,47 @@ function inventory(): SourceNamespaceInventory {
 }
 
 describe("summarizeProfileInventory", () => {
+  test("retains scoped membership counts separately and deduplicates shared groups, not users", () => {
+    const members = gitLabMetricFixtures().members;
+    const projectScope = members.scopes[0]!;
+    const group = { ...projectScope, kind: "group" as const, path: "platform/products" };
+    const enrichment: GitLabProfileEnrichment = {
+      version: 2,
+      provider: "gitlab",
+      sourceApiUrl: "https://gitlab.invalid/api/v4",
+      namespace: "platform/products",
+      projects: ["api", "web"].map((name) => ({
+        sourceId: name,
+        path: `platform/products/${name}`,
+        metrics: gitLabMetricFixtures({
+          members: {
+            ...members,
+            scopes: [{ ...projectScope, path: `platform/products/${name}` }, group],
+          },
+        }),
+      })),
+    };
+    const summary = parseProfileInventorySummary(
+      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment),
+    );
+    expect(summary.metrics?.members).toEqual({ kind: "unavailable", reason: "unsupported" });
+    expect(summary.membershipScopes?.map(({ kind, path }) => [kind, path])).toEqual([
+      ["project", "platform/products/api"],
+      ["group", "platform/products"],
+      ["project", "platform/products/web"],
+    ]);
+    expect(
+      summary.membershipScopes?.map(({ direct, effective }) => [
+        direct.observation,
+        effective.observation,
+      ]),
+    ).toEqual(
+      Array.from({ length: 3 }, () => [
+        expect.objectContaining({ kind: "exact", value: 2 }),
+        expect.objectContaining({ kind: "exact", value: 3 }),
+      ]),
+    );
+  });
   test("summarizes project state and preserves lower-bound totals", () => {
     const summary = summarizeProfileInventory(inventory());
 
@@ -273,7 +318,7 @@ describe("summarizeGitLabEnrichment", () => {
           return [
             key,
             observation.kind === "unavailable"
-              ? { kind: "unavailable", reason: observation.reason }
+              ? { kind: "unavailable", reason: "request-budget" }
               : { kind: "at-least", value: observation.value },
           ];
         }),

@@ -116,6 +116,24 @@ access or budget cuts pagination short. Missing evidence does not establish
 that approvals are optional. Recreate required approval policies on GitHub;
 imported review history does not enforce them.
 
+Membership profiling enumerates `GET /projects/:id/members` and `/members/all`
+separately, plus the same endpoints for the project's immediate parent group
+within the admitted namespace. Group reads are shared across projects in one run;
+ancestors above the selected namespace are never requested. Each scope retains
+only direct and effective **visible** counts with provenance, not user records,
+identities, email addresses, or access levels. Effective counts include inherited
+and shared membership, but GitLab may hide invited members from the caller:
+an exact visible count is not an exact total audience. No member counts are summed
+across project/group scopes or treated as target grants. The summary card says
+**Per scope**, with the individual observations in **Membership counts by scope**;
+the common numeric aggregate is deliberately unavailable (`unsupported`).
+Mannequins are not target access grants, and group-inherited access must be recreated.
+Optional membership HTTP 401/403 results are `forbidden`; 404, including endpoints
+unavailable on the current paid tier, is `not-reported`, never zero or a direct-only
+effective count. Other scopes continue; a partial traversal keeps a lower bound
+after budget exhaustion or a later permission failure. All pages and retries
+spend the same profile request budget.
+
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
 keeps the count unavailable rather than reporting zero or a partial count.

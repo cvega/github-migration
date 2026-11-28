@@ -16,6 +16,8 @@ import inheritedProtectedBranchesFixture from "./inherited-protected-branches.fi
 import inheritedProtectedBranchesMetric from "./inherited-protected-branches.metric";
 import issuesFixture from "./issues.fixture";
 import issuesMetric from "./issues.metric";
+import membersFixture from "./members.fixture";
+import membersMetric from "./members.metric";
 import mergeRequestsFixture from "./merge-requests.fixture";
 import mergeRequestsMetric from "./merge-requests.metric";
 import projectWebhooksFixture from "./project-webhooks.fixture";
@@ -39,6 +41,7 @@ export const GITLAB_METRIC_FIXTURES = {
   [groupWebhooksMetric.key]: groupWebhooksFixture,
   [inheritedProtectedBranchesMetric.key]: inheritedProtectedBranchesFixture,
   [issuesMetric.key]: issuesFixture,
+  [membersMetric.key]: membersFixture,
   [mergeRequestsMetric.key]: mergeRequestsFixture,
   [projectWebhooksMetric.key]: projectWebhooksFixture,
   [protectedBranchesMetric.key]: protectedBranchesFixture,

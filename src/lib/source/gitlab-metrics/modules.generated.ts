@@ -8,6 +8,7 @@ import commitsMetric from "./commits.metric";
 import groupWebhooksMetric from "./group-webhooks.metric";
 import inheritedProtectedBranchesMetric from "./inherited-protected-branches.metric";
 import issuesMetric from "./issues.metric";
+import membersMetric from "./members.metric";
 import mergeRequestsMetric from "./merge-requests.metric";
 import projectWebhooksMetric from "./project-webhooks.metric";
 import protectedBranchesMetric from "./protected-branches.metric";
@@ -24,6 +25,7 @@ export const GITLAB_METRIC_DESCRIPTORS = [
   groupWebhooksMetric,
   inheritedProtectedBranchesMetric,
   issuesMetric,
+  membersMetric,
   mergeRequestsMetric,
   projectWebhooksMetric,
   protectedBranchesMetric,

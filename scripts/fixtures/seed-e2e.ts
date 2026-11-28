@@ -9,6 +9,7 @@ import {
 } from "../../src/lib/server/profile/database/results";
 import type { RepoSignals } from "../../src/lib/server/profile/types";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
+import { gitLabMetricFixtures } from "../../src/lib/source/gitlab-metrics/fixtures";
 
 const dataDir = ".e2e-data";
 rmSync(dataDir, { recursive: true, force: true });
@@ -479,6 +480,7 @@ const gitLabProjects = [
     containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
 ] as const;
+const gitLabFixtureMetrics = gitLabMetricFixtures();
 const gitLabSummary = {
   projectCount: { kind: "at-least", value: gitLabProjects.length },
   projectsCaptured: 2,
@@ -498,6 +500,14 @@ const gitLabSummary = {
     containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
   metrics: {
+    ...Object.fromEntries(
+      Object.entries(gitLabFixtureMetrics).map(([key, { observation }]) => [
+        key,
+        observation.kind === "unavailable"
+          ? { kind: "unavailable", reason: observation.reason }
+          : { kind: observation.kind, value: observation.value },
+      ]),
+    ),
     commits: { kind: "exact", value: 42 },
     tags: { kind: "unavailable", reason: "malformed" },
     releases: { kind: "unavailable", reason: "malformed" },
@@ -512,6 +522,7 @@ const gitLabSummary = {
   },
   approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },
   webhookEvents: { projectWebhooks: [], groupWebhooks: ["deployment", "pipeline"] },
+  membershipScopes: gitLabFixtureMetrics.members.scopes,
 };
 db.prepare(
   `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)

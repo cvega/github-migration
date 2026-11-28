@@ -5,6 +5,10 @@ import {
   gitLabApprovalPolicySchema,
 } from "$lib/source/gitlab-metrics/approval-rules.metric";
 import {
+  type GitLabMembershipScope,
+  gitLabMembershipScopeSchema,
+} from "$lib/source/gitlab-metrics/members.metric";
+import {
   GITLAB_WEBHOOK_EVENT_CATEGORIES,
   type GitLabWebhookEventCategory,
   gitLabWebhookEventCategoriesSchema,
@@ -29,6 +33,7 @@ const BITBUCKET_PROFILE_METRIC_KEYS = [
 
 export interface ProfileInventorySummary {
   approvalPolicy?: GitLabApprovalPolicy;
+  membershipScopes?: GitLabMembershipScope[];
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
@@ -85,6 +90,7 @@ const profileInventorySummarySchema = z
   .object({
     projectCount: numericObservationSchema,
     approvalPolicy: gitLabApprovalPolicySchema.optional(),
+    membershipScopes: z.array(gitLabMembershipScopeSchema).max(20_000).optional(),
     webhookEvents: z
       .object({
         projectWebhooks: gitLabWebhookEventCategoriesSchema,
@@ -203,6 +209,13 @@ export function summarizeGitLabEnrichment(
       requiresApprovals: approvalPresence("requiresApprovals"),
       hasRequiredProtectedBranchRules: approvalPresence("hasRequiredProtectedBranchRules"),
     },
+    membershipScopes: [
+      ...new Map(
+        enrichment.projects.flatMap(({ metrics }) =>
+          metrics.members.scopes.map((scope) => [`${scope.kind}:${scope.path}`, scope] as const),
+        ),
+      ).values(),
+    ],
     webhookEvents: {
       projectWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
         enrichment.projects.some(({ metrics }) =>

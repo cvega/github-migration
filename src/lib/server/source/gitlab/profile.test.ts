@@ -276,6 +276,8 @@ describe("collectGitLabProfileEnrichment", () => {
       protected_tags: jsonResponse([{ name: "v*" }]),
       hooks: jsonResponse([]),
       approval_rules: jsonResponse([]),
+      members: jsonResponse([]),
+      "members/all": jsonResponse([]),
     };
     const client = new GitLabClient({
       baseUrl: "https://gitlab.example.com",
@@ -293,6 +295,8 @@ describe("collectGitLabProfileEnrichment", () => {
             headers: { "X-Total": pathname.includes("/2/") ? "2" : "0" },
           });
         }
+        if (/^\/api\/v4\/groups\/platform\/members(?:\/all)?$/.test(pathname))
+          return jsonResponse([]);
         if (pathname === "/api/v4/groups/platform/protected_branches") {
           return new Response(null, { status: 404 });
         }
@@ -711,6 +715,16 @@ describe("GitLab profile request budget", () => {
       for (const metric of Object.values(metrics)) {
         expect(metric.observation).toMatchObject({ kind: "unavailable", reason: "request-budget" });
         expect(metric.collectedAt).toBe("2026-08-10T12:00:00.000Z");
+      }
+      for (const scope of metrics.members.scopes) {
+        expect(scope.direct.observation).toMatchObject({
+          kind: "unavailable",
+          reason: "request-budget",
+        });
+        expect(scope.effective.observation).toMatchObject({
+          kind: "unavailable",
+          reason: "request-budget",
+        });
       }
     }
   });
