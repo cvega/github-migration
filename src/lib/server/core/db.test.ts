@@ -180,6 +180,60 @@ describe("enableWal", () => {
     expect(database.query("PRAGMA journal_mode").values()).toEqual([["delete"]]);
   });
 
+  test("bounds each attempt by the remaining deadline when a peer's write lock becomes a read lock", async () => {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-wal-"));
+    const path = join(directory, "store.sqlite");
+    {
+      using setup = new Database(path, { create: true });
+      setup.run("CREATE TABLE t (id INTEGER)");
+    }
+    // The peer holds a write lock, then keeps only a read lock after 400ms.
+    const peer = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `
+        import { Database } from "bun:sqlite";
+        const writer = new Database(process.argv[1]);
+        const reader = new Database(process.argv[1]);
+        writer.run("BEGIN IMMEDIATE");
+        reader.run("BEGIN");
+        reader.query("SELECT * FROM t").all();
+        console.log("ready");
+        setTimeout(() => writer.run("ROLLBACK"), 400);
+        // Referencing the reader keeps it from being collected, which would drop its lock.
+        setTimeout(() => { reader.close(); process.exit(0); }, 10000);`,
+        path,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    try {
+      const output = peer.stdout.getReader();
+      expect(new TextDecoder().decode((await output.read()).value)).toContain("ready");
+      using database = new Database(path);
+      database.run("PRAGMA busy_timeout = 5000");
+      const started = performance.now();
+      expect(() => enableWal(database, { timeoutMs: 800 })).toThrow("database is locked");
+      expect(performance.now() - started).toBeLessThan(2000);
+      expect(database.query("PRAGMA busy_timeout").values()).toEqual([[5000]]);
+      expect(database.query("PRAGMA journal_mode").values()).toEqual([["delete"]]);
+    } finally {
+      peer.kill();
+      await peer.exited;
+    }
+  }, 20_000);
+
+  test("restores the connection's busy timeout after a successful switch", () => {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-wal-"));
+    using database = new Database(join(directory, "store.sqlite"), {
+      create: true,
+    });
+    database.run("PRAGMA busy_timeout = 1234");
+    enableWal(database);
+    expect(database.query("PRAGMA busy_timeout").values()).toEqual([[1234]]);
+    expect(database.query("PRAGMA journal_mode").values()).toEqual([["wal"]]);
+  });
+
   test("does not retry errors other than SQLITE_BUSY", () => {
     directory = mkdtempSync(join(tmpdir(), "gh-migrate-wal-"));
     using database = new Database(join(directory, "store.sqlite"), {

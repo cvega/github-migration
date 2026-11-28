@@ -95,7 +95,9 @@ function isBusy(error: unknown): boolean {
 /**
  * Switch to WAL, retrying while another connection holds a lock. SQLite returns
  * SQLITE_BUSY for this switch without consulting busy_timeout when a peer holds
- * a write lock, so concurrent first starts must retry within the same bound.
+ * a write lock, but waits out the full busy_timeout when it holds a read lock.
+ * Each attempt and each sleep is therefore capped by the time left before the
+ * deadline, and the connection's own busy_timeout is restored on every outcome.
  */
 export function enableWal(
   database: Database,
@@ -106,14 +108,22 @@ export function enableWal(
   }: WalRetryOptions = {},
 ): void {
   const deadline = now() + timeoutMs;
-  for (;;) {
-    try {
-      database.run("PRAGMA journal_mode = WAL");
-      return;
-    } catch (error) {
-      if (!isBusy(error) || now() >= deadline) throw error;
-      sleep(WAL_RETRY_DELAY_MS);
+  const original = database.query<{ timeout: number }, []>("PRAGMA busy_timeout").get()?.timeout;
+  try {
+    for (;;) {
+      const remaining = Math.max(0, deadline - now());
+      database.run(`PRAGMA busy_timeout = ${Math.ceil(remaining)}`);
+      try {
+        database.run("PRAGMA journal_mode = WAL");
+        return;
+      } catch (error) {
+        const left = deadline - now();
+        if (!isBusy(error) || left <= 0) throw error;
+        sleep(Math.min(WAL_RETRY_DELAY_MS, left));
+      }
     }
+  } finally {
+    if (original !== undefined) database.run(`PRAGMA busy_timeout = ${original}`);
   }
 }
 
