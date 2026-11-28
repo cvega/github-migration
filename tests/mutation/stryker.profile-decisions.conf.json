@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null src/lib/server/profile/analysis/duration.test.ts src/lib/server/profile/analysis/insights.test.ts src/lib/server/profile/analysis/overview.test.ts src/lib/server/profile/analysis/plan.test.ts src/lib/server/profile/analysis/repos.test.ts"
+    "command": "cp tests/mutation/tsconfig.json tsconfig.json && bun test --no-env-file src/lib/server/profile/analysis/duration.test.ts src/lib/server/profile/analysis/insights.test.ts src/lib/server/profile/analysis/overview.test.ts src/lib/server/profile/analysis/plan.test.ts src/lib/server/profile/analysis/repos.test.ts"
   },
   "coverageAnalysis": "off",
   "mutate": [

@@ -13,7 +13,7 @@
     "docs:sync": "bun scripts/docs/semantic-docs.ts --write",
     "format": "bunx --bun biome format --write .",
     "lint": "bunx --bun biome check --error-on-warnings .",
-    "mutation": "bun scripts/checks/mutation-runner.ts",
+    "mutation": "bun --no-env-file scripts/checks/mutation-runner.ts",
     "preview": "bunx --bun vite preview",
     "release:prep": "bun scripts/release/release-prep.ts",
     "seed": "bun scripts/fixtures/seed.ts",

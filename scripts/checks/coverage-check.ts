@@ -20,7 +20,7 @@
 const MIN_FUNC_PCT = 90;
 const MIN_LINE_PCT = 90;
 
-const proc = Bun.spawnSync(["bun", "test", "--coverage"], {
+const proc = Bun.spawnSync(["bun", "test", "--no-env-file", "--coverage"], {
   stdout: "pipe",
   stderr: "pipe",
 });

@@ -102,7 +102,7 @@ const GATES: Gate[] = [
   },
   {
     name: "coverage",
-    cmd: ["bun", "scripts/checks/coverage-check.ts"],
+    cmd: ["bun", "--no-env-file", "scripts/checks/coverage-check.ts"],
     parse: (o): Metrics => {
       // Success line: "✓ Coverage gate passed — functions 88.38% (…), lines 85.66% (…)"
       const m = o.match(/functions ([\d.]+)%.*?lines ([\d.]+)%/s);
@@ -142,7 +142,7 @@ const GATES: Gate[] = [
   },
   {
     name: "mutation-config",
-    cmd: ["bun", "scripts/checks/mutation-runner.ts", "--check"],
+    cmd: ["bun", "--no-env-file", "scripts/checks/mutation-runner.ts", "--check"],
   },
   {
     name: "e2e",
