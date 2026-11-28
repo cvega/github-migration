@@ -660,14 +660,28 @@ export function requiresManualImportReview(id: string): boolean {
 
 // Confirmation releases the batch only for an attempt that cannot be restarted.
 // Older confirmation events carried the outcome in their message.
-const BLOCKS_BATCH = `(state = 'reconciliation_required' OR (state = 'failed' AND NOT (
-  ${MANUAL_GHES_IMPORT_SQL} AND EXISTS (
+const HAS_INACTIVE_CONFIRMATION = `EXISTS (
     SELECT 1 FROM events e WHERE ${EVENTS_THIS_ATTEMPT_SQL}
     AND CASE WHEN json_valid(e.payload) THEN (
       json_extract(e.payload, '$.confirmedInactive') = 1 OR json_extract(e.payload, '$.message') IN (
         'Manual review submitted: remote migration reported inactive; migration is now eligible for restart.',
         'Manual review submitted: remote GHES operation reported inactive. The GHES import outcome requires manual verification on the appliance. Restart is unavailable for this attempt.'
-      )) END))))`;
+      )) END)`;
+
+const BLOCKS_BATCH = `(state = 'reconciliation_required' OR (state = 'failed' AND NOT (
+  ${MANUAL_GHES_IMPORT_SQL} AND ${HAS_INACTIVE_CONFIRMATION})))`;
+
+export function markMigrationReviewed(id: string): boolean {
+  return (
+    getDb()
+      .prepare(`UPDATE migrations SET state = 'failed' WHERE id = ? AND (
+      state = 'reconciliation_required' OR (
+        state = 'failed' AND source_provider = 'bitbucket-server' AND ${MANUAL_GHES_IMPORT_SQL}
+        AND NOT ${HAS_INACTIVE_CONFIRMATION}
+      ))`)
+      .run(id).changes === 1
+  );
+}
 
 export function isBatchAdmissionBlocked(
   migration: Pick<Migration, "id" | "batchId" | "sourceProvider" | "targetPlatform" | "state">,

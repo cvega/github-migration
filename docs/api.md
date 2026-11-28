@@ -40,7 +40,7 @@ checks apply regardless of whether a link is visible.
 | `GET` | `/api/migrate/:id` | Read migration detail and persisted events |
 | `DELETE` | `/api/migrate/:id` | Request migration cancellation |
 | `GET` | `/api/migrate/:id/events` | Replay and stream one migration's events |
-| `POST` | `/api/migrate/:id/confirm-restart` | Confirm an uncertain outcome before restart |
+| `POST` | `/api/migrate/:id/confirm-restart` | Attest that remote work is inactive after review, including a legacy failed GHES import holding its batch |
 | `POST` | `/api/migrate/:id/restart` | Restart an eligible migration |
 
 ## Pagination

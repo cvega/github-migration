@@ -112,12 +112,45 @@ describe("migration queue", () => {
       expect(getEvents(record.id)).toEqual([]);
     },
   );
-  test("a manual-only failed job without confirmation still holds its batch", () => {
+  test("releases a legacy failed import's batch after exact attestation", async () => {
     const blocker = enterprise("01", "batch", "failed");
     insertMigration(blocker);
-    seedJob(blocker, "importing", "saved-guid");
+    seedJob(blocker, "failed", "saved-guid");
+    const checkpoint = getGhesImportJobByMigrationId(blocker.id);
+    const sibling = enterprise("02", "batch", "queued");
+    insertMigration(sibling);
+    activeMigrationRuns.enqueue(sibling.id, request("acme/02"));
+    using run = spyOn(getRegisteredMigrationExecutor(sibling), "run").mockImplementation(
+      async ({ id }) => ({ ...getMigration(id!)!, state: "succeeded" }),
+    );
+    try {
+      expect(() => confirmRestart(blocker.id, "acme-cloud/wrong")).toThrow("exactly match");
+      expect(getEvents(blocker.id)).toEqual([]);
+      drainMigrationQueue(() => {
+        throw new Error("Premature launch");
+      });
+      expect(getMigration(sibling.id)?.state).toBe("queued");
+      expect(confirmRestart(blocker.id, "acme-cloud/01").state).toBe("failed");
+      await Bun.sleep(0);
+      expect(getMigration(sibling.id)?.state).toBe("succeeded");
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(getEvents(blocker.id).at(-1)?.payload).toMatchObject({ confirmedInactive: true });
+      expect(() => confirmRestart(blocker.id, "acme-cloud/01")).toThrow("Cannot confirm");
+      expect(() => restart(blocker.id, {})).toThrow("import outcome");
+      expect(restartBatch("batch", {})).toEqual({ restarted: 0, errors: [] });
+      expect(getGhesImportJobByMigrationId(blocker.id)).toEqual(checkpoint);
+    } finally {
+      activeMigrationRuns.dropQueued(sibling.id);
+    }
+  });
+
+  test("keeps an ordinary failed GHES migration ineligible for attestation", () => {
+    const failed = enterprise("01", "batch", "failed");
+    insertMigration(failed);
+    seedJob(failed, "failed", null);
+    expect(() => confirmRestart(failed.id, "acme-cloud/01")).toThrow("Cannot confirm");
+    expect(getEvents(failed.id)).toEqual([]);
     expect(shouldQueueMigration(enterprise("02", "batch", "pending"))).toBe(true);
-    expect(getRestartableBatchCount("batch")).toBe(0);
   });
 
   test("honors earlier confirmation messages only within the reviewed attempt", () => {

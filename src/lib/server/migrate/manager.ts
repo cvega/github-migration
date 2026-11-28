@@ -46,6 +46,7 @@ import {
   hasUnreconciledGhesImport,
   insertMigration,
   listMigrationsPaginated,
+  markMigrationReviewed,
   requiresManualImportReview,
   resetMigration,
   searchMigrationsPaginated,
@@ -427,12 +428,7 @@ export function confirmRestart(migrationId: string, confirmation: string): Migra
   getDb().transaction(() => {
     if (paused && !hasUnreconciledGhesImport(migrationId))
       throw new MigrationRestartConflict(GITLAB_GHES_PAUSE_REASON);
-    const result = getDb()
-      .prepare(
-        "UPDATE migrations SET state = 'failed' WHERE id = ? AND state = 'reconciliation_required'",
-      )
-      .run(migrationId);
-    if (result.changes !== 1) {
+    if (!markMigrationReviewed(migrationId)) {
       throw new MigrationRestartConflict(
         `Cannot confirm restart for migration in state "${getMigration(migrationId)?.state ?? "missing"}"`,
       );

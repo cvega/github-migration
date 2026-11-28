@@ -105,6 +105,12 @@ administrator can send `POST /api/migrate/:id/confirm-restart` with
 The dashboard records the review, retains the import checkpoint, marks the
 migration failed, and drains eligible work. GitLab-to-GHES execution stays paused.
 
+A legacy failed Bitbucket Server-to-GHES import can hold queued siblings in its
+batch. After verifying the saved import is inactive and the appliance lock is
+free, an administrator can use the same endpoint and exact target confirmation.
+The failed attempt retains its checkpoint and GUID. Only eligible queued work
+can proceed. Restart remains unavailable for the reviewed import.
+
 ## Live Progress Disconnects
 
 The UI reconnects with a durable event cursor. Check proxy buffering and idle
