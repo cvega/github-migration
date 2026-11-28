@@ -158,7 +158,12 @@ one at a time per provider. You can close the page once queued. Pending work
 survives a restart; interrupted runs are reported as failed in **Profile runs**.
 Running and queued namespaces are not added twice. Completed profiles are
 refreshed. Coverage is limited to the source credential and profile policy;
-an empty result does not certify an empty enterprise.
+an empty result does not certify an empty enterprise. When the configured scope
+(`GH_SOURCE_ORG`, `GITLAB_SOURCE_NAMESPACE` or `BITBUCKET_SERVER_PROJECT_KEYS`)
+removes namespaces, the result says how many were found and which variable
+excluded them; if none remain, nothing is queued. A failed discovery reports
+whether the host was not resolvable, its TLS certificate was not trusted, the
+connection was refused or timed out, or the source returned an HTTP status.
 
 ## Start A Migration
 

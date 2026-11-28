@@ -1,5 +1,11 @@
 import { json } from "@sveltejs/kit";
-import { enterpriseNamespaces } from "$lib/server/application/adapters/namespace-discovery";
+import {
+  describeDiscoveryFailure,
+  describeEmptyDiscovery,
+  describeScopeNotice,
+  type EnterpriseDiscovery,
+  enterpriseNamespaces,
+} from "$lib/server/application/adapters/namespace-discovery";
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
@@ -25,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     (typeof enterprise !== "string" || !/^[a-z0-9][a-z0-9-]{0,99}$/i.test(enterprise))
   )
     return json({ error: "Enter the GitHub enterprise slug." }, { status: 400 });
-  let keys: string[];
+  let discovery: EnterpriseDiscovery;
   if (
     sourceProvider === "gitlab" &&
     enterprise !== undefined &&
@@ -36,25 +42,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: "Enter a valid GitLab group path." }, { status: 400 });
   }
   try {
-    keys = await enterpriseNamespaces(
+    discovery = await enterpriseNamespaces(
       sourceProvider,
       request.signal,
       typeof enterprise === "string" ? enterprise : "",
     );
   } catch (error) {
-    const status =
-      typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
-    console.warn(`[profile queue] ${sourceProvider} discovery failed (${status ?? "unknown"})`);
+    const failure = describeDiscoveryFailure(sourceProvider, error);
+    console.warn(`[profile queue] ${sourceProvider} discovery failed (${failure.log})`);
+    return json({ error: failure.message, reason: failure.reason }, { status: 502 });
+  }
+  const { keys, found, outOfScope } = discovery;
+  if (keys.length === 0) {
+    console.warn(
+      `[profile queue] ${sourceProvider} discovery found ${found} namespaces, ${outOfScope} outside ${discovery.scopeVariable}`,
+    );
     return json(
-      {
-        error:
-          status === 401
-            ? "Source credentials were rejected. No profiles queued."
-            : status === 403
-              ? "Access to this enterprise was denied. No profiles queued."
-              : "Enterprise discovery did not finish. Check the source, credentials and enterprise scope. No profiles queued.",
-      },
-      { status: 502 },
+      { error: describeEmptyDiscovery(sourceProvider, discovery), found, outOfScope },
+      { status: 422 },
     );
   }
   const added = enqueueProfiles(sourceProvider, keys);
@@ -64,5 +69,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     resourceId: sourceProvider,
     metadata: { added },
   });
-  return json({ added, discovered: keys.length }, { status: 202 });
+  return json(
+    {
+      added,
+      discovered: keys.length,
+      found,
+      outOfScope,
+      scopeNotice: describeScopeNotice(sourceProvider, discovery),
+    },
+    { status: 202 },
+  );
 };

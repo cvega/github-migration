@@ -67,16 +67,37 @@ export async function discoverNamespacePage(
   return { ...page, entries, observedAt: new Date().toISOString() };
 }
 
+const scopeVariables: Record<SourceProvider, string> = {
+  github: "GH_SOURCE_ORG",
+  gitlab: "GITLAB_SOURCE_NAMESPACE",
+  "bitbucket-server": "BITBUCKET_SERVER_PROJECT_KEYS",
+};
+const namespaceNouns: Record<SourceProvider, string> = {
+  github: "GitHub organizations",
+  gitlab: "GitLab groups",
+  "bitbucket-server": "Bitbucket Server projects",
+};
+
+export interface EnterpriseDiscovery {
+  keys: string[];
+  /** Distinct namespaces the source returned before the credential scope was applied. */
+  found: number;
+  outOfScope: number;
+  scopeVariable: string;
+}
+
 export async function enterpriseNamespaces(
   provider: SourceProvider,
   signal: AbortSignal,
   enterprise: string,
-  read = discoverNamespacePage,
-) {
+  read: typeof readPage = readPage,
+): Promise<EnterpriseDiscovery> {
   const keys = new Set<string>();
+  const found = new Set<string>();
   function add(key: string) {
     if (!getSourceProviderAdapter(provider).isValidNamespace(key))
       throw new Error("Invalid namespace in discovery");
+    found.add(key);
     if (!validateProfileCredentialScope(provider, key)) keys.add(key);
   }
   if (provider === "github") {
@@ -128,14 +149,96 @@ export async function enterpriseNamespaces(
     }
   }
   // GitLab's group profile already includes projects in all subgroups.
-  return provider === "gitlab"
-    ? [...keys].filter((path) => {
-        let parent = path;
-        while (parent.includes("/")) {
-          parent = parent.slice(0, parent.lastIndexOf("/"));
-          if (keys.has(parent)) return false;
-        }
-        return true;
-      })
-    : [...keys];
+  const eligible =
+    provider === "gitlab"
+      ? [...keys].filter((path) => {
+          let parent = path;
+          while (parent.includes("/")) {
+            parent = parent.slice(0, parent.lastIndexOf("/"));
+            if (keys.has(parent)) return false;
+          }
+          return true;
+        })
+      : [...keys];
+  return {
+    keys: eligible,
+    found: found.size,
+    outOfScope: found.size - keys.size,
+    scopeVariable: scopeVariables[provider],
+  };
+}
+
+export function describeEmptyDiscovery(provider: SourceProvider, result: EnterpriseDiscovery) {
+  const noun = namespaceNouns[provider];
+  return result.found > 0 && result.outOfScope === result.found
+    ? `Discovery found ${result.found} ${noun}, but all are outside the configured scope (${result.scopeVariable}). No profiles queued.`
+    : `Discovery found no ${noun} visible to the source credentials. No profiles queued.`;
+}
+
+export function describeScopeNotice(provider: SourceProvider, result: EnterpriseDiscovery) {
+  if (result.outOfScope === 0) return undefined;
+  return `${result.outOfScope} of ${result.found} ${namespaceNouns[provider]} found are outside the configured scope (${result.scopeVariable}).`;
+}
+
+export type DiscoveryFailureReason =
+  | "host_not_resolvable"
+  | "tls_untrusted"
+  | "connection_refused"
+  | "timeout"
+  | "http"
+  | "unknown";
+
+const tlsCode =
+  /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER|ERR_TLS|ERR_SSL|HOSTNAME_MISMATCH/;
+
+function networkReason(error: unknown): DiscoveryFailureReason | undefined {
+  let current = error;
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    const fields = current as { code?: unknown; name?: unknown; cause?: unknown };
+    const code = String(fields.code ?? "");
+    const name = String(fields.name ?? "");
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "DNSException")
+      return "host_not_resolvable";
+    if (tlsCode.test(code)) return "tls_untrusted";
+    if (code === "ECONNREFUSED" || code === "ConnectionRefused") return "connection_refused";
+    if (name === "TimeoutError" || code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT")
+      return "timeout";
+    current = fields.cause;
+  }
+  return undefined;
+}
+
+/**
+ * Classify a discovery failure into a safe reason. Only fixed text and the HTTP
+ * status are returned; provider messages, URLs and response bodies are dropped.
+ */
+export function describeDiscoveryFailure(provider: SourceProvider, error: unknown) {
+  // Octokit reports transport failures as HTTP 500, so inspect causes first.
+  const network = networkReason(error);
+  const raw =
+    typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
+  const status =
+    typeof raw === "number" && Number.isInteger(raw) && raw >= 100 && raw <= 599 ? raw : undefined;
+  const reason: DiscoveryFailureReason = network ?? (status ? "http" : "unknown");
+  const source = getSourceProviderAdapter(provider).displayName;
+  const detail = {
+    host_not_resolvable: `The ${source} host name could not be resolved from the dashboard. Check the source API URL and DNS.`,
+    tls_untrusted: `The ${source} TLS certificate is not trusted by the dashboard. Check the certificate chain or trusted CA bundle.`,
+    connection_refused: `The ${source} host refused the connection. Check the source API URL and port.`,
+    timeout: `The ${source} source did not respond in time.`,
+    http:
+      status === 401
+        ? "Source credentials were rejected."
+        : status === 403
+          ? "Access to this enterprise was denied."
+          : `The ${source} source returned HTTP ${status}.`,
+    unknown:
+      "Enterprise discovery did not finish. Check the source, credentials and enterprise scope.",
+  }[reason];
+  return {
+    reason,
+    log: reason === "http" ? `http ${status}` : reason,
+    detail,
+    message: `${detail} No profiles queued.`,
+  };
 }

@@ -1,5 +1,8 @@
 import { json } from "@sveltejs/kit";
-import { discoverNamespacePage } from "$lib/server/application/adapters/namespace-discovery";
+import {
+  describeDiscoveryFailure,
+  discoverNamespacePage,
+} from "$lib/server/application/adapters/namespace-discovery";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
 import { isSourceProvider } from "$lib/source-provider";
 import type { RequestHandler } from "./$types";
@@ -15,13 +18,15 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    console.warn(
-      `[profile] ${provider} discovery failed: ${error instanceof Error ? error.name : "unknown error"}`,
-    );
+    const failure = describeDiscoveryFailure(provider, error);
+    console.warn(`[profile] ${provider} discovery failed (${failure.log})`);
     return json(
       {
         error:
-          "Could not list namespaces from this source. Check the connection and its read permissions.",
+          failure.reason === "unknown"
+            ? "Could not list namespaces from this source. Check the connection and its read permissions."
+            : failure.detail,
+        reason: failure.reason,
       },
       { status: 502 },
     );

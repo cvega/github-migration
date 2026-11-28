@@ -49,7 +49,7 @@
 			const data = await response.json();
 			if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
 			if (enterprise) {
-				notice = `${data.added} queued from ${data.discovered} eligible namespaces.`;
+				notice = `${data.added} queued from ${data.discovered} eligible namespaces.${data.scopeNotice ? ` ${data.scopeNotice}` : ""}`;
 				dialog.close();
 				await invalidateAll();
 			} else await goto(`/profile/${data.id}`);
@@ -58,7 +58,7 @@
 	}
 </script>
 <button type="button" class="primary" onclick={open}>New profile</button>
-{#if notice}<p role="status" class="mt-1 text-sm text-gray-300">{notice}</p>{/if}
+{#if notice}<p role="status" class="mt-1 text-sm break-words text-gray-300">{notice}</p>{/if}
 <dialog bind:this={dialog} aria-labelledby="new-profile-title" oncancel={e=>{if(busy)e.preventDefault();}} class="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-xl border border-gray-600 bg-gray-950 p-5 text-left text-gray-100 shadow-xl backdrop:bg-black/70">
 	<h2 id="new-profile-title" class="text-lg font-semibold">New profile</h2>
 	<form onsubmit={start} class="mt-4 space-y-4">
