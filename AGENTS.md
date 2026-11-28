@@ -141,7 +141,8 @@ migration, identity invitation, deployment, or production data reset.
   titles. Use the types in `cliff.toml`. Put issue IDs only in the
   `Refs: <issue-id>` footers of commit messages and PR bodies, one per issue.
 - Do not include `Co-authored-by`, `Generated with`, or other tool-attribution
-  trailers in commits or PR bodies.
+  trailers in commits or PR bodies. Record builder and reviewer details as
+  factual metadata in the PR body, not as authorship credit or trailers.
 - For breaking changes, add `!` before the colon in the subject or title and
   include a `BREAKING CHANGE:` footer. Keep that footer as the last paragraph
   of the squash commit.
@@ -198,8 +199,10 @@ Claude Code builds go to Codex, and Codex builds go to Claude Code. For Copilot
 builds whose reported models are all from one family, use the other family
 (Codex or Claude Code) as reviewer. If the models are mixed-family or unreported,
 use Codex or Claude Code, whichever has more headroom per OrcaCompass.
-Third-family builds (such as Gemini or MAI) may be reviewed by Codex or Claude
-Code. Qwen-built work goes to Claude Code or Codex, with Claude Code preferred.
+A Copilot build reporting only a third family (such as Gemini or MAI) may use
+either Codex or Claude Code: both are outside the builder's family. Either may
+also review a future non-Copilot builder from a third family if it is approved
+for use. For Qwen-built work, either may review, with Claude Code preferred.
 For sensitive changes, use Claude Code or Codex directly with its strongest
 model at high effort. If an eligible reviewer is unavailable, wait or ask.
 
@@ -218,11 +221,13 @@ limits and review priority, and record why.
 
 ### Record it
 
-Record the effective builder and reviewer agent and model in every PR body;
-for Copilot builds, record the models Copilot reports.
-At each dispatch, record the builder choice and reason in a Beads comment on
-the issue. On merge, add a Beads comment with the time to PR readiness and the
-number of blocking review findings.
+At dispatch, record the builder choice and reason in a Beads issue comment.
+Record the effective builder and reviewer agents and models in every PR body.
+For managed Copilot builds, list every model Copilot reports in both the Beads
+issue comments and the PR body once the build finishes. If Copilot reports no
+model, write `unavailable` in both places rather than guessing.
+On merge, add a Beads comment with the time to PR readiness and the number of
+blocking review findings.
 
 ## Review bar
 
