@@ -43,6 +43,13 @@ try {
     if (authStartup.bootstrappedUser) {
       console.log("[auth] Created the first administrator from bootstrap credentials");
     }
+    if (!authStartup.authEnabled) {
+      console.warn(
+        authStartup.unauthenticatedReason === "explicit"
+          ? "[hooks] Unauthenticated mode explicitly enabled; anyone who can reach the app has operator access."
+          : "[hooks] Development fallback to unauthenticated mode: no bootstrap credentials were found (GH_MIGRATE_USER and GH_MIGRATE_PASS) and GH_MIGRATE_ALLOW_UNAUTHENTICATED is unset. Anyone who can reach the app has operator access.",
+      );
+    }
   }
   logCapabilityReport(getCapabilityReport());
   recoverOrphans();
@@ -58,12 +65,6 @@ try {
   closeStore();
   instanceLock.release();
   throw error;
-}
-
-if (!building && !authEnabled) {
-  console.warn(
-    "[hooks] Unauthenticated mode explicitly enabled; anyone who can reach the app has operator access.",
-  );
 }
 
 let shuttingDown = false;
