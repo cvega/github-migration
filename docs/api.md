@@ -21,7 +21,7 @@ checks apply regardless of whether a link is visible.
 | `GET` | `/api/metrics` | Token-protected Prometheus migration metrics |
 | `GET` | `/api/rate-limits` | Provider quotas, active count, and GitHub status |
 | `POST` | `/api/profile` | Start a provider profile |
-| `POST` | `/api/profile/queue` | Discover and queue enterprise profiles (`sourceProvider`, `scope: "enterprise"`, `enterprise`: GitHub enterprise slug or GitLab group) |
+| `POST` | `/api/profile/queue` | Discover and queue enterprise profiles (`sourceProvider`, `scope: "enterprise"`, `enterprise`: GitHub enterprise slug or GitLab group). Returns `422` when no namespace remains after the configured scope and `502` with a safe `reason` when discovery fails |
 | `GET` | `/api/profile/queue` | Read pending and failed-to-start counts for `provider` |
 | `GET` | `/api/profile` | List profile runs |
 | `GET` | `/api/profile/discover` | Discover a page of visible namespaces for `provider`; pass the returned `next` as `cursor` |

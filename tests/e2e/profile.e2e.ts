@@ -3,14 +3,26 @@ import { expect, test } from "@playwright/test";
 test("starts enterprise profiling without selecting or loading individual namespaces", async ({ page }) => {
 	const hydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
 	await page.route("**/api/profile/queue?provider=bitbucket-server", route => route.fulfill({json:{pending:0,failed:0}}));
-	await page.route("**/api/profile/queue", route => route.fulfill({status:202,json:{added:12,discovered:12}}));
+	await page.route("**/api/profile/queue", route => route.fulfill({status:202,json:{added:12,discovered:12,found:14,outOfScope:2,scopeNotice:"2 of 14 Bitbucket Server projects found are outside the configured scope (BITBUCKET_SERVER_PROJECT_KEYS)."}}));
 	await page.goto("/profile");
 	await hydrated;
 	await page.getByRole("button",{name:"New profile"}).click();
 	const submitted=page.waitForRequest(request=>request.url().endsWith("/api/profile/queue") && request.method()==="POST");
 	await page.getByRole("button",{name:"Start profile"}).click();
 	expect((await submitted).postDataJSON()).toEqual({sourceProvider:"bitbucket-server",scope:"enterprise",enterprise:""});
-	await expect(page.getByRole("status").filter({hasText:"12 queued from 12 eligible namespaces"})).toBeVisible();
+	await expect(page.getByRole("status").filter({hasText:"12 queued from 12 eligible namespaces. 2 of 14 Bitbucket Server projects found are outside the configured scope (BITBUCKET_SERVER_PROJECT_KEYS)."})).toBeVisible();
+});
+
+test("explains an enterprise discovery that is entirely outside the configured scope", async ({ page }) => {
+	const hydrated = page.waitForRequest(request => request.url().endsWith("/api/rate-limits"));
+	await page.route("**/api/profile/queue?provider=bitbucket-server", route => route.fulfill({json:{pending:0,failed:0}}));
+	const error = "Discovery found 16 Bitbucket Server projects, but all are outside the configured scope (BITBUCKET_SERVER_PROJECT_KEYS). No profiles queued.";
+	await page.route("**/api/profile/queue", route => route.fulfill({status:422,json:{error,found:16,outOfScope:16}}));
+	await page.goto("/profile");
+	await hydrated;
+	await page.getByRole("button",{name:"New profile"}).click();
+	await page.getByRole("button",{name:"Start profile"}).click();
+	await expect(page.getByRole("dialog").getByRole("alert")).toHaveText(error);
 });
 
 test("reviews and filters a completed source profile", async ({ page }) => {

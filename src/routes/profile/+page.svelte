@@ -24,7 +24,7 @@
 			</p>
 		</div>
 		{#if data.profileSetup}
-			<div class="text-right"><ProfileForm {...data.profileSetup} /></div>
+			<div class="min-w-0 text-right"><ProfileForm {...data.profileSetup} /></div>
 		{/if}
 	</header>
 	<div>
