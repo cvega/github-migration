@@ -3,6 +3,7 @@ import { getSourceProviderAdapter } from "$lib/source-provider";
 import type { ProfileMigrationPlan, ProfilePlanRepo } from "./types";
 
 export const MAX_PROFILE_PLAN_REPOS = 500;
+const MAX_TARGET_REPO_LENGTH = 100;
 
 export type { ProfileMigrationPlan, ProfilePlanRepo } from "./types";
 
@@ -11,6 +12,48 @@ export function defaultProfilePlanSelection(repos: ProfilePlanRepo[]): string[] 
     .filter((repo) => repo.blockers === 0)
     .slice(0, MAX_PROFILE_PLAN_REPOS)
     .map((repo) => repo.nameWithOwner);
+}
+
+function sanitizeTargetName(name: string): string {
+  const sanitized = name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, MAX_TARGET_REPO_LENGTH);
+  return sanitized === "." || sanitized === ".." ? "repository" : sanitized;
+}
+
+export function defaultProfileTargetNames(
+  sourceProvider: SourceProvider,
+  sourceOrg: string,
+  selectedRepos: readonly string[],
+): ReadonlyMap<string, string> {
+  const adapter = getSourceProviderAdapter(sourceProvider);
+  const defaults = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const path of new Set(selectedRepos)) {
+    const name = sanitizeTargetName(adapter.projectName(path));
+    defaults.set(path, name);
+    const key = name.toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  // Reserve unique leaves first, then resolve collisions in source-path order.
+  const used = new Set([...counts].filter(([, count]) => count === 1).map(([name]) => name));
+  const namespacePrefix = `${sourceOrg}/`;
+  for (const path of [...defaults.keys()].sort()) {
+    const leaf = defaults.get(path)!;
+    if (!leaf || counts.get(leaf.toLowerCase()) === 1) continue;
+
+    const relativePath = path.startsWith(namespacePrefix)
+      ? path.slice(namespacePrefix.length)
+      : path;
+    const base = sanitizeTargetName(relativePath);
+    let name = base;
+    for (let index = 2; used.has(name.toLowerCase()); index++) {
+      const suffix = `-${index}`;
+      name = `${base.slice(0, MAX_TARGET_REPO_LENGTH - suffix.length)}${suffix}`;
+    }
+    defaults.set(path, name);
+    used.add(name.toLowerCase());
+  }
+  return defaults;
 }
 
 export function buildProfileMigrationPlan(input: {
@@ -27,7 +70,6 @@ export function buildProfileMigrationPlan(input: {
   nowMs?: number;
 }): ProfileMigrationPlan {
   const sourceProvider = input.sourceProvider ?? "github";
-  const sourceAdapter = getSourceProviderAdapter(sourceProvider);
   const byName = new Map(input.repos.map((repo) => [repo.nameWithOwner, repo]));
   const targetOrg = input.targetOrg.trim();
   if (!targetOrg || targetOrg.includes("/") || /\s/.test(targetOrg)) {
@@ -45,11 +87,11 @@ export function buildProfileMigrationPlan(input: {
     if (!repo) throw new TypeError(`Repository '${name}' is not part of this profile run`);
     return repo;
   });
+  const defaults = defaultProfileTargetNames(sourceProvider, input.sourceOrg, selected);
   const items = repos.map((repo) => ({
     sourceRepo: repo.nameWithOwner,
     targetRepo:
-      input.targetNames?.[repo.nameWithOwner]?.trim() ||
-      sourceAdapter.projectName(repo.nameWithOwner),
+      input.targetNames?.[repo.nameWithOwner]?.trim() || defaults.get(repo.nameWithOwner)!,
   }));
   const targetNames = new Set<string>();
   for (const item of items) {

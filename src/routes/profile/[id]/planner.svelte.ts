@@ -3,6 +3,7 @@ import { type MigrationTargetProfile, supportsMigrationTarget } from "$lib/migra
 import {
   buildProfileMigrationPlan,
   defaultProfilePlanSelection,
+  defaultProfileTargetNames,
   MAX_PROFILE_PLAN_REPOS,
   type ProfilePlanRepo,
 } from "$lib/profile/migration-plan";
@@ -154,10 +155,16 @@ export class ProfileMigrationPlannerController {
     return this.selectedProfiles.filter((repo) => repo.warnings > 0).length;
   }
 
+  get defaultTargetNames(): ReadonlyMap<string, string> {
+    const run = this.options.getRun();
+    return defaultProfileTargetNames(run.sourceProvider, run.org, this.selectedNames);
+  }
+
   get targetNameError(): string {
+    const defaults = this.defaultTargetNames;
     const used = new Set<string>();
     for (const sourceRepo of this.selectedNames) {
-      const targetRepo = this.targetNameFor(sourceRepo).trim();
+      const targetRepo = this.targetNameFor(sourceRepo, defaults).trim();
       if (!targetRepo || targetRepo.includes("/") || /\s/.test(targetRepo)) {
         return `Target name for ${sourceRepo} must be a repository name without spaces or slashes.`;
       }
@@ -186,9 +193,11 @@ export class ProfileMigrationPlannerController {
     this.blockersAcceptedValue = { runId: this.runId, value };
   }
 
-  targetNameFor(sourceRepo: string): string {
+  targetNameFor(sourceRepo: string, defaults = this.defaultTargetNames): string {
     if (this.scoped) return projectName(sourceRepo);
-    return this.currentTargetNames[sourceRepo] ?? projectName(sourceRepo);
+    return (
+      this.currentTargetNames[sourceRepo] ?? defaults.get(sourceRepo) ?? projectName(sourceRepo)
+    );
   }
 
   setTargetName(sourceRepo: string, targetRepo: string): void {

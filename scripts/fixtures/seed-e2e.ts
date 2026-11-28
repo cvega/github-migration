@@ -436,12 +436,13 @@ db.prepare(
   completedAt,
 );
 
+const gitLabRepoName = "payments-api-with-a-long-repository-name-for-the-migration-plan";
 const gitLabProjects = [
   {
     provider: "gitlab",
     sourceId: "101",
-    path: "platform/products/services/payments-api",
-    name: "payments-api",
+    path: `platform/products/services/prof01/${gitLabRepoName}`,
+    name: gitLabRepoName,
     visibility: "private",
     archived: false,
     defaultBranch: "main",
@@ -460,8 +461,8 @@ const gitLabProjects = [
   {
     provider: "gitlab",
     sourceId: "102",
-    path: "platform/products/services/legacy-web",
-    name: "legacy-web",
+    path: `platform/products/services/prof02/${gitLabRepoName}`,
+    name: gitLabRepoName,
     visibility: "internal",
     archived: true,
     defaultBranch: null,

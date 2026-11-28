@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { SourceProvider } from "$lib/source/types";
 import {
   buildProfileMigrationPlan,
   defaultProfilePlanSelection,
@@ -10,6 +11,21 @@ const repos = [
   { nameWithOwner: "acme/warn", blockers: 0, warnings: 2 },
   { nameWithOwner: "acme/blocked", blockers: 1, warnings: 0 },
 ];
+
+function targetNamesFor(sourceProvider: SourceProvider, sourceOrg: string, paths: string[]) {
+  return Object.fromEntries(
+    buildProfileMigrationPlan({
+      profileRunId: "inventory",
+      targetProfileId: "ghec",
+      sourceProvider,
+      sourceApiUrl: "",
+      sourceOrg,
+      targetOrg: "acme-cloud",
+      repos: paths.map((nameWithOwner) => ({ nameWithOwner, blockers: 0, warnings: 0 })),
+      selectedRepos: paths,
+    }).items.map(({ sourceRepo, targetRepo }) => [sourceRepo, targetRepo]),
+  );
+}
 
 describe("profile migration plans", () => {
   test("excludes blockers from the default selection", () => {
@@ -103,6 +119,51 @@ describe("profile migration plans", () => {
     });
 
     expect(plan.items).toEqual([{ sourceRepo: "platform/services/widget", targetRepo: "widget" }]);
+  });
+
+  test("qualifies colliding GitLab leaves relative to the profiled namespace", () => {
+    expect(
+      targetNamesFor("gitlab", "acme/migrate", [
+        "acme/migrate/prof01/service-01",
+        "acme/migrate/prof02/tools/SERVICE-01",
+        "acme/migrate/unrelated",
+      ]),
+    ).toEqual({
+      "acme/migrate/prof01/service-01": "prof01-service-01",
+      "acme/migrate/prof02/tools/SERVICE-01": "prof02-tools-SERVICE-01",
+      "acme/migrate/unrelated": "unrelated",
+    });
+  });
+
+  test("reserves plain names and resolves sanitization and truncation collisions deterministically", () => {
+    const prefix = "x".repeat(100);
+    const paths = [
+      "migrate/a+b/service",
+      "migrate/a-b/service",
+      "migrate/a-b-service",
+      `migrate/${prefix}a/worker`,
+      `migrate/${prefix}b/worker`,
+      "migrate/only+one",
+    ];
+    const names = targetNamesFor("gitlab", "migrate", paths);
+    expect(names).toEqual({
+      [paths[0]!]: "a-b-service-2",
+      [paths[1]!]: "a-b-service-3",
+      [paths[2]!]: "a-b-service",
+      [paths[3]!]: prefix,
+      [paths[4]!]: `${prefix.slice(0, 98)}-2`,
+      [paths[5]!]: "only-one",
+    });
+    expect(targetNamesFor("gitlab", "migrate", [...paths].reverse())).toEqual(names);
+  });
+
+  test("disambiguates Bitbucket slugs from different project keys", () => {
+    expect(
+      targetNamesFor("bitbucket-server", "PROF01", ["PROF01/service", "PROF02/service"]),
+    ).toEqual({
+      "PROF01/service": "service",
+      "PROF02/service": "PROF02-service",
+    });
   });
 
   test("applies custom target names and rejects collisions", () => {
