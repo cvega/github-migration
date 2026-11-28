@@ -8,6 +8,7 @@ import {
 } from "$lib/migration-target";
 import { AUTH_DURABLE_TABLES } from "$lib/server/core/auth/schema";
 import type { DurableTableContract } from "$lib/server/core/db";
+import { VERSION_TABLE } from "$lib/server/core/db";
 import { MIGRATE_DURABLE_TABLES } from "$lib/server/migrate/database/schema";
 import { GHES_IMPORT_JOB_PHASES } from "$lib/server/migrate/ghes/job";
 import { PROFILE_DURABLE_TABLES } from "$lib/server/profile/database/schema";
@@ -60,5 +61,10 @@ export const SEMANTIC_CONTRACTS: SemanticContracts = {
   migrationStates: ALL_MIGRATION_STATES,
   migrationPhases: MIGRATION_PHASES,
   ghesImportPhases: GHES_IMPORT_JOB_PHASES,
-  durableTables: [...AUTH_DURABLE_TABLES, ...MIGRATE_DURABLE_TABLES, ...PROFILE_DURABLE_TABLES],
+  durableTables: [
+    VERSION_TABLE,
+    ...AUTH_DURABLE_TABLES,
+    ...MIGRATE_DURABLE_TABLES,
+    ...PROFILE_DURABLE_TABLES,
+  ],
 };

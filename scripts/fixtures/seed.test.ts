@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { initializeSchema } from "../../src/lib/server/core/db";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 
 test("migration-only seed spans six months, preserves other data, and rolls back on failure", () => {
@@ -17,7 +18,7 @@ test("migration-only seed spans six months, preserves other data, and rolls back
     });
   try {
     let db = new Database(path);
-    for (const store of DOMAIN_STORES) store.applySchema(db);
+    initializeSchema(db, DOMAIN_STORES);
     db.run(`INSERT INTO migrations
       (id, source_api_url, source_org, source_repo, target_org, target_repo, state, started_at)
       VALUES ('keep-me', 'https://api.github.com', 'source', 'repo', 'target', 'repo', 'succeeded', '2026-01-01T00:00:00.000Z')`);

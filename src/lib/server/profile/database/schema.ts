@@ -301,21 +301,11 @@ export function pruneProfileHistory(
 
 /** Profile domain store descriptor — see `$lib/server/schemas`. */
 export const profileStore: DomainStore = {
+  domain: "profile",
+  version: 1,
+  tables: PROFILE_DURABLE_TABLES,
   applySchema(db) {
-    db.transaction(() => {
-      // An inventory with a whole-payload column can have an unmeasured default zero.
-      const payloadColumn = db
-        .prepare(
-          "SELECT 1 FROM pragma_table_info('profile_source_inventories') WHERE name = 'payload'",
-        )
-        .get();
-      if (payloadColumn) {
-        throw new Error(
-          "Incompatible profile inventory schema. Start with a fresh data directory.",
-        );
-      }
-      db.run(PROFILE_DDL);
-    }).immediate();
+    db.transaction(() => db.run(PROFILE_DDL)).immediate();
   },
   onInit(db) {
     recoverInterruptedProfiles(db);

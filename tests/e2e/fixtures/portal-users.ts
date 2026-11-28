@@ -1,5 +1,6 @@
 // Run in Bun after the isolated Playwright server has bootstrapped its admin.
 import { createUser, findUserByUsername } from "../../../src/lib/server/core/auth/users";
+import { DOMAIN_STORES } from "../../../src/lib/server/schemas";
 import { closeStore, getDb, initStore } from "../../../src/lib/server/core/db";
 import { settleProfileInventoryRun } from "../../../src/lib/server/profile/database/inventories";
 import { createProfileRun } from "../../../src/lib/server/profile/database/runs";
@@ -8,7 +9,7 @@ import { assignGrant, configuredGrantSource } from "../../../src/lib/server/appl
 const suffix = process.argv[2];
 const password = process.env.PORTAL_TEST_PASSWORD;
 if (!suffix || !password) throw new Error("Missing test identity");
-initStore(".e2e-data/gh-migrate.db", []);
+initStore(".e2e-data/gh-migrate.db", DOMAIN_STORES, { runStartupHooks: false });
 const admin = findUserByUsername("e2e-admin");
 if (!admin) throw new Error("Missing bootstrap administrator");
 const sourceProvider = "bitbucket-server";

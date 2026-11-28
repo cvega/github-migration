@@ -158,7 +158,7 @@ describe("migration recovery", () => {
         );
         const worker = Bun.spawnSync([process.execPath, fixture, database, ledger, id]);
         expect(worker.signalCode).toBe("SIGKILL");
-        initStore(database, []);
+        initStore(database, [migrateStore], { runStartupHooks: false });
         expect(
           getDb().query("SELECT pipeline_step, github_migration_id FROM migrations").get(),
         ).toEqual({ pipeline_step: "ghec_starting", github_migration_id: null });

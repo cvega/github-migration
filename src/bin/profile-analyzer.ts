@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
-import { closeStore, getDb, initStore } from "$lib/server/core/db";
-import { profileStore } from "$lib/server/profile/database/schema";
+import { closeStore, initStore } from "$lib/server/core/db";
 import {
   processNextRepositoryAnalysisJob,
   runRepositoryAnalysisClaimLoop,
 } from "$lib/server/profile/repository-analysis/claim-loop";
 import { createAnalyzerHealth } from "$lib/server/profile/repository-analysis/health";
+import { DOMAIN_STORES } from "$lib/server/schemas";
 
 const dataDirectory = process.env.DATA_DIR || "/data";
 const workspaceRoot = process.env.ANALYSIS_DIR || "/analysis";
@@ -18,8 +18,7 @@ process.on("SIGTERM", () => controller.abort());
 
 let healthServer: ReturnType<typeof Bun.serve> | undefined;
 try {
-  initStore(`${dataDirectory}/gh-migrate.db`, []);
-  profileStore.applySchema(getDb());
+  initStore(`${dataDirectory}/gh-migrate.db`, DOMAIN_STORES, { runStartupHooks: false });
   console.log(`[profile-analyzer] Watching for repository analysis jobs in ${workspaceRoot}`);
   const options = {
     workspaceRoot,

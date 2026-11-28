@@ -1,4 +1,5 @@
 import { appendFileSync } from "node:fs";
+import { migrateStore } from "../../src/lib/server/migrate/database/schema";
 import { initStore } from "../../src/lib/server/core/db";
 import { createTargetClients } from "../../src/lib/server/core/github";
 import { getMigration } from "../../src/lib/server/migrate/database/migrations";
@@ -9,7 +10,7 @@ import {
 
 const [database, ledger, id] = process.argv.slice(2);
 if (!database || !ledger || !id) throw new Error("Missing crash fixture arguments");
-initStore(database, []);
+initStore(database, [migrateStore], { runStartupHooks: false });
 const migration = getMigration(id);
 if (!migration) throw new Error("Missing fixture migration");
 __setArchiveToGhecDependenciesForTests({
