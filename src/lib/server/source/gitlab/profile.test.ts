@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { GitLabClient } from "./client";
 import {
   collectGitLabBranchMetric,
@@ -163,6 +163,47 @@ describe("GitLab repository metric collectors", () => {
       observation: { kind: "unavailable", reason: "malformed", scope: GITLAB_RELEASES_SCOPE },
     });
     expect(calls.map((call) => call.searchParams.get("page"))).toEqual(["1", "2"]);
+  });
+
+  test.each([
+    [collectGitLabBranchMetric, "repository-branches", GITLAB_BRANCHES_SCOPE],
+    [collectGitLabTagMetric, "repository-tags", GITLAB_TAGS_SCOPE],
+    [collectGitLabReleaseMetric, "project-releases", GITLAB_RELEASES_SCOPE],
+  ] as const)("explains rejected enumeration for %s", async (collect, endpointFamily, scope) => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { client } = clientWithResponses([
+        jsonResponse([{}], { "X-Total": "private-provider-payload" }),
+      ]);
+
+      await expect(collect(client, { sourceId: "private-project" })).resolves.toMatchObject({
+        endpointFamily,
+        observation: { kind: "unavailable", reason: "malformed", scope },
+      });
+      expect(warn.mock.calls).toEqual([
+        [
+          `[gitlab] ${endpointFamily} count unavailable: GitLab API returned an invalid X-Total header`,
+        ],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test.each([
+    [collectGitLabTagMetric, GITLAB_TAGS_SCOPE],
+    [collectGitLabReleaseMetric, GITLAB_RELEASES_SCOPE],
+  ] as const)("enumerates without X-Total for %s", async (collect, scope) => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([{}], { "X-Next-Page": "2" }),
+      jsonResponse([{}, {}], { "X-Next-Page": "" }),
+    ]);
+
+    await expect(collect(client, { sourceId: "42" })).resolves.toMatchObject({
+      observation: { kind: "exact", value: 3, basis: "enumerated", scope },
+    });
+    expect(calls.map((call) => call.searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(client.getApiCalls()).toBe(2);
   });
 
   test("counts commits reachable from the reported default-branch head SHA", async () => {

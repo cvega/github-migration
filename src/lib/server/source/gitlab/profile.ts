@@ -108,6 +108,9 @@ async function collectEnumeratedCountMetric(
   } catch (error) {
     const observation = unavailableObservation(error, scope);
     if (!observation) throw error;
+    if (error instanceof GitLabPaginationError) {
+      console.warn(`[gitlab] ${endpointFamily} count unavailable: ${error.message}`);
+    }
     return metric(endpointFamily, observation, options.nowMs ?? Date.now());
   }
 }
