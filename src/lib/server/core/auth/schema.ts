@@ -5,7 +5,7 @@ export const AUTH_DURABLE_TABLES = [
   {
     name: "app_schema_versions",
     purpose: "Per-domain schema versions",
-    notes: "Supports idempotent startup upgrades",
+    notes: "Records the dashboard auth schema version",
   },
   {
     name: "app_users",

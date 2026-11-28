@@ -270,7 +270,7 @@ export function pruneTerminalMigrationHistory(
 /** Migrate domain store descriptor — see `$lib/server/schemas`. */
 export const migrateStore: DomainStore = {
   applySchema(db) {
-    db.transaction(() => db.run(MIGRATE_DDL))();
+    db.transaction(() => db.run(MIGRATE_DDL)).immediate();
   },
   onInit(db) {
     recoverInterruptedMigrations(db);

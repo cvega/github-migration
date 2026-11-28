@@ -107,6 +107,25 @@ describe("migration schema", () => {
     }
   });
 
+  test("acquires the startup writer lock even when all tables already exist", () => {
+    const directory = mkdtempSync(join(tmpdir(), "migration-startup-lock-"));
+    try {
+      const path = join(directory, "migrate.db");
+      using writer = new Database(path, { create: true });
+      writer.run("PRAGMA journal_mode = WAL");
+      migrateStore.applySchema(writer);
+      using startup = new Database(path);
+      startup.run("PRAGMA busy_timeout = 0");
+      writer.run("BEGIN IMMEDIATE");
+      expect(() => migrateStore.applySchema(startup)).toThrow(/locked/);
+      writer.run("ROLLBACK");
+      migrateStore.applySchema(startup);
+      insertMigration(startup, "job");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("retries a failed schema initialization atomically", () => {
     using db = new Database(":memory:");
     db.run("CREATE TABLE idx_migrations_owner (id TEXT)");

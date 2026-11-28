@@ -334,14 +334,15 @@ not serialized to unauthenticated clients.
 
 ## Persistence
 
-SQLite runs in WAL mode with foreign keys enabled. Domain schemas are applied
-in dependency-safe order by `src/lib/server/schemas.ts`; startup hooks perform
-schema upgrades, interrupted-run recovery, and retention pruning.
+SQLite runs in WAL mode with foreign keys enabled. Startup applies the domain
+schemas in the order declared in `src/lib/server/schemas.ts`. Migration storage
+creates its current tables and indexes in one immediate transaction. Startup
+hooks then recover interrupted work and prune retained history.
 
 <!-- BEGIN GENERATED: durable-tables -->
 | Table | Purpose | Notes |
 |---|---|---|
-| `app_schema_versions` | Per-domain schema versions | Supports idempotent startup upgrades |
+| `app_schema_versions` | Per-domain schema versions | Records the dashboard auth schema version |
 | `app_users` | Dashboard user identities and credentials | Usernames are unique case-insensitively; passwords are stored as Argon2id hashes |
 | `app_sessions` | Revocable dashboard sessions | Stores SHA-256 token digests, never raw cookie values |
 | `auth_login_attempts` | Persistent sign-in throttling | Counts pending and failed sign-in attempts by username and client address |
