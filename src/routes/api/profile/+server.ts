@@ -3,6 +3,7 @@ import { profileStarters } from "$lib/server/application/adapters/profile-starte
 import { parseJsonBody } from "$lib/server/application/request-body";
 import { recordOperatorAuditEvent } from "$lib/server/core/auth/audit";
 import { requireAdminIfAuthEnabled } from "$lib/server/core/auth/authorization";
+import { ConfigIssueError } from "$lib/server/core/config-issue";
 import { validateProfileCredentialScope } from "$lib/server/core/credential-scope";
 import { safeErrorReason } from "$lib/server/core/safe-error";
 import {
@@ -65,6 +66,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       error instanceof BitbucketProfileCapacityError
     ) {
       return json({ error: error.message }, { status: 429, headers: { "retry-after": "30" } });
+    }
+    if (error instanceof ConfigIssueError) {
+      // Names the variable and rule only; the configured value is never included.
+      return json({ error: error.issue.text }, { status: 400 });
     }
     if (
       error instanceof GitLabSourceConfigurationError ||

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import {
   type BitbucketProfileEnrichment,
   type GitLabProfileEnrichment,
@@ -8,15 +9,6 @@ import {
   type SourceNamespaceInventory,
   type SourceProjectInventory,
 } from "$lib/source/types";
-
-const GITLAB_PROFILE_METRIC_KEYS = [
-  "issues",
-  "mergeRequests",
-  "commits",
-  "branches",
-  "tags",
-  "releases",
-] as const;
 
 const BITBUCKET_PROFILE_METRIC_KEYS = [
   "commits",

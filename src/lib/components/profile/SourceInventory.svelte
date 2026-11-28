@@ -2,19 +2,24 @@
 	import Octicon from "$lib/components/Octicon.svelte";
 	import type { UsedIconName } from "$lib/icons.generated";
 	import type { ProfileInventoryMetricKey, ProfileInventorySummary } from "$lib/profile/types";
+	import { GITLAB_PROFILE_METRIC_CARDS } from "$lib/source/gitlab-metrics";
 	import type { NumericObservation } from "$lib/source/types";
 
 	const VISIBILITIES = ["private", "internal", "public"] as const;
-	const PROFILE_METRIC_TILES = [
-		{ key: "commits", label: "Commits", icon: "git-commit" },
-		{ key: "mergeRequests", label: "Merge requests", icon: "git-pull-request" },
-		{ key: "pullRequests", label: "Pull requests", icon: "git-pull-request" },
-		{ key: "branches", label: "Branches", icon: "git-branch" },
-		{ key: "tags", label: "Tags", icon: "tag" },
-		{ key: "releases", label: "Releases", icon: "package" },
-		{ key: "issues", label: "Visible issues", icon: "issue-opened" },
-		{ key: "forks", label: "Forks", icon: "repo-forked" },
-	] satisfies Array<{ key: ProfileInventoryMetricKey; label: string; icon: UsedIconName }>;
+	interface MetricTile {
+		key: ProfileInventoryMetricKey;
+		label: string;
+		icon: UsedIconName;
+		position: number;
+	}
+	// GitLab cards come from the metric registry; Bitbucket adds the two it alone reports.
+	const PROFILE_METRIC_TILES = (
+		[
+			...GITLAB_PROFILE_METRIC_CARDS,
+			{ key: "pullRequests", label: "Pull requests", icon: "git-pull-request", position: 1.5 },
+			{ key: "forks", label: "Forks", icon: "repo-forked", position: 6 },
+		] satisfies MetricTile[]
+	).sort((left, right) => left.position - right.position);
 
 	let {
 		providerName,

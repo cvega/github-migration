@@ -122,9 +122,25 @@ the repository succeeds or fails.
 | `GITLAB_SOURCE_NAMESPACE` | Optional configured namespace scope |
 | `GITLAB_SOURCE_MAX_ARCHIVE_BYTES` | Maximum accepted GitLab export size |
 | `GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS` | GitLab archive download timeout |
+| `GITLAB_SOURCE_PROFILE_REQUEST_BUDGET` | Positive integer limit on all GitLab API requests, retries and pagination included, that one profile run may spend across inventory and metric collection. Defaults to `100000`; a non-integer or non-positive value rejects the profile request. |
 
 GitLab credentials are server-owned and cannot be overridden by a browser
 request.
+
+The profile request budget is one allowance for the whole run. It is measured
+from the start of the run and spent by every request the run makes, including
+required project listing pages, optional statistics requests during inventory,
+metric collection, retries and further pages. Concurrent workers cannot exceed
+it. Required listing pages are never refused, but they use the allowance, so a
+small value leaves less or nothing for optional requests. Optional per-project
+statistics requests during inventory also keep their own 10,000-attempt cutoff
+and stop at whichever limit comes first; only the shared budget stops metric
+collection. When it is spent, the
+profile still completes: projects stay in the inventory, collected evidence is
+kept, and anything not collected is recorded as unavailable with reason
+`request-budget`. A count whose pagination was cut short is kept as a lower
+bound, and a commit count whose default-branch head was read but whose sequence
+lookup was refused is recorded as at least one.
 
 ## Bitbucket Server Source
 

@@ -5,6 +5,7 @@ import {
   type ConfigIssue,
   ConfigIssueError,
   collectConfigIssues,
+  readPositiveIntegerSetting,
 } from "$lib/server/core/config-issue";
 import type { GitLabClient } from "./client";
 
@@ -24,15 +25,6 @@ interface GitLabArchiveDependencies {
 const DEFAULT_MAX_ARCHIVE_BYTES = 40 * 1024 * 1024 * 1024;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1_000;
 
-function positiveInteger(name: string, value: string | undefined, fallback: number): number {
-  if (!value?.trim()) return fallback;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw new ConfigIssueError(name, "positive-integer");
-  }
-  return parsed;
-}
-
 function archiveDirectory(): string {
   const directory = env.ARCHIVE_DIR?.trim();
   if (!directory) throw new ConfigIssueError("ARCHIVE_DIR", "required");
@@ -41,13 +33,13 @@ function archiveDirectory(): string {
 }
 
 const maxArchiveBytes = () =>
-  positiveInteger(
+  readPositiveIntegerSetting(
     "GITLAB_SOURCE_MAX_ARCHIVE_BYTES",
     env.GITLAB_SOURCE_MAX_ARCHIVE_BYTES,
     DEFAULT_MAX_ARCHIVE_BYTES,
   );
 const downloadTimeoutMs = () =>
-  positiveInteger(
+  readPositiveIntegerSetting(
     "GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS",
     env.GITLAB_SOURCE_ARCHIVE_DOWNLOAD_TIMEOUT_MS,
     DEFAULT_DOWNLOAD_TIMEOUT_MS,
