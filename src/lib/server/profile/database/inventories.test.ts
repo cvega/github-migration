@@ -209,7 +209,9 @@ describe("profile source inventories", () => {
   });
   test("round-trips GitLab and Bitbucket summaries whose metrics carry profile-only unavailable reasons", () => {
     const collectedAt = new Date(0).toISOString();
-    const metric = (reason: "malformed" | "transient-failure" | "unsupported") => ({
+    const metric = (
+      reason: "malformed" | "transient-failure" | "unsupported" | "not-reported" | "forbidden",
+    ) => ({
       provider: "gitlab" as const,
       endpointFamily: "project-tags",
       collectedAt,
@@ -238,6 +240,9 @@ describe("profile source inventories", () => {
             tags: metric("malformed"),
             releases: metric("malformed"),
             ciConfiguration: metric("unsupported"),
+            protectedBranches: exact,
+            inheritedProtectedBranches: metric("not-reported"),
+            protectedTags: metric("forbidden"),
           },
         },
       ],
@@ -247,6 +252,8 @@ describe("profile source inventories", () => {
       branches: { kind: "unavailable", reason: "transient-failure" },
       tags: { kind: "unavailable", reason: "malformed" },
       releases: { kind: "unavailable", reason: "malformed" },
+      inheritedProtectedBranches: { kind: "unavailable", reason: "not-reported" },
+      protectedTags: { kind: "unavailable", reason: "forbidden" },
     });
 
     const provider = "bitbucket-server";

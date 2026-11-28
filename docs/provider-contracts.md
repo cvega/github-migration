@@ -33,8 +33,16 @@ registry storage. The project statistics commit count is retained in inventory
 alongside the default-branch commit metric collected during enrichment.
 
 For each selected project, profiling collects issues, merge requests, commits,
-branches, tags, releases, and CI configuration under bounded concurrency and
-request budgets.
+branches, tags, releases, CI configuration, and protected branch and tag rules
+under bounded concurrency and request budgets. Protection rule counts are separate from ref
+counts: project branch rules exclude rules inherited from a group, inherited
+rules are counted once per project by merging the project's `inherited` flags
+with `GET /groups/:id/protected_branches` (read once per run, and only when the
+profiled namespace is a top-level group), and a wildcard rule counts once.
+HTTP 401/403 on these lists records `forbidden`, a project 404
+`not-found-or-hidden`, and a group 404 `not-reported` (the endpoint needs
+Premium or Ultimate); the profile continues. The source profile flags the
+total as protection rules to recreate, because the importer does not migrate them.
 
 Profile metrics are declared once in a client-safe registry
 (`src/lib/source/gitlab-metrics.ts`): each key drives the stored enrichment shape,

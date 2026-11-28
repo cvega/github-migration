@@ -22,12 +22,31 @@ export const GITLAB_PROFILE_METRICS = [
     key: "ciConfiguration",
     card: { label: "GitLab CI to convert", icon: "workflow", position: 7 },
   },
+  {
+    key: "protectedBranches",
+    card: { label: "Branch protection rules", icon: "shield-lock", position: 8 },
+  },
+  {
+    key: "inheritedProtectedBranches",
+    card: { label: "Inherited branch rules", icon: "shield", position: 9 },
+  },
+  {
+    key: "protectedTags",
+    card: { label: "Tag protection rules", icon: "shield-lock", position: 10 },
+  },
 ] as const satisfies ReadonlyArray<{
   key: string;
   card: { label: string; icon: UsedIconName; position: number };
 }>;
 
 export type GitLabMetricKey = (typeof GITLAB_PROFILE_METRICS)[number]["key"];
+
+/** Protection rules GitHub Enterprise Importer does not migrate; each must be recreated. */
+export const GITLAB_PROTECTION_RULE_METRIC_KEYS = [
+  "protectedBranches",
+  "inheritedProtectedBranches",
+  "protectedTags",
+] as const satisfies readonly GitLabMetricKey[];
 
 export const GITLAB_PROFILE_METRIC_KEYS: readonly GitLabMetricKey[] = GITLAB_PROFILE_METRICS.map(
   ({ key }) => key,

@@ -101,6 +101,12 @@ for (const width of [1280, 390]) {
 		await expect(storage.getByText("Pipeline artifacts", { exact: true }).locator("..").getByText("0 B", { exact: true })).toBeVisible();
 		await expect(storage.getByText("Snippets", { exact: true })).toBeVisible();
 		await expect(storage.getByText("Container registry", { exact: true }).locator("..").getByText("not-reported", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Branch protection rules", { exact: true }).locator("..").getByText("3", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Inherited branch rules", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Tag protection rules", { exact: true }).locator("..").getByText("At least 2", { exact: true })).toBeVisible();
+		const risks = page.getByRole("heading", { name: "Migration risks and coverage" }).locator("..");
+		await expect(risks.getByText("Protection rules to recreate", { exact: true }).locator("..").getByText("At least 5", { exact: true })).toBeVisible();
+		await risks.screenshot({ path: testInfo.outputPath("gitlab-risks.png") });
 		await storage.screenshot({ path: testInfo.outputPath("gitlab-storage.png") });
 		await contents.screenshot({ path: testInfo.outputPath("gitlab-contents.png") });
 	});

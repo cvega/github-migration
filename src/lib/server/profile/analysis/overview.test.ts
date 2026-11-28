@@ -22,6 +22,9 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     tags: exact("repository-tags", 1, "enumerated"),
     releases: exact("project-releases", 1, "enumerated"),
     ciConfiguration: exact("project-ci-configuration", 1, "reported"),
+    protectedBranches: exact("project-protected-branches", 2, "enumerated"),
+    inheritedProtectedBranches: exact("protected-branch-inheritance", 1, "enumerated"),
+    protectedTags: exact("project-protected-tags", 1, "enumerated"),
   };
 }
 
@@ -189,6 +192,9 @@ describe("summarizeGitLabEnrichment", () => {
       tags: { kind: "exact", value: 2 },
       releases: { kind: "exact", value: 2 },
       ciConfiguration: { kind: "exact", value: 2 },
+      protectedBranches: { kind: "exact", value: 4 },
+      inheritedProtectedBranches: { kind: "exact", value: 2 },
+      protectedTags: { kind: "exact", value: 2 },
     });
   });
 

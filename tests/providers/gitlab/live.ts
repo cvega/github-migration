@@ -25,14 +25,19 @@ export async function verifyGitLabContract(
     web,
   ]);
   for (const { path, metrics } of profile.projects) {
-    assertExactMetrics<Exclude<keyof typeof metrics, "ciConfiguration">>(path, metrics, {
+    // Protection rules depend on the instance tier and default-branch settings.
+    assertExactMetrics<"issues" | "mergeRequests" | "commits" | "branches" | "tags" | "releases">(
+      path,
+      metrics,
+      {
       issues: path === rich ? 1 : path === web ? 2 : 0,
       mergeRequests: path === rich ? 1 : 0,
       commits: path === rich ? 3 : 1,
       branches: path === rich ? 2 : 1,
       tags: path === rich ? 1 : 0,
       releases: path === rich ? 1 : 0,
-    });
+      },
+    );
     // Seeded projects have no CI file; the instance Auto DevOps default decides 0 or 1.
     const ci = metrics.ciConfiguration.observation;
     assert.ok(ci.kind === "exact" && (ci.value === 0 || ci.value === 1), `${path}: ciConfiguration`);
