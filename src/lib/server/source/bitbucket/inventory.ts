@@ -212,6 +212,10 @@ function toProjectInventory(
     packagesSizeBytes: unavailable,
     wikiSizeBytes: unavailable,
     uploadsSizeBytes: unavailable,
+    jobArtifactsSizeBytes: { kind: "unavailable", reason: "unsupported" },
+    pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "unsupported" },
+    snippetsSizeBytes: { kind: "unavailable", reason: "unsupported" },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "unsupported" },
     providerDetails: {
       provider: "bitbucket-server",
       ...(webUrl !== undefined ? { webUrl } : {}),

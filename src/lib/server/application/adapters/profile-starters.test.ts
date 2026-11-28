@@ -59,6 +59,10 @@ test.each(["gitlab", "bitbucket-server"] as const)(
         packagesSizeBytes: unavailable,
         wikiSizeBytes: unavailable,
         uploadsSizeBytes: unavailable,
+        jobArtifactsSizeBytes: unavailable,
+        pipelineArtifactsSizeBytes: unavailable,
+        snippetsSizeBytes: unavailable,
+        containerRegistrySizeBytes: unavailable,
       }));
       return {
         version: 1,

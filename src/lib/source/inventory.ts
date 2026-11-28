@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { SourceNamespaceInventory, SourceProjectInventory } from "$lib/source/types";
+import {
+  OBSERVATION_UNAVAILABLE_REASONS,
+  type SourceNamespaceInventory,
+  type SourceProjectInventory,
+} from "$lib/source/types";
 import {
   getSourceProviderAdapter,
   SOURCE_PROVIDERS,
@@ -34,7 +38,7 @@ const numericObservationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("unavailable"),
-      reason: z.enum(["forbidden", "not-found-or-hidden", "not-reported"]),
+      reason: z.enum(OBSERVATION_UNAVAILABLE_REASONS),
     })
     .strict(),
 ]);
@@ -57,6 +61,7 @@ const sourceProjectProviderDetailsSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("gitlab"),
+      commitCount: numericObservationSchema.optional(),
       webUrl: optionalWebUrl.optional(),
       description: z.string().max(10_000).nullable().optional(),
       topics: z.array(z.string().min(1).max(255)).max(100).optional(),
@@ -104,6 +109,10 @@ const sourceProjectInventorySchema = z
     packagesSizeBytes: numericObservationSchema,
     wikiSizeBytes: numericObservationSchema,
     uploadsSizeBytes: numericObservationSchema,
+    jobArtifactsSizeBytes: numericObservationSchema,
+    pipelineArtifactsSizeBytes: numericObservationSchema,
+    snippetsSizeBytes: numericObservationSchema,
+    containerRegistrySizeBytes: numericObservationSchema,
     providerDetails: sourceProjectProviderDetailsSchema.optional(),
   })
   .strict();

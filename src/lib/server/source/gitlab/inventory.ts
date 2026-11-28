@@ -6,9 +6,17 @@ import type {
 } from "$lib/server/source/inventory";
 import { assertSourceInventoryProjectLimit } from "$lib/server/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
+import { enrichmentWorkers } from "../enrichment-workers";
 import { encodeGitLabPath, GitLabApiError, type GitLabClient } from "./client";
 
+export const GITLAB_PROFILE_CONCURRENCY = 4;
+
 interface GitLabProjectStatistics {
+  commit_count?: unknown;
+  job_artifacts_size?: unknown;
+  pipeline_artifacts_size?: unknown;
+  snippets_size?: unknown;
+  container_registry_size?: unknown;
   repository_size?: unknown;
   storage_size?: unknown;
   lfs_objects_size?: unknown;
@@ -126,15 +134,32 @@ function visibility(value: unknown): SourceProjectInventory["visibility"] {
   throw new TypeError("GitLab project visibility is invalid");
 }
 
-function statistic(statistics: GitLabProjectStatistics | null, field: string): NumericObservation {
-  if (!statistics || !(field in statistics)) {
-    return { kind: "unavailable", reason: "not-reported" };
+function projectObservations(
+  statistics: GitLabProjectStatistics | null,
+  reason: Extract<NumericObservation, { kind: "unavailable" }>["reason"] = "not-reported",
+) {
+  function statistic(field: keyof GitLabProjectStatistics): NumericObservation {
+    const value = statistics?.[field];
+    if (value == null) return { kind: "unavailable", reason };
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError(`GitLab project statistic ${field} must be a non-negative integer`);
+    }
+    return { kind: "exact", value };
   }
-  const value = statistics[field as keyof GitLabProjectStatistics];
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`GitLab project statistic ${field} must be a non-negative integer`);
-  }
-  return { kind: "exact", value };
+
+  return {
+    commitCount: statistic("commit_count"),
+    repositorySizeBytes: statistic("repository_size"),
+    storageSizeBytes: statistic("storage_size"),
+    lfsObjectsSizeBytes: statistic("lfs_objects_size"),
+    packagesSizeBytes: statistic("packages_size"),
+    wikiSizeBytes: statistic("wiki_size"),
+    uploadsSizeBytes: statistic("uploads_size"),
+    jobArtifactsSizeBytes: statistic("job_artifacts_size"),
+    pipelineArtifactsSizeBytes: statistic("pipeline_artifacts_size"),
+    snippetsSizeBytes: statistic("snippets_size"),
+    containerRegistrySizeBytes: statistic("container_registry_size"),
+  };
 }
 
 function projectStatistics(value: unknown): GitLabProjectStatistics | null {
@@ -153,7 +178,7 @@ function toProjectInventory(project: GitLabProjectSummary): SourceProjectInvento
   if (typeof project.archived !== "boolean") {
     throw new TypeError("GitLab project archived must be a boolean");
   }
-  const statistics = projectStatistics(project.statistics);
+  const { commitCount, ...storage } = projectObservations(projectStatistics(project.statistics));
   const webUrl = optionalString(project.web_url, "web_url");
   const description = optionalDescription(project.description);
   const topics = optionalTopics(project.topics);
@@ -169,14 +194,10 @@ function toProjectInventory(project: GitLabProjectSummary): SourceProjectInvento
     archived: project.archived,
     defaultBranch: nullableString(project.default_branch, "default_branch"),
     lastActivityAt: nullableTimestamp(project.last_activity_at, "last_activity_at"),
-    repositorySizeBytes: statistic(statistics, "repository_size"),
-    storageSizeBytes: statistic(statistics, "storage_size"),
-    lfsObjectsSizeBytes: statistic(statistics, "lfs_objects_size"),
-    packagesSizeBytes: statistic(statistics, "packages_size"),
-    wikiSizeBytes: statistic(statistics, "wiki_size"),
-    uploadsSizeBytes: statistic(statistics, "uploads_size"),
+    ...storage,
     providerDetails: {
       provider: "gitlab",
+      commitCount,
       ...(webUrl !== undefined ? { webUrl } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(topics !== undefined ? { topics } : {}),
@@ -185,6 +206,70 @@ function toProjectInventory(project: GitLabProjectSummary): SourceProjectInvento
       ...(features !== undefined ? { features } : {}),
     },
   };
+}
+
+async function fetchProjectObservations(
+  client: GitLabClient,
+  sourceId: string,
+  signal: AbortSignal,
+): Promise<ReturnType<typeof projectObservations>> {
+  let data: unknown;
+  try {
+    ({ data } = await client.get(
+      `/projects/${encodeURIComponent(sourceId)}`,
+      { statistics: true },
+      { signal },
+    ));
+  } catch (error) {
+    throwIfAborted(signal);
+    if (!(error instanceof GitLabApiError)) throw error;
+    if (error.status === 403) return projectObservations(null, "forbidden");
+    if (error.status === 404) return projectObservations(null, "not-found-or-hidden");
+    if (error.status >= 200 && error.status < 300) return projectObservations(null, "malformed");
+    return projectObservations(null, "transient-failure");
+  }
+
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    !("id" in data) ||
+    String(data.id) !== sourceId
+  ) {
+    return projectObservations(null, "malformed");
+  }
+  try {
+    return projectObservations(projectStatistics("statistics" in data ? data.statistics : null));
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return projectObservations(null, "malformed");
+  }
+}
+
+async function fillMissingProjectStatistics(
+  client: GitLabClient,
+  projects: SourceProjectInventory[],
+  listing: GitLabProjectSummary[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const missing = projects.filter((_, index) => listing[index]?.statistics == null).values();
+  const workers = enrichmentWorkers(signal);
+  const worker = async () => {
+    for (const project of missing) {
+      throwIfAborted(workers.signal);
+      const { commitCount, ...storage } = await fetchProjectObservations(
+        client,
+        project.sourceId,
+        workers.signal,
+      );
+      Object.assign(project, storage);
+      if (project.providerDetails?.provider === "gitlab") {
+        project.providerDetails.commitCount = commitCount;
+      }
+    }
+  };
+  await workers.join(
+    Array.from({ length: Math.min(GITLAB_PROFILE_CONCURRENCY, projects.length) }, worker),
+  );
 }
 
 function canonicalNamespace(namespace: string): string {
@@ -255,6 +340,8 @@ export async function* streamGitLabInventoryPages(
       discovered,
       page,
     });
+    throwIfAborted(options.signal);
+    await fillMissingProjectStatistics(client, projects, projectPage, options.signal);
     throwIfAborted(options.signal);
     yield projects;
   }

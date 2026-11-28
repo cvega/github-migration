@@ -452,6 +452,10 @@ const gitLabProjects = [
     packagesSizeBytes: { kind: "exact", value: 262_144 },
     wikiSizeBytes: { kind: "exact", value: 0 },
     uploadsSizeBytes: { kind: "exact", value: 0 },
+    jobArtifactsSizeBytes: { kind: "exact", value: 4096 },
+    pipelineArtifactsSizeBytes: { kind: "exact", value: 0 },
+    snippetsSizeBytes: { kind: "exact", value: 0 },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
   {
     provider: "gitlab",
@@ -468,6 +472,10 @@ const gitLabProjects = [
     packagesSizeBytes: { kind: "exact", value: 0 },
     wikiSizeBytes: { kind: "exact", value: 0 },
     uploadsSizeBytes: { kind: "exact", value: 0 },
+    jobArtifactsSizeBytes: { kind: "unavailable", reason: "forbidden" },
+    pipelineArtifactsSizeBytes: { kind: "exact", value: 0 },
+    snippetsSizeBytes: { kind: "exact", value: 0 },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
 ] as const;
 const gitLabSummary = {
@@ -483,6 +491,10 @@ const gitLabSummary = {
     packagesSizeBytes: { kind: "exact", value: 262_144 },
     wikiSizeBytes: { kind: "exact", value: 0 },
     uploadsSizeBytes: { kind: "exact", value: 0 },
+    jobArtifactsSizeBytes: { kind: "at-least", value: 4096 },
+    pipelineArtifactsSizeBytes: { kind: "exact", value: 0 },
+    snippetsSizeBytes: { kind: "exact", value: 0 },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
   metrics: {
     commits: { kind: "exact", value: 42 },
@@ -542,6 +554,10 @@ const bitbucketProjects = [
     packagesSizeBytes: { kind: "unavailable", reason: "not-reported" },
     wikiSizeBytes: { kind: "unavailable", reason: "not-reported" },
     uploadsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
     providerDetails: {
       provider: "bitbucket-server",
       webUrl: "https://bitbucket.example.com/projects/PLATFORM/repos/payments-api/browse",
@@ -567,6 +583,10 @@ const bitbucketProjects = [
     packagesSizeBytes: { kind: "unavailable", reason: "not-reported" },
     wikiSizeBytes: { kind: "unavailable", reason: "not-reported" },
     uploadsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
     providerDetails: {
       provider: "bitbucket-server",
       webUrl: "https://bitbucket.example.com/projects/PLATFORM/repos/legacy-web/browse",
@@ -590,6 +610,10 @@ const bitbucketSummary = {
     packagesSizeBytes: { kind: "unavailable", reason: "not-reported" },
     wikiSizeBytes: { kind: "unavailable", reason: "not-reported" },
     uploadsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+    containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
   },
 };
 db.prepare(

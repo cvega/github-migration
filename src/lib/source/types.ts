@@ -21,6 +21,7 @@ export type NumericObservation =
 
 interface GitLabProjectDetails {
   provider: "gitlab";
+  commitCount?: NumericObservation;
   webUrl?: string;
   description?: string | null;
   topics?: string[];
@@ -63,6 +64,10 @@ export interface SourceProjectInventory {
   packagesSizeBytes: NumericObservation;
   wikiSizeBytes: NumericObservation;
   uploadsSizeBytes: NumericObservation;
+  jobArtifactsSizeBytes: NumericObservation;
+  pipelineArtifactsSizeBytes: NumericObservation;
+  snippetsSizeBytes: NumericObservation;
+  containerRegistrySizeBytes: NumericObservation;
   providerDetails?: SourceProjectProviderDetails;
 }
 

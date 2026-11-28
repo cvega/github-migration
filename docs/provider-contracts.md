@@ -18,9 +18,17 @@ bounded collection; they do not orchestrate migration lifecycles.
 
 The client sends a private token to the configured GitLab API and percent-
 encodes project paths. Discovery traverses namespace projects with explicit
-pagination and requests statistics where available. For each selected project,
-profiling collects issues, merge requests, commits, branches, tags, and releases
-under bounded concurrency and request budgets.
+pagination and reuses any statistics returned by the group listing. For projects
+whose listing statistics are null or missing, inventory requests
+`GET /projects/:id?statistics=true` with at most four requests in flight and the
+client's existing timeout and retry limits. A failed detail request leaves
+the project in the inventory with unavailable observations. Source storage
+reports job and pipeline artifacts separately, along with snippets and container
+registry storage. The project statistics commit count is retained in inventory
+alongside the default-branch commit metric collected during enrichment.
+
+For each selected project, profiling collects issues, merge requests, commits,
+branches, tags, and releases under bounded concurrency and request budgets.
 
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence

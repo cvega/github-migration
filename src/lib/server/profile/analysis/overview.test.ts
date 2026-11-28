@@ -47,6 +47,10 @@ function inventory(): SourceNamespaceInventory {
         packagesSizeBytes: { kind: "exact", value: 10 },
         wikiSizeBytes: { kind: "exact", value: 0 },
         uploadsSizeBytes: { kind: "exact", value: 1 },
+        jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
       },
       {
         provider: "gitlab",
@@ -63,6 +67,10 @@ function inventory(): SourceNamespaceInventory {
         packagesSizeBytes: { kind: "exact", value: 20 },
         wikiSizeBytes: { kind: "exact", value: 2 },
         uploadsSizeBytes: { kind: "exact", value: 3 },
+        jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
       },
     ],
   };

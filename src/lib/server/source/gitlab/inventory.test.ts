@@ -75,6 +75,7 @@ describe("discoverGitLabInventory", () => {
           statistics: undefined,
         }),
       ]),
+      jsonResponse({ id: 43 }),
     ]);
     const progress: unknown[] = [];
 
@@ -122,7 +123,7 @@ describe("discoverGitLabInventory", () => {
       { provider: "gitlab", namespace: "platform/products", discovered: 1, page: 1 },
       { provider: "gitlab", namespace: "platform/products", discovered: 2, page: 2 },
     ]);
-    expect(calls.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(calls.map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2", null]);
     expect(calls[0]?.url.pathname).toBe("/api/v4/groups/platform%2Fproducts/projects");
     expect(Object.fromEntries(calls[0]?.url.searchParams ?? [])).toMatchObject({
       include_subgroups: "true",
@@ -223,6 +224,7 @@ describe("discoverGitLabInventory", () => {
           statistics: null,
         }),
       ]),
+      jsonResponse({ id: 43, statistics: null }),
     ]);
 
     const inventory = await discoverGitLabInventory(client, "platform/products");
@@ -232,6 +234,101 @@ describe("discoverGitLabInventory", () => {
       kind: "unavailable",
       reason: "not-reported",
     });
+  });
+
+  test("fills null listing statistics from the GitLab 19.6 project response", async () => {
+    const { client, calls } = clientWithResponses([
+      jsonResponse([project({ statistics: null })]),
+      jsonResponse({
+        id: 42,
+        statistics: {
+          commit_count: 17,
+          storage_size: 2048,
+          repository_size: 1024,
+          wiki_size: 0,
+          lfs_objects_size: 0,
+          job_artifacts_size: 768,
+          pipeline_artifacts_size: 128,
+          packages_size: 0,
+          snippets_size: 64,
+          uploads_size: 64,
+          container_registry_size: 0,
+        },
+      }),
+    ]);
+
+    const inventory = await discoverGitLabInventory(client, "platform/products");
+
+    expect(calls[1]?.url.pathname).toBe("/api/v4/projects/42");
+    expect(calls[1]?.url.searchParams.get("statistics")).toBe("true");
+    expect(client.getApiCalls()).toBe(2);
+    expect(inventory.projects[0]).toMatchObject({
+      repositorySizeBytes: { kind: "exact", value: 1024 },
+      jobArtifactsSizeBytes: { kind: "exact", value: 768 },
+      pipelineArtifactsSizeBytes: { kind: "exact", value: 128 },
+      snippetsSizeBytes: { kind: "exact", value: 64 },
+      containerRegistrySizeBytes: { kind: "exact", value: 0 },
+      providerDetails: { commitCount: { kind: "exact", value: 17 } },
+    });
+  });
+
+  test.each([
+    [403, "forbidden"],
+    [404, "not-found-or-hidden"],
+    [503, "transient-failure"],
+  ])("retains the project when statistics return HTTP %i", async (status, reason) => {
+    const { client } = clientWithResponses([
+      jsonResponse([project({ statistics: null })]),
+      new Response(null, { status }),
+    ]);
+
+    const inventory = await discoverGitLabInventory(client, "platform/products");
+
+    expect(inventory.projects[0]).toMatchObject({
+      repositorySizeBytes: { kind: "unavailable", reason },
+      containerRegistrySizeBytes: { kind: "unavailable", reason },
+      providerDetails: { commitCount: { kind: "unavailable", reason } },
+    });
+  });
+
+  test("limits concurrent statistics requests and accounts for retries", async () => {
+    const projects = Array.from({ length: 10 }, (_, index) =>
+      project({
+        id: index + 1,
+        path_with_namespace: `platform/products/repo-${index}`,
+        statistics: null,
+      }),
+    );
+    const attempts = new Map<number, number>();
+    let active = 0;
+    let peak = 0;
+    const client = new GitLabClient({
+      baseUrl: "https://gitlab.example.com",
+      token: "fixture-token",
+      maxRetries: 1,
+      sleep: async () => {},
+      fetch: async (input) => {
+        const path = new URL(input.toString()).pathname;
+        if (path.includes("/groups/")) return jsonResponse(projects);
+        const id = Number(path.split("/").at(-1));
+        const attempt = (attempts.get(id) ?? 0) + 1;
+        attempts.set(id, attempt);
+        active += 1;
+        peak = Math.max(peak, active);
+        await Bun.sleep(1);
+        active -= 1;
+        return id === 1 && attempt === 1
+          ? new Response(null, { status: 503 })
+          : jsonResponse({ id, statistics: { repository_size: id } });
+      },
+    });
+
+    const inventory = await discoverGitLabInventory(client, "platform/products");
+
+    expect(peak).toBe(4);
+    expect(attempts.size).toBe(10);
+    expect(client.getApiCalls()).toBe(12);
+    expect(inventory.projects[0]?.repositorySizeBytes).toEqual({ kind: "exact", value: 1 });
   });
 
   test("streams normalized pages without collecting the namespace inventory", async () => {

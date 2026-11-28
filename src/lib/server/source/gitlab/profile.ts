@@ -16,6 +16,8 @@ import {
   GitLabPaginationError,
 } from "./client";
 
+import { GITLAB_PROFILE_CONCURRENCY } from "./inventory";
+
 export const GITLAB_ISSUES_SCOPE =
   "project issues visible to the caller; all states and authors; excludes merge requests";
 export const GITLAB_MERGE_REQUESTS_SCOPE =
@@ -272,7 +274,7 @@ export async function collectGitLabProfileEnrichment(
   if (inventory.provider !== "gitlab") {
     throw new TypeError("GitLab enrichment requires a GitLab inventory");
   }
-  const concurrency = options.concurrency ?? 4;
+  const concurrency = options.concurrency ?? GITLAB_PROFILE_CONCURRENCY;
   if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) {
     throw new TypeError("GitLab profile concurrency must be an integer between 1 and 16");
   }

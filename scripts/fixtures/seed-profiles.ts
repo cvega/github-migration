@@ -200,6 +200,10 @@ function sourceInventoryProject(
       packagesSizeBytes: exact(packagesSize),
       wikiSizeBytes: exact(wikiSize),
       uploadsSizeBytes: exact(uploadsSize),
+      jobArtifactsSizeBytes: unavailable(),
+      pipelineArtifactsSizeBytes: unavailable(),
+      snippetsSizeBytes: unavailable(),
+      containerRegistrySizeBytes: unavailable(),
       providerDetails: {
         provider: "gitlab",
         webUrl: `https://gitlab.example.com/${spec.namespace}/${slug}`,
@@ -232,6 +236,10 @@ function sourceInventoryProject(
     packagesSizeBytes: unavailable(),
     wikiSizeBytes: unavailable(),
     uploadsSizeBytes: unavailable(),
+    jobArtifactsSizeBytes: unavailable(),
+    pipelineArtifactsSizeBytes: unavailable(),
+    snippetsSizeBytes: unavailable(),
+    containerRegistrySizeBytes: unavailable(),
     providerDetails: {
       provider: "bitbucket-server",
       webUrl: `https://bitbucket.example.com/projects/${spec.namespace}/repos/${slug}/browse`,

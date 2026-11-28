@@ -58,6 +58,10 @@
 					{ label: "LFS objects", value: summary.storage.lfsObjectsSizeBytes, icon: "file-binary" },
 					{ label: "Packages", value: summary.storage.packagesSizeBytes, icon: "package" },
 					{ label: "Wikis", value: summary.storage.wikiSizeBytes, icon: "book" },
+					{ label: "Job artifacts", value: summary.storage.jobArtifactsSizeBytes, icon: "package" },
+					{ label: "Pipeline artifacts", value: summary.storage.pipelineArtifactsSizeBytes, icon: "package" },
+					{ label: "Snippets", value: summary.storage.snippetsSizeBytes, icon: "file-binary" },
+					{ label: "Container registry", value: summary.storage.containerRegistrySizeBytes, icon: "database" },
 					] as const),
 					{ label: bitbucket ? "Attachments" : "Uploads", value: summary.storage.uploadsSizeBytes, icon: "upload" },
 				] satisfies Array<{ label: string; value: NumericObservation; icon: UsedIconName }>
@@ -99,7 +103,7 @@
 				<div class="text-2xl font-semibold text-gray-50">{formatObservation(summary.projectCount)}</div>
 				<div class="mt-1 text-xs text-gray-400">{bitbucket ? "Repositories discovered" : "Projects discovered"}</div>
 			</div>
-			{#each VISIBILITIES.filter((visibility) => !bitbucket || visibility !== "internal") as visibility}
+			{#each VISIBILITIES.filter((visibility) => !bitbucket || visibility !== "internal") as visibility (visibility)}
 				<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
 					<div class="text-2xl font-semibold text-gray-50">{summary.visibility[visibility].toLocaleString()}</div>
 					<div class="mt-1 text-xs capitalize text-gray-400">{visibility}</div>
@@ -127,7 +131,7 @@
 
 		<section>
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="database" size={16} />Source storage</h2>
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? '' : 'lg:grid-cols-6'}">
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? '' : 'lg:grid-cols-5'}">
 			{#if bitbucket && summary.projectsCaptured === 0}
 					<p class="col-span-full text-sm text-gray-400">No captured repositories to size.</p>
 			{:else if bitbucket && unavailableStorageMetrics === storageTiles.length}
