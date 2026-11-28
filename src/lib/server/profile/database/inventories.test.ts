@@ -45,6 +45,10 @@ function inventory(overrides: Partial<SourceNamespaceInventory> = {}): SourceNam
         packagesSizeBytes: unavailable,
         wikiSizeBytes: unavailable,
         uploadsSizeBytes: unavailable,
+        jobArtifactsSizeBytes: unavailable,
+        pipelineArtifactsSizeBytes: unavailable,
+        snippetsSizeBytes: unavailable,
+        containerRegistrySizeBytes: unavailable,
       },
     ],
     ...overrides,
@@ -61,6 +65,33 @@ function createRun(): void {
 }
 
 describe("profile source inventories", () => {
+  test("round-trips GitLab project statistics and preserves unknown storage in the rollup", () => {
+    createRun();
+    const base = inventory().projects[0]!;
+    const projects = [
+      {
+        ...base,
+        jobArtifactsSizeBytes: { kind: "exact", value: 1024 } as const,
+        pipelineArtifactsSizeBytes: { kind: "exact", value: 0 } as const,
+        containerRegistrySizeBytes: { kind: "unavailable", reason: "forbidden" } as const,
+        providerDetails: {
+          provider: "gitlab",
+          commitCount: { kind: "exact", value: 17 },
+        } as const,
+      },
+      { ...base, sourceId: "2", path: "platform/worker" },
+    ];
+    saveProfileInventory("run", inventory({ projectCount: { kind: "exact", value: 2 }, projects }));
+
+    expect(getProfileInventory("run")?.projects).toEqual(projects);
+    expect(getProfileInventorySummary("run")?.storage).toMatchObject({
+      jobArtifactsSizeBytes: { kind: "at-least", value: 1024 },
+      pipelineArtifactsSizeBytes: { kind: "at-least", value: 0 },
+      snippetsSizeBytes: unavailable,
+      containerRegistrySizeBytes: { kind: "unavailable", reason: "forbidden" },
+    });
+  });
+
   test("counts LFS rules across captured Bitbucket repositories, excluding unavailable checks", () => {
     const provider = "bitbucket-server";
     const sourceApiUrl = "https://bb.example.com/rest/api/1.0";

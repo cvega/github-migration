@@ -248,6 +248,10 @@ export interface ProfileInventorySummary {
     packagesSizeBytes: NumericObservation;
     wikiSizeBytes: NumericObservation;
     uploadsSizeBytes: NumericObservation;
+    jobArtifactsSizeBytes: NumericObservation;
+    pipelineArtifactsSizeBytes: NumericObservation;
+    snippetsSizeBytes: NumericObservation;
+    containerRegistrySizeBytes: NumericObservation;
   };
   metrics?: Partial<Record<ProfileInventoryMetricKey, NumericObservation>>;
 }

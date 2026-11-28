@@ -260,6 +260,10 @@
 			packagesSizeBytes: exactObservation(12884901888),
 			wikiSizeBytes: exactObservation(2147483648),
 			uploadsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+			jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+			pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+			snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+			containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
 		},
 		metrics: { commits: exactObservation(184290), pullRequests: exactObservation(4820), branches: exactObservation(936), tags: exactObservation(1284), releases: exactObservation(412), issues: exactObservation(7290) },
 	};

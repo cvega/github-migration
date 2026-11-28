@@ -28,6 +28,10 @@ function inventory(): SourceNamespaceInventory {
         packagesSizeBytes: { kind: "exact", value: 0 },
         wikiSizeBytes: { kind: "exact", value: 0 },
         uploadsSizeBytes: { kind: "exact", value: 0 },
+        jobArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        pipelineArtifactsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        snippetsSizeBytes: { kind: "unavailable", reason: "not-reported" },
+        containerRegistrySizeBytes: { kind: "unavailable", reason: "not-reported" },
         providerDetails: {
           provider: "gitlab",
           webUrl: "https://gitlab.example.com/platform/products/payments-api",

@@ -64,6 +64,10 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
     packagesSizeBytes: observed,
     wikiSizeBytes: observed,
     uploadsSizeBytes: observed,
+    jobArtifactsSizeBytes: observed,
+    pipelineArtifactsSizeBytes: observed,
+    snippetsSizeBytes: observed,
+    containerRegistrySizeBytes: observed,
   }));
   const metric = {
     provider: "gitlab",

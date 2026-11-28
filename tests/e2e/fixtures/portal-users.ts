@@ -33,6 +33,10 @@ for (const tag of ["a", "b"]) {
       archived: false, defaultBranch: "main", lastActivityAt: null, repositorySizeBytes: unavailable,
       storageSizeBytes: unavailable, lfsObjectsSizeBytes: unavailable, packagesSizeBytes: unavailable,
       wikiSizeBytes: unavailable, uploadsSizeBytes: unavailable,
+      jobArtifactsSizeBytes: unavailable,
+      pipelineArtifactsSizeBytes: unavailable,
+      snippetsSizeBytes: unavailable,
+      containerRegistrySizeBytes: unavailable,
     }],
   }, 0, Date.parse(timestamp));
   const db = getDb();

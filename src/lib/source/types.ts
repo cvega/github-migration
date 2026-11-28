@@ -10,6 +10,7 @@ export const OBSERVATION_UNAVAILABLE_REASONS = [
   "unsupported",
   "malformed",
   "transient-failure",
+  "request-budget",
 ] as const;
 
 type ObservationUnavailableReason = (typeof OBSERVATION_UNAVAILABLE_REASONS)[number];
@@ -21,6 +22,7 @@ export type NumericObservation =
 
 interface GitLabProjectDetails {
   provider: "gitlab";
+  commitCount?: NumericObservation;
   webUrl?: string;
   description?: string | null;
   topics?: string[];
@@ -63,6 +65,10 @@ export interface SourceProjectInventory {
   packagesSizeBytes: NumericObservation;
   wikiSizeBytes: NumericObservation;
   uploadsSizeBytes: NumericObservation;
+  jobArtifactsSizeBytes: NumericObservation;
+  pipelineArtifactsSizeBytes: NumericObservation;
+  snippetsSizeBytes: NumericObservation;
+  containerRegistrySizeBytes: NumericObservation;
   providerDetails?: SourceProjectProviderDetails;
 }
 

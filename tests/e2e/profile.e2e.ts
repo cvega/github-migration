@@ -95,6 +95,12 @@ for (const width of [1280, 390]) {
 		await expect(contents.getByText("Tags", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
 		await expect(contents.getByText("Commits", { exact: true }).locator("..").getByText("42", { exact: true })).toBeVisible();
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		const storage = page.getByRole("heading", { name: "Source storage" }).locator("..");
+		await expect(storage.getByText("Job artifacts", { exact: true }).locator("..").getByText("At least 4.0 KiB", { exact: true })).toBeVisible();
+		await expect(storage.getByText("Pipeline artifacts", { exact: true }).locator("..").getByText("0 B", { exact: true })).toBeVisible();
+		await expect(storage.getByText("Snippets", { exact: true })).toBeVisible();
+		await expect(storage.getByText("Container registry", { exact: true }).locator("..").getByText("not-reported", { exact: true })).toBeVisible();
+		await storage.screenshot({ path: testInfo.outputPath("gitlab-storage.png") });
 		await contents.screenshot({ path: testInfo.outputPath("gitlab-contents.png") });
 	});
 }
