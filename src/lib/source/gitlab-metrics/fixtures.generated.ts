@@ -22,6 +22,8 @@ import mergeRequestsFixture from "./merge-requests.fixture";
 import mergeRequestsMetric from "./merge-requests.metric";
 import mirrorsFixture from "./mirrors.fixture";
 import mirrorsMetric from "./mirrors.metric";
+import packageVersionsFixture from "./package-versions.fixture";
+import packageVersionsMetric from "./package-versions.metric";
 import projectWebhooksFixture from "./project-webhooks.fixture";
 import projectWebhooksMetric from "./project-webhooks.metric";
 import protectedBranchesFixture from "./protected-branches.fixture";
@@ -46,6 +48,7 @@ export const GITLAB_METRIC_FIXTURES = {
   [membersMetric.key]: membersFixture,
   [mergeRequestsMetric.key]: mergeRequestsFixture,
   [mirrorsMetric.key]: mirrorsFixture,
+  [packageVersionsMetric.key]: packageVersionsFixture,
   [projectWebhooksMetric.key]: projectWebhooksFixture,
   [protectedBranchesMetric.key]: protectedBranchesFixture,
   [protectedTagsMetric.key]: protectedTagsFixture,

@@ -274,6 +274,7 @@ describe("GitLab protection rule collectors", () => {
       "/projects/42/approval_rules": json([]),
       "/projects/42/remote_mirrors": json([]),
       "/projects/42/mirror/pull": json({ enabled: false }),
+      "/projects/42/packages": json([]),
       "/groups/platform/hooks": json([]),
       "/projects/42/variables": json([], { "X-Total": "0" }),
       "/groups/platform/variables": json([], { "X-Total": "0" }),
