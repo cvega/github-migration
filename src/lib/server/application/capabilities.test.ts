@@ -19,6 +19,7 @@ const KEYS = [
   "GHES_TARGET_ADMIN_PAT",
   "GHES_TARGET_SSH_PRIVATE_KEY",
   "GHES_TARGET_SSH_HOST_KEY_SHA256",
+  "GHES_TARGET_SSH_PORT",
   "GL_EXPORTER_IMAGE",
   "BBS_EXPORTER_IMAGE",
   "EXPORTER_RUNTIME",
@@ -44,6 +45,21 @@ afterEach(() => {
   }
   saved.clear();
 });
+
+function configureBitbucketGhes(): void {
+  process.env.GHES_TARGET_API_URL = "https://ghes.example.com";
+  process.env.GHES_TARGET_ADMIN_USERNAME = "site-admin";
+  process.env.GHES_TARGET_ADMIN_PAT = "synthetic-admin-token";
+  process.env.GHES_TARGET_SSH_PRIVATE_KEY =
+    "-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----";
+  process.env.GHES_TARGET_SSH_HOST_KEY_SHA256 = "synthetic-fingerprint";
+  process.env.ARCHIVE_DIR = "/archives";
+  process.env.EXPORTER_ARCHIVE_VOLUME = "gh-migrate-archives";
+  process.env.BITBUCKET_SERVER_URL = "https://bitbucket.example.com";
+  process.env.BITBUCKET_SERVER_USERNAME = "migration-user";
+  process.env.BITBUCKET_SERVER_PASSWORD = "synthetic-password";
+  process.env.BBS_EXPORTER_IMAGE = "gh-migrate/bbs-exporter:latest";
+}
 
 describe("migration capability report", () => {
   test("reports stable blockers for every default-target source route", () => {
@@ -89,8 +105,9 @@ describe("migration capability report", () => {
           },
           {
             code: "gitlab-archive-storage-missing",
-            message: "GitLab migration archive storage is not configured",
+            message: "GitLab migration archive storage is not configured: ARCHIVE_DIR is required",
             environment: ["ARCHIVE_DIR"],
+            issues: ["ARCHIVE_DIR is required"],
           },
           {
             code: "target-auth-missing",
@@ -121,12 +138,21 @@ describe("migration capability report", () => {
           },
           {
             code: "bitbucket-sftp-missing",
-            message: "Bitbucket migration SFTP is not configured",
+            message:
+              "Bitbucket migration SFTP is not configured: BITBUCKET_SERVER_URL is required; BITBUCKET_SERVER_SSH_USERNAME is required; BITBUCKET_SERVER_SSH_PRIVATE_KEY is required; BITBUCKET_SERVER_SSH_HOST_KEY_SHA256 is required; ARCHIVE_DIR is required",
             environment: [
+              "BITBUCKET_SERVER_URL",
               "BITBUCKET_SERVER_SSH_USERNAME",
               "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
               "BITBUCKET_SERVER_SSH_HOST_KEY_SHA256",
               "ARCHIVE_DIR",
+            ],
+            issues: [
+              "BITBUCKET_SERVER_URL is required",
+              "BITBUCKET_SERVER_SSH_USERNAME is required",
+              "BITBUCKET_SERVER_SSH_PRIVATE_KEY is required",
+              "BITBUCKET_SERVER_SSH_HOST_KEY_SHA256 is required",
+              "ARCHIVE_DIR is required",
             ],
           },
           {
@@ -220,35 +246,51 @@ describe("migration capability report", () => {
     });
   });
 
-  test("reports provider-specific GHES execution requirements", () => {
-    process.env.GHES_TARGET_API_URL = "https://ghes.example.com";
-    process.env.GITLAB_SOURCE_API_URL = "https://gitlab.example.com";
-    process.env.GITLAB_SOURCE_PAT = "gitlab-token";
-    process.env.BITBUCKET_SERVER_URL = "https://bitbucket.example.com";
-    process.env.BITBUCKET_SERVER_USERNAME = "migration-user";
-    process.env.BITBUCKET_SERVER_PASSWORD = "password";
+  test("names only the missing setting when GHES execution is nearly configured", () => {
+    configureBitbucketGhes();
+    delete process.env.EXPORTER_ARCHIVE_VOLUME;
 
-    const commonEnvironment = [
-      "GHES_TARGET_API_URL",
-      "GHES_TARGET_ADMIN_USERNAME",
-      "GHES_TARGET_ADMIN_PAT",
+    expect(getMigrationCapability("bitbucket-server", "ghes")).toMatchObject({
+      status: "blocked",
+      reasons: [
+        {
+          code: "ghes-execution-invalid",
+          message:
+            "GHES migration execution is not fully configured for Bitbucket Server: EXPORTER_ARCHIVE_VOLUME is required",
+          environment: ["EXPORTER_ARCHIVE_VOLUME"],
+          issues: ["EXPORTER_ARCHIVE_VOLUME is required"],
+        },
+      ],
+    });
+  });
+
+  test("states the violated rule without echoing the configured value", () => {
+    configureBitbucketGhes();
+    process.env.ARCHIVE_DIR = "relative/synthetic-path-value";
+    process.env.GHES_TARGET_SSH_PRIVATE_KEY = "synthetic-not-a-key";
+    process.env.GHES_TARGET_SSH_PORT = "70000-synthetic";
+
+    const reason = getMigrationCapability("bitbucket-server", "ghes").reasons[0];
+    expect(reason?.issues).toEqual([
+      "GHES_TARGET_SSH_PORT must be an integer between 1 and 65535",
+      "GHES_TARGET_SSH_PRIVATE_KEY must be PEM or base64-encoded PEM",
+      "ARCHIVE_DIR must be an absolute path",
+    ]);
+    expect(reason?.environment).toEqual([
+      "GHES_TARGET_SSH_PORT",
       "GHES_TARGET_SSH_PRIVATE_KEY",
-      "GHES_TARGET_SSH_HOST_KEY_SHA256",
-      "EXPORTER_ARCHIVE_VOLUME",
       "ARCHIVE_DIR",
-    ];
+    ]);
+    expect(JSON.stringify(reason)).not.toContain("synthetic");
+  });
+
+  test("keeps GitLab-to-GHES paused regardless of GHES configuration", () => {
+    configureBitbucketGhes();
     expect(getMigrationCapability("gitlab", "ghes").reasons).toEqual([
       {
         code: "migration-route-unsupported",
         message: "GitLab-to-GHES migration execution is paused",
         environment: [],
-      },
-    ]);
-    expect(getMigrationCapability("bitbucket-server", "ghes").reasons).toEqual([
-      {
-        code: "ghes-execution-invalid",
-        message: "GHES migration execution is not fully configured for Bitbucket Server",
-        environment: [...commonEnvironment, "BBS_EXPORTER_IMAGE"],
       },
     ]);
   });
@@ -262,7 +304,7 @@ describe("migration capability report", () => {
     expect(report.migrations).toHaveLength(3);
   });
 
-  test("logs route reason codes without credential values or alias warnings", () => {
+  test("logs route reason codes and setting names without credential values or alias warnings", () => {
     process.env.GH_SOURCE_PAT = "source-secret";
     process.env.GL_EXPORTER_RUNTIME = "legacy-runtime";
     const messages: string[] = [];
@@ -282,7 +324,20 @@ describe("migration capability report", () => {
     logCapabilityReport(getCapabilityReport(), logger);
     expect(messages.join("\n")).not.toContain("target-secret");
     expect(messages[0]).toBe(
-      "[setup] Migration capabilities: github->ghec=ready; gitlab->ghec=blocked(source-auth-missing,gitlab-archive-storage-missing); bitbucket-server->ghec=blocked(source-auth-missing,bitbucket-sftp-missing)",
+      "[setup] Migration capabilities: github->ghec=ready; gitlab->ghec=blocked(source-auth-missing,gitlab-archive-storage-missing: ARCHIVE_DIR is required); bitbucket-server->ghec=blocked(source-auth-missing,bitbucket-sftp-missing: BITBUCKET_SERVER_URL is required; BITBUCKET_SERVER_SSH_USERNAME is required; BITBUCKET_SERVER_SSH_PRIVATE_KEY is required; BITBUCKET_SERVER_SSH_HOST_KEY_SHA256 is required; ARCHIVE_DIR is required)",
     );
+  });
+
+  test("logs the setting names and rules behind a blocked route without values", () => {
+    configureBitbucketGhes();
+    delete process.env.EXPORTER_ARCHIVE_VOLUME;
+    process.env.GH_TARGET_PAT = "synthetic-target-token";
+    const messages: string[] = [];
+    logCapabilityReport(getCapabilityReport(), { info: (message) => messages.push(message) });
+
+    expect(messages[0]).toContain(
+      "bitbucket-server->ghes=blocked(ghes-execution-invalid: EXPORTER_ARCHIVE_VOLUME is required)",
+    );
+    expect(messages[0]).not.toContain("synthetic");
   });
 });

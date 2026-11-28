@@ -2,6 +2,11 @@ import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { env } from "node:process";
 import SftpClient from "ssh2-sftp-client";
+import {
+  type ConfigIssue,
+  ConfigIssueError,
+  collectConfigIssues,
+} from "$lib/server/core/config-issue";
 import { verifySshHostKey } from "$lib/server/core/ssh-host-key";
 
 interface SftpArchiveConfig {
@@ -31,11 +36,12 @@ interface ArchiveDependencies {
 const DEFAULT_SHARED_HOME = "/var/atlassian/application-data/bitbucket/shared";
 const DEFAULT_MAX_ARCHIVE_BYTES = 40 * 1024 * 1024 * 1024;
 
-function positiveInteger(value: string | undefined, fallback: number): number {
+function positiveInteger(name: string, value: string | undefined, fallback: number): number {
   if (!value?.trim()) return fallback;
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1)
-    throw new TypeError("Expected a positive integer");
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new ConfigIssueError(name, "positive-integer");
+  }
   return parsed;
 }
 
@@ -45,45 +51,80 @@ function decodePrivateKey(value: string): string {
   return Buffer.from(trimmed, "base64").toString("utf8");
 }
 
+function required(name: string, raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) throw new ConfigIssueError(name, "required");
+  return value;
+}
+
+function sourceUrl(): URL {
+  const value = required("BITBUCKET_SERVER_URL", env.BITBUCKET_SERVER_URL);
+  try {
+    return new URL(value);
+  } catch {
+    throw new ConfigIssueError("BITBUCKET_SERVER_URL", "valid-url");
+  }
+}
+
+function archiveDirectory(): string {
+  const directory = required("ARCHIVE_DIR", env.ARCHIVE_DIR);
+  if (!isAbsolute(directory)) throw new ConfigIssueError("ARCHIVE_DIR", "absolute-path");
+  return resolve(directory);
+}
+
+function sharedHome(): string {
+  const home = env.BITBUCKET_SERVER_SHARED_HOME?.trim() || DEFAULT_SHARED_HOME;
+  if (!isAbsolute(home))
+    throw new ConfigIssueError("BITBUCKET_SERVER_SHARED_HOME", "absolute-path");
+  return home.replace(/\/+$/, "");
+}
+
+const sshPort = () =>
+  positiveInteger("BITBUCKET_SERVER_SSH_PORT", env.BITBUCKET_SERVER_SSH_PORT, 22);
+const maxArchiveBytes = () =>
+  positiveInteger(
+    "BITBUCKET_SERVER_MAX_ARCHIVE_BYTES",
+    env.BITBUCKET_SERVER_MAX_ARCHIVE_BYTES,
+    DEFAULT_MAX_ARCHIVE_BYTES,
+  );
+
 function loadSftpArchiveConfig(): SftpArchiveConfig {
-  const sourceUrl = env.BITBUCKET_SERVER_URL?.trim();
-  const username = env.BITBUCKET_SERVER_SSH_USERNAME?.trim();
-  const privateKey = env.BITBUCKET_SERVER_SSH_PRIVATE_KEY?.trim();
-  const hostFingerprint = env.BITBUCKET_SERVER_SSH_HOST_KEY_SHA256?.trim();
-  const archiveDirectory = env.ARCHIVE_DIR?.trim();
-  if (!sourceUrl || !username || !privateKey || !hostFingerprint || !archiveDirectory) {
-    throw new Error(
-      "Bitbucket SFTP requires BITBUCKET_SERVER_URL, BITBUCKET_SERVER_SSH_USERNAME, BITBUCKET_SERVER_SSH_PRIVATE_KEY, BITBUCKET_SERVER_SSH_HOST_KEY_SHA256, and ARCHIVE_DIR",
-    );
-  }
-  const url = new URL(sourceUrl);
-  if (!isAbsolute(archiveDirectory)) throw new TypeError("ARCHIVE_DIR must be an absolute path");
-  const sharedHome = env.BITBUCKET_SERVER_SHARED_HOME?.trim() || DEFAULT_SHARED_HOME;
-  if (!isAbsolute(sharedHome)) {
-    throw new TypeError("BITBUCKET_SERVER_SHARED_HOME must be an absolute path");
-  }
+  const url = sourceUrl();
+  const username = required("BITBUCKET_SERVER_SSH_USERNAME", env.BITBUCKET_SERVER_SSH_USERNAME);
+  const privateKey = required(
+    "BITBUCKET_SERVER_SSH_PRIVATE_KEY",
+    env.BITBUCKET_SERVER_SSH_PRIVATE_KEY,
+  );
+  const hostFingerprint = required(
+    "BITBUCKET_SERVER_SSH_HOST_KEY_SHA256",
+    env.BITBUCKET_SERVER_SSH_HOST_KEY_SHA256,
+  );
+  const archive = archiveDirectory();
   return {
     host: env.BITBUCKET_SERVER_SSH_HOST?.trim() || url.hostname,
-    port: positiveInteger(env.BITBUCKET_SERVER_SSH_PORT, 22),
+    port: sshPort(),
     username,
     privateKey: decodePrivateKey(privateKey),
     hostFingerprint: hostFingerprint.replace(/^SHA256:/i, ""),
-    sharedHome: sharedHome.replace(/\/+$/, ""),
-    archiveDirectory: resolve(archiveDirectory),
-    maxArchiveBytes: positiveInteger(
-      env.BITBUCKET_SERVER_MAX_ARCHIVE_BYTES,
-      DEFAULT_MAX_ARCHIVE_BYTES,
-    ),
+    sharedHome: sharedHome(),
+    archiveDirectory: archive,
+    maxArchiveBytes: maxArchiveBytes(),
   };
 }
 
-export function isBitbucketSftpConfigured(): boolean {
-  try {
-    loadSftpArchiveConfig();
-    return true;
-  } catch {
-    return false;
-  }
+/** Settings and fixed rules that keep Bitbucket SFTP from working; never values. */
+export function getBitbucketSftpIssues(): ConfigIssue[] {
+  return collectConfigIssues([
+    sourceUrl,
+    () => required("BITBUCKET_SERVER_SSH_USERNAME", env.BITBUCKET_SERVER_SSH_USERNAME),
+    () => required("BITBUCKET_SERVER_SSH_PRIVATE_KEY", env.BITBUCKET_SERVER_SSH_PRIVATE_KEY),
+    () =>
+      required("BITBUCKET_SERVER_SSH_HOST_KEY_SHA256", env.BITBUCKET_SERVER_SSH_HOST_KEY_SHA256),
+    archiveDirectory,
+    sharedHome,
+    sshPort,
+    maxArchiveBytes,
+  ]);
 }
 
 function defaultDependencies(): ArchiveDependencies {
