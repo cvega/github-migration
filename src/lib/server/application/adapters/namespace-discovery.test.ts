@@ -86,6 +86,58 @@ test("enterprise discovery counts namespaces removed by the credential scope", (
     },
   ));
 
+test("out-of-scope namespaces are filtered before format admission", async () => {
+  const cases = [
+    {
+      provider: "gitlab",
+      env: { GITLAB_SOURCE_NAMESPACE: "test-group" },
+      entries: ["a//b", "test-group", "bad path"],
+      keys: ["test-group"],
+      scopeVariable: "GITLAB_SOURCE_NAMESPACE",
+    },
+    {
+      provider: "bitbucket-server",
+      env: { BITBUCKET_SERVER_PROJECT_KEYS: "PLAT" },
+      entries: ["~USER", "PLAT", "bad key!"],
+      keys: ["PLAT"],
+      scopeVariable: "BITBUCKET_SERVER_PROJECT_KEYS",
+    },
+  ] as const;
+  for (const item of cases)
+    await withEnv(
+      {
+        PROFILE_CONNECTION_SCOPE: undefined,
+        GITLAB_SOURCE_API_URL: "https://gitlab.internal.example/api/v4",
+        GITLAB_SOURCE_PAT: "test-token",
+        ...item.env,
+      },
+      async () => {
+        expect(
+          await enterpriseNamespaces(
+            item.provider,
+            new AbortController().signal,
+            "",
+            page([...item.entries]),
+          ),
+        ).toEqual({
+          keys: [...item.keys],
+          found: 3,
+          outOfScope: 2,
+          scopeVariable: item.scopeVariable,
+        });
+        if (item.provider === "gitlab")
+          await expect(
+            enterpriseNamespaces(
+              item.provider,
+              new AbortController().signal,
+              "",
+              page(["test-group/a//b"]),
+            ),
+          ).rejects.toThrow("Invalid namespace in discovery");
+      },
+    );
+});
+
 test("empty discovery names the scope variable without exposing provider data", () => {
   expect(
     describeEmptyDiscovery("gitlab", {

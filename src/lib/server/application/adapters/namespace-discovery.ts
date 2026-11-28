@@ -95,10 +95,12 @@ export async function enterpriseNamespaces(
   const keys = new Set<string>();
   const found = new Set<string>();
   function add(key: string) {
+    found.add(key);
+    // Out-of-scope entries are only counted; admission rules apply to what may be queued.
+    if (validateProfileCredentialScope(provider, key)) return;
     if (!getSourceProviderAdapter(provider).isValidNamespace(key))
       throw new Error("Invalid namespace in discovery");
-    found.add(key);
-    if (!validateProfileCredentialScope(provider, key)) keys.add(key);
+    keys.add(key);
   }
   if (provider === "github") {
     // User memberships and App installation repositories are not an enterprise inventory.
