@@ -127,6 +127,38 @@ migration, identity invitation, deployment, or production data reset.
   (Refs:) and close all of them after merge. After any merge, check `bd list
   --status in_progress` and `bd blocked` for stale entries.
 
+## Local Qwen and OrcaCompass
+- Beads remains the durable task source. Before dispatch, inspect the issue and
+  acceptance criteria with `bd show <issue-id>`, then claim it with
+  `bd update <issue-id> --claim`.
+- For bounded, low-risk coding tasks, the coordinator may explicitly select the
+  local Orca agent `qwen-code`. Keep the current Qwen model and local Ollama
+  endpoint in Qwen's host-local settings; do not copy credentials or machine-
+  specific endpoint settings into the repository.
+- Start Qwen with the normal one-issue, one-child-worktree workflow, for example:
+  `orca orchestration worker-start --environment local --worktree new-child --base-branch main --name <issue-id> --agent qwen-code --setup run --task-title "<short title>" --spec "<issue, acceptance criteria, files in scope, and verification>"`.
+- Qwen Code selects its model from its local configuration. Do not pass
+  `--model` unless the installed Orca explicitly supports a Qwen model override.
+  An Ollama model listed by another agent does not mean OrcaCompass can route
+  the native Qwen agent.
+- Before automatic routing, check `orcacompass agents --json`; use Compass only
+  when it lists the intended agent as installed and enabled. Require an actual
+  covering `route` result and pass its `launchArgs` to Orca. Use `--no-downgrade`
+  when the task needs the requested capability level. Verify supported routed
+  models with `orcacompass verify --dispatch <dispatch-id>`.
+- For Qwen, verify the launched agent and effective local model from its Orca
+  dispatch/transcript and Qwen's configured model. A successful worker report
+  is not a substitute for tests: inspect its diff, run the relevant checks,
+  and get an independent Codex or Claude review before merge. Leave the Beads
+  issue open until merge.
+- Start with one bounded local Qwen coding task at a time. Orca may give Qwen
+  broad tool approval, so use an isolated child worktree and a narrow task
+  specification; local inference does not by itself restrict filesystem or
+  network actions. Do not give workers credentials or production data.
+- Qwen runs well on the local GPU but is slower than Codex/Claude in agent
+  loops. Use it when local-only execution matters (offline, private code),
+  not for parallel waves; one Qwen worker at a time.
+
 ## Parallel Orca workers
 - Each worker runs in its own worktree and starts with `bun install --frozen-lockfile`
   (gates refuses to run without node_modules).
