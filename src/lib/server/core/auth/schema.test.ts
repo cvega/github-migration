@@ -29,25 +29,18 @@ describe("auth schema", () => {
     ).toEqual({ version: 4 });
   });
 
-  test("reopens a v2 database without changing route IDs, user permissions or sessions", () => {
-    const folder = mkdtempSync(join(tmpdir(), "dashboard-auth-v2-"));
+  test("reopens the current database without changing route IDs, user permissions or sessions", () => {
+    const folder = mkdtempSync(join(tmpdir(), "dashboard-auth-"));
     const path = join(folder, "dashboard.db");
     try {
       database = new Database(path);
       database.run("PRAGMA foreign_keys=ON");
       authStore.applySchema(database);
-      database.run(`DROP TABLE self_service_grants; DROP TABLE self_service_routes;
-        CREATE TABLE self_service_routes(id INTEGER PRIMARY KEY,source_provider TEXT,source_api_url TEXT,
-          namespace TEXT COLLATE NOCASE,target_profile_id TEXT,target_api_url TEXT,target_org TEXT,
-          UNIQUE(source_provider,source_api_url,namespace));
-        CREATE TABLE self_service_grants(id TEXT PRIMARY KEY,route_id INTEGER REFERENCES self_service_routes(id),
-          user_id TEXT REFERENCES app_users(id),can_migrate INTEGER,UNIQUE(user_id,route_id));
-        UPDATE app_schema_versions SET version=2 WHERE domain='auth';
-        INSERT INTO app_users(id,username,password_hash,role,created_at,updated_at) VALUES
+      database.run(`INSERT INTO app_users(id,username,password_hash,role,created_at,updated_at) VALUES
           ('a','a','hash','operator','now','now'),('b','b','hash','operator','now','now');
         INSERT INTO app_sessions(token_hash,user_id,created_at,last_seen_at,expires_at) VALUES ('kept','a','now','now','later');
         INSERT INTO self_service_routes VALUES (41,'github','https://api.github.com','A','ghec','https://api.github.com','X');
-        INSERT INTO self_service_grants VALUES ('legacy-reader',41,'a',0),('legacy-writer',41,'b',1);`);
+        INSERT INTO self_service_grants VALUES ('reader',41,'a',0),('writer',41,'b',1);`);
       database.close();
       database = new Database(path);
       database.run("PRAGMA foreign_keys=ON");
@@ -58,8 +51,8 @@ describe("auth schema", () => {
           .query("SELECT id,route_id,user_id,can_migrate FROM self_service_grants ORDER BY id")
           .values(),
       ).toEqual([
-        ["legacy-reader", 41, "a", 0],
-        ["legacy-writer", 41, "b", 1],
+        ["reader", 41, "a", 0],
+        ["writer", 41, "b", 1],
       ]);
       expect(
         database.query("SELECT user_id FROM app_sessions WHERE token_hash='kept'").get(),
@@ -75,6 +68,17 @@ describe("auth schema", () => {
       database = undefined;
       rmSync(folder, { recursive: true, force: true });
     }
+  });
+
+  test.each([2, 5])("rejects unsupported auth version %i without relabeling it", (version) => {
+    const db = new Database(":memory:");
+    database = db;
+    authStore.applySchema(db);
+    db.query("UPDATE app_schema_versions SET version=? WHERE domain='auth'").run(version);
+    expect(() => authStore.applySchema(db)).toThrow("Unsupported dashboard auth schema");
+    expect(db.query("SELECT version FROM app_schema_versions WHERE domain='auth'").get()).toEqual({
+      version,
+    });
   });
 
   test("enforces case-insensitive usernames and valid roles", () => {

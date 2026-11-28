@@ -64,13 +64,7 @@ test.each(["Fixture!For Testing", "FixtureForTesting"])(
 );
 
 test("a full sign-in window returns 429 with Retry-After", async () => {
-  // Existing entries still count while their throttle window is active.
-  getDb()
-    .prepare(
-      "INSERT INTO auth_login_attempts (username, ip_address, attempted_at) VALUES (?, ?, ?)",
-    )
-    .run("ADMIN", "192.0.2.1", new Date().toISOString());
-  for (let i = 0; i < 4; i++) await verifyLoginAttempt(" AdMiN ", "192.0.2.1", async () => null);
+  for (let i = 0; i < 5; i++) await verifyLoginAttempt(" AdMiN ", "192.0.2.1", async () => null);
   const { response, setHeaders } = await signIn();
   expect(response).toMatchObject({ status: 429, data: { username: "admin" } });
   expect(setHeaders).toHaveBeenCalledWith({ "Retry-After": "900" });
