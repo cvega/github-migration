@@ -150,6 +150,6 @@ export interface BitbucketProfileEnrichment {
     sourceId: string;
     path: string;
     metrics: BitbucketProjectMetrics;
-    activity?: BitbucketActivity;
+    activity: BitbucketActivity;
   }>;
 }

@@ -1,10 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { summarizeProfileInventory } from "../../src/lib/server/profile/analysis/overview";
 import { analyzeRepo } from "../../src/lib/server/profile/analysis/repos";
+import { buildProfileDetailRollup } from "../../src/lib/server/profile/analysis/rollup";
 import type {
   OrgResources,
   ProfileRunState,
   RepoSignals,
+  StoredRepoProfile,
 } from "../../src/lib/server/profile/types";
 import type {
   NumericObservation,
@@ -236,6 +238,7 @@ function sourceInventoryProject(
       description: `Seeded Bitbucket platform service ${number}`,
       scmId: "git",
       forkable: index % 17 !== 0,
+      rootLfsRules: "unknown",
       state: archived ? "ARCHIVED" : "AVAILABLE",
     },
   };
@@ -245,9 +248,9 @@ function seedSourceInventories(db: Database): number {
   const upsertRun = db.prepare(`
     INSERT INTO profile_runs (
       id, source_provider, source_api_url, org, state, total_repos, profiled_repos,
-      blockers, warnings, org_ruleset_count, org_resources, api_calls, detail_rollup,
+      blockers, warnings, org_resources, api_calls, detail_rollup,
       started_at, completed_at, failure_reason
-    ) VALUES (?, ?, ?, ?, 'completed', ?, ?, 0, 0, 0, '{}', ?, NULL, ?, ?, NULL)
+    ) VALUES (?, ?, ?, ?, 'completed', ?, ?, 0, 0, '{"counts":{}}', ?, NULL, ?, ?, NULL)
     ON CONFLICT(id) DO UPDATE SET
       source_provider = excluded.source_provider,
       source_api_url = excluded.source_api_url,
@@ -257,7 +260,6 @@ function seedSourceInventories(db: Database): number {
       profiled_repos = excluded.profiled_repos,
       blockers = excluded.blockers,
       warnings = excluded.warnings,
-      org_ruleset_count = excluded.org_ruleset_count,
       org_resources = excluded.org_resources,
       api_calls = excluded.api_calls,
       detail_rollup = excluded.detail_rollup,
@@ -344,6 +346,8 @@ function baseSignals(org: string, index: number): RepoSignals {
     projectsV2Count: 0,
     environmentsCount: 0,
     releaseAssetBytes: 0,
+    releaseAssetScanComplete: true,
+    branchRuleScanComplete: true,
     stargazerCount: 0,
     watcherCount: 0,
     forkCount: 0,
@@ -461,6 +465,7 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
     WHERE id = ?
   `);
 
+  const updateRollup = db.prepare("UPDATE profile_runs SET detail_rollup = ? WHERE id = ?");
   let repos = 0;
   for (const spec of RUNS) {
     insertRun.run(
@@ -478,13 +483,14 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
       spec.failureReason ?? null,
     );
 
+    const stored: StoredRepoProfile[] = [];
     for (let index = 0; index < spec.repoCount; index++) {
       const signals = signalsFor(spec, index);
       const profile = analyzeRepo(signals);
       const applying = profile.findings
         .filter((finding) => finding.status === "applies")
         .map((finding) => ({
-          considerationId: finding.entry.id,
+          catalogEntryId: finding.entry.id,
           evidence: finding.evidence ?? "",
         }));
       insertRepo.run(
@@ -497,9 +503,18 @@ export function seedProfiles(db: Database): ProfileSeedSummary {
         JSON.stringify(applying),
         spec.completedAt,
       );
+      stored.push({
+        nameWithOwner: signals.nameWithOwner,
+        signals,
+        ...profile.summary,
+        catalogMatches: applying,
+      });
       repos++;
     }
     updateAggregates.run(spec.id, spec.id, spec.id, spec.id);
+    if (spec.state === "completed") {
+      updateRollup.run(JSON.stringify(buildProfileDetailRollup(stored)), spec.id);
+    }
   }
 
   repos += seedSourceInventories(db);

@@ -61,7 +61,7 @@ function createRun(): void {
 }
 
 describe("profile source inventories", () => {
-  test("counts LFS rules across captured Bitbucket repositories, excluding unknown and legacy checks", () => {
+  test("counts LFS rules across captured Bitbucket repositories, excluding unavailable checks", () => {
     const provider = "bitbucket-server";
     const sourceApiUrl = "https://bb.example.com/rest/api/1.0";
     createProfileRun({ id: "bb", org: "PC", sourceProvider: provider, sourceApiUrl });
@@ -90,7 +90,7 @@ describe("profile source inventories", () => {
       })),
     );
   });
-  test("pages Bitbucket activity with inventory-wide coverage and preserves legacy rows", () => {
+  test("pages Bitbucket activity with inventory-wide coverage and keeps uncollected and unavailable observations", () => {
     const provider = "bitbucket-server";
     const sourceApiUrl = "https://bb.example.com/rest/api/1.0";
     const namespace = "PC";
@@ -132,15 +132,11 @@ describe("profile source inventories", () => {
         path,
         sourceId,
         metrics,
-        ...(i === 1
-          ? {}
-          : {
-              activity: {
-                defaultBranch: "main",
-                tipCommittedAt: null,
-                review: i === 10 ? review : null,
-              },
-            }),
+        activity: {
+          defaultBranch: "main",
+          tipCommittedAt: null,
+          review: i === 10 ? review : null,
+        },
       })),
     };
     settleProfileInventoryRun(
@@ -157,13 +153,18 @@ describe("profile source inventories", () => {
       1,
       enrichment,
     );
+    expect(getBitbucketActivityPage("bb", 1).rows[1]?.activity?.review).toBeNull();
+    getDb().run("DELETE FROM profile_source_project_profiles WHERE run_id = ? AND path = ?", [
+      "bb",
+      "PC/repo-1",
+    ]);
     expect(getBitbucketActivityPage("bb", 1).rows[1]?.activity).toBeNull();
     expect(getBitbucketActivityPage("bb", 99)).toMatchObject({
       coverage: { total: 11, collected: 10, covered: 1, open: 2, withOpen: 1 },
       pagination: { page: 2, totalPages: 2 },
       rows: [{ path: "PC/repo-10", activity: { review } }],
     });
-    // A historical row outside the exact project must not affect download or coverage.
+    // A row outside the exact project must not affect download or coverage.
     getDb().run(
       "UPDATE profile_source_inventory_projects SET path='Other/private' WHERE path='PC/repo-0'",
     );
@@ -175,6 +176,16 @@ describe("profile source inventories", () => {
       pagination: { page: 1, totalPages: 1, total: 10 },
     });
   });
+  test("rejects an invalid stored summary without rewriting it", () => {
+    createRun();
+    saveProfileInventory("run", inventory(), 1);
+    getDb().run("UPDATE profile_source_inventories SET summary = '{}' WHERE run_id = 'run'");
+    expect(() => getProfileInventorySummary("run")).toThrow();
+    expect(getDb().query("SELECT summary FROM profile_source_inventories").get()).toEqual({
+      summary: "{}",
+    });
+  });
+
   test("round-trips normalized projects in source order and persists a compact summary", () => {
     createRun();
     const snapshot = inventory();

@@ -1,5 +1,4 @@
 import type { ProfilePlanRepo } from "$lib/profile/migration-plan";
-import { releaseScanComplete, ruleScanComplete } from "$lib/profile/readiness";
 import { getDb } from "$lib/server/core/db";
 import { parseSourceProjectInventory } from "$lib/source/inventory";
 import { getSourceProviderAdapter } from "$lib/source-provider";
@@ -38,7 +37,7 @@ export function recordRepoProfile(
   const persistedMatches = profile.findings
     .filter((finding) => finding.status === "applies")
     .map((finding) => ({
-      considerationId: finding.entry.id,
+      catalogEntryId: finding.entry.id,
       evidence: finding.evidence ?? "",
     }));
 
@@ -168,36 +167,19 @@ export interface PlanningRow {
   isEmpty: number | null;
   releaseComplete: number | null;
   rulesComplete: number | null;
-  releasesCount: number | null;
-  branchProtectionRuleCount: number | null;
 }
 
 export const PLANNING_COLUMNS = `name_with_owner AS nameWithOwner, blockers, warnings,
   json_extract(signals, '$.isEmpty') AS isEmpty,
   json_extract(signals, '$.releaseAssetScanComplete') AS releaseComplete,
-  json_extract(signals, '$.branchRuleScanComplete') AS rulesComplete,
-  json_extract(signals, '$.releasesCount') AS releasesCount,
-  json_extract(signals, '$.branchProtectionRuleCount') AS branchProtectionRuleCount`;
+  json_extract(signals, '$.branchRuleScanComplete') AS rulesComplete`;
 
 export function planningRepo(row: PlanningRow): ProfilePlanRepo {
-  const {
-    isEmpty,
-    releaseComplete,
-    rulesComplete,
-    releasesCount,
-    branchProtectionRuleCount,
-    ...repo
-  } = row;
+  const { isEmpty, releaseComplete, rulesComplete, ...repo } = row;
   const planning = isEmpty === 1 ? { ...repo, isEmpty: true } : repo;
-  const releases = releaseScanComplete({
-    releasesCount,
-    releaseAssetScanComplete: releaseComplete === null ? undefined : releaseComplete === 1,
-  });
-  const rules = ruleScanComplete({
-    branchProtectionRuleCount,
-    branchRuleScanComplete: rulesComplete === null ? undefined : rulesComplete === 1,
-  });
-  return releases && rules ? planning : { ...planning, incompleteReadinessScan: true };
+  return releaseComplete === 1 && rulesComplete === 1
+    ? planning
+    : { ...planning, incompleteReadinessScan: true };
 }
 
 export function getRunRepoPlanProfiles(

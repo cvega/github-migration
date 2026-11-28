@@ -22,7 +22,6 @@ import {
 } from "./database/repos";
 import { getRepositoryAnalysisDetail } from "./database/repository-analysis-runs";
 import {
-  backfillProfileRunRollup,
   createProfileRun,
   failProfileRun,
   getProfileRun,
@@ -326,9 +325,10 @@ export function getProfileDetail(
   let rollup: ProfileDetailRollup | null = null;
   if (run.sourceProvider !== "github" || run.state === "completed") {
     rollup = getProfileRunRollup(id);
-    if (!rollup) {
+    if (!rollup && run.state !== "completed") {
       rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
-      if (run.state === "completed") backfillProfileRunRollup(id, rollup);
+    } else if (!rollup && run.sourceProvider !== "github") {
+      rollup = buildProfileDetailRollup([]);
     }
   }
   return {

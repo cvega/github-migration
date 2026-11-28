@@ -62,7 +62,7 @@ test.each(["gitlab", "bitbucket-server"] as const)(
     run("current", sourceProvider, grant.sourceApiUrl, namespace, "2026-01-02");
     const db = getDb();
     db.run(
-      "INSERT INTO profile_source_inventories (run_id, fetched_at) VALUES ('current','2026-01-01')",
+      `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at) VALUES ('current','{"kind":"exact","value":30}','{}','2026-01-01')`,
     );
     const paths = [
       `${namespace}/nested/secret`,
