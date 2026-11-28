@@ -249,17 +249,38 @@ change no production setting. Of these local routes, only **Bitbucket → GHES**
 starts exporter containers. GitLab sources target GHEC through the GitLab export
 API; `GL_EXPORTER_IMAGE` alone does not enable the paused GitLab-to-GHES route.
 
+**Binding and sign-in.** The development server listens on all interfaces by
+default, and `.env.example` enables `GH_MIGRATE_ALLOW_UNAUTHENTICATED=true`.
+With source credentials configured, bind it to loopback:
+
+```sh
+bun run dev -- --host 127.0.0.1
+```
+
+If other devices must reach it, remove `GH_MIGRATE_ALLOW_UNAUTHENTICATED`
+and set first-administrator placeholders such as
+`GH_MIGRATE_USER=dev-admin` and
+`GH_MIGRATE_PASS=replace-with-at-least-12-characters` before the first start
+against an empty `DATA_DIR`. Keep the host on a trusted network.
+
 **Exporter settings.** For Bitbucket → GHES, set `ARCHIVE_DIR` to an absolute
 host directory and set `EXPORTER_ARCHIVE_VOLUME` and `BBS_EXPORTER_IMAGE`
 explicitly; the dashboard has no code default for either. Exporters run as the
 owner of `ARCHIVE_DIR` and see storage only through a named volume
 (`type=volume`) at `/workspace`, so the volume must be backed by that same
-directory. For example, create a bind-backed local volume once:
+directory. Create the directory as the user that runs `bun run dev`, then create
+a bind-backed local volume once. Export the same path in the shell, because
+`.env` is not loaded into it:
 
 ```sh
+export ARCHIVE_DIR=/absolute/path/to/dev-archives
+mkdir -p "$ARCHIVE_DIR" && test -w "$ARCHIVE_DIR"
 docker volume create --driver local --opt type=none --opt o=bind \
   --opt device="$ARCHIVE_DIR" gh-migrate-archives-dev
 ```
+
+The bind is resolved when an exporter starts, so the directory must exist before
+the first export. Set the same `ARCHIVE_DIR` in `.env`.
 
 Set `EXPORTER_ARCHIVE_VOLUME` to that name. Do not reuse a volume that another
 deployment mounts. Set `EXPORTER_NETWORK` to the source stack's Docker network,
