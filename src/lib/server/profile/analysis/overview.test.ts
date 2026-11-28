@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { gitLabMetricFixtures } from "$lib/source/gitlab-metrics/fixtures";
 import type {
   GitLabProfileEnrichment,
   GitLabProjectMetrics,
@@ -14,7 +15,7 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     collectedAt: "2026-08-10T12:00:00.000Z",
     observation: { kind: "exact" as const, value, basis, scope: `${endpointFamily} scope` },
   });
-  return {
+  return gitLabMetricFixtures({
     issues,
     mergeRequests: exact("project-merge-requests", 1, "reported"),
     commits: exact("repository-commit-sequence", 3, "reported"),
@@ -27,7 +28,7 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     protectedTags: exact("project-protected-tags", 1, "enumerated"),
     projectWebhooks: { ...exact("project-hooks", 0, "enumerated"), eventCategories: [] },
     groupWebhooks: { ...exact("group-hooks", 1, "enumerated"), eventCategories: ["pipeline"] },
-  };
+  });
 }
 
 function inventory(): SourceNamespaceInventory {
@@ -184,9 +185,7 @@ describe("summarizeGitLabEnrichment", () => {
       ],
     };
 
-    expect(
-      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).metrics,
-    ).toEqual({
+    const listed: Record<string, { kind: "exact"; value: number }> = {
       issues: { kind: "exact", value: 5 },
       mergeRequests: { kind: "exact", value: 2 },
       commits: { kind: "exact", value: 6 },
@@ -199,7 +198,22 @@ describe("summarizeGitLabEnrichment", () => {
       protectedTags: { kind: "exact", value: 2 },
       projectWebhooks: { kind: "exact", value: 0 },
       groupWebhooks: { kind: "exact", value: 2 },
-    });
+    };
+    // Metrics the scenario does not name keep their generated fixture, summed over two projects.
+    const generated: Record<string, { kind: "exact"; value: number }> = Object.fromEntries(
+      Object.entries(gitLabMetricFixtures())
+        .filter(([key]) => !(key in listed))
+        .map(([key, { observation }]) => [
+          key,
+          {
+            kind: "exact",
+            value: 2 * (observation.kind === "unavailable" ? 0 : observation.value),
+          },
+        ]),
+    );
+    expect(
+      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).metrics,
+    ).toEqual({ ...listed, ...generated });
     expect(
       summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).webhookEvents,
     ).toEqual({ projectWebhooks: [], groupWebhooks: ["pipeline"] });

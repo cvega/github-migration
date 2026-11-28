@@ -9,6 +9,7 @@ import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { settleProfileInventoryRun } from "$lib/server/profile/database/inventories";
 import { createProfileRun } from "$lib/server/profile/database/runs";
 import { DOMAIN_STORES } from "$lib/server/schemas";
+import { gitLabMetricFixtures } from "$lib/source/gitlab-metrics/fixtures";
 import type { GitLabProfileEnrichment, SourceProjectInventory } from "$lib/source/types";
 import { GET, POST } from "./+server";
 
@@ -83,7 +84,7 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
     projects: projects.map(({ path, sourceId }) => ({
       path,
       sourceId,
-      metrics: {
+      metrics: gitLabMetricFixtures({
         issues: metric,
         mergeRequests: metric,
         branches: metric,
@@ -96,7 +97,7 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
         protectedTags: metric,
         projectWebhooks: { ...metric, eventCategories: [] },
         groupWebhooks: { ...metric, eventCategories: [] },
-      },
+      }),
     })),
   };
   settleProfileInventoryRun(

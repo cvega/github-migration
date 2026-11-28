@@ -58,7 +58,12 @@ the same key. Adding a metric adds these three files and nothing else:
 `*.generated.ts` module lists (no `import.meta.glob`, because the analysis worker
 and scripts run under Bun without Vite), the `gitlab-metrics` gate fails when they
 are stale, and a missing or mismatched file is rejected at generation, compile
-and load time. Keys, `order` and card `position` must each be unique. A profile run has one request budget
+and load time. Keys, `order` and card `position` must each be unique. Tests and seeds that need
+complete stored metrics call `gitLabMetricFixtures(overrides)` from
+`src/lib/source/gitlab-metrics/fixtures.ts` and override only the metrics their
+scenario is about, so a new metric never edits them;
+`tests/scripts/gitlab-metric-extension.test.ts` proves it by adding a probe metric
+to an isolated copy of the tree and running the affected tests and type check. A profile run has one request budget
 (`GITLAB_SOURCE_PROFILE_REQUEST_BUDGET`) shared by inventory statistics requests
 and every collector. It counts every attempt from the start of the run, including
 listing pages, retries and further pages, and concurrent workers cannot exceed it.

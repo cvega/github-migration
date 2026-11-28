@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
+import { gitLabMetricFixtures } from "$lib/source/gitlab-metrics/fixtures";
 import type {
   BitbucketProfileEnrichment,
   ProfileNumericMetric,
@@ -232,7 +233,7 @@ describe("profile source inventories", () => {
         {
           sourceId: "1",
           path: "platform/api",
-          metrics: {
+          metrics: gitLabMetricFixtures({
             issues: exact,
             mergeRequests: exact,
             commits: metric("unsupported"),
@@ -245,7 +246,7 @@ describe("profile source inventories", () => {
             protectedTags: metric("forbidden"),
             projectWebhooks: { ...exact, eventCategories: ["push"] },
             groupWebhooks: { ...metric("unsupported"), eventCategories: [] },
-          },
+          }),
         },
       ],
     });
