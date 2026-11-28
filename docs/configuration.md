@@ -189,9 +189,9 @@ exporter containers.
 | `EXPORTER_CPUS` | Exporter CPU limit |
 | `EXPORTER_PIDS_LIMIT` | Exporter process-count limit |
 | `EXPORTER_TMPFS_SIZE` | Exporter temporary-filesystem size |
-| `EXPORTER_ARCHIVE_VOLUME` | Shared archive volume mounted into exporters |
-| `GL_EXPORTER_IMAGE` | GitLab exporter image |
-| `BBS_EXPORTER_IMAGE` | Bitbucket exporter image |
+| `EXPORTER_ARCHIVE_VOLUME` | Named volume mounted into exporters at `/workspace`; must be the same storage as `ARCHIVE_DIR`. Compose defaults it to `gh-migrate-archives`; required outside Compose |
+| `GL_EXPORTER_IMAGE` | GitLab exporter image. The GitLab exporter override defaults it to `gh-migrate/gitlab-exporter:1.7.17`; it has no code default |
+| `BBS_EXPORTER_IMAGE` | Bitbucket exporter image. Compose defaults it to `gh-migrate/bitbucket-exporter:1.13.0`; required outside Compose |
 
 Exporter processes run without target credentials. Their network, memory, CPU,
 PID, and temporary-storage limits should remain bounded in production.
@@ -239,6 +239,53 @@ to that source's existing network (`bitbucket-local_default` or
 `gh-migrate-gitlab-pilot_default`). Start the source first. These files do not change
 the workers' shared `EXPORTER_NETWORK` or configure TLS trust. Keep an active
 Bitbucket worker network unchanged when rehearsing GitLab separately.
+
+### Run `bun run dev` against local source containers
+
+Outside Compose, `bun run dev` reads only the root `.env`, so values that
+`docker-compose.yml` and its overrides supply are absent. The steps below apply
+to a development host running a local Bitbucket or GitLab source stack; they
+change no production setting. Of these local routes, only **Bitbucket → GHES**
+starts exporter containers. GitLab sources target GHEC through the GitLab export
+API; `GL_EXPORTER_IMAGE` alone does not enable the paused GitLab-to-GHES route.
+
+**Exporter settings.** For Bitbucket → GHES, set `ARCHIVE_DIR` to an absolute
+host directory and set `EXPORTER_ARCHIVE_VOLUME` and `BBS_EXPORTER_IMAGE`
+explicitly; the dashboard has no code default for either. Exporters run as the
+owner of `ARCHIVE_DIR` and see storage only through a named volume
+(`type=volume`) at `/workspace`, so the volume must be backed by that same
+directory. For example, create a bind-backed local volume once:
+
+```sh
+docker volume create --driver local --opt type=none --opt o=bind \
+  --opt device="$ARCHIVE_DIR" gh-migrate-archives-dev
+```
+
+Set `EXPORTER_ARCHIVE_VOLUME` to that name. Do not reuse a volume that another
+deployment mounts. Set `EXPORTER_NETWORK` to the source stack's Docker network,
+such as `bitbucket-local_default`, so exporters can reach the source; `host` is
+rejected.
+
+**Hostnames and ports.** The source URL must work both from the development
+host and from containers. Use the source's Docker service hostname, not
+`localhost`, and map it to `127.0.0.1` in the host's `/etc/hosts`. A hosts entry
+maps only the name, so publish the source on the same host port it uses inside
+the network, or the URL fails on one side. On WSL, set `generateHosts = false`
+under `[network]` in `/etc/wsl.conf` so these entries persist after restart.
+
+**TLS trust.** If the source uses a private CA, such as a local GitLab pilot CA,
+add it to the host trust store (for example with `update-ca-certificates` on
+Debian or Ubuntu) and start the dashboard with
+`NODE_EXTRA_CA_CERTS=/path/to/local-ca.crt bun run dev`. Exporter containers
+need the same CA in their own trust store. Do not disable TLS verification.
+
+**Discovery scope.** Without `PROFILE_CONNECTION_SCOPE`, enterprise discovery
+queues only groups within `GITLAB_SOURCE_NAMESPACE` or projects listed in
+`BITBUCKET_SERVER_PROJECT_KEYS`; with an empty value, it queues everything the
+credential can read. Adding a provider to `PROFILE_CONNECTION_SCOPE` widens
+profiling only, never migration access. GitLab discovery skips a subgroup when
+its parent group is also queued, because a group profile already includes the
+projects in all of its subgroups.
 
 ### Verify the GitLab exporter locally
 
