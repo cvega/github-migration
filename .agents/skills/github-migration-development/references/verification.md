@@ -16,8 +16,9 @@ bun run verify boundaries
 Replace the example test with the affected suite. `bun run verify` prepares
 SvelteKit itself; direct `bun test` in a fresh checkout needs the sync above.
 Follow existing explicit dependency hooks for network/time, restore overrides,
-and use real in-memory SQLite. Test persistence upgrades with an old store that
-can be reopened. `src/test-setup.ts` owns the global test preload; avoid adding
+and use real in-memory SQLite. From 1.0 on; before 1.0 see Pre-1.0 policy in
+`AGENTS.md`. Test persistence upgrades with an old store that can be reopened.
+`src/test-setup.ts` owns the global test preload; avoid adding
 global partial mocks that hide the real behavior under test.
 
 | Change | Focused evidence |
@@ -35,7 +36,7 @@ global partial mocks that hide the real behavior under test.
 
 ## Pre-submission gate
 
-Run `bun run verify` before submission, per `CONTRIBUTING.md`. The current gate
+Follow the pre-submission verification rules in `AGENTS.md`. The full gate
 manifest includes icons, typecheck, Svelte check, lint, format, docs, coverage,
 duplicate/dead code, cycles, boundaries, workflow action pins, runtime version,
 mutation configuration, E2E, build, and dependency audit.

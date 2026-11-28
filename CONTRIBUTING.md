@@ -5,7 +5,7 @@
 Install Bun 1.4.4, then run:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run dev
 ```
 
@@ -15,11 +15,8 @@ unless the change explicitly includes a migration or API cutover.
 
 ## Before Submitting
 
-Run the narrowest relevant tests while developing, then:
-
-```bash
-bun run verify
-```
+Run the narrowest relevant tests while developing, then follow the
+[verification rules](AGENTS.md#verification-and-generated-files).
 
 For UI changes, also run the affected Playwright workflow at desktop and mobile
 widths. For documentation contract changes, run `bun run docs:sync` followed by
@@ -44,9 +41,10 @@ widths. For documentation contract changes, run `bun run docs:sync` followed by
 ## Tests
 
 Behavior tests should assert stable contracts rather than incidental prose.
-Persistence tests use in-memory SQLite unless durable upgrade behavior requires
-a file. External provider tests must remain deterministic and offline; live
-tests are opt-in and use disposable data.
+Persistence tests use in-memory SQLite. From 1.0 on; before 1.0 see
+[Pre-1.0 policy](AGENTS.md#pre-10-policy). Use a file when testing durable
+upgrade behavior. External provider tests must remain deterministic and
+offline. Live tests are opt-in and use disposable data.
 
 See [Development](docs/development.md) for the gate suite and
 [Architecture](docs/architecture.md) for ownership rules.
