@@ -257,11 +257,13 @@ With source credentials configured, bind it to loopback:
 bun run dev -- --host 127.0.0.1
 ```
 
-If other devices must reach it, remove `GH_MIGRATE_ALLOW_UNAUTHENTICATED`
-and set first-administrator placeholders such as
-`GH_MIGRATE_USER=dev-admin` and
-`GH_MIGRATE_PASS=replace-with-at-least-12-characters` before the first start
-against an empty `DATA_DIR`. Keep the host on a trusted network.
+If other devices must reach it, set `GH_MIGRATE_ALLOW_UNAUTHENTICATED=false`
+explicitly (removing the line is not enough if another environment source sets
+it), set `GH_MIGRATE_USER`, and set `GH_MIGRATE_PASS` to a unique password you
+choose, at least 12 characters, that is not reused elsewhere. Do this before the
+first start against an empty `DATA_DIR`; the values create the first
+administrator only while the user table is empty. Keep the host on a trusted
+network.
 
 **Exporter settings.** For Bitbucket → GHES, set `ARCHIVE_DIR` to an absolute
 host directory and set `EXPORTER_ARCHIVE_VOLUME` and `BBS_EXPORTER_IMAGE`
