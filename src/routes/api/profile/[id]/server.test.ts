@@ -134,6 +134,48 @@ describe("GET /api/profile/[id]", () => {
     },
   );
 
+  test.each([
+    ["gitlab", "https://gitlab.example.com/api/v4"],
+    ["bitbucket-server", "https://bb.example.com/rest/api/1.0"],
+  ] as const)(
+    "returns unavailable rollup fields for failed %s inventories",
+    async (provider, sourceApiUrl) => {
+      const id = "failed-inventory";
+      const namespace = "TEAM";
+      const unavailable = { kind: "unavailable", reason: "forbidden" } as const;
+      createProfileRun({ id, sourceProvider: provider, sourceApiUrl, org: namespace });
+      settleProfileInventoryRun(
+        id,
+        {
+          version: 1,
+          provider,
+          sourceApiUrl,
+          namespace,
+          projectCount: unavailable,
+          projects: [],
+        },
+        1,
+      );
+
+      const response = await GET({
+        params: { id },
+        url: new URL(`https://example.test/api/profile/${id}`),
+      } as GetArgs);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        run: { state: "failed" },
+        scale: null,
+        composition: null,
+        summary: null,
+        estimate: null,
+        inventorySummary: {
+          projectCount: unavailable,
+          storage: { storageSizeBytes: unavailable },
+        },
+      });
+    },
+  );
+
   test("returns only run status and inventory summary for status polling", async () => {
     createProfileRun({
       id: "gitlab-status",

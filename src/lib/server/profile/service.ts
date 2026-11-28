@@ -325,7 +325,7 @@ export function getProfileDetail(
   let rollup: ProfileDetailRollup | null = null;
   if (run.sourceProvider !== "github" || run.state === "completed") {
     rollup = getProfileRunRollup(id);
-    if (!rollup && run.state !== "completed") {
+    if (!rollup && run.state === "running") {
       rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
     }
   }
