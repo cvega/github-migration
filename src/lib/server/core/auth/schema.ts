@@ -1,12 +1,6 @@
-import type { Database } from "bun:sqlite";
 import type { DomainStore, DurableTableContract } from "$lib/server/core/db";
 
 export const AUTH_DURABLE_TABLES = [
-  {
-    name: "app_schema_versions",
-    purpose: "Per-domain schema versions",
-    notes: "Records the dashboard auth schema version",
-  },
   {
     name: "app_users",
     purpose: "Dashboard user identities and credentials",
@@ -46,11 +40,6 @@ export const AUTH_DURABLE_TABLES = [
 ] as const satisfies readonly DurableTableContract[];
 
 const AUTH_DDL = `
-  CREATE TABLE IF NOT EXISTS app_schema_versions (
-    domain TEXT PRIMARY KEY,
-    version INTEGER NOT NULL
-  );
-
   CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -132,19 +121,10 @@ const AUTH_DDL = `
 `;
 
 export const authStore: DomainStore = {
-  applySchema(database: Database): void {
-    database
-      .transaction(() => {
-        database.run(AUTH_DDL);
-        const version = database
-          .query<{ version: number }, []>(
-            "SELECT version FROM app_schema_versions WHERE domain='auth'",
-          )
-          .get()?.version;
-        if (version === undefined)
-          database.run("INSERT INTO app_schema_versions (domain,version) VALUES ('auth',4)");
-        else if (version !== 4) throw new Error("Unsupported dashboard auth schema");
-      })
-      .immediate();
+  domain: "auth",
+  version: 5,
+  tables: AUTH_DURABLE_TABLES,
+  applySchema(db) {
+    db.transaction(() => db.run(AUTH_DDL)).immediate();
   },
 };

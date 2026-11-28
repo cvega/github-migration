@@ -12,6 +12,7 @@ import {
 const ROOT = resolve(import.meta.dir, "../..");
 const architecturePath = resolve(ROOT, "docs/architecture.md");
 const schemaPaths = [
+  resolve(ROOT, "src/lib/server/core/db.ts"),
   resolve(ROOT, "src/lib/server/core/auth/schema.ts"),
   resolve(ROOT, "src/lib/server/migrate/database/schema.ts"),
   resolve(ROOT, "src/lib/server/profile/database/schema.ts"),

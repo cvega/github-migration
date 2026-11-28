@@ -11,9 +11,11 @@
  * Run: bun run seed [--migrations-only]
  */
 /// <reference types="bun" />
+
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { initializeSchema } from "../../src/lib/server/core/db";
 import { DOMAIN_STORES } from "../../src/lib/server/schemas";
 import type { SourceProvider } from "../../src/lib/source-provider";
 import type { TargetPlatform } from "../../src/lib/target-platform";
@@ -29,7 +31,7 @@ const migrationsOnly = process.argv.includes("--migrations-only");
 mkdirSync(dataDirectory, { recursive: true });
 const db = new Database(join(dataDirectory, "gh-migrate.db"), { create: true });
 db.run("PRAGMA busy_timeout = 5000");
-for (const domain of DOMAIN_STORES) domain.applySchema(db);
+initializeSchema(db, DOMAIN_STORES);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const rand = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));

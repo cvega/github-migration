@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync } from "node:fs";
 import type { Progress } from "../../src/lib/migrate/types";
+import { initializeSchema } from "../../src/lib/server/core/db";
 import { buildProfileDetailRollup } from "../../src/lib/server/profile/analysis/rollup";
 import {
   parsePersistedCatalogMatches,
@@ -14,7 +15,7 @@ rmSync(dataDir, { recursive: true, force: true });
 mkdirSync(dataDir, { recursive: true });
 
 const db = new Database(`${dataDir}/gh-migrate.db`, { create: true });
-for (const domain of DOMAIN_STORES) domain.applySchema(db);
+initializeSchema(db, DOMAIN_STORES);
 
 const insert = db.prepare(`
   INSERT INTO migrations (

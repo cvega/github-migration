@@ -5,6 +5,9 @@ import { dirname } from "node:path";
 let db: Database | undefined;
 
 export interface DomainStore {
+  domain: string;
+  version: number;
+  tables: readonly DurableTableContract[];
   applySchema(db: Database): void;
   onInit?(db: Database): void;
 }
@@ -15,14 +18,90 @@ export interface DurableTableContract {
   notes: string;
 }
 
-export function initStore(dbPath: string, domains: readonly DomainStore[]): void {
+export const VERSION_TABLE = {
+  name: "app_schema_versions",
+  purpose: "Per-domain schema versions",
+  notes: "Startup requires exactly the current auth, migrate, and profile baselines",
+} as const;
+
+export function validateSchema(database: Database, domains: readonly DomainStore[]): void {
+  const tables = new Set(
+    database
+      .query<{ name: string }, []>("SELECT name FROM sqlite_schema WHERE type = 'table'")
+      .all()
+      .map((row) => row.name),
+  );
+  const incompatible = "Unsupported database schema. Start with a fresh data directory.";
+  if (!tables.has(VERSION_TABLE.name)) throw new Error(incompatible);
+  let rows: { domain: string; version: number }[];
+  try {
+    rows = database
+      .query<{ domain: string; version: number }, []>(
+        "SELECT domain, version FROM app_schema_versions",
+      )
+      .all();
+  } catch (cause) {
+    throw new Error(incompatible, { cause });
+  }
+  if (
+    rows.length !== domains.length ||
+    !domains.every(
+      (store) =>
+        rows.some((row) => row.domain === store.domain && row.version === store.version) &&
+        store.tables.every((table) => tables.has(table.name)),
+    )
+  )
+    throw new Error(incompatible);
+}
+
+export function initializeSchema(database: Database, domains: readonly DomainStore[]): void {
+  database
+    .transaction(() => {
+      if (
+        !database.query("SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' LIMIT 1").get()
+      ) {
+        database.run(
+          "CREATE TABLE IF NOT EXISTS app_schema_versions (domain TEXT PRIMARY KEY NOT NULL, version INTEGER NOT NULL)",
+        );
+        const record = database.prepare(
+          "INSERT INTO app_schema_versions (domain, version) VALUES (?, ?)",
+        );
+        for (const store of domains) {
+          store.applySchema(database);
+          record.run(store.domain, store.version);
+        }
+        return;
+      }
+
+      validateSchema(database, domains);
+    })
+    .immediate();
+}
+
+export function initStore(
+  dbPath: string,
+  domains: readonly DomainStore[],
+  { runStartupHooks = true }: { runStartupHooks?: boolean } = {},
+): void {
   mkdirSync(dirname(dbPath), { recursive: true });
-  db = new Database(dbPath, { create: true });
-  db.run("PRAGMA busy_timeout = 5000");
-  db.run("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA foreign_keys = ON");
-  for (const domain of domains) domain.applySchema(db);
-  for (const domain of domains) domain.onInit?.(db);
+  const database = new Database(dbPath, { create: true });
+  try {
+    database.run("PRAGMA busy_timeout = 5000");
+    database.run("PRAGMA foreign_keys = ON");
+    initializeSchema(database, domains);
+    database.run("PRAGMA journal_mode = WAL");
+    if (runStartupHooks) {
+      for (const domain of domains) domain.onInit?.(database);
+    }
+    db = database;
+  } catch (error) {
+    try {
+      if (database.inTransaction) database.run("ROLLBACK");
+    } finally {
+      database.close();
+    }
+    throw error;
+  }
 }
 
 export function getDb(): Database {
@@ -46,25 +125,5 @@ export function closeStore(): void {
     db.close();
     db = undefined;
     console.log("[db] Database closed");
-  }
-}
-
-export function addColumnIfMissing(
-  database: Database,
-  table: string,
-  column: string,
-  type: string,
-): void {
-  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
-    name: string;
-  }>;
-  if (!columns.some((candidate) => candidate.name === column)) {
-    try {
-      database.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("duplicate column name")) {
-        throw error;
-      }
-    }
   }
 }

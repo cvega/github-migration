@@ -334,17 +334,17 @@ not serialized to unauthenticated clients.
 
 ## Persistence
 
-SQLite runs in WAL mode with foreign keys enabled. Startup applies the domain
-schemas in the order declared in `src/lib/server/schemas.ts`. Migration storage
-rejects databases with an existing `migrate` schema version marker, which require
-a fresh data directory. It creates the current tables and indexes in the same
-immediate transaction as the marker check. Startup
-hooks then recover interrupted work and prune retained history.
+SQLite runs in WAL mode with foreign keys enabled. On an empty database, the
+dashboard or analysis worker creates all domain schemas and records their
+baselines in one immediate transaction. On reopen, both processes check the
+exact set of domain versions and the presence of each durable table. An
+incompatible store requires a fresh data directory. After validation, the
+dashboard recovers interrupted work and prunes retained history.
 
 <!-- BEGIN GENERATED: durable-tables -->
 | Table | Purpose | Notes |
 |---|---|---|
-| `app_schema_versions` | Per-domain schema versions | Records the dashboard auth schema version |
+| `app_schema_versions` | Per-domain schema versions | Startup requires exactly the current auth, migrate, and profile baselines |
 | `app_users` | Dashboard user identities and credentials | Usernames are unique case-insensitively; passwords are stored as Argon2id hashes |
 | `app_sessions` | Revocable dashboard sessions | Stores SHA-256 token digests, never raw cookie values |
 | `auth_login_attempts` | Persistent sign-in throttling | Counts pending and failed sign-in attempts by username and client address |

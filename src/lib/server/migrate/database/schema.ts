@@ -255,19 +255,11 @@ export function pruneTerminalMigrationHistory(
 
 /** Migrate domain store descriptor — see `$lib/server/schemas`. */
 export const migrateStore: DomainStore = {
+  domain: "migrate",
+  version: 11,
+  tables: MIGRATE_DURABLE_TABLES,
   applySchema(db) {
-    db.transaction(() => {
-      const versionTable = db
-        .query("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='app_schema_versions'")
-        .get();
-      if (
-        versionTable &&
-        db.query("SELECT 1 FROM app_schema_versions WHERE domain='migrate'").get()
-      ) {
-        throw new Error("Unsupported migration schema. Start with a fresh data directory.");
-      }
-      db.run(MIGRATE_DDL);
-    }).immediate();
+    db.transaction(() => db.run(MIGRATE_DDL)).immediate();
   },
   onInit(db) {
     recoverInterruptedMigrations(db);
