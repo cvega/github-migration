@@ -273,6 +273,7 @@ describe("discoverGitLabInventory", () => {
   });
 
   test.each([
+    [401, "forbidden"],
     [403, "forbidden"],
     [404, "not-found-or-hidden"],
     [503, "transient-failure"],

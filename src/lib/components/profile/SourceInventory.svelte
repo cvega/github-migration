@@ -156,7 +156,7 @@
 
 		<section>
 			<h2 class="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-300"><Octicon name="database" size={16} />Source storage</h2>
-			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? '' : 'lg:grid-cols-5'}">
+			<div class="grid grid-cols-2 gap-3 {bitbucket ? 'sm:grid-cols-3' : 'lg:grid-cols-5'}">
 			{#if bitbucket && summary.projectsCaptured === 0}
 					<p class="col-span-full text-sm text-gray-400">No captured repositories to size.</p>
 			{:else if bitbucket && unavailableStorageMetrics === storageTiles.length}
