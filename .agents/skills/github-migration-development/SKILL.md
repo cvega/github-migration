@@ -39,8 +39,10 @@ Read multiple references only when the change crosses those boundaries.
 4. Add or update a behavior test at the boundary that could regress. For remote
    operations, test uncertainty and interruption as well as success. Reuse
    existing test dependency hooks and real SQLite stores.
-5. Update public contracts, persistence upgrades, and documentation only where
-   the behavior requires it. Use the existing generators for generated sections.
+5. Update public contracts and documentation where the behavior requires it.
+   Use the existing generators for generated sections. From 1.0 on, update
+   persistence upgrades where the behavior requires it. Before 1.0, see
+   Pre-1.0 policy in `AGENTS.md`.
 6. Run focused checks, then the repository's required pre-submission verification.
    Report the checks actually run and distinguish unavailable tooling from a
    product failure.

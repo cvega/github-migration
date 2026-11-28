@@ -22,7 +22,7 @@ live in `migrate/executors/archive-to-ghec.ts`, `native-to-ghec.ts`, and
 | Uncertain source export write | Reconcile source state; do not blindly repeat the export |
 | Per-request credentials lost on process restart | Do not persist secrets to make the work recoverable |
 | Saved GHES GUID in audit/unlock finalization | Continue finalization on the same GUID; do not prepare/import again |
-| Legacy GHES GUID without a trustworthy phase | Require reconciliation rather than infer a safe replay |
+| GHES GUID without a trustworthy phase | Require reconciliation rather than infer a safe replay. From 1.0 on, handle this case for legacy GUIDs as well. Before 1.0, see Pre-1.0 policy in `AGENTS.md`. |
 | Paused/unsupported route | Preserve the current classification; do not activate it because credentials exist |
 
 GitLab's acknowledged export checkpoint is not necessarily a provider-issued
@@ -37,14 +37,18 @@ slots and serializes dashboard GHES work because of the appliance-wide lock.
 Batches are durable membership, not an independent executor or queue.
 
 Restart uses admitted source/target identity and approved nonsecret options;
-replacement credentials must not silently replace that plan. Preserve the
-legacy missing-plan visibility check and explicit reconciliation-confirmation
-path. A restart UI change does not authorize bypassing those policies.
+replacement credentials must not silently replace that plan. Preserve explicit
+reconciliation confirmation, including when changing restart UI. From 1.0 on,
+preserve the legacy missing-plan visibility check. Before 1.0, see Pre-1.0
+policy in `AGENTS.md`.
 
 ## Persistence and progress
 
-- Preserve domain schema upgrade ordering in `src/lib/server/schemas.ts`,
-  idempotent upgrades, foreign keys, and historical rows.
+- Preserve foreign keys and historical rows in the current schema.
+- From 1.0 on, preserve domain schema upgrade ordering in
+  `src/lib/server/schemas.ts`, keep upgrades idempotent, and preserve foreign
+  keys and historical rows across upgrades. Before 1.0, see Pre-1.0 policy in
+  `AGENTS.md`.
 - Persist state/checkpoints at the appropriate remote-write boundary. A log
   message or in-memory controller is not a durable acknowledgement.
 - Keep successful completion counts separate from later live target observations.
@@ -68,5 +72,6 @@ For a recovery change, assert remote call counts, durable state and checkpoint
 values, not just the returned message. Cover the applicable cases: lost remote
 acknowledgement, confirmed remote ID, cancellation during settlement, restart
 while stopping, invalidated credential scope, and a late event from an old run.
-Use an old-schema file fixture and reopen the database when changing upgrade
-behavior. Add no real provider writes to these tests.
+Add no real provider writes to these tests. From 1.0 on, use an old-schema file
+fixture and reopen the database when changing upgrade behavior. Before 1.0,
+see Pre-1.0 policy in `AGENTS.md`.
