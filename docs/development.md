@@ -12,7 +12,10 @@ bun run dev
 
 The development server listens on port 5173 on all interfaces. Use
 `http://localhost:5173` on the development host or the host's LAN address from
-another device. Server code uses `bun:sqlite`, so run all scripts and tests with
+another device. To keep it local, run `bun run dev -- --host 127.0.0.1`. Before
+exposing it to other devices, set `GH_MIGRATE_ALLOW_UNAUTHENTICATED=false` and a unique
+bootstrap password as described in [Configuration](configuration.md#run-bun-run-dev-against-local-source-containers).
+Server code uses `bun:sqlite`, so run all scripts and tests with
 Bun. `bun run dev` explicitly loads the root `.env` into the development server
 when the file exists; it is optional.
 
