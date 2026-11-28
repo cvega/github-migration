@@ -2,7 +2,92 @@
 
 All notable changes to this project are documented in this file.
 Commit conventions follow [Conventional Commits](https://www.conventionalcommits.org).
+## [0.4.0] - 2026-11-28
+
+### ⚠️ Breaking changes
+
+- Requires a fresh data directory; databases from 0.3.x and earlier are not upgraded. Back up any data you need before upgrading. GL_EXPORTER_RUNTIME and GL_EXPORTER_ARCHIVE_VOLUME are removed; use EXPORTER_RUNTIME and EXPORTER_ARCHIVE_VOLUME.
+- Start with a fresh data directory when deploying this release.
+
+
+### ♻️ Refactoring
+
+- **core:** Unify schema baselines and drop pre-1.0 compatibility helpers (#131)
+- **migrate:** Drop legacy stored-data readers (#129)
+- **profile:** Drop legacy stored-data readers (#128)
+- **migrate:** Replace schema upgrades with current DDL (#126)
+- **profile:** Replace schema upgrades with current DDL (#125)
+- **auth:** Create current auth schema directly (#124)
+- **config:** Drop deprecated environment aliases (#127)
+
+### ⚙️ CI/CD
+
+- Fast path for docs-only pull requests (#109)
+- Make workflow and job names descriptive (#105)
+- Derive repository checks from gate manifest (#103)
+- Skip redundant runs and cache dependencies (#98)
+
+### 🐛 Bug Fixes
+
+- **ghes:** Allow attestation for legacy failed imports (#121)
+- **profile:** Show incomplete readiness evidence (#114)
+- **gitlab:** Reconcile pagination evidence during full collection (#117)
+- **profile:** Reject contradictory GitHub organization pagination counts (#118)
+- **ghes:** Stop restarts of a confirmed-inactive import from returning to reconciliation_required (#119)
+- **migrate:** Validate and bound failure log entries before persisting them (#110)
+- **gitlab:** Apply rate-limit reset only to throttled retries (#115)
+- **bitbucket:** Validate first-page commit count evidence (gh-migrate-dashboard-mb1) (#112)
+- **auth:** Bind sign-in completion to current password state (#113)
+- **profile:** Drain GitHub sibling reads before releasing the profile lane (#111)
+- **migrate:** Avoid replaying migration-source creation (#95)
+- **ghes:** Add an exporter wait deadline and free unstarted slots (#94)
+- **core:** Count github retry attempts at the transport boundary (#93)
+- **source:** Drain enrichment workers before settling a failed profile (#92)
+- **auth:** Bound and normalize sign-in usernames (#91)
+- **core:** Close event streams when the viewing session ends (#90)
+- **migrate:** Release claimed migrations when launch fails (#89)
+- **profile:** Bound GitHub requests and propagate cancellation (#87)
+- **bitbucket:** Retry interrupted read bodies within the retry budget (#86)
+- **bitbucket:** Validate commit-page completeness before exact counts (#85)
+- **core:** Fail closed on unparseable credential-scope paths (#84)
+- **migrate:** Stop persisting and logging raw provider error text (#82)
+- **profile:** Preserve unknown GitHub organization resource counts (#80)
+- **gitlab:** Require consistent pagination evidence for counts (#79)
+- **migrate:** Keep the target token off redirected log fetches (#78)
+- **source:** Honor provider cooldowns in gitlab and bitbucket reads (#77)
+- **auth:** Throttle sign-in attempts atomically (#76)
+- **ops:** Honor PORT in dashboard health check (#75)
+- **profile:** Protect active analysis from retention pruning (#74)
+- **migrate:** Keep checkpointed work recoverable without an executor (#73)
+- **ghes:** Hold the ghes slot while an earlier import is ambiguous (#71)
+- **profile:** Serialize schema upgrades across dashboard and analyzer (#70)
+- **profile:** Keep capped readiness scans as partial evidence (#72)
+
+### 📚 Documentation
+
+- **agents:** Define pre-1.0 compatibility policy (#123)
+- **agents:** Document local Qwen, OrcaCompass and Beads workflow (#122)
+- **agents:** Close every issue a PR implements and check for stale entries (#120)
+- **agents:** Route cross-reviews by area and retry mechanical failures (#116)
+- **agents:** Require sibling-path checks and failing tests for review fixes (#108)
+- **agents:** Run the coordinator from the main checkout (#107)
+- Add guidelines for parallel Orca workers in AGENTS.md
+- Add branch rules for Orca workers to AGENTS.md
+
+### 🚀 Features
+
+- **migrate:** Gate noSslVerify behind admin policy and audit its use (#97)
+- **auth:** Audit repository-analysis actions and admin password resets (#96)
+- **ops:** Add an independent analyzer liveness check (#81)
+- Enhance provider contract verification and add Bitbucket/GitLab Compose configurations
+- Implement GitLab exporter and build helper for local releases
+
+### 🧪 Testing
+
+- **core:** Require explicit operator classification for every route (#88)
+- **e2e:** Make Playwright port configurable (#69)
 ## [0.3.0] - 2026-11-24
+
 
 ### ⚙️ CI/CD
 
@@ -59,6 +144,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - **jscpd:** Consolidate ignore patterns in jscpd configuration
 - **dup:** Exclude all test code from jscpd, not just *.test.ts
 ## [0.2.0] - 2026-06-18
+
 
 ### ♻️ Refactoring
 
@@ -123,6 +209,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - **tooling:** Ratchet jscpd threshold 3% -> 1.5%
 ## [0.1.0] - 2026-06-15
 
+
 ### ♻️ Refactoring
 
 - **profile:** Use the shared Pagination component for the repo list
@@ -171,6 +258,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - **scripts:** Rename verify:json to gates and align gate file names
 ## [0.0.3] - 2026-06-14
 
+
 ### 🐛 Bug Fixes
 
 - **docker:** Patch base image OpenSSL to clear the release scan
@@ -180,6 +268,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 
 - **deps-dev:** Bump the js-minor-patch group with 5 updates
 ## [0.0.2] - 2026-06-14
+
 
 ### ♻️ Refactoring
 
@@ -326,6 +415,7 @@ Commit conventions follow [Conventional Commits](https://www.conventionalcommits
 - **biome:** Sync config schema to installed 2.4.16
 - **deps:** Upgrade all dependencies to latest
 ## [0.0.1] - 2026-02-17
+
 
 ### ♻️ Refactoring
 
