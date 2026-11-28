@@ -30,6 +30,7 @@ describe("GitLab profile metric registry", () => {
       "groupWebhooks",
       "ciVariables",
       "approvalRules",
+      "members",
     ]);
     for (const { card } of GITLAB_PROFILE_METRICS) {
       expect(card.label).not.toBe("");
@@ -55,7 +56,13 @@ describe("GitLab profile metric registry", () => {
       ["groupWebhooks", "Group hooks"],
       ["ciVariables", "Project CI/CD variables"],
       ["approvalRules", "Approval rules"],
+      ["members", "Scoped membership"],
     ]);
+    expect(GITLAB_PROFILE_METRIC_CARDS).toEqual(
+      [...GITLAB_PROFILE_METRICS]
+        .sort((left, right) => left.card.position - right.card.position)
+        .map(({ key, card }) => ({ key, ...card })),
+    );
   });
 
   test("keeps the stored enrichment schema in step with the registry keys", () => {

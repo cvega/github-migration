@@ -8,6 +8,7 @@ import commitsCollector from "./commits.collector";
 import groupWebhooksCollector from "./group-webhooks.collector";
 import inheritedProtectedBranchesCollector from "./inherited-protected-branches.collector";
 import issuesCollector from "./issues.collector";
+import membersCollector from "./members.collector";
 import mergeRequestsCollector from "./merge-requests.collector";
 import projectWebhooksCollector from "./project-webhooks.collector";
 import protectedBranchesCollector from "./protected-branches.collector";
@@ -24,6 +25,7 @@ export const GITLAB_METRIC_COLLECTORS = [
   groupWebhooksCollector,
   inheritedProtectedBranchesCollector,
   issuesCollector,
+  membersCollector,
   mergeRequestsCollector,
   projectWebhooksCollector,
   protectedBranchesCollector,

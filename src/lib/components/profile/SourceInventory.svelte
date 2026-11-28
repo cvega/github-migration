@@ -136,7 +136,7 @@
 				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 {bitbucket ? 'lg:grid-cols-5' : 'lg:grid-cols-6'}">
 					{#each profileMetricTiles as tile (tile.label)}
 						<div class="rounded-lg border border-gray-700 bg-gray-900 p-4">
-							<div class="text-lg font-semibold text-gray-50">{formatObservation(tile.value)}</div>
+							<div class="text-lg font-semibold text-gray-50">{tile.key === "members" ? "Per scope" : formatObservation(tile.value)}</div>
 							<div class="mt-1 flex items-center gap-1.5 text-xs text-gray-400"><Octicon name={tile.icon} size={12} class="text-gray-500" />{tile.label}</div>
 						</div>
 					{/each}
@@ -160,6 +160,25 @@
 							Project approval requirements could not be verified. Check GitLab before cutover.
 						{/if}
 					</p>
+				{/if}
+				{#if summary.membershipScopes}
+					<details class="mt-4 text-[13px] text-[var(--workbench-text-muted)]">
+						<summary class="cursor-pointer font-medium text-[var(--workbench-text)]">Membership counts by scope</summary>
+						<p class="mt-3">Direct and effective visible counts are separate, not additive across scopes. Effective counts include inherited and shared access; hidden invited members may be omitted. Mannequins are not target access grants; recreate group-inherited access after migration.</p>
+						{#each summary.membershipScopes as scope (`${scope.kind}:${scope.path}`)}
+							<div class="mt-3 border-t border-[var(--workbench-rule-muted)] pt-3">
+								<p class="break-all font-mono text-[var(--workbench-text)]">{scope.path}</p>
+								<p class="mt-1 capitalize">{scope.kind}</p>
+								<dl class="mt-2 grid grid-cols-2 gap-3">
+									{#each ["direct", "effective"] as const as access (access)}
+										<div><dt class="capitalize">{access} visible</dt><dd class="mt-1 font-medium text-[var(--workbench-text)]">{formatObservation(scope[access].observation)}{#if scope[access].observation.kind === "unavailable"}<span class="ml-1 font-normal text-[var(--workbench-text-muted)]">({scope[access].observation.reason})</span>{/if}</dd></div>
+									{/each}
+								</dl>
+							</div>
+						{:else}
+							<p class="mt-3">No membership scopes were reported for this profile.</p>
+						{/each}
+					</details>
 				{/if}
 				{#if summary.webhookEvents}
 					<div class="mt-3 space-y-1 text-[13px] text-[var(--workbench-text-muted)]">
