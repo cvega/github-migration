@@ -327,8 +327,6 @@ export function getProfileDetail(
     rollup = getProfileRunRollup(id);
     if (!rollup && run.state !== "completed") {
       rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
-    } else if (!rollup && run.sourceProvider !== "github") {
-      rollup = buildProfileDetailRollup([]);
     }
   }
   return {

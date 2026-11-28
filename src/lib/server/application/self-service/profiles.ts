@@ -88,7 +88,10 @@ export function getOwnProfileDetail(
   options: NonNullable<Parameters<typeof getProfileRepoPage>[1]> & { analysisRunId?: string },
 ): ProfileDetail {
   const repos = [...iterateRunRepoProfiles(run.id, run.org)];
-  const rollup = buildProfileDetailRollup(repos);
+  const rollup =
+    run.sourceProvider === "github"
+      ? buildProfileDetailRollup(repos)
+      : { scale: null, composition: null, summary: null, estimate: null };
   const analysis =
     run.sourceProvider === "github"
       ? getRepositoryAnalysisDetail(run.id, options.analysisRunId)
