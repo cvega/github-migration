@@ -439,16 +439,8 @@ const gitLabProjects = [
     uploadsSizeBytes: { kind: "exact", value: 0 },
   },
 ] as const;
-const gitLabInventory = {
-  version: 1,
-  provider: "gitlab",
-  sourceApiUrl: "https://gitlab.example.com/api/v4",
-  namespace: "platform/products/services",
-  projectCount: { kind: "at-least", value: 2 },
-  projects: gitLabProjects,
-};
 const gitLabSummary = {
-  projectCount: gitLabInventory.projectCount,
+  projectCount: { kind: "at-least", value: gitLabProjects.length },
   projectsCaptured: 2,
   visibility: { public: 0, private: 1, internal: 1 },
   archivedProjects: 1,
@@ -463,11 +455,11 @@ const gitLabSummary = {
   },
 };
 db.prepare(
-  `INSERT INTO profile_source_inventories (run_id, payload, summary, fetched_at)
+  `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)
    VALUES (?, ?, ?, ?)`,
 ).run(
   "seed-e2e-gitlab-profile",
-  JSON.stringify(gitLabInventory),
+  JSON.stringify(gitLabSummary.projectCount),
   JSON.stringify(gitLabSummary),
   completedAt,
 );
@@ -547,16 +539,8 @@ const bitbucketProjects = [
     },
   },
 ] as const;
-const bitbucketInventory = {
-  version: 1,
-  provider: "bitbucket-server",
-  sourceApiUrl: "https://bitbucket.example.com/rest/api/1.0",
-  namespace: "PLATFORM",
-  projectCount: { kind: "exact", value: 2 },
-  projects: bitbucketProjects,
-};
 const bitbucketSummary = {
-  projectCount: bitbucketInventory.projectCount,
+  projectCount: { kind: "exact", value: bitbucketProjects.length },
   projectsCaptured: 2,
   visibility: { public: 1, private: 1, internal: 0 },
   archivedProjects: 1,
@@ -571,11 +555,11 @@ const bitbucketSummary = {
   },
 };
 db.prepare(
-  `INSERT INTO profile_source_inventories (run_id, payload, summary, fetched_at)
+  `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)
    VALUES (?, ?, ?, ?)`,
 ).run(
   "seed-e2e-bitbucket-profile",
-  JSON.stringify(bitbucketInventory),
+  JSON.stringify(bitbucketSummary.projectCount),
   JSON.stringify(bitbucketSummary),
   completedAt,
 );

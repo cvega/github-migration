@@ -267,10 +267,9 @@ function seedSourceInventories(db: Database): number {
   `);
   const upsertInventory = db.prepare(`
     INSERT INTO profile_source_inventories
-      (run_id, payload, project_count, summary, fetched_at)
-    VALUES (?, '{}', ?, ?, ?)
+      (run_id, project_count, summary, fetched_at)
+    VALUES (?, ?, ?, ?)
     ON CONFLICT(run_id) DO UPDATE SET
-      payload = excluded.payload,
       project_count = excluded.project_count,
       summary = excluded.summary,
       fetched_at = excluded.fetched_at
