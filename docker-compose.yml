@@ -17,7 +17,7 @@ services:
       - DATA_DIR=/data
       - ARCHIVE_DIR=/archives
       - EXPORTER_ARCHIVE_VOLUME=${EXPORTER_ARCHIVE_VOLUME:-gh-migrate-archives}
-      - BBS_EXPORTER_IMAGE=${BBS_EXPORTER_IMAGE:-gh-migrate/bbs-exporter:1.13.0-validation}
+      - BBS_EXPORTER_IMAGE=${BBS_EXPORTER_IMAGE:-gh-migrate/bitbucket-exporter:1.13.0}
       - PORT=3000
       - ORIGIN=${ORIGIN:-http://localhost:3000}
     healthcheck:
