@@ -162,7 +162,7 @@ export async function validateMutationManifest(root = repositoryRoot): Promise<M
     }
     if (
       !command.startsWith(
-        "cp tests/mutation/tsconfig.json tsconfig.json && bun test --env-file=/dev/null ",
+        "cp tests/mutation/tsconfig.json tsconfig.json && bun test --no-env-file ",
       )
     ) {
       errors.push(
@@ -276,7 +276,15 @@ async function runLane(
 
   console.log(`\n[mutation:${lane.id}] ${mode}`);
   const process = Bun.spawn(
-    ["bun", "--bun", "stryker", "run", ...(force ? ["--force"] : []), lane.configPath],
+    [
+      "bun",
+      "--no-env-file",
+      "--bun",
+      "stryker",
+      "run",
+      ...(force ? ["--force"] : []),
+      lane.configPath,
+    ],
     { cwd: root, stdout: "inherit", stderr: "inherit", env: processEnv() },
   );
   const exitCode = await process.exited;

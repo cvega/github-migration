@@ -60,3 +60,49 @@ test("verify does not load the local .env before dispatching browser tests", () 
   writeLocalEnv();
   expect(run([process.execPath, "run", "verify", "e2e"])).toBe("unset");
 });
+
+test("coverage gate does not load the local .env", () => {
+  writeLocalEnv();
+  mkdirSync(join(cwd, "scripts/checks"), { recursive: true });
+  writeFileSync(join(cwd, "subject.ts"), "export const value = () => 1;\n");
+  copyFileSync(
+    new URL("../../scripts/checks/coverage-check.ts", import.meta.url),
+    join(cwd, "scripts/checks/coverage-check.ts"),
+  );
+  writeFileSync(
+    join(cwd, "probe.test.ts"),
+    `import { expect, test } from "bun:test";
+import { value } from "./subject";
+test("environment", () => { expect(value()).toBe(1); expect(process.env.DOTENV_LAUNCH_PROBE).toBeUndefined(); });
+`,
+  );
+  expect(run([process.execPath, "--no-env-file", "scripts/checks/coverage-check.ts"])).toContain(
+    "Coverage gate passed",
+  );
+});
+
+test("mutation test commands do not load the local .env", async () => {
+  writeLocalEnv();
+  mkdirSync(join(cwd, "tests/mutation"), { recursive: true });
+  writeFileSync(join(cwd, "tests/mutation/tsconfig.json"), "{}");
+  writeFileSync(
+    join(cwd, "probe.test.ts"),
+    `import { expect, test } from "bun:test";
+test("environment", () => expect(process.env.DOTENV_LAUNCH_PROBE).toBeUndefined());
+`,
+  );
+  for (const path of new Bun.Glob("tests/mutation/stryker*.conf.json").scanSync({
+    cwd: join(import.meta.dir, "../.."),
+  })) {
+    const config = await Bun.file(join(import.meta.dir, "../..", path)).json();
+    const command = config.commandRunner.command.replace(/(?:\S+\.test\.ts\s*)+$/, "probe.test.ts");
+    run(["sh", "-c", command]);
+  }
+});
+
+test("mutation entry point does not load the local .env", () => {
+  writeLocalEnv();
+  mkdirSync(join(cwd, "scripts/checks"), { recursive: true });
+  writeFileSync(join(cwd, "scripts/checks/mutation-runner.ts"), probe);
+  expect(run([process.execPath, "run", "mutation"])).toBe("unset");
+});
