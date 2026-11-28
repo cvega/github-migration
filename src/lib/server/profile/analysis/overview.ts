@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import {
+  type GitLabApprovalPolicy,
+  gitLabApprovalPolicySchema,
+} from "$lib/source/gitlab-metrics/approval-rules.metric";
+import {
   GITLAB_WEBHOOK_EVENT_CATEGORIES,
   type GitLabWebhookEventCategory,
   gitLabWebhookEventCategoriesSchema,
@@ -24,6 +28,7 @@ const BITBUCKET_PROFILE_METRIC_KEYS = [
 ] as const;
 
 export interface ProfileInventorySummary {
+  approvalPolicy?: GitLabApprovalPolicy;
   webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
@@ -79,6 +84,7 @@ const numericObservationSchema = z.discriminatedUnion("kind", [
 const profileInventorySummarySchema = z
   .object({
     projectCount: numericObservationSchema,
+    approvalPolicy: gitLabApprovalPolicySchema.optional(),
     webhookEvents: z
       .object({
         projectWebhooks: gitLabWebhookEventCategoriesSchema,
@@ -181,9 +187,22 @@ export function summarizeGitLabEnrichment(
       return [key, sumObservations(observations)];
     }),
   ) as NonNullable<ProfileInventorySummary["metrics"]>;
+  function approvalPresence(field: keyof GitLabApprovalPolicy): boolean | null {
+    let unknown = false;
+    for (const { metrics } of enrichment.projects) {
+      const evidence = metrics.approvalRules[field];
+      if (evidence === true) return true;
+      if (evidence === null) unknown = true;
+    }
+    return unknown ? null : false;
+  }
   return {
     ...summary,
     metrics,
+    approvalPolicy: {
+      requiresApprovals: approvalPresence("requiresApprovals"),
+      hasRequiredProtectedBranchRules: approvalPresence("hasRequiredProtectedBranchRules"),
+    },
     webhookEvents: {
       projectWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
         enrichment.projects.some(({ metrics }) =>

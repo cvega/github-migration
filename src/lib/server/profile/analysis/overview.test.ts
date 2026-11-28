@@ -281,6 +281,53 @@ describe("summarizeGitLabEnrichment", () => {
     );
   });
 
+  test("distinguishes known approval policy from missing evidence across the captured projects", () => {
+    const { approvalRules: none } = gitLabMetricFixtures();
+    const restricted: typeof none = {
+      ...none,
+      observation: { kind: "unavailable", reason: "not-reported", scope: none.observation.scope },
+      requiresApprovals: null,
+      hasRequiredProtectedBranchRules: null,
+    };
+    const required: typeof none = {
+      ...none,
+      observation: {
+        kind: "exact",
+        value: 2,
+        basis: "enumerated",
+        scope: none.observation.scope,
+      },
+      requiresApprovals: true,
+      hasRequiredProtectedBranchRules: true,
+    };
+    const discovered = inventory();
+    const summarize = (left: typeof none, right: typeof none) =>
+      summarizeGitLabEnrichment(summarizeProfileInventory(discovered), {
+        version: 2,
+        provider: "gitlab",
+        sourceApiUrl: discovered.sourceApiUrl,
+        namespace: discovered.namespace,
+        projects: discovered.projects.map(({ sourceId, path }, index) => ({
+          sourceId,
+          path,
+          metrics: gitLabMetricFixtures({ approvalRules: index === 0 ? left : right }),
+        })),
+      });
+
+    expect(summarize(none, none)).toMatchObject({
+      metrics: { approvalRules: { kind: "exact", value: 0 } },
+      approvalPolicy: { requiresApprovals: false, hasRequiredProtectedBranchRules: false },
+    });
+    expect(summarize(none, restricted)).toMatchObject({
+      metrics: { approvalRules: { kind: "at-least", value: 0 } },
+      approvalPolicy: { requiresApprovals: null, hasRequiredProtectedBranchRules: null },
+    });
+    expect(summarize(restricted, required)).toMatchObject({
+      metrics: { approvalRules: { kind: "at-least", value: 2 } },
+      approvalPolicy: { requiresApprovals: true, hasRequiredProtectedBranchRules: true },
+    });
+  });
+
   test("keeps known issue counts as a lower bound when one project is unavailable", () => {
     const exact = {
       provider: "gitlab" as const,

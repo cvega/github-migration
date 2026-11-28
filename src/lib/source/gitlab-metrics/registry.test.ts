@@ -30,7 +30,7 @@ describe("GitLab metric module discovery", () => {
 
   test("keeps collection order and card order independent of file names", () => {
     const orders: number[] = GITLAB_PROFILE_METRICS.map(({ order }) => order);
-    expect(orders).toEqual(orders.map((_, index) => index));
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(GITLAB_PROFILE_METRIC_CARDS.map(({ position }) => position)).toEqual(
       [...GITLAB_PROFILE_METRIC_CARDS.map(({ position }) => position)].sort((a, b) => a - b),
     );

@@ -271,6 +271,7 @@ describe("GitLab protection rule collectors", () => {
       "/groups/platform/protected_branches": json([]),
       "/projects/42": json({ ci_config_path: null, auto_devops_enabled: false }),
       "/projects/42/hooks": json([]),
+      "/projects/42/approval_rules": json([]),
       "/groups/platform/hooks": json([]),
     });
 
