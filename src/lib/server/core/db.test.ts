@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkStoreReady, closeStore, getDb, initStore } from "./db";
+import { checkStoreReady, closeStore, enableWal, getDb, initStore } from "./db";
 
 let directory: string | undefined;
 
@@ -48,7 +48,9 @@ describe("database lifecycle", () => {
     ]);
 
     expect(calls).toEqual(["schema-a", "schema-b", "init-a", "init-b"]);
-    expect(getDb().query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+    expect(getDb().query("PRAGMA foreign_keys").get()).toEqual({
+      foreign_keys: 1,
+    });
   });
 
   test("rolls back every fresh schema and baseline when a later domain fails", () => {
@@ -129,5 +131,69 @@ describe("database lifecycle", () => {
     initStore(join(directory, "store.sqlite"), []);
     closeStore();
     expect(() => getDb()).toThrow("Store not initialized");
+  });
+});
+
+describe("enableWal", () => {
+  function peerHoldingWriteLock() {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-wal-"));
+    const path = join(directory, "store.sqlite");
+    const peer = new Database(path, { create: true });
+    peer.run("CREATE TABLE t (id INTEGER)");
+    const database = new Database(path);
+    database.run("PRAGMA busy_timeout = 5000");
+    peer.run("BEGIN IMMEDIATE");
+    return { peer, database };
+  }
+
+  test("retries until a peer's write lock is released", () => {
+    const { peer, database } = peerHoldingWriteLock();
+    using _peer = peer;
+    using _database = database;
+    let sleeps = 0;
+    enableWal(database, {
+      sleep() {
+        if (++sleeps === 3) peer.run("COMMIT");
+      },
+    });
+    expect(sleeps).toBe(3);
+    expect(database.query("PRAGMA journal_mode").values()).toEqual([["wal"]]);
+  });
+
+  test("surfaces the busy error once the timeout has elapsed", () => {
+    const { peer, database } = peerHoldingWriteLock();
+    using _peer = peer;
+    using _database = database;
+    let clock = 0;
+    const waits: number[] = [];
+    expect(() =>
+      enableWal(database, {
+        timeoutMs: 50,
+        now: () => clock,
+        sleep(ms) {
+          waits.push(ms);
+          clock += ms;
+        },
+      }),
+    ).toThrow("database is locked");
+    expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(50);
+    expect(database.query("PRAGMA journal_mode").values()).toEqual([["delete"]]);
+  });
+
+  test("does not retry errors other than SQLITE_BUSY", () => {
+    directory = mkdtempSync(join(tmpdir(), "gh-migrate-wal-"));
+    using database = new Database(join(directory, "store.sqlite"), {
+      create: true,
+    });
+    database.close();
+    let sleeps = 0;
+    expect(() =>
+      enableWal(database, {
+        sleep() {
+          sleeps++;
+        },
+      }),
+    ).toThrow();
+    expect(sleeps).toBe(0);
   });
 });

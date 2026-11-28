@@ -33,36 +33,83 @@ describe("domain schema registry", () => {
   });
 });
 
-test("dashboard and analysis worker can initialize the same fresh store concurrently", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "baseline-race-"));
-  const path = join(directory, "gh-migrate.db");
-  try {
-    const start = (runStartupHooks: boolean) =>
-      Bun.spawn([
-        process.execPath,
-        "-e",
-        `
+interface ChildResult {
+  code: number;
+  stderr: string;
+}
+
+function startStoreChild(path: string, runStartupHooks: boolean) {
+  const proc = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `
       import { initStore, closeStore } from "$lib/server/core/db";
       import { DOMAIN_STORES } from "$lib/server/schemas";
       initStore(process.argv[1], DOMAIN_STORES, { runStartupHooks: ${runStartupHooks} });
       closeStore();`,
-        path,
-      ]);
-    const processes = [start(true), start(false)];
-    expect(await Promise.all(processes.map((proc) => proc.exited))).toEqual([0, 0]);
-    using database = new Database(path);
-    initializeSchema(database, DOMAIN_STORES);
-    expect(
-      database.query("SELECT domain, version FROM app_schema_versions ORDER BY domain").values(),
-    ).toEqual([
-      ["auth", 5],
-      ["migrate", 11],
-      ["profile", 1],
-    ]);
+      path,
+    ],
+    { stdout: "ignore", stderr: "pipe" },
+  );
+  return Promise.all([proc.exited, new Response(proc.stderr).text()]).then(
+    ([code, stderr]): ChildResult => ({ code, stderr }),
+  );
+}
+
+function expectChildrenSucceeded(results: ChildResult[]) {
+  const failures = results
+    .map((result, index) => ({ ...result, index }))
+    .filter((result) => result.code !== 0)
+    .map((result) => `child ${result.index} exited ${result.code}:\n${result.stderr.trim()}`);
+  expect(failures.join("\n---\n")).toBe("");
+}
+
+function expectInitializedStore(path: string) {
+  using database = new Database(path);
+  initializeSchema(database, DOMAIN_STORES);
+  expect(
+    database.query("SELECT domain, version FROM app_schema_versions ORDER BY domain").values(),
+  ).toEqual([
+    ["auth", 5],
+    ["migrate", 11],
+    ["profile", 1],
+  ]);
+  expect(database.query("PRAGMA journal_mode").values()).toEqual([["wal"]]);
+}
+
+test("dashboard and analysis worker can initialize the same fresh store concurrently", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "baseline-race-"));
+  const path = join(directory, "gh-migrate.db");
+  try {
+    expectChildrenSucceeded(
+      await Promise.all([startStoreChild(path, true), startStoreChild(path, false)]),
+    );
+    expectInitializedStore(path);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("repeated concurrent starts on fresh stores all succeed", async () => {
+  const roots = Array.from({ length: 25 }, () => mkdtempSync(join(tmpdir(), "baseline-stress-")));
+  try {
+    for (let round = 0; round < 4; round++) {
+      const paths = roots.map((root, index) =>
+        join(root, `round-${round}-${index}`, "gh-migrate.db"),
+      );
+      const results = await Promise.all(
+        paths.flatMap((path) =>
+          [true, false, false, true, false, true].map((hooks) => startStoreChild(path, hooks)),
+        ),
+      );
+      expectChildrenSucceeded(results);
+      for (const path of paths) expectInitializedStore(path);
+    }
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test.each([
   "CREATE TABLE profile_source_inventories (payload TEXT)",

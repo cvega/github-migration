@@ -4,6 +4,9 @@ import { dirname } from "node:path";
 
 let db: Database | undefined;
 
+export const BUSY_TIMEOUT_MS = 5000;
+const WAL_RETRY_DELAY_MS = 10;
+
 export interface DomainStore {
   domain: string;
   version: number;
@@ -78,6 +81,42 @@ export function initializeSchema(database: Database, domains: readonly DomainSto
     .immediate();
 }
 
+export interface WalRetryOptions {
+  timeoutMs?: number;
+  sleep?: (ms: number) => void;
+  now?: () => number;
+}
+
+function isBusy(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("SQLITE_BUSY");
+}
+
+/**
+ * Switch to WAL, retrying while another connection holds a lock. SQLite returns
+ * SQLITE_BUSY for this switch without consulting busy_timeout when a peer holds
+ * a write lock, so concurrent first starts must retry within the same bound.
+ */
+export function enableWal(
+  database: Database,
+  {
+    timeoutMs = BUSY_TIMEOUT_MS,
+    sleep = (ms) => Bun.sleepSync(ms),
+    now = () => performance.now(),
+  }: WalRetryOptions = {},
+): void {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    try {
+      database.run("PRAGMA journal_mode = WAL");
+      return;
+    } catch (error) {
+      if (!isBusy(error) || now() >= deadline) throw error;
+      sleep(WAL_RETRY_DELAY_MS);
+    }
+  }
+}
+
 export function initStore(
   dbPath: string,
   domains: readonly DomainStore[],
@@ -86,10 +125,10 @@ export function initStore(
   mkdirSync(dirname(dbPath), { recursive: true });
   const database = new Database(dbPath, { create: true });
   try {
-    database.run("PRAGMA busy_timeout = 5000");
+    database.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     database.run("PRAGMA foreign_keys = ON");
     initializeSchema(database, domains);
-    database.run("PRAGMA journal_mode = WAL");
+    enableWal(database);
     if (runStartupHooks) {
       for (const domain of domains) domain.onInit?.(database);
     }
