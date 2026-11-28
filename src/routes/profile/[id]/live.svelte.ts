@@ -145,6 +145,10 @@ export class LiveProfileController {
     return this.fresh?.planningRepos ?? this.options.getData().planningRepos;
   }
 
+  get targetNameExceptions() {
+    return (this.fresh ?? this.options.getData()).targetNameExceptions;
+  }
+
   get inventorySummary() {
     return (
       this.freshStatus?.inventorySummary ??

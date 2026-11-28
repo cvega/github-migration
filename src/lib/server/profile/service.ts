@@ -1,4 +1,8 @@
-import { MAX_PROFILE_PLAN_REPOS, type ProfilePlanRepo } from "$lib/profile/migration-plan";
+import {
+  defaultProfileTargetNames,
+  MAX_PROFILE_PLAN_REPOS,
+  type ProfilePlanRepo,
+} from "$lib/profile/migration-plan";
 import type { RepositoryAnalysisDetail } from "$lib/profile/repository-analysis";
 import type { ProfileInventorySummary } from "$lib/profile/types";
 import { getSourceClients } from "$lib/server/core/auth";
@@ -15,6 +19,7 @@ import {
   getProfileInventorySummary,
 } from "./database/inventories";
 import {
+  getRunPlanPaths,
   getRunRepoPlanProfiles,
   getRunRepoProfilesPage,
   iterateRunRepoProfiles,
@@ -277,6 +282,7 @@ export interface ProfileDetail extends DetailMetrics {
   run: ProfileRun;
   repos: RepoProfileView[];
   planningRepos: ProfilePlanRepo[];
+  targetNameExceptions?: Record<string, string>;
   repoPage: { page: number; totalPages: number; total: number; limit: number };
   inventorySummary: ProfileInventorySummary | null;
   repositoryAnalysis: RepositoryAnalysisDetail | null;
@@ -335,16 +341,25 @@ export function getProfileDetail(
       rollup = buildProfileDetailRollup(iterateRunRepoProfiles(id));
     }
   }
+  const adapter = getSourceProviderAdapter(run.sourceProvider);
+  const planningRepos =
+    run.state === "completed" && adapter.capabilities.planning
+      ? getRunRepoPlanProfiles(id, MAX_PROFILE_PLAN_REPOS)
+      : [];
+  const paths =
+    planningRepos.length === MAX_PROFILE_PLAN_REPOS
+      ? getRunPlanPaths(id)
+      : planningRepos.map((repo) => repo.nameWithOwner);
+  const defaults = defaultProfileTargetNames(run.sourceProvider, run.org, paths);
   return {
     run,
     ...page,
     ...(rollup ?? { scale: null, composition: null, summary: null, estimate: null }),
     inventorySummary: inventorySummaryFor(run),
-    planningRepos:
-      run.state === "completed" &&
-      getSourceProviderAdapter(run.sourceProvider).capabilities.planning
-        ? getRunRepoPlanProfiles(id, MAX_PROFILE_PLAN_REPOS)
-        : [],
+    planningRepos,
+    targetNameExceptions: Object.fromEntries(
+      [...defaults].filter(([path, name]) => adapter.projectName(path) !== name),
+    ),
     repositoryAnalysis: getRepositoryAnalysisDetail(id, options.analysisRunId),
   };
 }

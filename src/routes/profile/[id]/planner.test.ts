@@ -1,4 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
+import { MAX_PROFILE_PLAN_REPOS } from "$lib/profile/migration-plan";
 
 mock.module("$app/navigation", () => ({ goto: async () => {} }));
 (globalThis as unknown as { $state: <Value>(value: Value) => Value }).$state = (value) => value;
@@ -21,6 +22,7 @@ function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
     getRun: () => run as never,
     getRepos: () => repos as never,
     getPlanningRepos: () => repos as never,
+    getTargetNameExceptions: () => ({}),
     getDefaultTargetOrg: () => "acme-cloud",
     getTargets: () => [
       {
@@ -43,6 +45,63 @@ function plannerFixture(eligible = repos.map((repo) => repo.nameWithOwner)) {
 }
 
 describe("ProfileMigrationPlannerController", () => {
+  test("keeps displayed and submitted names stable across filtered pages beyond the catalog cap", async () => {
+    const first = { nameWithOwner: "acme/a/widget", warnings: 0, blockers: 0 };
+    const last = { ...first, nameWithOwner: "acme/z/widget" };
+    const catalog = [
+      first,
+      ...Array.from({ length: MAX_PROFILE_PLAN_REPOS - 1 }, (_, i) => ({
+        ...first,
+        nameWithOwner: `acme/b/repo-${i}`,
+      })),
+    ];
+    let page = [first];
+    const planner = new ProfileMigrationPlannerController({
+      getRun: () => ({ id: "run", org: "acme", sourceProvider: "gitlab" }) as never,
+      getRepos: () => page as never,
+      getPlanningRepos: () => catalog,
+      getTargetNameExceptions: () => ({
+        [first.nameWithOwner]: "a-widget",
+        [last.nameWithOwner]: "z-widget",
+      }),
+      getDefaultTargetOrg: () => "target",
+      getTargets: () => [
+        {
+          id: "cloud",
+          platform: "ghec",
+          organizations: [],
+          apiUrl: "",
+          webUrl: "",
+          displayName: "Cloud",
+        },
+      ],
+    });
+    planner.setTargetProfileId("cloud");
+    planner.setTargetOrg("target");
+    planner.selectFiltered(true);
+    expect(planner.targetNameFor(first.nameWithOwner)).toBe("a-widget");
+    page = [last];
+    planner.toggleSelection(last.nameWithOwner);
+    expect(planner.targetNameFor(first.nameWithOwner)).toBe("a-widget");
+    expect(planner.targetNameFor(last.nameWithOwner)).toBe("z-widget");
+    planner.setTargetName(last.nameWithOwner, "A-widget");
+    expect(planner.targetNameError).toContain("used more than once");
+    planner.setTargetName(last.nameWithOwner, "custom");
+    page = [first];
+    planner.selectFiltered(true);
+    const post = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ id: "batch" }));
+    try {
+      await planner.launchBatch();
+      expect(JSON.parse(String(post.mock.lastCall?.[1]?.body)).items).toEqual([
+        { sourceRepo: first.nameWithOwner, targetRepo: "a-widget" },
+      ]);
+      page = [last];
+      planner.selectFiltered(true);
+      expect(planner.targetNameFor(last.nameWithOwner)).toBe("custom");
+    } finally {
+      post.mockRestore();
+    }
+  });
   test("operator launches selected subgroup leaves without destination or source overrides", async () => {
     const planner = new ProfileMigrationPlannerController({
       getRun: () =>
@@ -53,6 +112,7 @@ describe("ProfileMigrationPlannerController", () => {
           sourceApiUrl: "https://gitlab.example/api/v4",
         }) as never,
       getRepos: () => [],
+      getTargetNameExceptions: () => undefined,
       getPlanningRepos: () =>
         ["one", "two"].map((name) => ({
           nameWithOwner: `group/sub/${name}`,
@@ -89,6 +149,7 @@ describe("ProfileMigrationPlannerController", () => {
         }) as never,
       getRepos: () => [],
       getPlanningRepos: () => [{ nameWithOwner: "PROF01/service-01", blockers: 0, warnings: 0 }],
+      getTargetNameExceptions: () => ({}),
       getDefaultTargetOrg: () => "",
       getTargets: () =>
         ["ghec", "ghes"].map((platform) => ({

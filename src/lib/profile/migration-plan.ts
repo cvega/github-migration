@@ -101,7 +101,7 @@ export function buildProfileMigrationPlan(input: {
   const items = repos.map((repo) => ({
     sourceRepo: repo.nameWithOwner,
     targetRepo:
-      input.targetNames?.[repo.nameWithOwner]?.trim() || defaults.get(repo.nameWithOwner)!,
+      input.targetNames?.[repo.nameWithOwner]?.trim() ?? defaults.get(repo.nameWithOwner)!,
   }));
   const targetNames = new Set<string>();
   for (const item of items) {

@@ -97,8 +97,9 @@ coverage, repository metrics, warnings, blockers, and planning candidates.
 Completed profiles can produce a bounded batch plan. Review each source and
 target mapping before opening the migration workflow. For editable mappings,
 the planner keeps unique, valid repository names and uses the source path to
-distinguish collisions across the planning catalog. Selecting a different
-batch from that catalog does not rename its targets or discard your edits.
+distinguish collisions across the entire profile, even when it contains more
+than 500 repositories. Changing the selection or filtering the table does not
+rename targets or discard your edits.
 A GitHub batch launched
 from a profile requires successful repository analysis for selected
 repositories with warnings or blockers. Start that analysis from the completed
