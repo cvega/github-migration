@@ -87,6 +87,19 @@ test("reviews and filters a completed source profile", async ({ page }) => {
 });
 
 for (const width of [1280, 390]) {
+	test(`renders a GitLab profile whose metrics were malformed at ${width}px`, async ({ page }, testInfo) => {
+		await page.setViewportSize({ width, height: 844 });
+		const response = await page.goto("/profile/seed-e2e-gitlab-profile");
+		expect(response?.status()).toBe(200);
+		const contents = page.getByRole("heading", { name: "Repository contents" }).locator("..");
+		await expect(contents.getByText("Tags", { exact: true }).locator("..").getByText("Unavailable", { exact: true })).toBeVisible();
+		await expect(contents.getByText("Commits", { exact: true }).locator("..").getByText("42", { exact: true })).toBeVisible();
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		await contents.screenshot({ path: testInfo.outputPath("gitlab-contents.png") });
+	});
+}
+
+for (const width of [1280, 390]) {
 	test(`distinguishes unavailable organization resources from zero at ${width}px`, async ({ page }, testInfo) => {
 		await page.setViewportSize({ width, height: 844 });
 		await page.goto("/profile/seed-e2e-profile");

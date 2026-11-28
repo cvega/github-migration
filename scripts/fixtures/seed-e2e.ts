@@ -484,6 +484,11 @@ const gitLabSummary = {
     wikiSizeBytes: { kind: "exact", value: 0 },
     uploadsSizeBytes: { kind: "exact", value: 0 },
   },
+  metrics: {
+    commits: { kind: "exact", value: 42 },
+    tags: { kind: "unavailable", reason: "malformed" },
+    releases: { kind: "unavailable", reason: "malformed" },
+  },
 };
 db.prepare(
   `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)

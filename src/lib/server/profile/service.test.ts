@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { closeStore, getDb, initStore } from "$lib/server/core/db";
 import { createProfileClient } from "$lib/server/core/github";
-import { getProfileRun } from "./database/runs";
+import { saveProfileInventory } from "./database/inventories";
+import { createProfileRun, getProfileRun } from "./database/runs";
 import { profileStore, recoverInterruptedProfiles } from "./database/schema";
 import { runProfile } from "./runner";
-import { getProfileDetail, startOrgProfile, stopActiveProfileRuns } from "./service";
+import {
+  getProfileDetail,
+  getProfileStatus,
+  startOrgProfile,
+  stopActiveProfileRuns,
+} from "./service";
 
 beforeEach(() => initStore(":memory:", [profileStore]));
 afterEach(closeStore);
@@ -29,6 +35,26 @@ test("creates a queryable run before background profiling settles", async () => 
   expect(getProfileDetail("run")?.run.id).toBe("run");
   settle(run as never);
   await Promise.resolve();
+});
+
+test("shows an unreadable inventory summary as unavailable instead of failing the detail", () => {
+  createProfileRun({
+    id: "gitlab",
+    sourceProvider: "gitlab",
+    sourceApiUrl: "https://gitlab.example.com/api/v4",
+    org: "platform",
+  });
+  saveProfileInventory("gitlab", {
+    version: 1,
+    provider: "gitlab",
+    sourceApiUrl: "https://gitlab.example.com/api/v4",
+    namespace: "platform",
+    projectCount: { kind: "exact", value: 0 },
+    projects: [],
+  });
+  getDb().run("UPDATE profile_source_inventories SET summary = '{}' WHERE run_id = 'gitlab'");
+  expect(getProfileDetail("gitlab")?.inventorySummary).toBeNull();
+  expect(getProfileStatus("gitlab")?.inventorySummary).toBeNull();
 });
 
 test("persists a generic failure when a background runner crashes", async () => {

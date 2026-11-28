@@ -261,7 +261,13 @@ interface RepoProfileView extends StoredRepoProfile {
 type DetailMetrics = { [K in keyof ProfileDetailRollup]: ProfileDetailRollup[K] | null };
 function inventorySummaryFor(run: ProfileRun): ProfileInventorySummary | null {
   if (getSourceProviderAdapter(run.sourceProvider).profileKind !== "source-inventory") return null;
-  const summary = getProfileInventorySummary(run.id);
+  let summary: ProfileInventorySummary | null;
+  try {
+    summary = getProfileInventorySummary(run.id);
+  } catch {
+    // An unreadable stored summary is shown as unavailable rather than failing the page.
+    summary = null;
+  }
   return summary && run.sourceProvider === "bitbucket-server"
     ? { ...summary, lfsTracking: getBitbucketLfsTracking(run.id) }
     : summary;

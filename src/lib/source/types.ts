@@ -2,7 +2,17 @@ export const SOURCE_PROVIDERS = ["github", "gitlab", "bitbucket-server"] as cons
 
 export type SourceProvider = (typeof SOURCE_PROVIDERS)[number];
 
-type ObservationUnavailableReason = "forbidden" | "not-found-or-hidden" | "not-reported";
+/** Every reason a collector or profile writer may record for a missing observation. */
+export const OBSERVATION_UNAVAILABLE_REASONS = [
+  "forbidden",
+  "not-found-or-hidden",
+  "not-reported",
+  "unsupported",
+  "malformed",
+  "transient-failure",
+] as const;
+
+type ObservationUnavailableReason = (typeof OBSERVATION_UNAVAILABLE_REASONS)[number];
 
 export type NumericObservation =
   | { kind: "exact"; value: number }
@@ -87,13 +97,7 @@ export type ProfileNumericObservation =
     }
   | {
       kind: "unavailable";
-      reason:
-        | "forbidden"
-        | "not-found-or-hidden"
-        | "not-reported"
-        | "unsupported"
-        | "malformed"
-        | "transient-failure";
+      reason: ObservationUnavailableReason;
       scope: string;
     };
 

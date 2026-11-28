@@ -166,5 +166,7 @@
 				</div>
 			</section>
 		{/if}
+	{:else if !running}
+		<p class="flex items-center gap-2 text-sm text-gray-400"><Octicon name="info" size={16} class="shrink-0 text-gray-500" />Inventory summary unavailable for this profile.</p>
 	{/if}
 </section>

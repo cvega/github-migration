@@ -1,10 +1,12 @@
 import { z } from "zod";
-import type {
-  BitbucketProfileEnrichment,
-  GitLabProfileEnrichment,
-  NumericObservation,
-  SourceNamespaceInventory,
-  SourceProjectInventory,
+import {
+  type BitbucketProfileEnrichment,
+  type GitLabProfileEnrichment,
+  type NumericObservation,
+  OBSERVATION_UNAVAILABLE_REASONS,
+  type ProfileNumericMetric,
+  type SourceNamespaceInventory,
+  type SourceProjectInventory,
 } from "$lib/source/types";
 
 const GITLAB_PROFILE_METRIC_KEYS = [
@@ -63,7 +65,7 @@ const numericObservationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("unavailable"),
-      reason: z.enum(["forbidden", "not-found-or-hidden", "not-reported"]),
+      reason: z.enum(OBSERVATION_UNAVAILABLE_REASONS),
     })
     .strict(),
 ]);
@@ -102,6 +104,12 @@ const profileInventorySummarySchema = z
 
 export function parseProfileInventorySummary(value: unknown): ProfileInventorySummary {
   return profileInventorySummarySchema.parse(value) as ProfileInventorySummary;
+}
+
+function toSummaryObservation({ observation }: ProfileNumericMetric): NumericObservation {
+  return observation.kind === "unavailable"
+    ? { kind: "unavailable", reason: observation.reason }
+    : { kind: observation.kind, value: observation.value };
 }
 
 function sumObservations(observations: NumericObservation[]): NumericObservation {
@@ -154,16 +162,9 @@ export function summarizeGitLabEnrichment(
 ): ProfileInventorySummary {
   const metrics = Object.fromEntries(
     GITLAB_PROFILE_METRIC_KEYS.map((key) => {
-      const observations = enrichment.projects.map(({ metrics: projectMetrics }) => {
-        const observation = projectMetrics[key].observation;
-        if (observation.kind === "exact") {
-          return { kind: "exact", value: observation.value } as const;
-        }
-        if (observation.kind === "at-least") {
-          return { kind: "at-least", value: observation.value } as const;
-        }
-        return { kind: "unavailable", reason: observation.reason } as NumericObservation;
-      });
+      const observations = enrichment.projects.map(({ metrics: projectMetrics }) =>
+        toSummaryObservation(projectMetrics[key]),
+      );
       return [key, sumObservations(observations)];
     }),
   ) as NonNullable<ProfileInventorySummary["metrics"]>;
@@ -180,16 +181,9 @@ export function summarizeBitbucketEnrichment(
 ): ProfileInventorySummary {
   const metrics = Object.fromEntries(
     BITBUCKET_PROFILE_METRIC_KEYS.map((key) => {
-      const observations = enrichment.projects.map(({ metrics: projectMetrics }) => {
-        const observation = projectMetrics[key].observation;
-        if (observation.kind === "exact") {
-          return { kind: "exact", value: observation.value } as const;
-        }
-        if (observation.kind === "at-least") {
-          return { kind: "at-least", value: observation.value } as const;
-        }
-        return { kind: "unavailable", reason: observation.reason } as NumericObservation;
-      });
+      const observations = enrichment.projects.map(({ metrics: projectMetrics }) =>
+        toSummaryObservation(projectMetrics[key]),
+      );
       return [key, sumObservations(observations)];
     }),
   ) as NonNullable<ProfileInventorySummary["metrics"]>;
