@@ -21,6 +21,7 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     branches: exact("repository-branches", 2, "enumerated"),
     tags: exact("repository-tags", 1, "enumerated"),
     releases: exact("project-releases", 1, "enumerated"),
+    ciConfiguration: exact("project-ci-configuration", 1, "reported"),
   };
 }
 
@@ -187,6 +188,7 @@ describe("summarizeGitLabEnrichment", () => {
       branches: { kind: "exact", value: 4 },
       tags: { kind: "exact", value: 2 },
       releases: { kind: "exact", value: 2 },
+      ciConfiguration: { kind: "exact", value: 2 },
     });
   });
 

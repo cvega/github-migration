@@ -606,6 +606,25 @@ export class GitLabClient {
     query: Record<string, string | number | boolean | undefined> = {},
     options: GitLabRequestOptions = {},
   ): Promise<GitLabResponse<T>> {
+    return this.#send<T>("GET", path, query, options);
+  }
+
+  /** Metadata-only request: the body is never read, and errors match `get`. */
+  async head(
+    path: string,
+    query: Record<string, string | number | boolean | undefined> = {},
+    options: GitLabRequestOptions = {},
+  ): Promise<{ headers: Headers }> {
+    const { headers } = await this.#send<undefined>("HEAD", path, query, options);
+    return { headers };
+  }
+
+  async #send<T>(
+    method: "GET" | "HEAD",
+    path: string,
+    query: Record<string, string | number | boolean | undefined>,
+    options: GitLabRequestOptions,
+  ): Promise<GitLabResponse<T>> {
     validatePath(path);
     const url = new URL(`${this.apiUrl}${path}`);
     for (const [key, value] of Object.entries(query)) {
@@ -630,7 +649,7 @@ export class GitLabClient {
           : timeoutSignal;
         this.#apiCalls += 1;
         response = await this.#fetch(url, {
-          method: "GET",
+          method,
           headers: { Accept: "application/json", "PRIVATE-TOKEN": this.#token },
           redirect: "manual",
           signal,
@@ -682,6 +701,10 @@ export class GitLabClient {
         );
       }
 
+      if (method === "HEAD") {
+        await response.body?.cancel().catch(() => {});
+        return { data: undefined as T, headers: response.headers };
+      }
       try {
         return {
           data: await readBoundedJson<T>(response, this.#maxResponseBytes),

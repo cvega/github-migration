@@ -33,7 +33,8 @@ registry storage. The project statistics commit count is retained in inventory
 alongside the default-branch commit metric collected during enrichment.
 
 For each selected project, profiling collects issues, merge requests, commits,
-branches, tags, and releases under bounded concurrency and request budgets.
+branches, tags, releases, and CI configuration under bounded concurrency and
+request budgets.
 
 Profile metrics are declared once in a client-safe registry
 (`src/lib/source/gitlab-metrics.ts`): each key drives the stored enrichment shape,
@@ -48,6 +49,20 @@ completes: counts already partly enumerated stay lower bounds, a commit count
 whose default-branch head id (non-blank) was read stays at least one, and everything else is
 unavailable with reason `request-budget`. Expired authentication (HTTP 401) is
 not a budget outcome and still fails the profile.
+
+CI configuration detection uses only same-project metadata: `GET /projects/:id`
+for `builds_access_level`, `ci_config_path` and `auto_devops_enabled`, then a
+`HEAD` request for the local config file (default `.gitlab-ci.yml`) at `HEAD`.
+Cross-project (`path@group/project`) and external URL references are classified
+without being requested, and raw paths and file contents are not retained. The
+per-project value is 1 when GitLab CI needs conversion to Actions (local file
+found, external reference, or enabled Auto DevOps without a local file) and 0
+when CI/CD is disabled or no file exists and Auto DevOps is disabled; the scope
+records which case applied and that the importer generates no Actions workflow.
+HTTP 401 or 403 records `forbidden`, 404 records `not-found-or-hidden`, and an
+omitted setting (for example Auto DevOps below Maintainer) records
+`not-reported`; the profile continues. Enabled Auto DevOps keeps a project
+counted when the file probe is forbidden or refused for budget.
 
 Branch, tag, and release counts enumerate all pages; a missing `X-Total` does
 not make them unavailable. Malformed or contradictory pagination evidence
