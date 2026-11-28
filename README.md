@@ -41,7 +41,7 @@ For source development:
 ```bash
 bun install
 bun run dev
-bun test
+bun run test
 bun run verify
 ```
 
