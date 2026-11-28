@@ -141,6 +141,16 @@
 						</div>
 					{/each}
 				</div>
+				{#if summary.webhookEvents}
+					<div class="mt-3 space-y-1 text-[13px] text-[var(--workbench-text-muted)]">
+						{#each ["projectWebhooks", "groupWebhooks"] as const as key (key)}
+							{#if summary.webhookEvents[key].length > 0}
+								<p>{key === "projectWebhooks" ? "Project" : "Group"} hook events observed: {summary.webhookEvents[key].join(", ")}.</p>
+							{/if}
+						{/each}
+						<p>Group hooks count inherited project-hook dependencies, not unique hooks. Ancestors outside the selected namespace are not inspected. Webhooks must be recreated after migration.</p>
+					</div>
+				{/if}
 			</section>
 		{/if}
 

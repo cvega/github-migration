@@ -34,6 +34,8 @@ export const GITLAB_PROFILE_METRICS = [
     key: "protectedTags",
     card: { label: "Tag protection rules", icon: "shield-lock", position: 10 },
   },
+  { key: "projectWebhooks", card: { label: "Project webhooks", icon: "webhook", position: 11 } },
+  { key: "groupWebhooks", card: { label: "Group hooks", icon: "webhook", position: 12 } },
 ] as const satisfies ReadonlyArray<{
   key: string;
   card: { label: string; icon: UsedIconName; position: number };

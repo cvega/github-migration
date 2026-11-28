@@ -505,7 +505,10 @@ const gitLabSummary = {
     protectedBranches: { kind: "exact", value: 3 },
     inheritedProtectedBranches: { kind: "unavailable", reason: "not-reported" },
     protectedTags: { kind: "at-least", value: 2 },
+    projectWebhooks: { kind: "exact", value: 0 },
+    groupWebhooks: { kind: "at-least", value: 2 },
   },
+  webhookEvents: { projectWebhooks: [], groupWebhooks: ["deployment", "pipeline"] },
 };
 db.prepare(
   `INSERT INTO profile_source_inventories (run_id, project_count, summary, fetched_at)

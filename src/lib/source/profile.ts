@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GITLAB_PROFILE_METRIC_KEYS, type GitLabMetricKey } from "$lib/source/gitlab-metrics";
+import { gitLabWebhookEventCategoriesSchema } from "$lib/source/gitlab-webhooks";
 import { profileNumericMetricSchema } from "$lib/source/observations";
 import type { BitbucketProfileEnrichment, GitLabProfileEnrichment } from "$lib/source/types";
 
@@ -11,6 +12,10 @@ const BITBUCKET_PROFILE_METRIC_KEYS = [
   "forks",
 ] as const;
 
+const gitLabWebhookMetricSchema = profileNumericMetricSchema.extend({
+  eventCategories: gitLabWebhookEventCategoriesSchema,
+});
+
 const gitLabProjectProfileSchema = z
   .object({
     sourceId: z.string().min(1).max(255),
@@ -18,7 +23,12 @@ const gitLabProjectProfileSchema = z
     metrics: z
       .object(
         Object.fromEntries(
-          GITLAB_PROFILE_METRIC_KEYS.map((key) => [key, profileNumericMetricSchema]),
+          GITLAB_PROFILE_METRIC_KEYS.map((key) => [
+            key,
+            key === "projectWebhooks" || key === "groupWebhooks"
+              ? gitLabWebhookMetricSchema
+              : profileNumericMetricSchema,
+          ]),
         ) as Record<GitLabMetricKey, typeof profileNumericMetricSchema>,
       )
       .strict(),

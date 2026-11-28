@@ -270,6 +270,8 @@ describe("GitLab protection rule collectors", () => {
       "/projects/42/protected_tags": status(403),
       "/groups/platform/protected_branches": json([]),
       "/projects/42": json({ ci_config_path: null, auto_devops_enabled: false }),
+      "/projects/42/hooks": json([]),
+      "/groups/platform/hooks": json([]),
     });
 
     const enrichment = await collectGitLabProfileEnrichment(client, inventory, { nowMs });

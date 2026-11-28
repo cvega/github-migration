@@ -25,6 +25,8 @@ function profileMetrics(issues: ProfileNumericMetric): GitLabProjectMetrics {
     protectedBranches: exact("project-protected-branches", 2, "enumerated"),
     inheritedProtectedBranches: exact("protected-branch-inheritance", 1, "enumerated"),
     protectedTags: exact("project-protected-tags", 1, "enumerated"),
+    projectWebhooks: { ...exact("project-hooks", 0, "enumerated"), eventCategories: [] },
+    groupWebhooks: { ...exact("group-hooks", 1, "enumerated"), eventCategories: ["pipeline"] },
   };
 }
 
@@ -195,7 +197,12 @@ describe("summarizeGitLabEnrichment", () => {
       protectedBranches: { kind: "exact", value: 4 },
       inheritedProtectedBranches: { kind: "exact", value: 2 },
       protectedTags: { kind: "exact", value: 2 },
+      projectWebhooks: { kind: "exact", value: 0 },
+      groupWebhooks: { kind: "exact", value: 2 },
     });
+    expect(
+      summarizeGitLabEnrichment(summarizeProfileInventory(inventory()), enrichment).webhookEvents,
+    ).toEqual({ projectWebhooks: [], groupWebhooks: ["pipeline"] });
   });
 
   test("keeps known issue counts as a lower bound when one project is unavailable", () => {

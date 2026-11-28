@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { GITLAB_PROFILE_METRIC_KEYS } from "$lib/source/gitlab-metrics";
 import {
+  GITLAB_WEBHOOK_EVENT_CATEGORIES,
+  type GitLabWebhookEventCategory,
+  gitLabWebhookEventCategoriesSchema,
+} from "$lib/source/gitlab-webhooks";
+import {
   type BitbucketProfileEnrichment,
   type GitLabProfileEnrichment,
   type NumericObservation,
@@ -19,6 +24,7 @@ const BITBUCKET_PROFILE_METRIC_KEYS = [
 ] as const;
 
 export interface ProfileInventorySummary {
+  webhookEvents?: Record<"projectWebhooks" | "groupWebhooks", GitLabWebhookEventCategory[]>;
   projectCount: NumericObservation;
   projectsCaptured: number;
   visibility: Record<SourceProjectInventory["visibility"], number>;
@@ -73,6 +79,13 @@ const numericObservationSchema = z.discriminatedUnion("kind", [
 const profileInventorySummarySchema = z
   .object({
     projectCount: numericObservationSchema,
+    webhookEvents: z
+      .object({
+        projectWebhooks: gitLabWebhookEventCategoriesSchema,
+        groupWebhooks: gitLabWebhookEventCategoriesSchema,
+      })
+      .strict()
+      .optional(),
     projectsCaptured: z.number().int().nonnegative(),
     visibility: z
       .object({
@@ -171,6 +184,18 @@ export function summarizeGitLabEnrichment(
   return {
     ...summary,
     metrics,
+    webhookEvents: {
+      projectWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
+        enrichment.projects.some(({ metrics }) =>
+          metrics.projectWebhooks.eventCategories.includes(category),
+        ),
+      ),
+      groupWebhooks: GITLAB_WEBHOOK_EVENT_CATEGORIES.filter((category) =>
+        enrichment.projects.some(({ metrics }) =>
+          metrics.groupWebhooks.eventCategories.includes(category),
+        ),
+      ),
+    },
   };
 }
 

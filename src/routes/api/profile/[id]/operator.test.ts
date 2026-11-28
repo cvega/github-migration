@@ -94,6 +94,8 @@ function snapshot(id: string, paths: string[], org = grant.namespace) {
         protectedBranches: metric,
         inheritedProtectedBranches: metric,
         protectedTags: metric,
+        projectWebhooks: { ...metric, eventCategories: [] },
+        groupWebhooks: { ...metric, eventCategories: [] },
       },
     })),
   };

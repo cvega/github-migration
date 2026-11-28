@@ -25,6 +25,7 @@ import {
   collectGitLabProtectedBranchMetric,
   collectGitLabProtectedTagMetric,
 } from "./protections";
+import { collectGitLabGroupWebhookMetric, collectGitLabProjectWebhookMetric } from "./webhooks";
 
 export const GITLAB_ISSUES_SCOPE =
   "project issues visible to the caller; all states and authors; excludes merge requests";
@@ -52,7 +53,7 @@ interface GitLabMetricOptions {
 
 type GitLabMetricProject = Pick<
   SourceProjectInventory,
-  "sourceId" | "defaultBranch" | "providerDetails"
+  "sourceId" | "path" | "defaultBranch" | "providerDetails"
 >;
 
 type GitLabMetricCollector = (
@@ -336,6 +337,8 @@ const GITLAB_METRIC_COLLECTORS = {
   protectedBranches: collectGitLabProtectedBranchMetric,
   inheritedProtectedBranches: collectGitLabInheritedProtectedBranchMetric,
   protectedTags: collectGitLabProtectedTagMetric,
+  projectWebhooks: collectGitLabProjectWebhookMetric,
+  groupWebhooks: collectGitLabGroupWebhookMetric,
 } satisfies Record<GitLabMetricKey, GitLabMetricCollector>;
 
 export async function collectGitLabProfileEnrichment(
