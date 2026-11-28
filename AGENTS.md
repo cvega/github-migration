@@ -155,6 +155,9 @@ migration, identity invitation, deployment, or production data reset.
   broad tool approval, so use an isolated child worktree and a narrow task
   specification; local inference does not by itself restrict filesystem or
   network actions. Do not give workers credentials or production data.
+- Qwen runs well on the local GPU but is slower than Codex/Claude in agent
+  loops. Use it when local-only execution matters (offline, private code),
+  not for parallel waves; one Qwen worker at a time.
 
 ## Parallel Orca workers
 - Each worker runs in its own worktree and starts with `bun install --frozen-lockfile`
